@@ -1,0 +1,179 @@
+<app-page-header
+  [title]="latestVersion?.object_name || objectId"
+  [subtitle]="latestVersion ? latestVersion.object_type + ' — ' + versions.length + ' version(s)' : 'Loading...'"
+>
+  <a mat-stroked-button routerLink="/backup">
+    <mat-icon>arrow_back</mat-icon> Back
+  </a>
+</app-page-header>
+
+@if (loading) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+@if (!loading && latestVersion) {
+  <!-- ── Object Timeline ──────────────────────────────────────────────── -->
+  <section class="object-timeline-section">
+    <h2 class="section-title">Object Timeline</h2>
+    <div class="timeline-scroll">
+      <div class="timeline">
+        @for (v of versions; track v.id) {
+          <div
+            class="timeline-entry"
+            [matTooltip]="versionTooltip(v)"
+            matTooltipClass="timeline-tooltip"
+            [class.selected]="selectedVersionId === v.id"
+            (click)="selectVersion(v)"
+          >
+            <div class="timeline-dot" [ngClass]="dotClass(v.event_type)"></div>
+            <span class="timeline-version-label">v{{ v.version }}</span>
+          </div>
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Object Information Card ──────────────────────────────────────── -->
+  <mat-card class="info-card">
+    <mat-card-header>
+      <mat-card-title>Object Information</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Name</span>
+          <span class="info-value">{{ latestVersion.object_name || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Type</span>
+          <code class="info-value">{{ latestVersion.object_type }}</code>
+        </div>
+        <div class="info-item">
+          <span class="info-label">UUID</span>
+          <code class="info-value uuid">{{ objectId }}</code>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Status</span>
+          <app-status-badge [status]="latestVersion.is_deleted ? 'deleted' : 'active'"></app-status-badge>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Scope</span>
+          <span class="info-value">{{ latestVersion.site_id ? 'Site' : 'Organization' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Total Versions</span>
+          <span class="info-value">{{ versions.length }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">First Created</span>
+          <span class="info-value">
+            {{ oldestVersion?.backed_up_at | relativeTime }}
+            @if (oldestVersion && oldestVersion.backed_up_by) {
+              <span class="info-meta">by {{ oldestVersion.backed_up_by }}</span>
+            }
+          </span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Last Modified</span>
+          <span class="info-value">
+            {{ latestVersion.backed_up_at | relativeTime }}
+            @if (latestVersion.backed_up_by) {
+              <span class="info-meta">by {{ latestVersion.backed_up_by }}</span>
+            }
+          </span>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- ── Version History Table ────────────────────────────────────────── -->
+  <section class="version-history-section">
+    <h2 class="section-title">Version History</h2>
+    <div class="table-container">
+      <table mat-table [dataSource]="versions">
+        <!-- Version Number -->
+        <ng-container matColumnDef="version">
+          <th mat-header-cell *matHeaderCellDef>Version</th>
+          <td mat-cell *matCellDef="let v">
+            <span class="version-badge">v{{ v.version }}</span>
+          </td>
+        </ng-container>
+
+        <!-- Date & Time -->
+        <ng-container matColumnDef="date">
+          <th mat-header-cell *matHeaderCellDef>Date & Time</th>
+          <td mat-cell *matCellDef="let v">{{ v.backed_up_at | relativeTime }}</td>
+        </ng-container>
+
+        <!-- Admin -->
+        <ng-container matColumnDef="admin">
+          <th mat-header-cell *matHeaderCellDef>Admin</th>
+          <td mat-cell *matCellDef="let v">{{ v.backed_up_by || '—' }}</td>
+        </ng-container>
+
+        <!-- Change Type -->
+        <ng-container matColumnDef="event_type">
+          <th mat-header-cell *matHeaderCellDef>Change Type</th>
+          <td mat-cell *matCellDef="let v">
+            <span class="event-badge" [ngClass]="'event-' + v.event_type">
+              {{ eventLabel(v.event_type) }}
+            </span>
+          </td>
+        </ng-container>
+
+        <!-- Changed Fields -->
+        <ng-container matColumnDef="changed_fields">
+          <th mat-header-cell *matHeaderCellDef>Changed Fields</th>
+          <td mat-cell *matCellDef="let v">
+            <div class="field-chips">
+              @for (f of v.changed_fields | slice:0:4; track f) {
+                <span class="field-chip">{{ f }}</span>
+              }
+              @if (v.changed_fields.length > 4) {
+                <span class="field-chip field-more">+{{ v.changed_fields.length - 4 }}</span>
+              }
+              @if (v.changed_fields.length === 0) {
+                <span class="no-changes">—</span>
+              }
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Actions -->
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let v">
+            <button mat-icon-button [matMenuTriggerFor]="versionMenu" (click)="$event.stopPropagation()">
+              <mat-icon>more_vert</mat-icon>
+            </button>
+            <mat-menu #versionMenu="matMenu">
+              <button mat-menu-item (click)="viewJson(v)">
+                <mat-icon>code</mat-icon>
+                <span>View JSON</span>
+              </button>
+              <button mat-menu-item (click)="restoreVersion(v)">
+                <mat-icon>restore</mat-icon>
+                <span>Restore This Version</span>
+              </button>
+            </mat-menu>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="versionColumns"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: versionColumns"
+          [class.selected-row]="selectedVersionId === row.id"
+        ></tr>
+      </table>
+    </div>
+  </section>
+}
+
+@if (!loading && versions.length === 0) {
+  <app-empty-state
+    icon="history"
+    title="No versions found"
+    message="This object has no backup versions."
+  ></app-empty-state>
+}

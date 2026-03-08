@@ -52,7 +52,9 @@ async def perform_backup(
     backup_id: str,
     backup_type: str = "scheduled",
     org_id: Optional[str] = None,
-    site_id: Optional[str] = None
+    site_id: Optional[str] = None,
+    object_type: Optional[str] = None,
+    object_ids: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """
     Perform a configuration backup operation.
@@ -75,7 +77,7 @@ async def perform_backup(
             raise ValueError(f"Backup job {backup_id} not found")
 
         # Update status
-        backup_job.status = BackupStatus.RUNNING
+        backup_job.status = BackupStatus.IN_PROGRESS
         backup_job.started_at = start_time
         await backup_job.save()
 
@@ -87,25 +89,51 @@ async def perform_backup(
             site_id=site_id
         )
 
-        # Initialize services
+        # Initialize services - get credentials from system config
+        from app.models.system import SystemConfig
+        from app.core.security import decrypt_sensitive_data
+        config = await SystemConfig.get_config()
+        api_token = settings.mist_api_token
+        if config and config.mist_api_token:
+            try:
+                api_token = decrypt_sensitive_data(config.mist_api_token)
+            except Exception:
+                pass  # Fall back to settings
+        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+
         mist_service = MistService(
-            api_token=settings.mist_api_token,
-            org_id=org_id or settings.mist_org_id
+            api_token=api_token,
+            org_id=org_id or settings.mist_org_id,
+            cloud_region=cloud_region,
         )
         backup_service = BackupService(mist_service=mist_service)
 
-        # Perform backup
-        result = await backup_service.perform_full_backup()
+        # Perform backup based on type
+        if backup_type == "manual" and object_type:
+            result = await backup_service.perform_manual_backup(
+                object_type=object_type,
+                object_ids=object_ids,
+                site_id=site_id,
+            )
+        else:
+            result = await backup_service.perform_full_backup()
 
         # Update backup job with results
         backup_job.status = BackupStatus.COMPLETED
         backup_job.completed_at = datetime.now(timezone.utc)
-        backup_job.object_count = result.get("total_objects", 0)
+        backup_job.object_count = result.get("total", result.get("total_objects", 0))
         backup_job.size_bytes = result.get("total_size_bytes", 0)
         
         # Calculate duration
         if backup_job.started_at and backup_job.completed_at:
-            delta = backup_job.completed_at - backup_job.started_at
+            started = backup_job.started_at
+            completed = backup_job.completed_at
+            # MongoDB may strip timezone info
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            if completed.tzinfo is None:
+                completed = completed.replace(tzinfo=timezone.utc)
+            delta = completed - started
             duration_ms = int(delta.total_seconds() * 1000)
         else:
             duration_ms = 0
@@ -309,3 +337,129 @@ def schedule_periodic_backups():
         "periodic_backups_scheduled",
         full_backup_schedule=settings.backup_full_schedule_cron
     )
+
+
+def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | None]:
+    """Extract (object_type, object_id, site_id) from a flat Mist audit event.
+
+    Mist audit events contain ``<type>_id`` fields that identify the changed
+    object.  For example ``wlan_id`` maps to object type ``wlans`` in the
+    backup object registry.
+
+    Returns:
+        Tuple of (registry_key, object_id, site_id).  Any element may be None
+        if the event does not contain enough information.
+    """
+    from app.modules.backup.object_registry import ORG_OBJECTS, SITE_OBJECTS
+
+    site_id = event.get("site_id")
+
+    # Fields that are metadata, not object references
+    _SKIP_FIELDS = {"id", "org_id", "site_id", "admin_id"}
+
+    # Look for *_id fields and try to match them to known registry keys
+    for field_name, value in event.items():
+        if not field_name.endswith("_id") or field_name in _SKIP_FIELDS or not value:
+            continue
+
+        # wlan_id -> wlan, then try plural forms
+        singular = field_name[: -len("_id")]
+        candidates = [singular, singular + "s"]
+
+        registry = SITE_OBJECTS if site_id else ORG_OBJECTS
+        # Also check the other scope as fallback
+        fallback = ORG_OBJECTS if site_id else SITE_OBJECTS
+
+        for candidate in candidates:
+            if candidate in registry:
+                return candidate, value, site_id
+            if candidate in fallback:
+                # Flip scope if found in other registry
+                return candidate, value, site_id
+
+    # If we have an explicit "object" field (envelope format), use that
+    if event.get("object"):
+        return event["object"], event.get("id"), site_id
+
+    return None, None, site_id
+
+
+async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> None:
+    """
+    Process Mist audit webhook events and trigger incremental backups
+    for the affected objects.
+
+    Handles both flat audit events (with ``wlan_id``, ``network_id``, etc.)
+    and envelope-style events (with ``object`` field).
+
+    Args:
+        org_id: Mist organization ID
+        audit_events: List of audit event dicts from the Mist webhook payload
+    """
+    try:
+        from app.models.system import SystemConfig
+        from app.core.security import decrypt_sensitive_data
+        from app.modules.backup.object_registry import ORG_OBJECTS, SITE_OBJECTS
+
+        config = await SystemConfig.get_config()
+        api_token = settings.mist_api_token
+        if config and config.mist_api_token:
+            try:
+                api_token = decrypt_sensitive_data(config.mist_api_token)
+            except Exception:
+                pass
+        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+
+        mist_service = MistService(
+            api_token=api_token,
+            org_id=org_id or settings.mist_org_id,
+            cloud_region=cloud_region,
+        )
+        backup_service = BackupService(mist_service=mist_service)
+
+        backed_up = 0
+        for event in audit_events:
+            obj_type, obj_id, site_id = _extract_object_info(event)
+
+            if not obj_type:
+                logger.debug(
+                    "incremental_backup_skip_unknown_type",
+                    message=event.get("message", ""),
+                    keys=list(event.keys()),
+                )
+                continue
+
+            # Determine scope-prefixed object type
+            scope = "site" if site_id and obj_type in SITE_OBJECTS else "org"
+            prefixed_type = f"{scope}:{obj_type}"
+
+            try:
+                await backup_service.perform_manual_backup(
+                    object_type=prefixed_type,
+                    object_ids=[obj_id] if obj_id else None,
+                    site_id=site_id,
+                )
+                backed_up += 1
+                logger.info(
+                    "incremental_backup_object_done",
+                    object_type=prefixed_type,
+                    object_id=obj_id,
+                    message=event.get("message", ""),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "incremental_backup_object_failed",
+                    object_type=prefixed_type,
+                    object_id=obj_id,
+                    error=str(exc),
+                )
+
+        logger.info(
+            "incremental_backup_completed",
+            org_id=org_id,
+            events=len(audit_events),
+            backed_up=backed_up,
+        )
+
+    except Exception as exc:
+        logger.error("incremental_backup_failed", org_id=org_id, error=str(exc))

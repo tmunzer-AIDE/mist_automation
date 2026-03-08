@@ -1,0 +1,81 @@
+<app-page-header title="Users" subtitle="Manage user accounts">
+  <button mat-flat-button (click)="openCreateDialog()">
+    <mat-icon>person_add</mat-icon> Add User
+  </button>
+</app-page-header>
+
+@if (loading) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+@if (!loading && users.length === 0) {
+  <app-empty-state icon="people" title="No users" message="Create your first user to get started.">
+    <button mat-flat-button (click)="openCreateDialog()">Add User</button>
+  </app-empty-state>
+} @else {
+  <div class="table-container">
+    <table mat-table [dataSource]="users">
+      <ng-container matColumnDef="email">
+        <th mat-header-cell *matHeaderCellDef>Email</th>
+        <td mat-cell *matCellDef="let user">{{ user.email }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="roles">
+        <th mat-header-cell *matHeaderCellDef>Roles</th>
+        <td mat-cell *matCellDef="let user">
+          @for (role of user.roles; track role) {
+            <mat-chip>{{ role }}</mat-chip>
+          }
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="is_active">
+        <th mat-header-cell *matHeaderCellDef>Active</th>
+        <td mat-cell *matCellDef="let user">
+          <mat-slide-toggle
+            [checked]="user.is_active"
+            [disabled]="isSelf(user)"
+            [matTooltip]="isSelf(user) ? 'Cannot disable your own account' : ''"
+            (change)="toggleActive(user)">
+          </mat-slide-toggle>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="created_at">
+        <th mat-header-cell *matHeaderCellDef>Created</th>
+        <td mat-cell *matCellDef="let user">{{ user.created_at | relativeTime }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="last_login">
+        <th mat-header-cell *matHeaderCellDef>Last Login</th>
+        <td mat-cell *matCellDef="let user">
+          {{ user.last_login ? (user.last_login | relativeTime) : 'Never' }}
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let user">
+          <button mat-icon-button (click)="openEditDialog(user)" matTooltip="Edit">
+            <mat-icon>edit</mat-icon>
+          </button>
+          <button mat-icon-button color="warn" (click)="deleteUser(user)" [disabled]="isSelf(user)" [matTooltip]="isSelf(user) ? 'Cannot delete your own account' : 'Delete'">
+            <mat-icon>delete</mat-icon>
+          </button>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+    </table>
+  </div>
+
+  <mat-paginator
+    [length]="total"
+    [pageSize]="pageSize"
+    [pageIndex]="pageIndex"
+    [pageSizeOptions]="[10, 25, 50]"
+    (page)="onPage($event)"
+    showFirstLastButtons>
+  </mat-paginator>
+}

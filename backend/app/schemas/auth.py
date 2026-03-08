@@ -37,3 +37,37 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OnboardRequest(BaseModel):
+    """Onboarding request schema for first admin user."""
+
+    email: EmailStr = Field(..., description="Admin email address")
+    password: str = Field(..., description="Admin password", min_length=8)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Change password request schema."""
+
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., description="New password", min_length=8)
+
+
+class SessionResponse(BaseModel):
+    """Session response schema."""
+
+    id: str
+    user_id: str
+    device_info: dict
+    trusted_device: bool
+    created_at: datetime
+    last_activity: datetime
+    expires_at: datetime
+    is_current: bool = False
+
+
+class SessionListResponse(BaseModel):
+    """Session list response schema."""
+
+    sessions: list[SessionResponse]
+    total: int

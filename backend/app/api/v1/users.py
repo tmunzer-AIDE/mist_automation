@@ -156,6 +156,11 @@ async def update_user(
         user.timezone = user_data.timezone
     
     if user_data.is_active is not None:
+        if str(user.id) == str(current_user.id) and not user_data.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot disable your own account"
+            )
         user.is_active = user_data.is_active
     
     user.update_timestamp()

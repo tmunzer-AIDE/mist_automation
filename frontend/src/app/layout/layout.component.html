@@ -1,0 +1,17 @@
+<mat-sidenav-container class="layout-container">
+  <mat-sidenav
+    #sidenav
+    [mode]="isMobile ? 'over' : 'side'"
+    [opened]="sidebarOpen"
+    (closedStart)="sidebarOpen = false"
+    class="sidenav">
+    <app-sidebar [collapsed]="sidebarCollapsed && !isMobile"></app-sidebar>
+  </mat-sidenav>
+
+  <mat-sidenav-content>
+    <app-topbar (toggleSidebar)="toggleSidebar()"></app-topbar>
+    <main class="content">
+      <router-outlet></router-outlet>
+    </main>
+  </mat-sidenav-content>
+</mat-sidenav-container>

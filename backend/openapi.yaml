@@ -873,7 +873,7 @@ paths:
           description: Filter by backup type
           schema:
             type: string
-            enum: [manual, scheduled, pre_change]
+            enum: [manual, full]
         - name: org_id
           in: query
           description: Filter by organization ID
@@ -897,27 +897,17 @@ paths:
       tags:
         - Backups
       summary: Create backup
-      description: Manually trigger a configuration backup
+      description: |
+        Trigger a configuration backup.
+        - For 'full' backups: backs up the entire org (org_id from system config).
+        - For 'manual' backups: backs up selected objects specified by object_type and object_ids.
       operationId: createBackup
-      parameters:
-        - name: org_id
-          in: query
-          required: true
-          description: Organization ID to backup
-          schema:
-            type: string
-        - name: site_id
-          in: query
-          description: Site ID to backup (optional)
-          schema:
-            type: string
-        - name: backup_type
-          in: query
-          description: Backup type
-          schema:
-            type: string
-            enum: [manual, scheduled, pre_change]
-            default: manual
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupCreateRequest'
       responses:
         '201':
           description: Backup created
@@ -925,6 +915,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           description: Not authenticated
           content:
@@ -1018,6 +1014,174 @@ paths:
                 $ref: '#/components/schemas/BackupTimelineResponse'
         '401':
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/objects:
+    get:
+      tags:
+        - Backups
+      summary: List backup objects
+      description: List backed-up objects with latest version summary. Groups by object_id and returns one row per unique object.
+      operationId: listBackupObjects
+      parameters:
+        - name: skip
+          in: query
+          description: Number of objects to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of objects to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+        - name: search
+          in: query
+          description: Search object name, type, or ID
+          schema:
+            type: string
+        - name: object_type
+          in: query
+          description: Filter by object type
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Filter by site ID
+          schema:
+            type: string
+        - name: scope
+          in: query
+          description: Filter by scope
+          schema:
+            type: string
+            enum: [org, site]
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [active, deleted]
+      responses:
+        '200':
+          description: List of backup objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupObjectListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/changes:
+    get:
+      tags:
+        - Backups
+      summary: List backup changes
+      description: List individual backup change events for the timeline view. Each row is a single version of a backed-up object.
+      operationId: listBackupChanges
+      parameters:
+        - name: skip
+          in: query
+          description: Number of changes to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of changes to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: object_type
+          in: query
+          description: Filter by object type
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Filter by site ID
+          schema:
+            type: string
+        - name: scope
+          in: query
+          description: Filter by scope
+          schema:
+            type: string
+            enum: [org, site]
+        - name: start_date
+          in: query
+          description: Start date (ISO format)
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: End date (ISO format)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of backup changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupChangeListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/objects/{object_id}/versions:
+    get:
+      tags:
+        - Backups
+      summary: Get object versions
+      description: Get all versions of a backed-up object
+      operationId: getObjectVersions
+      parameters:
+        - name: object_id
+          in: path
+          required: true
+          description: Object ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of object versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupObjectVersionListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Object not found
           content:
             application/json:
               schema:
@@ -1304,6 +1468,105 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/mist/sites:
+    get:
+      tags:
+        - Admin
+      summary: List Mist sites
+      description: List sites from the configured Mist organization
+      operationId: listMistSites
+      responses:
+        '200':
+          description: List of Mist sites
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MistSitesResponse'
+        '400':
+          description: Mist API not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Failed to fetch from Mist API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/mist/object-types:
+    get:
+      tags:
+        - Admin
+      summary: List Mist object types
+      description: Return all supported Mist object types for frontend dropdowns
+      operationId: listMistObjectTypes
+      responses:
+        '200':
+          description: List of Mist object types
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MistObjectTypesResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/mist/objects:
+    get:
+      tags:
+        - Admin
+      summary: List Mist objects
+      description: List objects of a given type from Mist organization. Uses the object registry for consistent API calls.
+      operationId: listMistObjects
+      parameters:
+        - name: object_type
+          in: query
+          required: true
+          description: Object type in 'org:key' or 'site:key' format
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Site ID (required for site-level objects)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of Mist objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MistObjectsResponse'
+        '400':
+          description: Invalid request or Mist API not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Failed to fetch from Mist API
           content:
             application/json:
               schema:

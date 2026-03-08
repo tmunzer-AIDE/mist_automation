@@ -1,0 +1,45 @@
+<app-page-header title="Backup Timeline" subtitle="View backup history for an organization"></app-page-header>
+
+<div class="filters" [formGroup]="filterForm">
+  <mat-form-field appearance="outline">
+    <mat-label>Organization ID</mat-label>
+    <input matInput formControlName="org_id" placeholder="Required" />
+  </mat-form-field>
+  <mat-form-field appearance="outline">
+    <mat-label>Site ID (optional)</mat-label>
+    <input matInput formControlName="site_id" />
+  </mat-form-field>
+  <button mat-flat-button (click)="loadTimeline()" [disabled]="filterForm.invalid || loading">
+    <mat-icon>search</mat-icon> Load
+  </button>
+</div>
+
+@if (loading) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+@if (loaded && entries.length === 0) {
+  <app-empty-state icon="timeline" title="No backups found" message="No backups found for this organization.">
+  </app-empty-state>
+}
+
+@if (entries.length > 0) {
+  <div class="timeline">
+    @for (entry of entries; track entry.id) {
+      <div class="timeline-entry">
+        <div class="timeline-dot"></div>
+        <mat-card class="timeline-card" [routerLink]="['/backup', entry.id]">
+          <div class="timeline-header">
+            <app-status-badge [status]="entry.status"></app-status-badge>
+            <span class="timeline-time">{{ entry.created_at | relativeTime }}</span>
+          </div>
+          <div class="timeline-body">
+            <strong>{{ entry.backup_type }}</strong> &middot;
+            {{ entry.object_count }} objects &middot;
+            {{ entry.size_bytes | fileSize }}
+          </div>
+        </mat-card>
+      </div>
+    }
+  </div>
+}

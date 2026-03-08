@@ -80,6 +80,12 @@ MODULES: list[AppModule] = [
         tags=["Backups"],
     ),
     AppModule(
+        name="backup_webhooks",
+        router_module="app.modules.backup.webhook_router",
+        model_imports=[],
+        tags=["Backups"],
+    ),
+    AppModule(
         name="admin",
         router_module="app.api.v1.admin",
         model_imports=[

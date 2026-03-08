@@ -1,0 +1,170 @@
+"""
+Backup module webhook receiver and Smee.io management endpoints.
+
+Receives Mist audit webhooks to trigger incremental backups,
+independently from the automation module's webhook handling.
+"""
+
+import asyncio
+import hashlib
+import hmac
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, status
+
+from app.config import settings as app_settings
+from app.dependencies import get_current_user_from_token, require_admin
+from app.models.system import SystemConfig
+from app.models.user import User
+
+router = APIRouter()
+logger = structlog.get_logger(__name__)
+
+
+# ── Webhook listener ─────────────────────────────────────────────────────────
+
+def _verify_signature(payload: bytes, signature: str, secret: str) -> bool:
+    """Verify Mist webhook HMAC-SHA256 signature."""
+    if not signature or not secret:
+        return False
+    expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+@router.post("/backups/webhooks/mist", tags=["Backups"])
+async def receive_backup_webhook(
+    request: Request,
+    x_mist_signature: str | None = Header(None, description="Mist webhook signature"),
+):
+    """
+    Receive Mist audit webhooks for incremental backup.
+
+    Mist sends audit webhooks as flat JSON objects (one event per request),
+    e.g.::
+
+        {
+            "wlan_id": "...",
+            "message": "Add WLAN \"Corp-SSID\"",
+            "org_id": "...",
+            "site_id": "...",
+            "id": "...",
+            "admin_name": "...",
+            ...
+        }
+
+    The handler also accepts the envelope format ``{topic, events: [...]}``
+    for forward-compatibility.
+    """
+    body = await request.body()
+    payload = await request.json()
+
+    # Signature verification using the system webhook secret
+    config = await SystemConfig.get_config()
+    if x_mist_signature and config.webhook_secret:
+        from app.core.security import decrypt_sensitive_data
+
+        secret = decrypt_sensitive_data(config.webhook_secret)
+        if not _verify_signature(body, x_mist_signature, secret):
+            logger.warning("backup_webhook_signature_invalid")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook signature",
+            )
+
+    # Normalise payload: support both envelope and flat formats
+    if "topic" in payload and "events" in payload:
+        # Envelope format: {topic: "audits", events: [...]}
+        topic = payload["topic"]
+        if topic != "audits":
+            return {"status": "ignored", "reason": f"topic '{topic}' is not handled by backup"}
+        events = payload["events"]
+    else:
+        # Flat audit event (one per request) — the common Mist format
+        events = [payload]
+
+    if not events:
+        return {"status": "ignored", "reason": "no events in payload"}
+
+    # Validate org_id against configured org
+    configured_org_id = config.mist_org_id or ""
+    payload_org_id = payload.get("org_id", "")
+    if not configured_org_id:
+        return {"status": "ignored", "reason": "no org_id configured"}
+    if payload_org_id and payload_org_id != configured_org_id:
+        logger.warning(
+            "backup_webhook_org_mismatch",
+            payload_org_id=payload_org_id,
+            configured_org_id=configured_org_id,
+        )
+        return {"status": "ignored", "reason": "org_id does not match configured organization"}
+
+    logger.info("backup_webhook_received", event_count=len(events))
+
+    # Trigger incremental backup for each changed object
+    from app.modules.backup.workers import perform_incremental_backup
+
+    asyncio.create_task(perform_incremental_backup(configured_org_id, events))
+
+    return {
+        "status": "received",
+        "message": f"Incremental backup triggered for {len(events)} audit event(s)",
+    }
+
+
+# ── Smee.io management ───────────────────────────────────────────────────────
+
+@router.get("/backups/smee/status", tags=["Backups"])
+async def get_smee_status(
+    _current_user: User = Depends(require_admin),
+):
+    """Get Smee.io client status."""
+    from app.modules.backup.services.smee_service import get_smee_client
+
+    client = get_smee_client()
+    return {
+        "running": client.is_running if client else False,
+        "channel_url": client.channel_url if client else None,
+    }
+
+
+@router.post("/backups/smee/start", tags=["Backups"])
+async def start_smee_client(
+    current_user: User = Depends(require_admin),
+):
+    """Start the Smee.io webhook forwarder for the backup module."""
+    config = await SystemConfig.get_config()
+    if not config.smee_channel_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Smee.io channel URL not configured",
+        )
+
+    from app.modules.backup.services.smee_service import start_smee
+
+    target = f"http://127.0.0.1:8000{app_settings.api_v1_prefix}/backups/webhooks/mist"
+    await start_smee(config.smee_channel_url, target)
+
+    config.smee_enabled = True
+    config.update_timestamp()
+    await config.save()
+
+    logger.info("smee_started_via_api", user_id=str(current_user.id))
+    return {"status": "started", "channel_url": config.smee_channel_url}
+
+
+@router.post("/backups/smee/stop", tags=["Backups"])
+async def stop_smee_client(
+    current_user: User = Depends(require_admin),
+):
+    """Stop the Smee.io webhook forwarder."""
+    from app.modules.backup.services.smee_service import stop_smee
+
+    await stop_smee()
+
+    config = await SystemConfig.get_config()
+    config.smee_enabled = False
+    config.update_timestamp()
+    await config.save()
+
+    logger.info("smee_stopped_via_api", user_id=str(current_user.id))
+    return {"status": "stopped"}

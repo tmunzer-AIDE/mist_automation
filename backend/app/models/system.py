@@ -26,24 +26,46 @@ class SystemConfig(TimestampMixin, Document):
     # Webhook Configuration
     webhook_secret: str | None = Field(default=None, description="Webhook validation secret")
     webhook_ip_whitelist: list[str] = Field(default_factory=list, description="Allowed webhook source IPs")
+
+    # Smee.io Configuration (webhook proxy for development)
+    smee_enabled: bool = Field(default=False, description="Enable Smee.io webhook forwarding")
+    smee_channel_url: str | None = Field(default=None, description="Smee.io channel URL")
     
     # Workflow Execution Limits
     max_concurrent_workflows: int = Field(default=10, description="Maximum concurrent workflow executions")
     workflow_default_timeout: int = Field(default=300, description="Default workflow timeout in seconds")
     workflow_max_timeout: int = Field(default=3600, description="Maximum allowed workflow timeout")
     
+    # Password Policy
+    min_password_length: int = Field(default=8, description="Minimum password length")
+    require_uppercase: bool = Field(default=True, description="Require uppercase letters")
+    require_lowercase: bool = Field(default=True, description="Require lowercase letters")
+    require_digits: bool = Field(default=True, description="Require digits")
+    require_special_chars: bool = Field(default=False, description="Require special characters")
+
     # Session Management
     session_timeout_hours: int = Field(default=24, description="Session timeout in hours")
     max_concurrent_sessions: int = Field(default=5, description="Max concurrent sessions per user")
-    
+
+    # Backup Configuration
+    backup_enabled: bool = Field(default=True, description="Enable automatic backups")
+    backup_full_schedule_cron: str = Field(default="0 2 * * *", description="Full backup cron schedule")
+    backup_retention_days: int = Field(default=90, description="Backup retention in days")
+    backup_git_enabled: bool = Field(default=False, description="Enable Git backup integration")
+    backup_git_repo_url: str | None = Field(default=None, description="Git repository URL")
+    backup_git_branch: str = Field(default="main", description="Git branch name")
+    backup_git_author_name: str = Field(default="Mist Automation", description="Git commit author name")
+    backup_git_author_email: str = Field(default="automation@example.com", description="Git commit author email")
+
     # External Integrations
     slack_workspace_url: str | None = Field(default=None, description="Slack workspace URL")
     slack_app_token: str | None = Field(default=None, description="Encrypted Slack app token")
-    
+    slack_webhook_url: str | None = Field(default=None, description="Slack webhook URL")
+
     servicenow_instance_url: str | None = Field(default=None, description="ServiceNow instance URL")
     servicenow_username: str | None = Field(default=None, description="ServiceNow username")
     servicenow_password: str | None = Field(default=None, description="Encrypted ServiceNow password")
-    
+
     pagerduty_api_key: str | None = Field(default=None, description="Encrypted PagerDuty API key")
     
     # System Status

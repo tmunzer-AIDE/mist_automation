@@ -80,7 +80,12 @@ class UserSession(Document):
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
-        return datetime.now(timezone.utc) > self.expires_at
+        now = datetime.now(timezone.utc)
+        expires = self.expires_at
+        # MongoDB may return naive datetimes; make comparison safe
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return now > expires
 
     class Config:
         json_schema_extra = {

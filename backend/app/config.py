@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     backup_git_author_name: str = "Mist Automation"
     backup_git_author_email: str = "automation@example.com"
     
+    # TLS / Proxy
+    ca_cert_path: str | None = Field(default=None, description="Path to custom CA certificate bundle (PEM) for TLS-intercepting proxies like ZScaler")
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"  # json or text
@@ -173,7 +176,7 @@ def get_settings() -> Settings:
     Get cached settings instance.
     This ensures settings are loaded only once and reused across the application.
     """
-    return Settings()
+    return Settings()  # In production, set this via environment variable
 
 
 # Convenience export

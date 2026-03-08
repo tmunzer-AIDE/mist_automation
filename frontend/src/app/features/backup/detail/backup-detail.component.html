@@ -1,0 +1,72 @@
+@if (loading) {
+  <app-loading-spinner></app-loading-spinner>
+} @else if (backup) {
+  <app-page-header [title]="'Backup ' + backup.id" [subtitle]="backup.backup_type + ' backup'">
+    <a mat-stroked-button routerLink="/backup/compare" [queryParams]="{id1: backup.id}">
+      <mat-icon>compare</mat-icon> Compare
+    </a>
+    <button mat-flat-button (click)="openRestore()" [disabled]="backup.status !== 'completed'">
+      <mat-icon>restore</mat-icon> Restore
+    </button>
+  </app-page-header>
+
+  <div class="detail-grid">
+    <mat-card>
+      <mat-card-header>
+        <mat-card-title>Details</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="detail-row">
+          <span>Status</span>
+          <app-status-badge [status]="backup.status"></app-status-badge>
+        </div>
+        <div class="detail-row">
+          <span>Type</span>
+          <strong>{{ backup.backup_type }}</strong>
+        </div>
+        <div class="detail-row">
+          <span>Organization</span>
+          <strong>{{ backup.org_name || backup.org_id }}</strong>
+        </div>
+        @if (backup.site_id) {
+          <div class="detail-row">
+            <span>Site</span>
+            <strong>{{ backup.site_name || backup.site_id }}</strong>
+          </div>
+        }
+        <div class="detail-row">
+          <span>Objects</span>
+          <strong>{{ backup.object_count }}</strong>
+        </div>
+        <div class="detail-row">
+          <span>Size</span>
+          <strong>{{ backup.size_bytes | fileSize }}</strong>
+        </div>
+        <div class="detail-row">
+          <span>Created</span>
+          <strong>{{ backup.created_at | relativeTime }}</strong>
+        </div>
+        @if (backup.error) {
+          <div class="detail-row error">
+            <span>Error</span>
+            <strong>{{ backup.error }}</strong>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    @if (backup.data) {
+      <mat-card class="data-card">
+        <mat-card-header>
+          <mat-card-title>Backup Data</mat-card-title>
+          <button mat-icon-button (click)="jsonExpanded = !jsonExpanded">
+            <mat-icon>{{ jsonExpanded ? 'unfold_less' : 'unfold_more' }}</mat-icon>
+          </button>
+        </mat-card-header>
+        <mat-card-content>
+          <pre class="json-viewer" [class.expanded]="jsonExpanded">{{ formatJson(backup.data) }}</pre>
+        </mat-card-content>
+      </mat-card>
+    }
+  </div>
+}

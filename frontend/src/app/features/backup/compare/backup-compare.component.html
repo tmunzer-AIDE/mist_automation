@@ -1,0 +1,81 @@
+<app-page-header title="Compare Backups" subtitle="View differences between two backups"></app-page-header>
+
+<div class="compare-inputs" [formGroup]="form">
+  <mat-form-field appearance="outline">
+    <mat-label>Backup ID 1</mat-label>
+    <input matInput formControlName="backup_id_1" />
+  </mat-form-field>
+  <mat-icon class="compare-arrow">compare_arrows</mat-icon>
+  <mat-form-field appearance="outline">
+    <mat-label>Backup ID 2</mat-label>
+    <input matInput formControlName="backup_id_2" />
+  </mat-form-field>
+  <button mat-flat-button (click)="compare()" [disabled]="form.invalid || loading">
+    Compare
+  </button>
+</div>
+
+@if (loading) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+@if (diff) {
+  <div class="summary-cards">
+    <mat-card>
+      <mat-card-content>
+        <div class="summary-stat added">{{ diff.added_count }}</div>
+        <div class="summary-label">Added</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card>
+      <mat-card-content>
+        <div class="summary-stat removed">{{ diff.removed_count }}</div>
+        <div class="summary-label">Removed</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card>
+      <mat-card-content>
+        <div class="summary-stat modified">{{ diff.modified_count }}</div>
+        <div class="summary-label">Modified</div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  @if (diff.differences.length === 0) {
+    <app-empty-state icon="check_circle" title="No differences" message="These backups are identical.">
+    </app-empty-state>
+  } @else {
+    <div class="table-container">
+      <table mat-table [dataSource]="diff.differences">
+        <ng-container matColumnDef="path">
+          <th mat-header-cell *matHeaderCellDef>Path</th>
+          <td mat-cell *matCellDef="let d">{{ d.path }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="change_type">
+          <th mat-header-cell *matHeaderCellDef>Change</th>
+          <td mat-cell *matCellDef="let d">
+            <mat-chip [class]="'change-' + d.change_type">{{ d.change_type }}</mat-chip>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="old_value">
+          <th mat-header-cell *matHeaderCellDef>Old Value</th>
+          <td mat-cell *matCellDef="let d" class="value-cell">
+            {{ d.old_value !== undefined ? (d.old_value | json) : '-' }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="new_value">
+          <th mat-header-cell *matHeaderCellDef>New Value</th>
+          <td mat-cell *matCellDef="let d" class="value-cell">
+            {{ d.new_value !== undefined ? (d.new_value | json) : '-' }}
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+      </table>
+    </div>
+  }
+}

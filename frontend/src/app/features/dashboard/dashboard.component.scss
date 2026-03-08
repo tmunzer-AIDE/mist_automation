@@ -1,0 +1,35 @@
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.stat-number {
+  font-size: 36px;
+  font-weight: 500;
+  color: var(--mat-sys-primary);
+  margin: 8px 0;
+}
+
+.stat-detail {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+.welcome-card {
+  grid-column: 1 / -1;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}

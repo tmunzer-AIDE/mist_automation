@@ -1,0 +1,60 @@
+<div class="login-container">
+  <mat-card class="login-card">
+    @if (loading$ | async) {
+      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+    }
+
+    <mat-card-header>
+      <mat-icon class="login-icon">hub</mat-icon>
+      <mat-card-title>Mist Automation</mat-card-title>
+      <mat-card-subtitle>Sign in to your account</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      @if (error$ | async; as error) {
+        <div class="error-message">{{ error }}</div>
+      }
+
+      <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+        <mat-form-field appearance="outline">
+          <mat-label>Email</mat-label>
+          <input matInput type="email" formControlName="email" autocomplete="email" />
+          @if (loginForm.get('email')?.hasError('required')) {
+            <mat-error>Email is required</mat-error>
+          }
+          @if (loginForm.get('email')?.hasError('email')) {
+            <mat-error>Invalid email address</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Password</mat-label>
+          <input matInput [type]="hidePassword ? 'password' : 'text'"
+                 formControlName="password" autocomplete="current-password" />
+          <button mat-icon-button matSuffix type="button"
+                  (click)="hidePassword = !hidePassword">
+            <mat-icon>{{ hidePassword ? 'visibility_off' : 'visibility' }}</mat-icon>
+          </button>
+          @if (loginForm.get('password')?.hasError('required')) {
+            <mat-error>Password is required</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-checkbox formControlName="remember_me">Remember me</mat-checkbox>
+
+        <button mat-flat-button type="submit" class="login-button"
+                [disabled]="loginForm.invalid || (loading$ | async)">
+          Sign In
+        </button>
+      </form>
+    </mat-card-content>
+
+    @if (showOnboardLink) {
+      <mat-card-footer>
+        <p class="onboard-link">
+          First time? <a routerLink="/onboard">Set up your account</a>
+        </p>
+      </mat-card-footer>
+    }
+  </mat-card>
+</div>

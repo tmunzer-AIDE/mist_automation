@@ -7,7 +7,7 @@ from typing import Any, Optional
 import structlog
 from beanie import PydanticObjectId
 
-from app.modules.backup.models import BackupObject, BackupObjectType, BackupEventType
+from app.modules.backup.models import BackupObject, BackupEventType
 from app.services.mist_service import MistService
 from app.core.exceptions import RestoreError, NotFoundError, ValidationError
 
@@ -366,26 +366,20 @@ class RestoreService:
             config.pop(field, None)
 
         # Determine API endpoint and method
-        if object_type == BackupObjectType.WLAN.value:
-            if backup.site_id:
-                # Site WLAN
-                result = await self.mist_service.update_wlan(
-                    backup.site_id,
-                    object_id,
-                    config,
-                )
-            else:
-                # Org WLAN - would need org-level update
-                endpoint = f"/api/v1/orgs/{backup.org_id}/wlans/{object_id}"
-                result = await self.mist_service.api_put(endpoint, config)
-
-        elif object_type == BackupObjectType.SITE.value:
-            endpoint = f"/api/v1/orgs/{backup.org_id}/sites/{object_id}"
+        if object_type == "wlans" and backup.site_id:
+            # Site WLAN
+            result = await self.mist_service.update_wlan(
+                backup.site_id,
+                object_id,
+                config,
+            )
+        elif backup.site_id:
+            # Site-level object
+            endpoint = f"/api/v1/sites/{backup.site_id}/{object_type}/{object_id}"
             result = await self.mist_service.api_put(endpoint, config)
-
         else:
-            # Generic PUT for other types
-            endpoint = f"/api/v1/orgs/{backup.org_id}/{object_type}s/{object_id}"
+            # Org-level object
+            endpoint = f"/api/v1/orgs/{backup.org_id}/{object_type}/{object_id}"
             result = await self.mist_service.api_put(endpoint, config)
 
         return result
@@ -458,12 +452,12 @@ class RestoreService:
     ) -> dict[str, Any]:
         """Fetch current configuration from Mist."""
         
-        if object_type == BackupObjectType.WLAN.value and site_id:
-            # Site WLAN
-            endpoint = f"/api/v1/sites/{site_id}/wlans/{object_id}"
+        if site_id:
+            # Site-level object
+            endpoint = f"/api/v1/sites/{site_id}/{object_type}/{object_id}"
         else:
-            # Generic endpoint
-            endpoint = f"/api/v1/orgs/{self.mist_service.org_id}/{object_type}s/{object_id}"
+            # Org-level object
+            endpoint = f"/api/v1/orgs/{self.mist_service.org_id}/{object_type}/{object_id}"
 
         return await self.mist_service.api_get(endpoint)
 

@@ -11,27 +11,6 @@ from pydantic import BaseModel, Field
 from app.models.mixins import TimestampMixin
 
 
-class BackupObjectType(str, Enum):
-    """Types of Mist objects that can be backed up."""
-    SITE = "site"
-    WLAN = "wlan"
-    TEMPLATE = "template"
-    RFTEMPLATE = "rftemplate"
-    NETWORK = "network"
-    NETWORKTEMPLATE = "networktemplate"
-    GATEWAY = "gateway"
-    SWITCH = "switch"
-    AP = "ap"
-    DEVICE_PROFILE = "deviceprofile"
-    POLICY = "policy"
-    SERVICE_POLICY = "servicepolicy"
-    WX_RULE = "wxrule"
-    WX_TAG = "wxtag"
-    ZONE = "zone"
-    ASSET = "asset"
-    VAR_MAP = "var_map"
-
-
 class BackupEventType(str, Enum):
     """Backup event types."""
     FULL_BACKUP = "full_backup"
@@ -44,6 +23,7 @@ class BackupEventType(str, Enum):
 
 class BackupType(str, Enum):
     """Backup operation types."""
+    FULL = "full"
     MANUAL = "manual"
     SCHEDULED = "scheduled"
     PRE_CHANGE = "pre_change"

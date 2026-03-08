@@ -1,0 +1,13 @@
+<app-page-header title="System Settings" subtitle="Configure application settings"></app-page-header>
+
+<nav mat-tab-nav-bar [tabPanel]="tabPanel">
+  <a mat-tab-link routerLink="mist" routerLinkActive #t1="routerLinkActive" [active]="t1.isActive">Mist API</a>
+  <a mat-tab-link routerLink="security" routerLinkActive #t2="routerLinkActive" [active]="t2.isActive">Security</a>
+  <a mat-tab-link routerLink="workflows" routerLinkActive #t3="routerLinkActive" [active]="t3.isActive">Workflows</a>
+  <a mat-tab-link routerLink="backups" routerLinkActive #t4="routerLinkActive" [active]="t4.isActive">Backups</a>
+  <a mat-tab-link routerLink="webhooks" routerLinkActive #t5="routerLinkActive" [active]="t5.isActive">Webhooks</a>
+  <a mat-tab-link routerLink="integrations" routerLinkActive #t6="routerLinkActive" [active]="t6.isActive">Integrations</a>
+</nav>
+<mat-tab-nav-panel #tabPanel>
+  <router-outlet></router-outlet>
+</mat-tab-nav-panel>

@@ -9,8 +9,8 @@ import structlog
 from functools import lru_cache
 
 import mistapi
-from mistapi.api.v1.orgs import sites, wlans, templates, networks, deviceprofiles
-from mistapi.api.v1.sites import devices, maps, zones
+from mistapi.api.v1.orgs import sites, wlans as org_wlans, templates, networks, deviceprofiles
+from mistapi.api.v1.sites import devices, maps, zones, wlans as site_wlans
 from mistapi.api.v1 import orgs as orgs_api
 from mistapi import APISession
 
@@ -55,9 +55,18 @@ class MistService:
         try:
             # Determine host based on cloud region
             host_map = {
-                "global": "api.mist.com",
-                "eu": "api.eu.mist.com",
-                "apac": "api.gc1.mist.com",
+                "global_01": "api.mist.com",
+                "global_02": "api.gc1.mist.com",
+                "global_03": "api.ac2.mist.com",
+                "global_04": "api.gc2.mist.com",
+                "global_05": "api.gc4.mist.com",
+                "emea_01": "api.eu.mist.com",
+                "emea_02": "api.gc3.mist.com",
+                "emea_03": "api.ac6.mist.com",
+                "emea_04": "api.gc6.mist.com",
+                "apac_01": "api.ac5.mist.com",
+                "apac_02": "api.gc5.mist.com",
+                "apac_03": "api.gc7.mist.com",
             }
             host = host_map.get(self.cloud_region, "api.mist.com")
 
@@ -65,8 +74,8 @@ class MistService:
             session = APISession(
                 host=host,
                 apitoken=self.api_token,
-                max_retries=settings.mist_api_max_retries,
-                timeout=settings.mist_api_timeout,
+                # max_retries=settings.mist_api_max_retries,
+                # timeout=settings.mist_api_timeout,
             )
 
             logger.info("mist_api_session_created", org_id=self.org_id, cloud_region=self.cloud_region)
@@ -212,14 +221,14 @@ class MistService:
             if site_id:
                 # Get site WLANs
                 result = await asyncio.to_thread(
-                    wlans.listSiteWlans,
+                    site_wlans.listSiteWlans,
                     self.session,
                     site_id
                 )
             else:
                 # Get org WLANs
                 result = await asyncio.to_thread(
-                    wlans.listOrgWlans,
+                    org_wlans.listOrgWlans,
                     self.session,
                     self.org_id
                 )
@@ -250,7 +259,7 @@ class MistService:
         """
         try:
             result = await asyncio.to_thread(
-                wlans.createSiteWlan,
+                site_wlans.createSiteWlan,
                 self.session,
                 site_id,
                 wlan_data
@@ -283,7 +292,7 @@ class MistService:
         """
         try:
             result = await asyncio.to_thread(
-                wlans.updateSiteWlan,
+                site_wlans.updateSiteWlan,
                 self.session,
                 site_id,
                 wlan_id,
@@ -313,7 +322,7 @@ class MistService:
         """
         try:
             result = await asyncio.to_thread(
-                wlans.deleteSiteWlan,
+                site_wlans.deleteSiteWlan,
                 self.session,
                 site_id,
                 wlan_id

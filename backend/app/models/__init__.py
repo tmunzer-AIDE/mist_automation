@@ -25,7 +25,6 @@ from app.modules.automation.models.webhook import WebhookEvent
 from app.modules.backup.models import (
     BackupObject,
     BackupConfig,
-    BackupObjectType,
     BackupEventType,
     BackupSchedule,
     GitConfig,
@@ -54,7 +53,7 @@ __all__ = [
     "WebhookEvent",
     "BackupObject",
     "BackupConfig",
-    "BackupObjectType",
+
     "BackupEventType",
     "BackupSchedule",
     "GitConfig",

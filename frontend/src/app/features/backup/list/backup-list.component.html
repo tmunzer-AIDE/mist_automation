@@ -1,0 +1,255 @@
+<app-page-header title="Backups" subtitle="Configuration backup inventory">
+  <a mat-stroked-button routerLink="/backup/compare">
+    <mat-icon>compare</mat-icon> Compare
+  </a>
+  <button mat-flat-button (click)="openCreateDialog()">
+    <mat-icon>add</mat-icon> Create Backup
+  </button>
+</app-page-header>
+
+<!-- ── Timeline ─────────────────────────────────────────────────────── -->
+<section class="timeline-section">
+  <h2 class="section-title">Recent Changes</h2>
+
+  @if (loadingChanges) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+
+  @if (!loadingChanges && changes.length === 0) {
+    <p class="timeline-empty">No configuration changes recorded yet.</p>
+  }
+
+  @if (!loadingChanges && changes.length > 0) {
+    <div class="timeline-scroll">
+      <div class="timeline">
+        @for (change of changes; track change.id) {
+          <div
+            class="timeline-entry"
+            [matTooltip]="tooltipText(change)"
+            matTooltipClass="timeline-tooltip"
+            (click)="filterByTimelineEvent(change)"
+          >
+            <div class="timeline-dot" [ngClass]="eventDotClass(change.event_type)"></div>
+          </div>
+        }
+      </div>
+    </div>
+
+    @if (changesTotal > timelineLimit) {
+      <p class="timeline-overflow">
+        Showing {{ timelineLimit }} of {{ changesTotal }} changes.
+      </p>
+    }
+  }
+</section>
+
+<!-- ── Filters ──────────────────────────────────────────────────────── -->
+<section class="filters-section">
+  <div class="filters-row">
+    <!-- Search -->
+    <mat-form-field appearance="outline" class="search-field">
+      <mat-label>Search</mat-label>
+      <input
+        matInput
+        placeholder="Name, type, or ID..."
+        [value]="searchQuery"
+        (keyup.enter)="applySearch($event)"
+      />
+      <mat-icon matPrefix>search</mat-icon>
+    </mat-form-field>
+
+    <!-- Quick filters -->
+    <div class="quick-filters">
+      <button
+        mat-stroked-button
+        [class.active]="activeQuickFilter === 'active'"
+        (click)="quickFilter('active')"
+      >
+        Active
+      </button>
+      <button
+        mat-stroked-button
+        [class.active]="activeQuickFilter === 'deleted'"
+        (click)="quickFilter('deleted')"
+      >
+        Deleted
+      </button>
+      <button
+        mat-stroked-button
+        [class.active]="activeQuickFilter === 'recent'"
+        (click)="quickFilter('recent')"
+      >
+        Recently Modified
+      </button>
+    </div>
+
+    @if (hasActiveFilters) {
+      <button mat-button (click)="clearFilters()">
+        <mat-icon>clear</mat-icon> Clear
+      </button>
+    }
+  </div>
+
+  <!-- Advanced filters -->
+  <div class="filters-row advanced-filters" [formGroup]="filterForm">
+    <mat-form-field appearance="outline">
+      <mat-label>Object Type</mat-label>
+      <mat-select formControlName="object_type" (selectionChange)="applyFilters()">
+        <mat-option value="">All Types</mat-option>
+        @for (opt of objectTypeOptions; track opt.value) {
+          <mat-option [value]="opt.value.split(':')[1]">{{ opt.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Scope</mat-label>
+      <mat-select formControlName="scope" (selectionChange)="applyFilters()">
+        <mat-option value="">All</mat-option>
+        <mat-option value="org">Organization</mat-option>
+        <mat-option value="site">Site</mat-option>
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Site</mat-label>
+      <mat-select formControlName="site_id" (selectionChange)="applyFilters()">
+        <mat-option value="">All Sites</mat-option>
+        @for (site of siteOptions; track site.id) {
+          <mat-option [value]="site.id">{{ site.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Status</mat-label>
+      <mat-select formControlName="status" (selectionChange)="applyFilters()">
+        <mat-option value="">All</mat-option>
+        <mat-option value="active">Active</mat-option>
+        <mat-option value="deleted">Deleted</mat-option>
+      </mat-select>
+    </mat-form-field>
+  </div>
+</section>
+
+<!-- ── Object Table ─────────────────────────────────────────────────── -->
+<section class="table-section">
+  @if (loadingObjects) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+
+  @if (!loadingObjects && objects.length === 0) {
+    <app-empty-state
+      icon="backup"
+      title="No backed-up objects"
+      message="Run a full backup to start tracking configuration objects."
+    >
+      <button mat-flat-button (click)="openCreateDialog()">Create Backup</button>
+    </app-empty-state>
+  }
+
+  @if (objects.length > 0) {
+    <div class="table-container">
+      <table mat-table [dataSource]="objects">
+        <!-- Scope -->
+        <ng-container matColumnDef="scope">
+          <th mat-header-cell *matHeaderCellDef>Scope</th>
+          <td mat-cell *matCellDef="let obj">
+            <span class="scope-badge" [ngClass]="'scope-' + obj.scope">
+              {{ obj.scope === 'org' ? 'Organization' : (obj.site_name || obj.site_id || 'Site') }}
+            </span>
+          </td>
+        </ng-container>
+
+        <!-- Type -->
+        <ng-container matColumnDef="object_type">
+          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <td mat-cell *matCellDef="let obj">
+            <code class="type-label">{{ obj.object_type }}</code>
+          </td>
+        </ng-container>
+
+        <!-- Name -->
+        <ng-container matColumnDef="object_name">
+          <th mat-header-cell *matHeaderCellDef>Object Name</th>
+          <td mat-cell *matCellDef="let obj">
+            <a class="object-link" (click)="viewObjectDetail(obj); $event.stopPropagation()">
+              {{ obj.object_name || obj.object_id }}
+            </a>
+          </td>
+        </ng-container>
+
+        <!-- Versions -->
+        <ng-container matColumnDef="version_count">
+          <th mat-header-cell *matHeaderCellDef>Versions</th>
+          <td mat-cell *matCellDef="let obj">{{ obj.version_count }}</td>
+        </ng-container>
+
+        <!-- Created -->
+        <ng-container matColumnDef="first_backed_up_at">
+          <th mat-header-cell *matHeaderCellDef>Created</th>
+          <td mat-cell *matCellDef="let obj">{{ obj.first_backed_up_at | relativeTime }}</td>
+        </ng-container>
+
+        <!-- Last Update -->
+        <ng-container matColumnDef="last_backed_up_at">
+          <th mat-header-cell *matHeaderCellDef>Last Update</th>
+          <td mat-cell *matCellDef="let obj">{{ obj.last_backed_up_at | relativeTime }}</td>
+        </ng-container>
+
+        <!-- Status -->
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let obj">
+            <app-status-badge [status]="obj.is_deleted ? 'deleted' : 'active'"></app-status-badge>
+          </td>
+        </ng-container>
+
+        <!-- Actions -->
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let obj">
+            <button mat-icon-button [matMenuTriggerFor]="actionMenu" (click)="$event.stopPropagation()">
+              <mat-icon>more_vert</mat-icon>
+            </button>
+            <mat-menu #actionMenu="matMenu">
+              <button mat-menu-item (click)="viewObjectDetail(obj)">
+                <mat-icon>visibility</mat-icon>
+                <span>Details</span>
+              </button>
+              @if (!obj.is_deleted && obj.version_count > 1) {
+                <button mat-menu-item disabled>
+                  <mat-icon>undo</mat-icon>
+                  <span>Revert to Previous</span>
+                </button>
+              }
+              @if (obj.is_deleted) {
+                <button mat-menu-item disabled>
+                  <mat-icon>restore</mat-icon>
+                  <span>Restore</span>
+                </button>
+              }
+            </mat-menu>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: displayedColumns"
+          class="clickable"
+          (click)="viewObjectDetail(row)"
+        ></tr>
+      </table>
+    </div>
+
+    <mat-paginator
+      [length]="objectsTotal"
+      [pageSize]="objectsPageSize"
+      [pageIndex]="objectsPageIndex"
+      [pageSizeOptions]="[10, 25, 50]"
+      (page)="onPage($event)"
+      showFirstLastButtons
+    ></mat-paginator>
+  }
+</section>

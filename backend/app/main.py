@@ -36,10 +36,17 @@ async def lifespan(_app: FastAPI):
         await Database.connect_db()
         logger.info("database_connection_established")
 
-        # Additional startup tasks can be added here
-        # - Initialize Redis connection
-        # - Start background workers
-        # - Load system configuration
+        # Start Smee.io client if enabled
+        try:
+            from app.models.system import SystemConfig
+            config = await SystemConfig.get_config()
+            if config.smee_enabled and config.smee_channel_url:
+                from app.modules.backup.services.smee_service import start_smee
+                target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/backups/webhooks/mist"
+                await start_smee(config.smee_channel_url, target)
+                logger.info("smee_client_auto_started", channel=config.smee_channel_url)
+        except Exception as e:
+            logger.warning("smee_auto_start_failed", error=str(e))
 
         logger.info("application_started_successfully")
 
@@ -49,10 +56,15 @@ async def lifespan(_app: FastAPI):
         # Shutdown
         logger.info("application_shutting_down")
 
+        # Stop Smee.io client if running
+        try:
+            from app.modules.backup.services.smee_service import stop_smee
+            await stop_smee()
+        except Exception:
+            pass
+
         # Close database connection
         await Database.close_db()
-
-        # Additional cleanup tasks can be added here
 
         logger.info("application_shutdown_complete")
 
@@ -88,11 +100,20 @@ app.add_middleware(RequestLoggingMiddleware)
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint."""
+    from app.models.user import User
+
+    try:
+        user_count = await User.find().count()
+        is_initialized = user_count > 0
+    except Exception:
+        is_initialized = False
+
     return {
         "status": "healthy",
         "app": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
+        "is_initialized": is_initialized,
     }
 
 

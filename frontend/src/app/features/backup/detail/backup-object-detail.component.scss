@@ -1,0 +1,210 @@
+.section-title {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 12px;
+}
+
+// ── Object Timeline ──────────────────────────────────────────────────────────
+
+.object-timeline-section {
+  margin-bottom: 24px;
+}
+
+.timeline-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  padding: 8px 0;
+}
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  padding: 12px 8px;
+  min-height: 48px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--mat-sys-outline-variant);
+    transform: translateY(-50%);
+  }
+}
+
+.timeline-entry {
+  flex: 0 0 auto;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  z-index: 1;
+
+  &.selected .timeline-dot {
+    transform: scale(1.5);
+    box-shadow: 0 0 0 3px var(--mat-sys-primary-container);
+  }
+}
+
+.timeline-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--mat-sys-surface);
+  transition: transform 0.15s, box-shadow 0.15s;
+
+  .timeline-entry:hover & {
+    transform: scale(1.4);
+    box-shadow: 0 0 0 3px var(--mat-sys-surface-variant);
+  }
+
+  &.dot-backup {
+    background: var(--mat-sys-primary);
+  }
+  &.dot-updated {
+    background: #1565c0;
+  }
+  &.dot-created {
+    background: #2e7d32;
+  }
+  &.dot-deleted {
+    background: #c62828;
+  }
+  &.dot-restored {
+    background: #6a1b9a;
+  }
+}
+
+.timeline-version-label {
+  font-size: 10px;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+}
+
+::ng-deep .timeline-tooltip {
+  white-space: pre-line;
+  font-size: 12px;
+  max-width: 300px;
+}
+
+// ── Object Information Card ──────────────────────────────────────────────────
+
+.info-card {
+  margin-bottom: 24px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-label {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.info-value {
+  font-size: 14px;
+
+  &.uuid {
+    font-size: 12px;
+    word-break: break-all;
+  }
+}
+
+.info-meta {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// ── Version History Table ────────────────────────────────────────────────────
+
+.version-history-section {
+  margin-bottom: 24px;
+}
+
+.table-container {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+}
+
+.version-badge {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.event-badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+
+  &.event-created {
+    background: #e8f5e9;
+    color: #2e7d32;
+  }
+  &.event-updated {
+    background: #e3f2fd;
+    color: #1565c0;
+  }
+  &.event-deleted {
+    background: #ffebee;
+    color: #c62828;
+  }
+  &.event-restored {
+    background: #f3e5f5;
+    color: #6a1b9a;
+  }
+  &.event-full_backup,
+  &.event-incremental {
+    background: var(--mat-sys-primary-container);
+    color: var(--mat-sys-on-primary-container);
+  }
+}
+
+.field-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.field-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--mat-sys-surface-variant);
+  color: var(--mat-sys-on-surface-variant);
+
+  &.field-more {
+    font-weight: 600;
+  }
+}
+
+.no-changes {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 13px;
+}
+
+tr.selected-row {
+  background: var(--mat-sys-primary-container);
+}

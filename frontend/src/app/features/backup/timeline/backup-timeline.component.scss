@@ -1,0 +1,58 @@
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+
+  mat-form-field {
+    width: 280px;
+  }
+}
+
+.timeline {
+  position: relative;
+  padding-left: 24px;
+  border-left: 2px solid var(--mat-sys-outline-variant);
+}
+
+.timeline-entry {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.timeline-dot {
+  position: absolute;
+  left: -31px;
+  top: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--mat-sys-primary);
+  border: 2px solid var(--mat-sys-surface);
+}
+
+.timeline-card {
+  cursor: pointer;
+  padding: 16px;
+
+  &:hover {
+    background: var(--mat-sys-surface-variant);
+  }
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.timeline-time {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 13px;
+}
+
+.timeline-body {
+  font-size: 14px;
+}

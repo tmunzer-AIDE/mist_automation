@@ -1,0 +1,65 @@
+<div class="onboard-container">
+  <mat-card class="onboard-card">
+    @if (loading) {
+      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+    }
+
+    <mat-card-header>
+      <mat-icon class="onboard-icon">hub</mat-icon>
+      <mat-card-title>Welcome to Mist Automation</mat-card-title>
+      <mat-card-subtitle>Create your administrator account</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      @if (error) {
+        <div class="error-message">{{ error }}</div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="onSubmit()">
+        <mat-form-field appearance="outline">
+          <mat-label>Email</mat-label>
+          <input matInput type="email" formControlName="email" autocomplete="email" />
+          @if (form.get('email')?.hasError('required')) {
+            <mat-error>Email is required</mat-error>
+          }
+          @if (form.get('email')?.hasError('email')) {
+            <mat-error>Invalid email address</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Password</mat-label>
+          <input matInput [type]="hidePassword ? 'password' : 'text'"
+                 formControlName="password" autocomplete="new-password" />
+          <button mat-icon-button matSuffix type="button"
+                  (click)="hidePassword = !hidePassword">
+            <mat-icon>{{ hidePassword ? 'visibility_off' : 'visibility' }}</mat-icon>
+          </button>
+          @if (form.get('password')?.errors; as errors) {
+            <mat-error>
+              {{ errors['minLength'] || errors['uppercase'] || errors['lowercase'] || errors['digit'] || 'Invalid password' }}
+            </mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Confirm Password</mat-label>
+          <input matInput [type]="hideConfirm ? 'password' : 'text'"
+                 formControlName="confirmPassword" autocomplete="new-password" />
+          <button mat-icon-button matSuffix type="button"
+                  (click)="hideConfirm = !hideConfirm">
+            <mat-icon>{{ hideConfirm ? 'visibility_off' : 'visibility' }}</mat-icon>
+          </button>
+          @if (form.get('confirmPassword')?.hasError('passwordMismatch')) {
+            <mat-error>Passwords do not match</mat-error>
+          }
+        </mat-form-field>
+
+        <button mat-flat-button type="submit" class="submit-button"
+                [disabled]="form.invalid || loading">
+          Create Account & Get Started
+        </button>
+      </form>
+    </mat-card-content>
+  </mat-card>
+</div>
