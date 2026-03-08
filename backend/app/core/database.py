@@ -32,29 +32,12 @@ class Database:
                 maxPoolSize=settings.mongodb_max_pool_size,
             )
 
-            # Import all models for Beanie initialization
-            from app.models.backup import BackupConfig, BackupObject
-            from app.models.execution import WorkflowExecution
-            from app.models.session import UserSession
-            from app.models.system import AuditLog, SystemConfig
-            from app.models.user import User
-            from app.models.webhook import WebhookEvent
-            from app.models.workflow import Workflow
+            from app.modules import get_all_document_models
 
-            # Initialize Beanie with all document models
+            # Initialize Beanie with all document models from the module registry
             await init_beanie(
                 database=cls.client[settings.mongodb_db_name],
-                document_models=[
-                    User,
-                    UserSession,
-                    Workflow,
-                    WorkflowExecution,
-                    WebhookEvent,
-                    BackupObject,
-                    BackupConfig,
-                    SystemConfig,
-                    AuditLog,
-                ]
+                document_models=get_all_document_models(),
             )
 
             logger.info("mongodb_connected_successfully")

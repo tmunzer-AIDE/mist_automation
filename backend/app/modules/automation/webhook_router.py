@@ -12,8 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, s
 
 from app.dependencies import get_current_user_from_token
 from app.models.user import User
-from app.models.webhook import WebhookEvent
-from app.schemas.webhook import WebhookEventResponse, WebhookListResponse
+from app.modules.automation.models.webhook import WebhookEvent
+from app.modules.automation.schemas.webhook import WebhookEventResponse, WebhookListResponse
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -83,7 +83,7 @@ async def receive_mist_webhook(
     logger.info("webhook_received", webhook_id=webhook_event.webhook_id, webhook_type=webhook_type)
 
     # Trigger workflow matching and execution asynchronously
-    from app.workers.webhook_worker import process_webhook
+    from app.modules.automation.workers.webhook_worker import process_webhook
     asyncio.create_task(process_webhook(str(webhook_event.id), webhook_type, payload))
 
     return {
@@ -201,7 +201,7 @@ async def replay_webhook_event(
 
     logger.info("webhook_replay_triggered", event_id=str(event.id), user_id=str(current_user.id))
 
-    from app.workers.webhook_worker import process_webhook
+    from app.modules.automation.workers.webhook_worker import process_webhook
     asyncio.create_task(process_webhook(str(event.id), event.webhook_type, event.payload))
 
     return {

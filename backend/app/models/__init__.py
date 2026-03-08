@@ -3,7 +3,7 @@
 from app.models.mixins import TimestampMixin
 from app.models.user import User
 from app.models.session import UserSession, DeviceInfo
-from app.models.workflow import (
+from app.modules.automation.models.workflow import (
     Workflow,
     WorkflowStatus,
     SharingPermission,
@@ -16,13 +16,13 @@ from app.models.workflow import (
     SecondaryFilter,
     WorkflowAction,
 )
-from app.models.execution import (
+from app.modules.automation.models.execution import (
     WorkflowExecution,
     ExecutionStatus,
     ActionExecutionResult,
 )
-from app.models.webhook import WebhookEvent
-from app.models.backup import (
+from app.modules.automation.models.webhook import WebhookEvent
+from app.modules.backup.models import (
     BackupObject,
     BackupConfig,
     BackupObjectType,

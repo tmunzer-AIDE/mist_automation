@@ -9,9 +9,9 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_current_user_from_token
-from app.models.backup import BackupJob, BackupStatus, BackupType
+from app.modules.backup.models import BackupJob, BackupStatus, BackupType
 from app.models.user import User
-from app.schemas.backup import BackupJobResponse, BackupJobListResponse, BackupDiffResponse
+from app.modules.backup.schemas import BackupJobResponse, BackupJobListResponse, BackupDiffResponse
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -99,7 +99,7 @@ async def create_backup(
 
     logger.info("backup_created", backup_id=str(backup.id), org_id=org_id, user_id=str(current_user.id))
 
-    from app.workers.backup_worker import perform_backup
+    from app.modules.backup.workers import perform_backup
     asyncio.create_task(perform_backup(str(backup.id), backup_type, org_id, site_id))
 
     return BackupJobResponse(
@@ -187,7 +187,7 @@ async def restore_backup(
 
     logger.info("backup_restore_triggered", backup_id=str(backup.id), dry_run=dry_run, user_id=str(current_user.id))
 
-    from app.workers.backup_worker import perform_restore
+    from app.modules.backup.workers import perform_restore
     asyncio.create_task(perform_restore(str(backup.id), dry_run))
 
     return {

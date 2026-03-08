@@ -1,0 +1,2239 @@
+openapi: 3.1.0
+info:
+  title: Mist Automation & Backup API
+  description: |
+    Comprehensive web application for automating Juniper Mist operations and managing configuration backups.
+    
+    ## Authentication
+    This API uses JWT Bearer token authentication. To authenticate:
+    1. Call `POST /api/v1/auth/login` with your credentials
+    2. Use the returned `access_token` in the `Authorization` header as `Bearer <token>`
+    
+    ## Rate Limiting
+    API requests are rate-limited per user. Please handle 429 responses appropriately.
+  version: 1.0.0
+  contact:
+    name: API Support
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Authentication
+    description: User authentication and session management
+  - name: Users
+    description: User management (admin only)
+  - name: Workflows
+    description: Workflow automation management
+  - name: Webhooks
+    description: Mist webhook receiver and event management
+  - name: Backups
+    description: Configuration backup and restore operations
+  - name: Admin
+    description: System administration (admin only)
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Health Endpoints (no prefix)
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns application health status
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Application is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # Authentication Endpoints
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and return JWT token
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: Invalidate current JWT token
+      operationId: logout
+      responses:
+        '204':
+          description: Logout successful
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh token
+      description: Refresh the current JWT token
+      operationId: refreshToken
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user
+      description: Get current authenticated user information
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: User information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # User Management Endpoints
+  /users:
+    get:
+      tags:
+        - Users
+      summary: List users
+      description: List all users (admin only)
+      operationId: listUsers
+      parameters:
+        - name: skip
+          in: query
+          description: Number of users to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of users to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: is_active
+          in: query
+          description: Filter by active status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Users
+      summary: Create user
+      description: Create a new user (admin only)
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{user_id}:
+    get:
+      tags:
+        - Users
+      summary: Get user
+      description: Get user details by ID (admin only)
+      operationId: getUser
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid user ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Users
+      summary: Update user
+      description: Update user details (admin only)
+      operationId: updateUser
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid user ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Users
+      summary: Delete user
+      description: Delete a user (admin only)
+      operationId: deleteUser
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User deleted
+        '400':
+          description: Invalid user ID format or cannot delete self
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Workflow Endpoints
+  /workflows:
+    get:
+      tags:
+        - Workflows
+      summary: List workflows
+      description: List all workflows accessible to the current user
+      operationId: listWorkflows
+      parameters:
+        - name: skip
+          in: query
+          description: Number of workflows to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of workflows to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: status_filter
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [draft, enabled, disabled]
+      responses:
+        '200':
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Workflows
+      summary: Create workflow
+      description: Create a new workflow
+      operationId: createWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowCreate'
+      responses:
+        '201':
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{workflow_id}:
+    get:
+      tags:
+        - Workflows
+      summary: Get workflow
+      description: Get workflow details by ID
+      operationId: getWorkflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workflow details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Workflows
+      summary: Update workflow
+      description: Update workflow details (owner only)
+      operationId: updateWorkflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowUpdate'
+      responses:
+        '200':
+          description: Workflow updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Only owner can update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Workflows
+      summary: Delete workflow
+      description: Delete a workflow (owner or admin only)
+      operationId: deleteWorkflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Workflow deleted
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{workflow_id}/execute:
+    post:
+      tags:
+        - Workflows
+      summary: Execute workflow
+      description: Manually execute a workflow
+      operationId: executeWorkflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workflow execution queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionQueuedResponse'
+        '400':
+          description: Workflow not enabled or invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{workflow_id}/executions:
+    get:
+      tags:
+        - Workflows
+      summary: List workflow executions
+      description: List execution history for a workflow
+      operationId: listWorkflowExecutions
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+        - name: skip
+          in: query
+          description: Number of executions to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of executions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: List of executions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionListResponse'
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Webhook Endpoints
+  /webhooks/mist:
+    post:
+      tags:
+        - Webhooks
+      summary: Receive Mist webhook
+      description: Receive and process Mist webhook events (called by Mist Cloud)
+      operationId: receiveMistWebhook
+      security: []
+      parameters:
+        - name: X-Mist-Signature
+          in: header
+          description: Mist webhook signature for verification
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Mist webhook payload
+      responses:
+        '200':
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookReceivedResponse'
+
+  /webhooks/events:
+    get:
+      tags:
+        - Webhooks
+      summary: List webhook events
+      description: List webhook events received from Mist
+      operationId: listWebhookEvents
+      parameters:
+        - name: skip
+          in: query
+          description: Number of events to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of events to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: webhook_type
+          in: query
+          description: Filter by webhook type
+          schema:
+            type: string
+        - name: processed
+          in: query
+          description: Filter by processed status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of webhook events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/events/{event_id}:
+    get:
+      tags:
+        - Webhooks
+      summary: Get webhook event
+      description: Get webhook event details by ID
+      operationId: getWebhookEvent
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Webhook event ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEventResponse'
+        '400':
+          description: Invalid event ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/events/{event_id}/replay:
+    post:
+      tags:
+        - Webhooks
+      summary: Replay webhook event
+      description: Replay a webhook event through the workflow engine
+      operationId: replayWebhookEvent
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Webhook event ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Replay queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessageResponse'
+        '400':
+          description: Invalid event ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Backup Endpoints
+  /backups:
+    get:
+      tags:
+        - Backups
+      summary: List backups
+      description: List all configuration backups
+      operationId: listBackups
+      parameters:
+        - name: skip
+          in: query
+          description: Number of backups to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of backups to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: backup_type
+          in: query
+          description: Filter by backup type
+          schema:
+            type: string
+            enum: [manual, scheduled, pre_change]
+        - name: org_id
+          in: query
+          description: Filter by organization ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of backups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Backups
+      summary: Create backup
+      description: Manually trigger a configuration backup
+      operationId: createBackup
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          description: Organization ID to backup
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Site ID to backup (optional)
+          schema:
+            type: string
+        - name: backup_type
+          in: query
+          description: Backup type
+          schema:
+            type: string
+            enum: [manual, scheduled, pre_change]
+            default: manual
+      responses:
+        '201':
+          description: Backup created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/compare:
+    get:
+      tags:
+        - Backups
+      summary: Compare backups
+      description: Compare two backups to see configuration differences
+      operationId: compareBackups
+      parameters:
+        - name: backup_id_1
+          in: query
+          required: true
+          description: First backup ID
+          schema:
+            type: string
+        - name: backup_id_2
+          in: query
+          required: true
+          description: Second backup ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Backup comparison result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupDiffResponse'
+        '400':
+          description: Invalid backup ID or incomplete backup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/timeline:
+    get:
+      tags:
+        - Backups
+      summary: Get backup timeline
+      description: Get timeline view of configuration changes over time
+      operationId: getBackupTimeline
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          description: Organization ID
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Site ID (optional)
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          description: Start date (ISO format)
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: End date (ISO format)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Backup timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupTimelineResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/{backup_id}:
+    get:
+      tags:
+        - Backups
+      summary: Get backup
+      description: Get backup details by ID with full configuration data
+      operationId: getBackup
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          description: Backup ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Backup details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          description: Invalid backup ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/{backup_id}/restore:
+    post:
+      tags:
+        - Backups
+      summary: Restore backup
+      description: Restore configuration from a backup
+      operationId: restoreBackup
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          description: Backup ID
+          schema:
+            type: string
+        - name: dry_run
+          in: query
+          description: Perform a dry run without applying changes
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Restore queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreQueuedResponse'
+        '400':
+          description: Invalid backup ID or incomplete backup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Admin Endpoints
+  /admin/settings:
+    get:
+      tags:
+        - Admin
+      summary: Get system settings
+      description: Get system configuration settings (admin only)
+      operationId: getSystemSettings
+      responses:
+        '200':
+          description: System settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettingsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Admin
+      summary: Update system settings
+      description: Update system configuration settings (admin only)
+      operationId: updateSystemSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettingsUpdate'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessageResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/logs:
+    get:
+      tags:
+        - Admin
+      summary: Get audit logs
+      description: Get system audit logs (admin only)
+      operationId: getAuditLogs
+      parameters:
+        - name: skip
+          in: query
+          description: Number of logs to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of logs to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: event_type
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          description: Filter by user ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/stats:
+    get:
+      tags:
+        - Admin
+      summary: Get system stats
+      description: Get system statistics and metrics (admin only)
+      operationId: getSystemStats
+      responses:
+        '200':
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/mist/test-connection:
+    post:
+      tags:
+        - Admin
+      summary: Test Mist connection
+      description: Test connection to Mist API (admin only)
+      operationId: testMistConnection
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResponse'
+        '400':
+          description: Mist API not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/workers/status:
+    get:
+      tags:
+        - Admin
+      summary: Get worker status
+      description: Get status of background workers (admin only)
+      operationId: getWorkerStatus
+      responses:
+        '200':
+          description: Worker status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerStatusResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login
+
+  schemas:
+    # Common Schemas
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+
+    StatusMessageResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+
+    # Health
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - app
+        - version
+        - environment
+      properties:
+        status:
+          type: string
+          example: healthy
+        app:
+          type: string
+          example: Mist Automation & Backup
+        version:
+          type: string
+          example: 1.0.0
+        environment:
+          type: string
+          example: development
+
+    # Authentication
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: User password
+        remember_me:
+          type: boolean
+          default: false
+          description: Keep user logged in for longer
+
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        token_type:
+          type: string
+          default: bearer
+          description: Token type
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds
+
+    # User
+    UserCreate:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: User password
+        roles:
+          type: array
+          items:
+            type: string
+          default: []
+          description: User roles
+        timezone:
+          type: string
+          default: UTC
+          description: User timezone
+
+    UserUpdate:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        roles:
+          type: array
+          items:
+            type: string
+          description: User roles
+        timezone:
+          type: string
+          description: User timezone
+        is_active:
+          type: boolean
+          description: Whether user is active
+
+    UserResponse:
+      type: object
+      required:
+        - id
+        - email
+        - roles
+        - timezone
+        - is_active
+        - totp_enabled
+        - created_at
+      properties:
+        id:
+          type: string
+          description: User ID
+        email:
+          type: string
+          format: email
+          description: User email
+        roles:
+          type: array
+          items:
+            type: string
+          description: User roles
+        timezone:
+          type: string
+          description: User timezone
+        is_active:
+          type: boolean
+          description: Whether user is active
+        totp_enabled:
+          type: boolean
+          description: Whether 2FA is enabled
+        created_at:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+        last_login:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last login timestamp
+
+    UserListResponse:
+      type: object
+      required:
+        - users
+        - total
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserResponse'
+          description: List of users
+        total:
+          type: integer
+          description: Total number of users
+
+    # Workflow
+    WorkflowCreate:
+      type: object
+      required:
+        - name
+        - trigger
+        - actions
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Workflow name
+        description:
+          type: string
+          nullable: true
+          description: Workflow description
+        timeout_seconds:
+          type: integer
+          minimum: 10
+          maximum: 3600
+          default: 300
+          description: Workflow execution timeout
+        trigger:
+          type: object
+          additionalProperties: true
+          description: Trigger configuration
+        filters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          default: []
+          description: Primary filters
+        secondary_filters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          default: []
+          description: Secondary filters
+        actions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          minItems: 1
+          description: Actions to execute
+
+    WorkflowUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Workflow name
+        description:
+          type: string
+          nullable: true
+          description: Workflow description
+        status:
+          type: string
+          enum: [draft, enabled, disabled]
+          description: Workflow status
+        timeout_seconds:
+          type: integer
+          minimum: 10
+          maximum: 3600
+          description: Workflow execution timeout
+        trigger:
+          type: object
+          additionalProperties: true
+          description: Trigger configuration
+        filters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Primary filters
+        secondary_filters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Secondary filters
+        actions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Actions to execute
+
+    WorkflowResponse:
+      type: object
+      required:
+        - id
+        - name
+        - created_by
+        - status
+        - sharing
+        - timeout_seconds
+        - trigger
+        - filters
+        - secondary_filters
+        - actions
+        - execution_count
+        - success_count
+        - failure_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          description: Workflow ID
+        name:
+          type: string
+          description: Workflow name
+        description:
+          type: string
+          nullable: true
+          description: Workflow description
+        created_by:
+          type: string
+          description: Creator user ID
+        status:
+          type: string
+          enum: [draft, enabled, disabled]
+          description: Workflow status
+        sharing:
+          type: string
+          enum: [private, read_only, read_write]
+          description: Sharing permission
+        timeout_seconds:
+          type: integer
+          description: Execution timeout
+        trigger:
+          type: object
+          additionalProperties: true
+          description: Trigger configuration
+        filters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Primary filters
+        secondary_filters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Secondary filters
+        actions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Actions
+        execution_count:
+          type: integer
+          description: Total executions
+        success_count:
+          type: integer
+          description: Successful executions
+        failure_count:
+          type: integer
+          description: Failed executions
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    WorkflowListResponse:
+      type: object
+      required:
+        - workflows
+        - total
+      properties:
+        workflows:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowResponse'
+          description: List of workflows
+        total:
+          type: integer
+          description: Total number of workflows
+
+    ExecutionQueuedResponse:
+      type: object
+      required:
+        - execution_id
+        - status
+        - message
+      properties:
+        execution_id:
+          type: string
+          description: Execution ID
+        status:
+          type: string
+          example: queued
+        message:
+          type: string
+
+    ExecutionResponse:
+      type: object
+      required:
+        - id
+        - workflow_id
+        - workflow_name
+        - status
+        - trigger_type
+        - started_at
+      properties:
+        id:
+          type: string
+          description: Execution ID
+        workflow_id:
+          type: string
+          description: Workflow ID
+        workflow_name:
+          type: string
+          description: Workflow name
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed, cancelled]
+          description: Execution status
+        trigger_type:
+          type: string
+          description: How execution was triggered
+        started_at:
+          type: string
+          format: date-time
+          description: Start timestamp
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Completion timestamp
+        duration_ms:
+          type: integer
+          nullable: true
+          description: Duration in milliseconds
+
+    ExecutionListResponse:
+      type: object
+      required:
+        - executions
+        - total
+      properties:
+        executions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionResponse'
+          description: List of executions
+        total:
+          type: integer
+          description: Total number of executions
+
+    # Webhook
+    WebhookReceivedResponse:
+      type: object
+      required:
+        - status
+        - event_id
+        - message
+      properties:
+        status:
+          type: string
+          example: received
+        event_id:
+          type: string
+          description: Stored event ID
+        message:
+          type: string
+
+    WebhookEventResponse:
+      type: object
+      required:
+        - id
+        - webhook_type
+        - webhook_id
+        - payload
+        - processed
+        - matched_workflows
+        - executions_triggered
+        - signature_valid
+        - received_at
+      properties:
+        id:
+          type: string
+          description: Event ID
+        webhook_type:
+          type: string
+          description: Webhook type
+        webhook_topic:
+          type: string
+          nullable: true
+          description: Webhook topic
+        webhook_id:
+          type: string
+          description: Unique webhook ID
+        source_ip:
+          type: string
+          nullable: true
+          description: Source IP address
+        site_id:
+          type: string
+          nullable: true
+          description: Mist site ID
+        org_id:
+          type: string
+          nullable: true
+          description: Mist organization ID
+        payload:
+          type: object
+          additionalProperties: true
+          description: Webhook payload
+        processed:
+          type: boolean
+          description: Whether processed
+        matched_workflows:
+          type: array
+          items:
+            type: string
+          description: Matched workflow IDs
+        executions_triggered:
+          type: array
+          items:
+            type: string
+          description: Triggered execution IDs
+        signature_valid:
+          type: boolean
+          description: Signature validity
+        received_at:
+          type: string
+          format: date-time
+          description: Receipt timestamp
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Processing timestamp
+
+    WebhookListResponse:
+      type: object
+      required:
+        - events
+        - total
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEventResponse'
+          description: List of webhook events
+        total:
+          type: integer
+          description: Total number of events
+
+    # Backup
+    BackupJobResponse:
+      type: object
+      required:
+        - id
+        - backup_type
+        - org_id
+        - status
+        - object_count
+        - size_bytes
+        - created_at
+      properties:
+        id:
+          type: string
+          description: Backup ID
+        backup_type:
+          type: string
+          enum: [manual, scheduled, pre_change]
+          description: Backup type
+        org_id:
+          type: string
+          description: Organization ID
+        org_name:
+          type: string
+          nullable: true
+          description: Organization name
+        site_id:
+          type: string
+          nullable: true
+          description: Site ID
+        site_name:
+          type: string
+          nullable: true
+          description: Site name
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          description: Backup status
+        object_count:
+          type: integer
+          description: Number of backed up objects
+        size_bytes:
+          type: integer
+          description: Backup size in bytes
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        created_by:
+          type: string
+          nullable: true
+          description: Creator user ID
+        data:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Full backup data (only in single backup response)
+        error:
+          type: string
+          nullable: true
+          description: Error message if failed
+
+    BackupJobListResponse:
+      type: object
+      required:
+        - backups
+        - total
+      properties:
+        backups:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupJobResponse'
+          description: List of backups
+        total:
+          type: integer
+          description: Total number of backups
+
+    BackupDiffResponse:
+      type: object
+      required:
+        - backup_id_1
+        - backup_id_2
+        - differences
+        - added_count
+        - removed_count
+        - modified_count
+      properties:
+        backup_id_1:
+          type: string
+          description: First backup ID
+        backup_id_2:
+          type: string
+          description: Second backup ID
+        differences:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: List of differences
+        added_count:
+          type: integer
+          description: Number of added items
+        removed_count:
+          type: integer
+          description: Number of removed items
+        modified_count:
+          type: integer
+          description: Number of modified items
+
+    BackupTimelineResponse:
+      type: object
+      required:
+        - org_id
+        - backups
+        - total
+      properties:
+        org_id:
+          type: string
+          description: Organization ID
+        site_id:
+          type: string
+          nullable: true
+          description: Site ID
+        backups:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              backup_type:
+                type: string
+              status:
+                type: string
+              object_count:
+                type: integer
+              created_at:
+                type: string
+                format: date-time
+              created_by:
+                type: string
+                nullable: true
+          description: Timeline of backups
+        total:
+          type: integer
+          description: Total number of backups
+
+    RestoreQueuedResponse:
+      type: object
+      required:
+        - status
+        - backup_id
+        - dry_run
+        - message
+      properties:
+        status:
+          type: string
+          example: queued
+        backup_id:
+          type: string
+          description: Backup ID
+        dry_run:
+          type: boolean
+          description: Whether this is a dry run
+        message:
+          type: string
+
+    # Admin
+    SystemSettingsResponse:
+      type: object
+      required:
+        - mist_api_token_set
+        - max_concurrent_workflows
+        - workflow_default_timeout
+      properties:
+        mist_api_token_set:
+          type: boolean
+          description: Whether Mist API token is configured
+        mist_org_id:
+          type: string
+          nullable: true
+          description: Mist organization ID
+        mist_cloud_region:
+          type: string
+          nullable: true
+          description: Mist cloud region
+        webhook_secret_set:
+          type: boolean
+          description: Whether webhook secret is configured
+        max_concurrent_workflows:
+          type: integer
+          description: Maximum concurrent workflows
+        workflow_default_timeout:
+          type: integer
+          description: Default workflow timeout in seconds
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last update timestamp
+
+    SystemSettingsUpdate:
+      type: object
+      properties:
+        mist_api_token:
+          type: string
+          description: Mist API token
+        mist_org_id:
+          type: string
+          description: Mist organization ID
+        mist_cloud_region:
+          type: string
+          description: Mist cloud region
+        webhook_secret:
+          type: string
+          description: Webhook verification secret
+        max_concurrent_workflows:
+          type: integer
+          description: Maximum concurrent workflows
+        workflow_default_timeout:
+          type: integer
+          description: Default workflow timeout
+
+    AuditLogResponse:
+      type: object
+      required:
+        - id
+        - event_type
+        - timestamp
+      properties:
+        id:
+          type: string
+          description: Log ID
+        event_type:
+          type: string
+          description: Event type
+        user_id:
+          type: string
+          nullable: true
+          description: User ID
+        user_email:
+          type: string
+          nullable: true
+          description: User email
+        source_ip:
+          type: string
+          nullable: true
+          description: Source IP address
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Event details
+
+    AuditLogListResponse:
+      type: object
+      required:
+        - logs
+        - total
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogResponse'
+          description: List of audit logs
+        total:
+          type: integer
+          description: Total number of logs
+
+    SystemStatsResponse:
+      type: object
+      required:
+        - workflows
+        - executions
+        - backups
+        - webhooks
+        - users
+      properties:
+        workflows:
+          type: object
+          properties:
+            total:
+              type: integer
+            enabled:
+              type: integer
+            draft:
+              type: integer
+        executions:
+          type: object
+          properties:
+            total:
+              type: integer
+            pending:
+              type: integer
+            running:
+              type: integer
+            succeeded:
+              type: integer
+            failed:
+              type: integer
+        backups:
+          type: object
+          properties:
+            total:
+              type: integer
+            completed:
+              type: integer
+            pending:
+              type: integer
+            failed:
+              type: integer
+        webhooks:
+          type: object
+          properties:
+            total:
+              type: integer
+            processed:
+              type: integer
+            pending:
+              type: integer
+        users:
+          type: object
+          properties:
+            total:
+              type: integer
+            active:
+              type: integer
+            admins:
+              type: integer
+
+    ConnectionTestResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [connected, failed]
+          description: Connection status
+        error:
+          type: string
+          nullable: true
+          description: Error message if failed
+
+    WorkerStatusResponse:
+      type: object
+      required:
+        - scheduler
+      properties:
+        scheduler:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [running, stopped]
+            scheduled_workflows:
+              type: integer
+              description: Number of scheduled workflows
+            jobs:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+              description: List of scheduled jobs

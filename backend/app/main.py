@@ -106,28 +106,22 @@ async def root():
     }
 
 
-# Import and include routers
-# Note: These will be created next
-try:
-    from app.api.v1.admin import router as admin_router
-    from app.api.v1.auth import router as auth_router
-    from app.api.v1.backups import router as backups_router
-    from app.api.v1.users import router as users_router
-    from app.api.v1.webhooks import router as webhooks_router
-    from app.api.v1.workflows import router as workflows_router
+# Register routers from module registry
+from app.modules import MODULES
 
-    # Include API routers
-    app.include_router(auth_router, prefix=settings.api_v1_prefix, tags=["Authentication"])
-    app.include_router(users_router, prefix=settings.api_v1_prefix, tags=["Users"])
-    app.include_router(workflows_router, prefix=settings.api_v1_prefix, tags=["Workflows"])
-    app.include_router(webhooks_router, prefix=settings.api_v1_prefix, tags=["Webhooks"])
-    app.include_router(backups_router, prefix=settings.api_v1_prefix, tags=["Backups"])
-    app.include_router(admin_router, prefix=settings.api_v1_prefix, tags=["Admin"])
+for _module in MODULES:
+    if not _module.enabled:
+        continue
+    try:
+        app.include_router(
+            _module.get_router(),
+            prefix=settings.api_v1_prefix,
+            tags=_module.tags,
+        )
+    except Exception as e:
+        logger.warning("module_load_failed", module=_module.name, error=str(e))
 
-    logger.info("api_routers_registered")
-
-except ImportError as e:
-    logger.warning("api_routers_not_yet_implemented", error=str(e))
+logger.info("api_routers_registered")
 
 
 if __name__ == "__main__":

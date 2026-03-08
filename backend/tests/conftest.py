@@ -9,8 +9,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 
 from app.config import settings
-from app.models import *
-from app.models.backup import BackupJob
+from app.models.user import User
+from app.modules import get_all_document_models
 
 
 @pytest.fixture(scope="session")
@@ -31,21 +31,10 @@ async def test_db() -> AsyncGenerator:
     # Connect to MongoDB (use connection URL with credentials if configured)
     client = AsyncIOMotorClient(settings.mongodb_connection_url)
 
-    # Initialize Beanie with test database
+    # Initialize Beanie with all models from the module registry
     await init_beanie(
         database=client[test_db_name],
-        document_models=[
-            User,
-            UserSession,
-            Workflow,
-            WorkflowExecution,
-            WebhookEvent,
-            BackupObject,
-            BackupConfig,
-            BackupJob,
-            SystemConfig,
-            AuditLog,
-        ]
+        document_models=get_all_document_models(),
     )
 
     yield client[test_db_name]

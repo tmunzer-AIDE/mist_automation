@@ -13,7 +13,7 @@ Supports:
 import re
 from typing import Any
 
-from app.models.workflow import FilterOperator, FilterLogic
+from app.modules.automation.models.workflow import FilterOperator, FilterLogic
 
 
 class FilterEvaluationError(Exception):

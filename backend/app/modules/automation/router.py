@@ -7,10 +7,10 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_current_user_from_token
-from app.models.execution import ExecutionStatus, WorkflowExecution
+from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
 from app.models.user import User
-from app.models.workflow import Workflow, WorkflowStatus, SharingPermission
-from app.schemas.workflow import WorkflowCreate, WorkflowListResponse, WorkflowResponse, WorkflowUpdate
+from app.modules.automation.models.workflow import Workflow, WorkflowStatus, SharingPermission
+from app.modules.automation.schemas.workflow import WorkflowCreate, WorkflowListResponse, WorkflowResponse, WorkflowUpdate
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)

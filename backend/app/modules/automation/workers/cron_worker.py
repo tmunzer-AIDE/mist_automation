@@ -7,9 +7,9 @@ from typing import Any, Optional
 import structlog
 from beanie import PydanticObjectId
 
-from app.models.workflow import Workflow, WorkflowStatus
-from app.models.execution import WorkflowExecution, ExecutionStatus
-from app.services.executor_service import WorkflowExecutor
+from app.modules.automation.models.workflow import Workflow, WorkflowStatus
+from app.modules.automation.models.execution import WorkflowExecution, ExecutionStatus
+from app.modules.automation.services.executor_service import WorkflowExecutor
 from app.services.mist_service import MistService
 from app.config import settings
 

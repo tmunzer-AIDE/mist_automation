@@ -8,10 +8,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from app.dependencies import require_admin
 from app.models.system import AuditLog, SystemConfig
 from app.models.user import User
-from app.models.workflow import Workflow
-from app.models.execution import WorkflowExecution
-from app.models.backup import BackupJob
-from app.models.webhook import WebhookEvent
+from app.modules.automation.models.workflow import Workflow
+from app.modules.automation.models.execution import WorkflowExecution
+from app.modules.backup.models import BackupJob
+from app.modules.automation.models.webhook import WebhookEvent
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -198,7 +198,7 @@ async def get_worker_status(
     """
     Get status of background workers (admin only).
     """
-    from app.workers.scheduler import get_scheduler
+    from app.modules.automation.workers.scheduler import get_scheduler
     scheduler = get_scheduler()
     jobs = scheduler.get_scheduled_workflows() if scheduler._initialized else []
     return {

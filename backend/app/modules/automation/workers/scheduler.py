@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 
-from app.models.workflow import Workflow, WorkflowStatus, TriggerType
+from app.modules.automation.models.workflow import Workflow, WorkflowStatus, TriggerType
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -216,7 +216,7 @@ class WorkflowScheduler:
             workflow_id: Workflow ID to execute
             workflow_name: Workflow name (for logging)
         """
-        from app.workers.cron_worker import execute_cron_workflow
+        from app.modules.automation.workers.cron_worker import execute_cron_workflow
 
         logger.info(
             "cron_workflow_triggered",

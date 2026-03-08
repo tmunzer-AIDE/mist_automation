@@ -8,16 +8,16 @@ import structlog
 from celery import Celery
 from beanie import PydanticObjectId
 
-from app.models.backup import BackupJob, BackupStatus, BackupType
-from app.services.backup_service import BackupService
-from app.services.git_service import GitService
+from app.modules.backup.models import BackupJob, BackupStatus, BackupType
+from app.modules.backup.services.backup_service import BackupService
+from app.modules.backup.services.git_service import GitService
 from app.services.mist_service import MistService
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
 # Initialize Celery (reuse same app as webhook worker)
-from app.workers.webhook_worker import celery_app
+from app.modules.automation.workers.webhook_worker import celery_app
 
 
 @celery_app.task(name='perform_backup', bind=True, max_retries=2)
@@ -185,7 +185,7 @@ async def perform_restore(backup_id: str, dry_run: bool = False):
     try:
         backup.status = BackupStatus.IN_PROGRESS
         await backup.save()
-        from app.services.restore_service import RestoreService
+        from app.modules.backup.services.restore_service import RestoreService
         restore_service = RestoreService()
         await restore_service.restore_backup(backup, dry_run=dry_run)
         backup.status = BackupStatus.COMPLETED

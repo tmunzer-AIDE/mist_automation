@@ -8,10 +8,10 @@ import structlog
 from celery import Celery
 from beanie import PydanticObjectId
 
-from app.models.workflow import Workflow, TriggerType
-from app.models.webhook import WebhookEvent
-from app.models.execution import WorkflowExecution, ExecutionStatus
-from app.services.executor_service import WorkflowExecutor
+from app.modules.automation.models.workflow import Workflow, TriggerType
+from app.modules.automation.models.webhook import WebhookEvent
+from app.modules.automation.models.execution import WorkflowExecution, ExecutionStatus
+from app.modules.automation.services.executor_service import WorkflowExecutor
 from app.services.mist_service import MistService
 from app.config import settings
 
