@@ -1,3 +1,54 @@
+# IDE / Editor
 /.claude
-.env
 /.vscode
+.idea/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg
+*.egg-info/
+*.whl
+
+# Testing / Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.pytest_cache/
+.tox/
+.nox/
+
+# Type checking
+.mypy_cache/
+.pytype/
+
+# Environment
+.env
+.env.*
+.venv/
+venv/
+ENV/
+
+# Database
+*.db
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs/temp
+*.log
+*.bak
+*.tmp
+*.swp
+
+# Project specific
+/backend/mist_automation_backend.egg-info/
