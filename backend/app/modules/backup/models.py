@@ -156,6 +156,9 @@ class BackupJob(Document):
     data: dict | None = Field(default=None, description="Backup data for small backups")
     object_refs: list[PydanticObjectId] = Field(default_factory=list, description="References to BackupObject documents")
     
+    # Webhook trigger data
+    webhook_event: list[dict] | None = Field(default=None, description="Webhook event payload(s) that triggered this backup")
+
     # Error tracking
     error: str | None = Field(default=None, description="Error message if backup failed")
     

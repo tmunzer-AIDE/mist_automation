@@ -29,6 +29,10 @@ export class TopbarComponent {
   private readonly store = inject(Store);
   user$ = this.store.select(selectCurrentUser);
 
+  userInitial(email: string): string {
+    return (email || '?')[0].toUpperCase();
+  }
+
   logout(): void {
     this.store.dispatch(AuthActions.logout());
   }

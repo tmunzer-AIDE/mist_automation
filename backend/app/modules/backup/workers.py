@@ -439,6 +439,7 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             org_id=org_id,
             status=BackupStatus.IN_PROGRESS,
             started_at=datetime.now(timezone.utc),
+            webhook_event=audit_events,
         )
         await backup_job.insert()
         backup_logger = BackupLogger(str(backup_job.id))
@@ -504,6 +505,16 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             events=len(audit_events),
             backed_up=backed_up,
         )
+
+        if backed_up == 0:
+            # No objects were actually backed up — discard the job and its logs
+            # to avoid cluttering the database with empty webhook jobs.
+            await BackupLogEntry.find(
+                BackupLogEntry.backup_job_id == backup_job.id
+            ).delete()
+            await backup_job.delete()
+            logger.info("incremental_backup_discarded", org_id=org_id, reason="no objects backed up")
+            return
 
         await backup_logger.info("complete", f"Incremental backup completed: {backed_up}/{len(audit_events)} events processed")
         backup_job.status = BackupStatus.COMPLETED

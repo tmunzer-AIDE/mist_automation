@@ -14,10 +14,10 @@ import { Component, Input } from '@angular/core';
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
-      padding: 2px 8px 2px 6px;
-      border-radius: 10px;
+      padding: 3px 10px 3px 8px;
+      border-radius: 6px;
       text-transform: capitalize;
       letter-spacing: 0.2px;
     }

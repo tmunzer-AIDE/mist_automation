@@ -13,19 +13,14 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatTabsModule } from '@angular/material/tabs';
 import { MatMenuModule } from '@angular/material/menu';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { ApiService } from '../../../core/services/api.service';
 import {
   BackupJobResponse,
   BackupJobListResponse,
   BackupObjectSummary,
   BackupObjectListResponse,
-  BackupChangeEvent,
-  BackupChangeListResponse,
   MistObjectTypeOption,
   MistSiteOption,
 } from '../../../core/models/backup.model';
@@ -52,11 +47,8 @@ import { BackupCreateDialogComponent } from './backup-create-dialog.component';
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
-    MatChipsModule,
-    MatTooltipModule,
+    MatTabsModule,
     MatMenuModule,
-    MatCardModule,
-    MatButtonToggleModule,
     PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
@@ -73,10 +65,16 @@ export class BackupListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly fb = inject(FormBuilder);
 
+  // ── Tabs ──────────────────────────────────────────────────────────────
+  activeTabIndex = 1; // Default to Objects tab
+
   // ── Backup jobs ─────────────────────────────────────────────────────
   jobs: BackupJobResponse[] = [];
   jobsTotal = 0;
+  jobsPageSize = 10;
+  jobsPageIndex = 0;
   loadingJobs = true;
+  jobColumns = ['status', 'backup_type', 'object_count', 'size', 'created_at'];
 
   // ── Object table ─────────────────────────────────────────────────────
   objects: BackupObjectSummary[] = [];
@@ -84,28 +82,11 @@ export class BackupListComponent implements OnInit {
   objectsPageSize = 25;
   objectsPageIndex = 0;
   loadingObjects = true;
+  objectColumns = ['object_name', 'object_type', 'scope', 'version_count', 'last_backed_up_at', 'status'];
 
   // ── Sort ──────────────────────────────────────────────────────────────
   sortField = 'last_backed_up_at';
   sortDirection: 'asc' | 'desc' | '' = 'desc';
-
-  displayedColumns = [
-    'scope',
-    'object_type',
-    'object_name',
-    'version_count',
-    'first_backed_up_at',
-    'last_backed_up_at',
-    'last_modified_at',
-    'status',
-    'actions',
-  ];
-
-  // ── Timeline ─────────────────────────────────────────────────────────
-  changes: BackupChangeEvent[] = [];
-  changesTotal = 0;
-  loadingChanges = true;
-  timelineLimit = 50;
 
   // ── Filters ──────────────────────────────────────────────────────────
   searchQuery = '';
@@ -119,14 +100,10 @@ export class BackupListComponent implements OnInit {
     site_id: [''],
   });
 
-  // Quick filter presets
-  activeQuickFilter: string | null = null;
-
   ngOnInit(): void {
     this.loadObjectTypes();
     this.loadSites();
     this.loadObjects();
-    this.loadChanges();
     this.loadJobs();
   }
 
@@ -163,34 +140,13 @@ export class BackupListComponent implements OnInit {
     });
   }
 
-  loadChanges(): void {
-    this.loadingChanges = true;
-    const params: Record<string, string | number> = {
-      limit: this.timelineLimit,
-    };
-
-    const f = this.filterForm.value;
-    if (f.object_type) params['object_type'] = f.object_type;
-    if (f.scope) params['scope'] = f.scope;
-    if (f.site_id) params['site_id'] = f.site_id;
-
-    this.api.get<BackupChangeListResponse>('/backups/changes', params).subscribe({
-      next: (res) => {
-        this.changes = res.changes;
-        this.changesTotal = res.total;
-        this.loadingChanges = false;
-        this.cdr.detectChanges();
-      },
-      error: () => {
-        this.loadingChanges = false;
-        this.cdr.detectChanges();
-      },
-    });
-  }
-
   loadJobs(): void {
     this.loadingJobs = true;
-    this.api.get<BackupJobListResponse>('/backups', { limit: 10 }).subscribe({
+    const params: Record<string, string | number> = {
+      skip: this.jobsPageIndex * this.jobsPageSize,
+      limit: this.jobsPageSize,
+    };
+    this.api.get<BackupJobListResponse>('/backups', params).subscribe({
       next: (res) => {
         this.jobs = res.backups;
         this.jobsTotal = res.total;
@@ -247,36 +203,15 @@ export class BackupListComponent implements OnInit {
   }
 
   applyFilters(): void {
-    this.activeQuickFilter = null;
     this.objectsPageIndex = 0;
     this.loadObjects();
-    this.loadChanges();
   }
 
   clearFilters(): void {
     this.filterForm.reset({ object_type: '', scope: '', status: '', site_id: '' });
     this.searchQuery = '';
-    this.activeQuickFilter = null;
     this.objectsPageIndex = 0;
     this.loadObjects();
-    this.loadChanges();
-  }
-
-  quickFilter(preset: string): void {
-    this.filterForm.reset({ object_type: '', scope: '', status: '', site_id: '' });
-    this.searchQuery = '';
-    this.activeQuickFilter = preset;
-    this.objectsPageIndex = 0;
-
-    if (preset === 'active') {
-      this.filterForm.patchValue({ status: 'active' });
-    } else if (preset === 'deleted') {
-      this.filterForm.patchValue({ status: 'deleted' });
-    }
-    // 'recent' is handled by default sort (most recently updated first)
-
-    this.loadObjects();
-    this.loadChanges();
   }
 
   get hasActiveFilters(): boolean {
@@ -292,6 +227,12 @@ export class BackupListComponent implements OnInit {
     this.loadObjects();
   }
 
+  onJobsPage(event: PageEvent): void {
+    this.jobsPageIndex = event.pageIndex;
+    this.jobsPageSize = event.pageSize;
+    this.loadJobs();
+  }
+
   // ── Actions ──────────────────────────────────────────────────────────
 
   viewObjectDetail(obj: BackupObjectSummary): void {
@@ -303,58 +244,11 @@ export class BackupListComponent implements OnInit {
     ref.afterClosed().subscribe((result) => {
       if (result) {
         this.snackBar.open('Backup job created', 'OK', { duration: 3000 });
-        // Reload after a short delay to let the backup run
         setTimeout(() => {
           this.loadObjects();
-          this.loadChanges();
           this.loadJobs();
         }, 2000);
       }
     });
-  }
-
-  // ── Timeline helpers ─────────────────────────────────────────────────
-
-  eventTypeLabel(eventType: string): string {
-    const labels: Record<string, string> = {
-      full_backup: 'Backed up',
-      incremental: 'Incremental',
-      created: 'Created',
-      updated: 'Updated',
-      deleted: 'Deleted',
-      restored: 'Restored',
-    };
-    return labels[eventType] || eventType;
-  }
-
-  eventDotClass(eventType: string): string {
-    const classes: Record<string, string> = {
-      updated: 'dot-updated',
-      deleted: 'dot-deleted',
-      created: 'dot-created',
-      restored: 'dot-restored',
-      full_backup: 'dot-backup',
-      incremental: 'dot-backup',
-    };
-    return classes[eventType] || 'dot-backup';
-  }
-
-  tooltipText(change: BackupChangeEvent): string {
-    const name = change.object_name || change.object_id;
-    const event = this.eventTypeLabel(change.event_type);
-    const type = change.object_type;
-    const fields = change.changed_fields.length > 0
-      ? '\nChanged: ' + change.changed_fields.slice(0, 5).join(', ') +
-        (change.changed_fields.length > 5 ? ` (+${change.changed_fields.length - 5})` : '')
-      : '';
-    return `${event}: ${name}\nType: ${type}${fields}`;
-  }
-
-  filterByTimelineEvent(change: BackupChangeEvent): void {
-    this.filterForm.patchValue({ object_type: change.object_type });
-    this.searchQuery = change.object_name || '';
-    this.objectsPageIndex = 0;
-    this.activeQuickFilter = null;
-    this.loadObjects();
   }
 }

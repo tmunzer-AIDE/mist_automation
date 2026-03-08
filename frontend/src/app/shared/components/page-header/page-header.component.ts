@@ -21,24 +21,26 @@ import { Component, Input } from '@angular/core';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--mat-sys-outline-variant);
       flex-wrap: wrap;
       gap: 12px;
     }
     .page-header-text {
       display: flex;
-      align-items: baseline;
-      gap: 12px;
+      flex-direction: column;
+      gap: 4px;
     }
     h1 {
       margin: 0;
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 600;
-      letter-spacing: -0.3px;
+      letter-spacing: -0.4px;
     }
     .subtitle {
       color: var(--mat-sys-on-surface-variant);
-      font-size: 13px;
+      font-size: 14px;
     }
     .page-header-actions {
       display: flex;

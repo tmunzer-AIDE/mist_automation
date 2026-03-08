@@ -21,6 +21,7 @@ class BackupJobResponse(BaseModel):
     created_at: datetime
     created_by: str | None
     data: dict | None = None
+    webhook_event: list[dict] | None = None
     error: str | None = None
 
 

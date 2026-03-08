@@ -241,7 +241,8 @@ async def create_backup(
         object_count=backup.object_count,
         size_bytes=backup.size_bytes,
         created_at=backup.created_at,
-        created_by=str(backup.created_by) if backup.created_by else None
+        created_by=str(backup.created_by) if backup.created_by else None,
+        webhook_event=backup.webhook_event,
     )
 
 
@@ -648,7 +649,8 @@ async def get_backup(
         object_count=backup.object_count,
         size_bytes=backup.size_bytes,
         created_at=backup.created_at,
-        created_by=str(backup.created_by) if backup.created_by else None
+        created_by=str(backup.created_by) if backup.created_by else None,
+        webhook_event=backup.webhook_event,
     )
 
 

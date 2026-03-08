@@ -1,7 +1,6 @@
 import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -9,7 +8,6 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { BackupJobResponse, BackupLogEntry, BackupLogListResponse } from '../../../core/models/backup.model';
-import { MatChipsModule } from '@angular/material/chips';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
@@ -23,13 +21,11 @@ import { RestoreDialogComponent } from './restore-dialog.component';
   imports: [
     CommonModule,
     RouterModule,
-    MatCardModule,
     MatButtonModule,
     MatIconModule,
     MatDialogModule,
     MatSnackBarModule,
     MatProgressBarModule,
-    MatChipsModule,
     PageHeaderComponent,
     StatusBadgeComponent,
     LoadingSpinnerComponent,
@@ -49,6 +45,7 @@ export class BackupDetailComponent implements OnInit {
   backup: BackupJobResponse | null = null;
   loading = true;
   jsonExpanded = false;
+  webhookExpanded = false;
 
   // Execution logs
   logs: BackupLogEntry[] = [];

@@ -11,6 +11,7 @@ export interface BackupJobResponse {
   created_at: string;
   created_by: string | null;
   data: Record<string, unknown> | null;
+  webhook_event: Record<string, unknown>[] | null;
   error: string | null;
 }
 

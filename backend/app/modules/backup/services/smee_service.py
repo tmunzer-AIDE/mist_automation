@@ -135,11 +135,12 @@ class SmeeClient:
             return
 
         # Smee wraps the original request — extract body and headers.
-        # Smee.io flattens original HTTP headers as top-level keys in the
-        # SSE payload (alongside "body", "timestamp", etc.), so we look
-        # for Mist signature headers both at the top level and in a nested
-        # "headers" dict (for forward-compatibility).
-        body = data.get("body", data)
+        # Smee.io sends keepalive/heartbeat SSE events that don't carry a
+        # "body" key.  Skip those to avoid forwarding empty payloads.
+        if "body" not in data:
+            return
+
+        body = data["body"]
 
         # Build forwarding headers (keep content-type and Mist signature).
         # Mark the request as smee-forwarded so the webhook endpoint can

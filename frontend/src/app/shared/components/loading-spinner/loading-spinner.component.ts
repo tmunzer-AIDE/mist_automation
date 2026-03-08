@@ -31,5 +31,5 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 })
 export class LoadingSpinnerComponent {
   @Input() overlay = false;
-  @Input() diameter = 48;
+  @Input() diameter = 40;
 }

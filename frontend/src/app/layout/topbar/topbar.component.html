@@ -7,7 +7,7 @@
 
   @if (user$ | async; as user) {
     <button mat-button [matMenuTriggerFor]="userMenu" class="user-btn">
-      <mat-icon class="avatar-icon">account_circle</mat-icon>
+      <span class="avatar-letter">{{ userInitial(user.email) }}</span>
       <span class="user-email">{{ user.email }}</span>
       <mat-icon class="dropdown-icon">expand_more</mat-icon>
     </button>

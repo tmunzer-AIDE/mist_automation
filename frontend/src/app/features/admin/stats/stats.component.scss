@@ -4,6 +4,11 @@
   gap: 24px;
 }
 
+mat-card {
+  box-shadow: var(--app-shadow-sm) !important;
+  border-radius: var(--app-radius) !important;
+}
+
 .stat-row {
   display: flex;
   justify-content: space-between;
@@ -20,6 +25,7 @@
   }
 
   strong {
-    font-size: 18px;
+    font-size: 20px;
+    font-weight: 600;
   }
 }

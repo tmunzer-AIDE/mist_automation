@@ -12,10 +12,16 @@
 
 .table-container {
   overflow-x: auto;
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-sm);
 }
 
 table {
   width: 100%;
+}
+
+tr.mat-mdc-row:hover {
+  background: var(--mat-sys-surface-container-low);
 }
 
 .details-cell {
@@ -24,5 +30,6 @@ table {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  font-family: var(--app-font-mono);
   color: var(--mat-sys-on-surface-variant);
 }

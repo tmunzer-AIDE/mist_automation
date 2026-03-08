@@ -1,6 +1,6 @@
 import { Component, ChangeDetectorRef, DestroyRef, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { Store } from '@ngrx/store';
@@ -37,6 +37,7 @@ export class DashboardComponent implements OnInit {
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly router = inject(Router);
 
   user$ = this.store.select(selectCurrentUser);
   isAdmin$ = this.store.select(selectIsAdmin);
@@ -74,5 +75,9 @@ export class DashboardComponent implements OnInit {
         this.loading = false;
         this.cdr.detectChanges();
       });
+  }
+
+  navigateTo(route: string): void {
+    this.router.navigate([route]);
   }
 }

@@ -10,6 +10,8 @@
   width: 100%;
   max-width: 420px;
   margin: 24px;
+  box-shadow: var(--app-shadow-lg) !important;
+  border-radius: 16px !important;
 
   mat-card-header {
     display: flex;
@@ -42,6 +44,7 @@ mat-form-field {
   margin-top: 16px;
   height: 48px;
   font-size: 16px;
+  border-radius: 10px;
 }
 
 .error-message {

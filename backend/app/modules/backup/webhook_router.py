@@ -100,8 +100,16 @@ async def receive_backup_webhook(
         # Flat audit event (one per request) — the common Mist format
         events = [payload]
 
+    # Filter out empty/ping events — Mist sends heartbeat pings with
+    # empty or minimal payloads that contain no actionable object data.
+    _META_KEYS = {"id", "org_id", "site_id", "admin_id", "topic", "events"}
+    events = [
+        e for e in events
+        if e and any(k for k in e if k not in _META_KEYS)
+    ]
+
     if not events:
-        return {"status": "ignored", "reason": "no events in payload"}
+        return {"status": "ignored", "reason": "no actionable events in payload"}
 
     # Validate org_id against configured org
     configured_org_id = config.mist_org_id or ""

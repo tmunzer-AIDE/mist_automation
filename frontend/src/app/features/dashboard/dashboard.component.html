@@ -1,18 +1,4 @@
 <app-page-header title="Dashboard" subtitle="System overview">
-  @if (isAdmin$ | async) {
-    <a mat-stroked-button routerLink="/backup" class="action-btn">
-      <mat-icon>backup</mat-icon> New Backup
-    </a>
-    <a mat-stroked-button routerLink="/admin/logs" class="action-btn">
-      <mat-icon>receipt_long</mat-icon> Audit Logs
-    </a>
-    <a mat-stroked-button routerLink="/admin/users" class="action-btn">
-      <mat-icon>people</mat-icon> Users
-    </a>
-    <a mat-stroked-button routerLink="/admin/settings" class="action-btn">
-      <mat-icon>settings</mat-icon> Settings
-    </a>
-  }
 </app-page-header>
 
 @if (loading) {
@@ -23,15 +9,14 @@
     <div class="health-bar">
       <div class="health-indicator">
         <app-status-badge [status]="health.status"></app-status-badge>
-        <span class="health-meta">{{ health.app }} v{{ health.version }}</span>
-        <span class="health-meta">{{ health.environment }}</span>
+        <span class="health-meta">{{ health.app }} v{{ health.version }} &middot; {{ health.environment }}</span>
       </div>
     </div>
   }
 
   @if (stats) {
     <div class="stats-grid">
-      <div class="stat-card">
+      <div class="stat-card" (click)="navigateTo('/admin/users')">
         <div class="stat-icon users">
           <mat-icon>people</mat-icon>
         </div>
@@ -42,7 +27,7 @@
         </div>
       </div>
 
-      <div class="stat-card">
+      <div class="stat-card" (click)="navigateTo('/backup')">
         <div class="stat-icon backups">
           <mat-icon>backup</mat-icon>
         </div>
@@ -53,7 +38,7 @@
         </div>
       </div>
 
-      <div class="stat-card">
+      <div class="stat-card" (click)="navigateTo('/workflows')">
         <div class="stat-icon workflows">
           <mat-icon>account_tree</mat-icon>
         </div>
@@ -64,7 +49,7 @@
         </div>
       </div>
 
-      <div class="stat-card">
+      <div class="stat-card" (click)="navigateTo('/executions')">
         <div class="stat-icon executions">
           <mat-icon>play_circle</mat-icon>
         </div>
@@ -75,7 +60,7 @@
         </div>
       </div>
 
-      <div class="stat-card">
+      <div class="stat-card" (click)="navigateTo('/webhooks')">
         <div class="stat-icon webhooks">
           <mat-icon>webhook</mat-icon>
         </div>

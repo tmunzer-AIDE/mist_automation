@@ -4,11 +4,11 @@ html {
   height: 100%;
   @include mat.theme((
     color: (
-      primary: mat.$cyan-palette,
-      tertiary: mat.$violet-palette,
+      primary: mat.$azure-palette,
+      tertiary: mat.$spring-green-palette,
     ),
-    typography: Roboto,
-    density: -1,
+    typography: Inter,
+    density: 0,
   ));
 }
 
@@ -17,9 +17,10 @@ body {
   background-color: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);
-  font-size: 13px;
+  font-size: 14px;
   margin: 0;
   height: 100%;
+  scrollbar-width: thin;
 }
 
 a {
@@ -27,12 +28,31 @@ a {
   text-decoration: none;
 }
 
-// Force compact toolbar height globally
 :root {
-  --mat-toolbar-standard-height: 48px;
-  --mat-toolbar-mobile-height: 48px;
+  --app-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --app-shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06);
+  --app-shadow-lg: 0 8px 24px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.08);
+  --app-radius: 12px;
+  --app-radius-sm: 8px;
+  --app-font-mono: 'JetBrains Mono', monospace;
+}
+
+// Global scrollbar styling
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--mat-sys-outline-variant);
+  border-radius: 3px;
+}
+
+// Global transition for interactive elements
+button, a, input, select, textarea {
+  transition: all 0.15s ease;
 }
 
 .mat-mdc-snack-bar-container {
-  margin-top: 56px;
+  margin-top: 64px;
 }
