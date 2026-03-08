@@ -2,6 +2,7 @@ import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatSortModule, Sort } from '@angular/material/sort';
@@ -13,14 +14,14 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatTabsModule } from '@angular/material/tabs';
-import { MatMenuModule } from '@angular/material/menu';
+import { BaseChartDirective } from 'ng2-charts';
+import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
 import {
-  BackupJobResponse,
-  BackupJobListResponse,
   BackupObjectSummary,
   BackupObjectListResponse,
+  BackupObjectStatsResponse,
+  BackupJobStatsResponse,
   MistObjectTypeOption,
   MistSiteOption,
 } from '../../../core/models/backup.model';
@@ -28,9 +29,10 @@ import { PageHeaderComponent } from '../../../shared/components/page-header/page
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
+import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
 
 @Component({
-  selector: 'app-backup-list',
+  selector: 'app-backup-object-list',
   standalone: true,
   imports: [
     CommonModule,
@@ -47,17 +49,17 @@ import { BackupCreateDialogComponent } from './backup-create-dialog.component';
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
-    MatTabsModule,
-    MatMenuModule,
+    BaseChartDirective,
     PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
+    BackupChartCardComponent,
     DatePipe,
   ],
-  templateUrl: './backup-list.component.html',
-  styleUrl: './backup-list.component.scss',
+  templateUrl: './backup-object-list.component.html',
+  styleUrl: './backup-object-list.component.scss',
 })
-export class BackupListComponent implements OnInit {
+export class BackupObjectListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly dialog = inject(MatDialog);
   private readonly router = inject(Router);
@@ -65,24 +67,20 @@ export class BackupListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly fb = inject(FormBuilder);
 
-  // ── Tabs ──────────────────────────────────────────────────────────────
-  activeTabIndex = 1; // Default to Objects tab
-
-  // ── Backup jobs ─────────────────────────────────────────────────────
-  jobs: BackupJobResponse[] = [];
-  jobsTotal = 0;
-  jobsPageSize = 10;
-  jobsPageIndex = 0;
-  loadingJobs = true;
-  jobColumns = ['status', 'backup_type', 'object_count', 'size', 'created_at'];
-
   // ── Object table ─────────────────────────────────────────────────────
   objects: BackupObjectSummary[] = [];
   objectsTotal = 0;
   objectsPageSize = 25;
   objectsPageIndex = 0;
   loadingObjects = true;
-  objectColumns = ['object_name', 'object_type', 'scope', 'version_count', 'last_backed_up_at', 'status'];
+  objectColumns = [
+    'object_name',
+    'object_type',
+    'scope',
+    'version_count',
+    'last_backed_up_at',
+    'status',
+  ];
 
   // ── Sort ──────────────────────────────────────────────────────────────
   sortField = 'last_backed_up_at';
@@ -91,6 +89,8 @@ export class BackupListComponent implements OnInit {
   // ── Filters ──────────────────────────────────────────────────────────
   searchQuery = '';
   objectTypeOptions: MistObjectTypeOption[] = [];
+  objectType: MistObjectTypeOption[] = [];
+
   siteOptions: MistSiteOption[] = [];
 
   filterForm = this.fb.group({
@@ -100,11 +100,14 @@ export class BackupListComponent implements OnInit {
     site_id: [''],
   });
 
+  // ── Chart ────────────────────────────────────────────────────────────
+  chartConfig: ChartConfiguration<'bar'> | null = null;
+
   ngOnInit(): void {
     this.loadObjectTypes();
     this.loadSites();
     this.loadObjects();
-    this.loadJobs();
+    this.loadCharts();
   }
 
   // ── Data loading ─────────────────────────────────────────────────────
@@ -140,28 +143,86 @@ export class BackupListComponent implements OnInit {
     });
   }
 
-  loadJobs(): void {
-    this.loadingJobs = true;
-    const params: Record<string, string | number> = {
-      skip: this.jobsPageIndex * this.jobsPageSize,
-      limit: this.jobsPageSize,
-    };
-    this.api.get<BackupJobListResponse>('/backups', params).subscribe({
-      next: (res) => {
-        this.jobs = res.backups;
-        this.jobsTotal = res.total;
-        this.loadingJobs = false;
-        this.cdr.detectChanges();
-      },
-      error: () => {
-        this.loadingJobs = false;
+  private loadCharts(): void {
+    const completed = '#2563eb';   // vivid blue
+    const failed = '#ef4444';      // vivid red
+    const objectsLine = '#10b981'; // vivid emerald
+    const gridColor = '#e2e8f0';
+
+    forkJoin({
+      objects: this.api.get<BackupObjectStatsResponse>('/backups/stats/objects'),
+      jobs: this.api.get<BackupJobStatsResponse>('/backups/stats/jobs'),
+    }).subscribe({
+      next: ({ objects, jobs }) => {
+        const labels = objects.days.map((d) => d.date.slice(5));
+        this.chartConfig = {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Jobs completed',
+                data: jobs.days.map((d) => d.completed),
+                backgroundColor: completed,
+                borderRadius: 2,
+                stack: 'jobs',
+                order: 1,
+                yAxisID: 'y',
+              },
+              {
+                label: 'Jobs failed',
+                data: jobs.days.map((d) => d.failed),
+                backgroundColor: failed,
+                borderRadius: 2,
+                stack: 'jobs',
+                order: 1,
+                yAxisID: 'y',
+              },
+              {
+                label: 'Objects backed up',
+                data: objects.days.map((d) => d.object_count),
+                type: 'line' as const,
+                borderColor: objectsLine,
+                backgroundColor: 'transparent',
+                fill: false,
+                pointRadius: 2,
+                tension: 0.3,
+                borderWidth: 2,
+                order: 0,
+                yAxisID: 'y1',
+              } as any,
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true } },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: { maxTicksLimit: 15, font: { size: 10 } },
+              },
+              y: {
+                position: 'left',
+                stacked: true,
+                beginAtZero: true,
+                grid: { color: gridColor },
+                ticks: { precision: 0, font: { size: 10 } },
+                title: { display: true, text: 'Jobs', font: { size: 11 } },
+              },
+              y1: {
+                position: 'right',
+                beginAtZero: true,
+                grid: { drawOnChartArea: false },
+                ticks: { precision: 0, font: { size: 10 } },
+                title: { display: true, text: 'Objects', font: { size: 11 } },
+              },
+            },
+          },
+        };
         this.cdr.detectChanges();
       },
     });
-  }
-
-  viewJobDetail(job: BackupJobResponse): void {
-    this.router.navigate(['/backup', job.id]);
   }
 
   private loadObjectTypes(): void {
@@ -169,7 +230,8 @@ export class BackupListComponent implements OnInit {
       .get<{ object_types: MistObjectTypeOption[] }>('/admin/mist/object-types')
       .subscribe({
         next: (res) => {
-          this.objectTypeOptions = res.object_types;
+          this.objectType = res.object_types;
+          this.filterScopeObjects();
           this.cdr.detectChanges();
         },
       });
@@ -204,6 +266,7 @@ export class BackupListComponent implements OnInit {
 
   applyFilters(): void {
     this.objectsPageIndex = 0;
+    this.filterScopeObjects();
     this.loadObjects();
   }
 
@@ -211,12 +274,23 @@ export class BackupListComponent implements OnInit {
     this.filterForm.reset({ object_type: '', scope: '', status: '', site_id: '' });
     this.searchQuery = '';
     this.objectsPageIndex = 0;
+    this.filterScopeObjects();
     this.loadObjects();
   }
 
   get hasActiveFilters(): boolean {
     const f = this.filterForm.value;
     return !!(this.searchQuery || f.object_type || f.scope || f.status || f.site_id);
+  }
+
+  filterScopeObjects(): void {
+    let scope = this.filterForm.get("scope")?.value;
+
+    this.objectTypeOptions = this.objectType
+        .filter(t => t.scope === scope || scope === '')
+        .sort((a, b) => a.label.localeCompare(b.label));
+      
+    this.cdr.detectChanges();
   }
 
   // ── Pagination ───────────────────────────────────────────────────────
@@ -227,16 +301,14 @@ export class BackupListComponent implements OnInit {
     this.loadObjects();
   }
 
-  onJobsPage(event: PageEvent): void {
-    this.jobsPageIndex = event.pageIndex;
-    this.jobsPageSize = event.pageSize;
-    this.loadJobs();
-  }
-
   // ── Actions ──────────────────────────────────────────────────────────
 
   viewObjectDetail(obj: BackupObjectSummary): void {
     this.router.navigate(['/backup', 'object', obj.object_id]);
+  }
+
+  navigateToJobs(): void {
+    this.router.navigate(['/backup', 'jobs']);
   }
 
   openCreateDialog(): void {
@@ -244,10 +316,7 @@ export class BackupListComponent implements OnInit {
     ref.afterClosed().subscribe((result) => {
       if (result) {
         this.snackBar.open('Backup job created', 'OK', { duration: 3000 });
-        setTimeout(() => {
-          this.loadObjects();
-          this.loadJobs();
-        }, 2000);
+        setTimeout(() => this.loadObjects(), 2000);
       }
     });
   }

@@ -81,16 +81,34 @@ class RestoreService:
                     "warnings": validation_result.get("warnings", []),
                 }
 
-            # Perform actual restore
-            result = await self._restore_to_mist(backup)
-
-            # Create restore backup record
-            await self._create_restore_backup(backup, restored_by)
+            # Perform actual restore — PUT if object exists, POST if it was
+            # deleted in Mist (the backup record may not be marked is_deleted
+            # if the deletion happened outside the backup system).
+            if validation_result.get("exists_in_mist", True):
+                result = await self._restore_to_mist(backup)
+                await self._create_restore_backup(backup, restored_by)
+            else:
+                # Object no longer exists — recreate via POST (new UUID)
+                restored_config = await self._prepare_deleted_object_config(backup)
+                result = await self._create_object_in_mist(
+                    backup.object_type, restored_config, site_id=backup.site_id,
+                )
+                new_object_id = result.get("id")
+                if new_object_id:
+                    await self._migrate_versions_to_new_id(
+                        old_object_id=backup.object_id,
+                        new_object_id=new_object_id,
+                        backup=backup,
+                        result=result,
+                        restored_by=restored_by,
+                    )
+                else:
+                    await self._create_restore_backup(backup, restored_by)
 
             logger.info(
                 "restore_completed",
                 backup_id=str(backup_id),
-                object_id=backup.object_id,
+                object_id=result.get("id", backup.object_id),
                 restored_by=restored_by,
             )
 
@@ -98,10 +116,11 @@ class RestoreService:
                 "status": "success",
                 "backup_id": str(backup_id),
                 "object_type": backup.object_type,
-                "object_id": backup.object_id,
+                "object_id": result.get("id", backup.object_id),
                 "object_name": backup.object_name,
                 "version": backup.version,
                 "result": result,
+                "note": "Object restored with new UUID" if result.get("id") != backup.object_id else None,
             }
 
         except Exception as e:
@@ -145,10 +164,10 @@ class RestoreService:
             )
         else:
             # Get the version just before deletion
-            deleted_backup = await BackupObject.find_one(
+            deleted_backup = await BackupObject.find(
                 BackupObject.object_id == object_id,
                 BackupObject.is_deleted == True,
-            ).sort([("version", -1)])
+            ).sort([("version", -1)]).first_or_none()
 
             if not deleted_backup:
                 raise ValidationError(f"Object {object_id} is not deleted")
@@ -184,28 +203,16 @@ class RestoreService:
             }
 
         # Create the object in Mist (will get new UUID)
-        result = await self._create_object_in_mist(backup.object_type, restored_config)
-
-        # Create backup record for restored object
-        new_object_id = result.get("id")
-        restore_backup = BackupObject(
-            object_type=backup.object_type,
-            object_id=new_object_id,
-            object_name=backup.object_name,
-            org_id=backup.org_id,
-            site_id=backup.site_id,
-            configuration=result,
-            configuration_hash="",  # Will be calculated on save
-            version=1,
-            event_type=BackupEventType.RESTORED,
-            backed_up_by=restored_by or "system",
+        result = await self._create_object_in_mist(
+            backup.object_type, restored_config, site_id=backup.site_id,
         )
-        await restore_backup.insert()
 
-        logger.info(
-            "deleted_object_restored",
-            original_object_id=object_id,
+        new_object_id = result.get("id")
+        await self._migrate_versions_to_new_id(
+            old_object_id=object_id,
             new_object_id=new_object_id,
+            backup=backup,
+            result=result,
             restored_by=restored_by,
         )
 
@@ -388,13 +395,14 @@ class RestoreService:
         self,
         object_type: str,
         config: dict[str, Any],
+        site_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create a new object in Mist."""
-        
-        # Generic POST for creation
-        endpoint = f"/api/v1/orgs/{self.mist_service.org_id}/{object_type}s"
+        if site_id:
+            endpoint = f"/api/v1/sites/{site_id}/{object_type}"
+        else:
+            endpoint = f"/api/v1/orgs/{self.mist_service.org_id}/{object_type}"
         result = await self.mist_service.api_post(endpoint, config)
-        
         return result
 
     async def _create_restore_backup(
@@ -405,10 +413,10 @@ class RestoreService:
         """Create a backup record marking the restore event."""
         
         # Get current version number
-        latest = await BackupObject.find_one(
+        latest = await BackupObject.find(
             BackupObject.object_id == original_backup.object_id,
             BackupObject.is_deleted == False,
-        ).sort([("version", -1)])
+        ).sort([("version", -1)]).first_or_none()
 
         version = (latest.version + 1) if latest else 1
 
@@ -428,6 +436,56 @@ class RestoreService:
         await restore_backup.insert()
 
         return restore_backup
+
+    async def _migrate_versions_to_new_id(
+        self,
+        old_object_id: str,
+        new_object_id: str,
+        backup: BackupObject,
+        result: dict[str, Any],
+        restored_by: Optional[str],
+    ) -> None:
+        """Migrate all old versions to a new object ID and create a restore record."""
+        import hashlib, json
+
+        # Move all existing versions to the new object ID
+        old_versions = await BackupObject.find(
+            BackupObject.object_id == old_object_id,
+        ).to_list()
+        for old_ver in old_versions:
+            old_ver.object_id = new_object_id
+            await old_ver.save()
+
+        max_version = max((v.version for v in old_versions), default=0)
+
+        config_hash = hashlib.sha256(
+            json.dumps(result, sort_keys=True).encode()
+        ).hexdigest()
+
+        restore_backup = BackupObject(
+            object_type=backup.object_type,
+            object_id=new_object_id,
+            object_name=backup.object_name,
+            org_id=backup.org_id,
+            site_id=backup.site_id,
+            configuration=result,
+            configuration_hash=config_hash,
+            version=max_version + 1,
+            previous_version_id=backup.id,
+            event_type=BackupEventType.RESTORED,
+            changed_fields=[],
+            backed_up_by=restored_by or "system",
+            restored_from_object_id=old_object_id,
+        )
+        await restore_backup.insert()
+
+        logger.info(
+            "versions_migrated_to_new_id",
+            original_object_id=old_object_id,
+            new_object_id=new_object_id,
+            versions_migrated=len(old_versions),
+            restored_by=restored_by,
+        )
 
     async def _prepare_deleted_object_config(
         self,

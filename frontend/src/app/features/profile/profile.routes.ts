@@ -6,7 +6,14 @@ const routes: Routes = [
     loadComponent: () =>
       import('./profile.component').then((m) => m.ProfileComponent),
     children: [
-      { path: '', redirectTo: 'settings', pathMatch: 'full' },
+      { path: '', redirectTo: 'general', pathMatch: 'full' },
+      {
+        path: 'general',
+        loadComponent: () =>
+          import('./general/general-profile.component').then(
+            (m) => m.GeneralProfileComponent
+          ),
+      },
       {
         path: 'settings',
         loadComponent: () =>

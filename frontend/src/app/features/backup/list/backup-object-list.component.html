@@ -1,0 +1,140 @@
+<app-page-header title="Backups" subtitle="Configuration backup & version tracking">
+  <button mat-flat-button (click)="navigateToJobs()">
+    <mat-icon>work_history</mat-icon> Backup Jobs
+  </button>
+  <button mat-flat-button class="btn-accent" (click)="openCreateDialog()">
+    <mat-icon>add</mat-icon> New Backup
+  </button>
+</app-page-header>
+
+<!-- Chart -->
+@if (chartConfig) {
+  <app-backup-chart-card title="Backup activity (30 days)">
+    <div class="chart-container">
+      <canvas baseChart [datasets]="chartConfig!.data.datasets"
+              [labels]="chartConfig!.data.labels!" [options]="chartConfig!.options!"
+              type="bar"></canvas>
+    </div>
+  </app-backup-chart-card>
+}
+
+<!-- Search & Filters -->
+
+<div class="filter-row" [formGroup]="filterForm">
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Scope</mat-label>
+    <mat-select formControlName="scope" (selectionChange)="applyFilters()">
+      <mat-option value="">All</mat-option>
+      <mat-option value="org">Org</mat-option>
+      <mat-option value="site">Site</mat-option>
+    </mat-select>
+  </mat-form-field>
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Type</mat-label>
+    <mat-select formControlName="object_type" (selectionChange)="applyFilters()">
+      <mat-option value="">All</mat-option>
+      @for (opt of objectTypeOptions; track opt.value) {
+        <mat-option [value]="opt.value.split(':')[1]">{{ opt.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Site</mat-label>
+    <mat-select formControlName="site_id" (selectionChange)="applyFilters()">
+      <mat-option value="">All</mat-option>
+      @for (site of siteOptions; track site.id) {
+        <mat-option [value]="site.id">{{ site.name }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Status</mat-label>
+    <mat-select formControlName="status" (selectionChange)="applyFilters()">
+      <mat-option value="">All</mat-option>
+      <mat-option value="active">Active</mat-option>
+      <mat-option value="deleted">Deleted</mat-option>
+    </mat-select>
+  </mat-form-field>
+  @if (hasActiveFilters) {
+    <button mat-stroked-button (click)="clearFilters()" class="clear-btn">
+      <mat-icon>filter_alt_off</mat-icon> Clear
+    </button>
+  }
+</div>
+
+<div class="search-bar">
+  <mat-icon>search</mat-icon>
+  <input
+    placeholder="Search objects..."
+    [value]="searchQuery"
+    (keyup.enter)="applySearch($event)"
+  />
+  @if (hasActiveFilters) {
+    <button class="clear-search" (click)="clearFilters()">
+      <mat-icon>close</mat-icon>
+    </button>
+  }
+</div>
+
+@if (loadingObjects) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+@if (!loadingObjects && objects.length === 0) {
+  <app-empty-state
+    icon="backup"
+    title="No objects found"
+    message="Run a full backup to start tracking configuration."
+  >
+    <button mat-flat-button (click)="openCreateDialog()">Create Backup</button>
+  </app-empty-state>
+}
+
+@if (objects.length > 0) {
+  <div class="table-card">
+    <table mat-table [dataSource]="objects" matSort (matSortChange)="onSort($event)">
+      <ng-container matColumnDef="object_name">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header>Name</th>
+        <td mat-cell *matCellDef="let obj" class="name-cell">{{ obj.object_name || obj.object_id }}</td>
+      </ng-container>
+      <ng-container matColumnDef="object_type">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header>Type</th>
+        <td mat-cell *matCellDef="let obj" class="type-cell">{{ obj.object_type }}</td>
+      </ng-container>
+      <ng-container matColumnDef="scope">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header>Scope</th>
+        <td mat-cell *matCellDef="let obj">
+          <span class="scope-badge" [ngClass]="'scope-' + obj.scope">
+            {{ obj.scope === 'org' ? 'ORG' : (obj.site_name || 'SITE') }}
+          </span>
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="version_count">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header>Versions</th>
+        <td mat-cell *matCellDef="let obj" class="version-cell">v{{ obj.latest_version }}</td>
+      </ng-container>
+      <ng-container matColumnDef="last_backed_up_at">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header>Last Backup</th>
+        <td mat-cell *matCellDef="let obj">{{ obj.last_backed_up_at | date:'MMM d, yyyy' }}</td>
+      </ng-container>
+      <ng-container matColumnDef="status">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let obj">
+          <app-status-badge [status]="obj.is_deleted ? 'deleted' : 'active'"></app-status-badge>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="objectColumns"></tr>
+      <tr mat-row *matRowDef="let obj; columns: objectColumns;" class="clickable-row" (click)="viewObjectDetail(obj)"></tr>
+    </table>
+  </div>
+
+  <mat-paginator
+    [length]="objectsTotal"
+    [pageSize]="objectsPageSize"
+    [pageIndex]="objectsPageIndex"
+    [pageSizeOptions]="[25, 50, 100]"
+    (page)="onPage($event)"
+    showFirstLastButtons
+  ></mat-paginator>
+}

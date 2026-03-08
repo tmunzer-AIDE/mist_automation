@@ -1,8 +1,8 @@
 # IDE / Editor
-/.claude
-/.vscode
+.claude/
+.vscode/
 .idea/
-
+.angular/
 # Python bytecode
 __pycache__/
 *.py[cod]
@@ -52,3 +52,4 @@ Thumbs.db
 
 # Project specific
 /backend/mist_automation_backend.egg-info/
+node_modules/

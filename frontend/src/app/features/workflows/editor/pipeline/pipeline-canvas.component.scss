@@ -1,0 +1,150 @@
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+}
+
+.block-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 300px;
+  padding: 12px 16px;
+  border-radius: var(--app-radius-sm);
+  box-shadow: var(--app-shadow-sm);
+  background: var(--mat-sys-surface);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+
+  &:hover {
+    box-shadow: var(--app-shadow-md);
+
+    .remove-btn {
+      opacity: 1;
+    }
+  }
+
+  &.selected {
+    border-color: var(--mat-sys-primary);
+  }
+}
+
+.block-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  mat-icon {
+    color: #fff;
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.block-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.block-type {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.block-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remove-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  &:hover {
+    background: var(--mat-sys-error-container);
+
+    mat-icon {
+      color: var(--mat-sys-error);
+    }
+  }
+}
+
+.connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 48px;
+  position: relative;
+}
+
+.connector-line {
+  width: 2px;
+  flex: 1;
+  background: var(--mat-sys-outline-variant);
+}
+
+.add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  &:hover {
+    border-color: var(--mat-sys-primary);
+    background: var(--mat-sys-primary-container);
+
+    mat-icon {
+      color: var(--mat-sys-primary);
+    }
+  }
+}

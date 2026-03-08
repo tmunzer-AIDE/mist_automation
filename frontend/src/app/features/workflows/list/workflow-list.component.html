@@ -1,0 +1,111 @@
+<app-page-header title="Workflows" subtitle="Automation workflow pipelines">
+  <button mat-flat-button (click)="createWorkflow()">
+    <mat-icon>add</mat-icon> New Workflow
+  </button>
+</app-page-header>
+
+@if (loading) {
+  <div class="loading-bar">
+    <mat-icon>hourglass_empty</mat-icon>
+    Loading workflows…
+  </div>
+} @else if (workflows.length === 0) {
+  <app-empty-state
+    icon="account_tree"
+    title="No workflows yet"
+    message="Create your first automation workflow to get started.">
+    <button mat-flat-button (click)="createWorkflow()">
+      <mat-icon>add</mat-icon> New Workflow
+    </button>
+  </app-empty-state>
+} @else {
+  <div class="table-card">
+    <table mat-table [dataSource]="workflows">
+      <!-- Name -->
+      <ng-container matColumnDef="name">
+        <th mat-header-cell *matHeaderCellDef>Name</th>
+        <td mat-cell *matCellDef="let wf" class="name-cell">
+          <span class="wf-name">{{ wf.name }}</span>
+          @if (wf.description) {
+            <span class="wf-desc">{{ wf.description }}</span>
+          }
+        </td>
+      </ng-container>
+
+      <!-- Trigger -->
+      <ng-container matColumnDef="trigger">
+        <th mat-header-cell *matHeaderCellDef>Trigger</th>
+        <td mat-cell *matCellDef="let wf">{{ getTriggerLabel(wf) }}</td>
+      </ng-container>
+
+      <!-- Status -->
+      <ng-container matColumnDef="status">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let wf">
+          <app-status-badge
+            [status]="wf.status"
+            (click)="toggleStatus($event, wf)"
+            class="clickable">
+          </app-status-badge>
+        </td>
+      </ng-container>
+
+      <!-- Executions -->
+      <ng-container matColumnDef="executions">
+        <th mat-header-cell *matHeaderCellDef>Executions</th>
+        <td mat-cell *matCellDef="let wf">
+          {{ wf.execution_count }}
+          @if (wf.failure_count > 0) {
+            <span class="failure-count">({{ wf.failure_count }} failed)</span>
+          }
+        </td>
+      </ng-container>
+
+      <!-- Last Execution -->
+      <ng-container matColumnDef="last_execution">
+        <th mat-header-cell *matHeaderCellDef>Last Run</th>
+        <td mat-cell *matCellDef="let wf">
+          @if (wf.last_execution) {
+            {{ wf.last_execution | relativeTime }}
+          } @else {
+            —
+          }
+        </td>
+      </ng-container>
+
+      <!-- Actions -->
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let wf" class="actions-cell">
+          <button mat-icon-button [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">
+            <mat-icon>more_vert</mat-icon>
+          </button>
+          <mat-menu #menu="matMenu">
+            <button mat-menu-item (click)="editWorkflow(wf)">
+              <mat-icon>edit</mat-icon> Edit
+            </button>
+            <button mat-menu-item (click)="runWorkflow($event, wf)" [disabled]="wf.status !== 'enabled'">
+              <mat-icon>play_arrow</mat-icon> Run
+            </button>
+            <button mat-menu-item (click)="deleteWorkflow($event, wf)" class="danger">
+              <mat-icon>delete</mat-icon> Delete
+            </button>
+          </mat-menu>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let wf; columns: displayedColumns;"
+          class="clickable-row" (click)="editWorkflow(wf)"></tr>
+    </table>
+
+    <mat-paginator
+      [length]="total"
+      [pageSize]="pageSize"
+      [pageIndex]="pageIndex"
+      [pageSizeOptions]="[25, 50, 100]"
+      (page)="onPage($event)"
+      showFirstLastButtons>
+    </mat-paginator>
+  </div>
+}

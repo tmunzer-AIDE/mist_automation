@@ -4,7 +4,14 @@ const routes: Routes = [
   {
     path: '',
     loadComponent: () =>
-      import('./list/backup-list.component').then((m) => m.BackupListComponent),
+      import('./list/backup-object-list.component').then(
+        (m) => m.BackupObjectListComponent,
+      ),
+  },
+  {
+    path: 'jobs',
+    loadComponent: () =>
+      import('./list/backup-job-list.component').then((m) => m.BackupJobListComponent),
   },
   {
     path: 'timeline',
@@ -19,7 +26,9 @@ const routes: Routes = [
   {
     path: 'object/:objectId',
     loadComponent: () =>
-      import('./detail/backup-object-detail.component').then((m) => m.BackupObjectDetailComponent),
+      import('./detail/backup-object-detail.component').then(
+        (m) => m.BackupObjectDetailComponent,
+      ),
   },
   {
     path: ':id',

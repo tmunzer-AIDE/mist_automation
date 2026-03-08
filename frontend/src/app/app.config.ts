@@ -5,6 +5,7 @@ import { provideAnimationsAsync } from '@angular/platform-browser/animations/asy
 import { provideStore } from '@ngrx/store';
 import { provideEffects } from '@ngrx/effects';
 import { provideStoreDevtools } from '@ngrx/store-devtools';
+import { provideCharts, withDefaultRegisterables } from 'ng2-charts';
 
 import { routes } from './app.routes';
 import { authReducer } from './core/state/auth/auth.reducer';
@@ -24,5 +25,6 @@ export const appConfig: ApplicationConfig = {
       maxAge: 25,
       logOnly: !isDevMode(),
     }),
+    provideCharts(withDefaultRegisterables()),
   ],
 };

@@ -26,6 +26,7 @@ from app.schemas.auth import (
     SessionListResponse,
     SessionResponse,
     TokenResponse,
+    UpdateProfileRequest,
     UserResponse,
 )
 
@@ -200,6 +201,32 @@ async def get_current_user(current_user: User = Depends(get_current_user_from_to
         totp_enabled=current_user.totp_enabled,
         created_at=current_user.created_at,
         last_login=current_user.last_login
+    )
+
+
+@router.put("/auth/profile", response_model=UserResponse, tags=["Authentication"])
+async def update_profile(
+    data: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """
+    Update current user's profile settings (e.g. timezone).
+    """
+    if data.timezone is not None:
+        current_user.timezone = data.timezone
+    await current_user.save()
+
+    logger.info("profile_updated", user_id=str(current_user.id))
+
+    return UserResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        roles=current_user.roles,
+        timezone=current_user.timezone,
+        is_active=current_user.is_active,
+        totp_enabled=current_user.totp_enabled,
+        created_at=current_user.created_at,
+        last_login=current_user.last_login,
     )
 
 

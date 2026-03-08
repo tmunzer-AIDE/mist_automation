@@ -123,3 +123,30 @@ class BackupLogEntryResponse(BaseModel):
 class BackupLogListResponse(BaseModel):
     logs: list[BackupLogEntryResponse]
     total: int
+
+
+# ── Stats schemas ─────────────────────────────────────────────────────────────
+
+
+class DailyObjectStats(BaseModel):
+    date: str
+    object_count: int
+
+
+class DailyJobStats(BaseModel):
+    date: str
+    total: int
+    completed: int
+    failed: int
+    webhook_events: int
+    avg_duration_seconds: float | None
+    min_duration_seconds: float | None
+    max_duration_seconds: float | None
+
+
+class BackupObjectStatsResponse(BaseModel):
+    days: list[DailyObjectStats]
+
+
+class BackupJobStatsResponse(BaseModel):
+    days: list[DailyJobStats]

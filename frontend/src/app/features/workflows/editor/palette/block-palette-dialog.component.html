@@ -1,0 +1,26 @@
+<h2 mat-dialog-title>Add Block</h2>
+
+<mat-dialog-content>
+  @for (category of categories; track category.name) {
+    <div class="category">
+      <h3 class="category-name">{{ category.name }}</h3>
+      <div class="options">
+        @for (option of category.options; track option.label) {
+          <button class="option-row" (click)="selectOption(option)">
+            <div class="option-icon" [style.background]="option.color">
+              <mat-icon>{{ option.icon }}</mat-icon>
+            </div>
+            <div class="option-info">
+              <span class="option-label">{{ option.label }}</span>
+              <span class="option-desc">{{ option.description }}</span>
+            </div>
+          </button>
+        }
+      </div>
+    </div>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button mat-dialog-close>Cancel</button>
+</mat-dialog-actions>

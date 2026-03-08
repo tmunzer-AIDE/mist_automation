@@ -138,12 +138,43 @@ export class BackupObjectDetailComponent implements OnInit {
     });
   }
 
+  restoring = false;
+
   restoreVersion(v: ObjectVersion): void {
-    this.snackBar.open(
-      `Restore v${v.version}? This feature is coming soon.`,
-      'OK',
-      { duration: 4000 }
+    const name = v.object_name || v.object_id;
+    const action = v.is_deleted ? 'Re-create' : 'Restore';
+    const ref = this.snackBar.open(
+      `${action} "${name}" to v${v.version}?`,
+      'Confirm',
+      { duration: 8000 },
     );
+    ref.onAction().subscribe(() => this.executeRestore(v));
+  }
+
+  private executeRestore(v: ObjectVersion): void {
+    this.restoring = true;
+    this.cdr.detectChanges();
+
+    this.api
+      .post<{ status: string; object_name?: string; note?: string }>(
+        `/backups/objects/versions/${v.id}/restore`,
+      )
+      .subscribe({
+        next: (res) => {
+          this.restoring = false;
+          const msg = res.note
+            ? `Restored — ${res.note}`
+            : `Restored "${v.object_name || v.object_id}" to v${v.version}`;
+          this.snackBar.open(msg, 'OK', { duration: 5000 });
+          this.loadVersions();
+        },
+        error: (err) => {
+          this.restoring = false;
+          const detail = err?.error?.detail || 'Restore failed';
+          this.snackBar.open(detail, 'OK', { duration: 6000 });
+          this.cdr.detectChanges();
+        },
+      });
   }
 
   toggleCompareMode(): void {

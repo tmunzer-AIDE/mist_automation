@@ -1,0 +1,38 @@
+.config-panel {
+  padding: 24px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface);
+}
+
+.config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mono {
+  font-family: var(--app-font-mono, monospace);
+  font-size: 13px;
+}
+
+.section-divider {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--mat-sys-on-surface-variant);
+  margin: 12px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}

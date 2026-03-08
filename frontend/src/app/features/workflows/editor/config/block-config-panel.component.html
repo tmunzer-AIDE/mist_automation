@@ -1,0 +1,208 @@
+<div class="config-panel">
+  <div class="panel-header">
+    <mat-icon [style.color]="block.color">{{ block.icon }}</mat-icon>
+    <span class="panel-title">{{ block.kind | titlecase }} Configuration</span>
+  </div>
+
+  @if (form) {
+    <form [formGroup]="form" class="config-form">
+
+      <!-- ── Trigger ──────────────────────────────────────────── -->
+      @if (block.kind === 'trigger') {
+        <mat-form-field>
+          <mat-label>Trigger Type</mat-label>
+          <mat-select formControlName="type">
+            <mat-option value="webhook">Webhook</mat-option>
+            <mat-option value="cron">Cron Schedule</mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        @if (triggerType === 'webhook') {
+          <mat-form-field>
+            <mat-label>Webhook Type</mat-label>
+            <mat-select formControlName="webhook_type">
+              <mat-option value="">Any</mat-option>
+              <mat-option value="alarm">Alarm</mat-option>
+              <mat-option value="audit">Audit</mat-option>
+              <mat-option value="device-events">Device Events</mat-option>
+            </mat-select>
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Webhook Topic</mat-label>
+            <input matInput formControlName="webhook_topic" placeholder="e.g. device-events">
+          </mat-form-field>
+        }
+
+        @if (triggerType === 'cron') {
+          <mat-form-field>
+            <mat-label>Cron Expression</mat-label>
+            <input matInput formControlName="cron_expression" placeholder="*/5 * * * *">
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Timezone</mat-label>
+            <input matInput formControlName="timezone" placeholder="UTC">
+          </mat-form-field>
+        }
+
+        <mat-checkbox formControlName="skip_if_running">Skip if already running</mat-checkbox>
+      }
+
+      <!-- ── Filter ───────────────────────────────────────────── -->
+      @if (block.kind === 'filter') {
+        <mat-form-field>
+          <mat-label>Field (JSON path)</mat-label>
+          <input matInput formControlName="field" placeholder="e.g. type">
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Operator</mat-label>
+          <mat-select formControlName="operator">
+            @for (op of filterOperators; track op.value) {
+              <mat-option [value]="op.value">{{ op.label }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Value</mat-label>
+          <input matInput formControlName="value">
+        </mat-form-field>
+
+        <mat-checkbox formControlName="case_sensitive">Case sensitive</mat-checkbox>
+
+        <mat-form-field>
+          <mat-label>Logic</mat-label>
+          <mat-select formControlName="logic">
+            <mat-option value="and">AND</mat-option>
+            <mat-option value="or">OR</mat-option>
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <!-- ── Secondary Filter ─────────────────────────────────── -->
+      @if (block.kind === 'secondary_filter') {
+        <mat-form-field>
+          <mat-label>API Endpoint</mat-label>
+          <input matInput formControlName="api_endpoint" placeholder="/api/v1/...">
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Field</mat-label>
+          <input matInput formControlName="field">
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Operator</mat-label>
+          <mat-select formControlName="operator">
+            @for (op of filterOperators; track op.value) {
+              <mat-option [value]="op.value">{{ op.label }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Value</mat-label>
+          <input matInput formControlName="value">
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Logic</mat-label>
+          <mat-select formControlName="logic">
+            <mat-option value="and">AND</mat-option>
+            <mat-option value="or">OR</mat-option>
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <!-- ── Action ───────────────────────────────────────────── -->
+      @if (block.kind === 'action') {
+        <mat-form-field>
+          <mat-label>Action Name</mat-label>
+          <input matInput formControlName="name" placeholder="Give this action a name">
+        </mat-form-field>
+
+        <mat-checkbox formControlName="enabled">Enabled</mat-checkbox>
+
+        <!-- API action fields -->
+        @if (isApiAction) {
+          <mat-form-field>
+            <mat-label>API Endpoint</mat-label>
+            <input matInput formControlName="api_endpoint" placeholder="/api/v1/sites/:site_id/...">
+          </mat-form-field>
+
+          @if (actionType !== 'mist_api_get' && actionType !== 'mist_api_delete') {
+            <mat-form-field>
+              <mat-label>Request Body (JSON)</mat-label>
+              <textarea matInput formControlName="api_body" rows="6" class="mono"></textarea>
+            </mat-form-field>
+          }
+        }
+
+        <!-- Webhook action fields -->
+        @if (isWebhookAction) {
+          <mat-form-field>
+            <mat-label>URL</mat-label>
+            <input matInput formControlName="webhook_url" placeholder="https://...">
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Headers (JSON)</mat-label>
+            <textarea matInput formControlName="webhook_headers" rows="3" class="mono"></textarea>
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Body (JSON)</mat-label>
+            <textarea matInput formControlName="webhook_body" rows="6" class="mono"></textarea>
+          </mat-form-field>
+        }
+
+        <!-- Notification action fields -->
+        @if (isNotificationAction) {
+          <mat-form-field>
+            <mat-label>Channel / Routing Key</mat-label>
+            <input matInput formControlName="notification_channel">
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Message Template</mat-label>
+            <textarea matInput formControlName="notification_template" rows="4"></textarea>
+          </mat-form-field>
+        }
+
+        <!-- Delay -->
+        @if (isDelayAction) {
+          <mat-form-field>
+            <mat-label>Delay (seconds)</mat-label>
+            <input matInput type="number" formControlName="delay_seconds">
+          </mat-form-field>
+        }
+
+        <!-- Condition -->
+        @if (isConditionAction) {
+          <mat-form-field>
+            <mat-label>Condition Expression</mat-label>
+            <textarea matInput formControlName="condition" rows="3" class="mono"
+              placeholder="e.g. {{ '{{' }} event.severity {{ '}}' }} == 'critical'"></textarea>
+          </mat-form-field>
+        }
+
+        <!-- Common action settings -->
+        <div class="section-divider">Error Handling</div>
+
+        <mat-form-field>
+          <mat-label>Max Retries</mat-label>
+          <input matInput type="number" formControlName="max_retries">
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Retry Delay (seconds)</mat-label>
+          <input matInput type="number" formControlName="retry_delay">
+        </mat-form-field>
+
+        <mat-checkbox formControlName="continue_on_error">Continue on error</mat-checkbox>
+      }
+    </form>
+  }
+</div>

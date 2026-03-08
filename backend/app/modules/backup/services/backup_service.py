@@ -220,6 +220,7 @@ class BackupService:
         org_id: str,
         site_id: Optional[str] = None,
         name_override: Optional[str] = None,
+        event_type_if_new: BackupEventType = BackupEventType.FULL_BACKUP,
     ) -> str:
         """Backup a single object. Returns "created", "updated", or "unchanged"."""
         config_hash = self._calculate_hash(config)
@@ -295,7 +296,7 @@ class BackupService:
                 configuration=config,
                 configuration_hash=config_hash,
                 version=1,
-                event_type=BackupEventType.FULL_BACKUP,
+                event_type=event_type_if_new,
                 changed_fields=[],
                 backed_up_at=now,
                 last_modified_at=now,
@@ -324,6 +325,7 @@ class BackupService:
         object_type: str,
         object_ids: list[str] | None = None,
         site_id: str | None = None,
+        event_type_if_new: BackupEventType = BackupEventType.FULL_BACKUP,
     ) -> dict[str, Any]:
         """Perform a manual backup of selected objects.
 
@@ -331,6 +333,7 @@ class BackupService:
             object_type: Format "org:key" or "site:key" (e.g. "org:wlans", "site:maps").
             object_ids: List of object IDs to backup (for list types).
             site_id: Site ID (required for site-scoped types).
+            event_type_if_new: Event type for first-time objects (FULL_BACKUP or CREATED).
         """
         logger.info(
             "manual_backup_started",
@@ -384,6 +387,7 @@ class BackupService:
                         org_id=self.org_id,
                         site_id=site_id,
                         name_override=get_object_name(obj, obj_def),
+                        event_type_if_new=event_type_if_new,
                     )
                     self._update_stats(stats, key, result)
                 except Exception as e:
@@ -428,6 +432,7 @@ class BackupService:
                 object_id=object_id,
                 config=config,
                 org_id=self.org_id,
+                event_type_if_new=event_type,
             )
 
             backup = await BackupObject.find(

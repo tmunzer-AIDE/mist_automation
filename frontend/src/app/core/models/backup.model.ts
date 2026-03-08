@@ -150,3 +150,29 @@ export interface BackupLogListResponse {
   logs: BackupLogEntry[];
   total: number;
 }
+
+// ── Stats models ─────────────────────────────────────────────────────────────
+
+export interface DailyObjectStats {
+  date: string;
+  object_count: number;
+}
+
+export interface DailyJobStats {
+  date: string;
+  total: number;
+  completed: number;
+  failed: number;
+  webhook_events: number;
+  avg_duration_seconds: number | null;
+  min_duration_seconds: number | null;
+  max_duration_seconds: number | null;
+}
+
+export interface BackupObjectStatsResponse {
+  days: DailyObjectStats[];
+}
+
+export interface BackupJobStatsResponse {
+  days: DailyJobStats[];
+}

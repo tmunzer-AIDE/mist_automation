@@ -53,6 +53,12 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., description="New password", min_length=1)
 
 
+class UpdateProfileRequest(BaseModel):
+    """Update profile request schema."""
+
+    timezone: str | None = Field(None, description="User timezone (IANA)")
+
+
 class SessionResponse(BaseModel):
     """Session response schema."""
 

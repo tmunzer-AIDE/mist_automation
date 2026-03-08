@@ -9,6 +9,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
   { label: 'Backups', icon: 'backup', route: '/backup' },
+  { label: 'Workflows', icon: 'account_tree', route: '/workflows' },
   {
     label: 'Administration',
     icon: 'admin_panel_settings',

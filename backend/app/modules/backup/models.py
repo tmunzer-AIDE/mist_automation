@@ -72,6 +72,9 @@ class BackupObject(Document):
     is_deleted: bool = Field(default=False, description="Whether object was deleted in Mist")
     deleted_at: datetime | None = Field(default=None, description="When object was deleted")
     
+    # Restore lineage
+    restored_from_object_id: str | None = Field(default=None, description="Original object ID if restored from a deleted object")
+
     # Git integration
     git_commit_sha: str | None = Field(default=None, description="Git commit SHA if pushed to Git")
     

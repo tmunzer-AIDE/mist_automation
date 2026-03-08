@@ -11,6 +11,8 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
     <app-page-header title="Profile" subtitle="Manage your account"></app-page-header>
 
     <nav mat-tab-nav-bar [tabPanel]="tabPanel">
+      <a mat-tab-link routerLink="general" routerLinkActive #g="routerLinkActive"
+         [active]="g.isActive">General</a>
       <a mat-tab-link routerLink="settings" routerLinkActive #s="routerLinkActive"
          [active]="s.isActive">Password</a>
       <a mat-tab-link routerLink="sessions" routerLinkActive #ss="routerLinkActive"

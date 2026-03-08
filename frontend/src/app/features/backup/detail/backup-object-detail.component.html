@@ -16,7 +16,7 @@
   }
 </app-page-header>
 
-@if (loading) {
+@if (loading || restoring) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 

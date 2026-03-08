@@ -5,7 +5,7 @@ Backup and restore API endpoints.
 import asyncio
 import re
 import structlog
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -27,6 +27,10 @@ from app.modules.backup.schemas import (
     BackupObjectVersionResponse,
     BackupLogEntryResponse,
     BackupLogListResponse,
+    DailyObjectStats,
+    DailyJobStats,
+    BackupObjectStatsResponse,
+    BackupJobStatsResponse,
 )
 
 router = APIRouter()
@@ -246,6 +250,114 @@ async def create_backup(
     )
 
 
+def _fill_missing_days(data: dict[str, dict], days: int = 30) -> list[str]:
+    """Return sorted list of date strings for the last N days, filling gaps."""
+    today = datetime.now(timezone.utc).date()
+    all_dates = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    for d in all_dates:
+        data.setdefault(d, {})
+    return all_dates
+
+
+@router.get("/backups/stats/objects", response_model=BackupObjectStatsResponse, tags=["Backups"])
+async def get_object_stats(
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Daily count of distinct objects backed up over the last 30 days."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    pipeline: list[dict] = [
+        {"$match": {"backed_up_at": {"$gte": cutoff}}},
+        {
+            "$group": {
+                "_id": {
+                    "date": {"$dateToString": {"format": "%Y-%m-%d", "date": "$backed_up_at"}},
+                    "object_id": "$object_id",
+                },
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.date",
+                "object_count": {"$sum": 1},
+            }
+        },
+    ]
+
+    results = await BackupObject.aggregate(pipeline).to_list()
+    by_date: dict[str, dict] = {r["_id"]: {"object_count": r["object_count"]} for r in results}
+    all_dates = _fill_missing_days(by_date)
+
+    return BackupObjectStatsResponse(
+        days=[
+            DailyObjectStats(date=d, object_count=by_date[d].get("object_count", 0))
+            for d in all_dates
+        ]
+    )
+
+
+@router.get("/backups/stats/jobs", response_model=BackupJobStatsResponse, tags=["Backups"])
+async def get_job_stats(
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Daily job statistics over the last 30 days."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    pipeline: list[dict] = [
+        {"$match": {"created_at": {"$gte": cutoff}}},
+        {
+            "$addFields": {
+                "duration_seconds": {
+                    "$cond": {
+                        "if": {"$and": [{"$ifNull": ["$completed_at", False]}, {"$ifNull": ["$started_at", False]}]},
+                        "then": {"$divide": [{"$subtract": ["$completed_at", "$started_at"]}, 1000]},
+                        "else": None,
+                    }
+                },
+                "webhook_event_count": {
+                    "$cond": {
+                        "if": {"$isArray": "$webhook_event"},
+                        "then": {"$size": "$webhook_event"},
+                        "else": 0,
+                    }
+                },
+            }
+        },
+        {
+            "$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+                "total": {"$sum": 1},
+                "completed": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}},
+                "failed": {"$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}},
+                "webhook_events": {"$sum": "$webhook_event_count"},
+                "avg_duration_seconds": {"$avg": "$duration_seconds"},
+                "min_duration_seconds": {"$min": "$duration_seconds"},
+                "max_duration_seconds": {"$max": "$duration_seconds"},
+            }
+        },
+    ]
+
+    results = await BackupJob.aggregate(pipeline).to_list()
+    by_date: dict[str, dict] = {r["_id"]: r for r in results}
+    all_dates = _fill_missing_days(by_date)
+
+    return BackupJobStatsResponse(
+        days=[
+            DailyJobStats(
+                date=d,
+                total=by_date[d].get("total", 0),
+                completed=by_date[d].get("completed", 0),
+                failed=by_date[d].get("failed", 0),
+                webhook_events=by_date[d].get("webhook_events", 0),
+                avg_duration_seconds=by_date[d].get("avg_duration_seconds"),
+                min_duration_seconds=by_date[d].get("min_duration_seconds"),
+                max_duration_seconds=by_date[d].get("max_duration_seconds"),
+            )
+            for d in all_dates
+        ]
+    )
+
+
 @router.get("/backups/compare", response_model=BackupDiffResponse, tags=["Backups"])
 async def compare_backups(
     backup_id_1: str = Query(..., description="First backup ID"),
@@ -340,6 +452,12 @@ async def get_backup_timeline(
     }
 
 
+OBJECT_SORT_FIELDS = {
+    "object_name", "object_type", "version_count",
+    "last_backed_up_at", "first_backed_up_at", "latest_version",
+}
+
+
 @router.get("/backups/objects", response_model=BackupObjectListResponse, tags=["Backups"])
 async def list_backup_objects(
     skip: int = Query(0, ge=0),
@@ -349,6 +467,8 @@ async def list_backup_objects(
     site_id: str | None = Query(None, description="Filter by site ID"),
     scope: str | None = Query(None, description="Filter by scope: org or site"),
     status_filter: str | None = Query(None, alias="status", description="Filter: active, deleted"),
+    sort: str | None = Query(None, description="Sort field"),
+    order: str | None = Query(None, description="Sort direction: asc or desc"),
     _current_user: User = Depends(get_current_user_from_token),
 ):
     """
@@ -380,6 +500,7 @@ async def list_backup_objects(
             {"object_name": {"$regex": escaped_search, "$options": "i"}},
             {"object_type": {"$regex": escaped_search, "$options": "i"}},
             {"object_id": {"$regex": escaped_search, "$options": "i"}},
+            {"restored_from_object_id": {"$regex": escaped_search, "$options": "i"}},
         ]
     if match:
         pipeline.append({"$match": match})
@@ -418,7 +539,9 @@ async def list_backup_objects(
     total = count_result[0]["total"] if count_result else 0
 
     # Sort, skip, limit
-    pipeline.append({"$sort": {"last_backed_up_at": -1}})
+    sort_field = sort if sort in OBJECT_SORT_FIELDS else "last_backed_up_at"
+    sort_dir = 1 if order == "asc" else -1
+    pipeline.append({"$sort": {sort_field: sort_dir}})
     pipeline.append({"$skip": skip})
     pipeline.append({"$limit": limit})
 
@@ -563,6 +686,78 @@ async def get_object_versions(
         ))
 
     return {"versions": versions, "total": len(versions)}
+
+
+@router.post("/backups/objects/versions/{version_id}/restore", tags=["Backups"])
+async def restore_object_version(
+    version_id: str,
+    dry_run: bool = Query(False, description="Preview restore without applying"),
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Restore a backed-up object to a specific version in Mist."""
+    try:
+        doc_id = PydanticObjectId(version_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid version ID format",
+        ) from exc
+
+    backup = await BackupObject.get(doc_id)
+    if not backup:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Backup version not found",
+        )
+
+    logger.info(
+        "restore_version_requested",
+        version_id=version_id,
+        object_id=backup.object_id,
+        version=backup.version,
+        dry_run=dry_run,
+        user_id=str(current_user.id),
+    )
+
+    config = await SystemConfig.get_config()
+    if not config or not config.mist_api_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mist API credentials not configured",
+        )
+
+    api_token = decrypt_sensitive_data(config.mist_api_token)
+    from app.services.mist_service import MistService
+    from app.modules.backup.services.restore_service import RestoreService
+
+    mist_service = MistService(
+        api_token=api_token,
+        org_id=config.mist_org_id or "",
+        cloud_region=config.mist_cloud_region or "global_01",
+    )
+
+    restore_service = RestoreService(mist_service=mist_service)
+
+    try:
+        if backup.is_deleted:
+            result = await restore_service.restore_deleted_object(
+                object_id=backup.object_id,
+                version=backup.version,
+                dry_run=dry_run,
+                restored_by=str(current_user.id),
+            )
+        else:
+            result = await restore_service.restore_object(
+                backup_id=doc_id,
+                dry_run=dry_run,
+                restored_by=str(current_user.id),
+            )
+        return result
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/backups/{backup_id}/logs", response_model=BackupLogListResponse, tags=["Backups"])

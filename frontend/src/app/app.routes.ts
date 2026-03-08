@@ -40,6 +40,10 @@ export const routes: Routes = [
         path: 'backup',
         loadChildren: () => import('./features/backup/backup.routes'),
       },
+      {
+        path: 'workflows',
+        loadChildren: () => import('./features/workflows/workflow.routes'),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

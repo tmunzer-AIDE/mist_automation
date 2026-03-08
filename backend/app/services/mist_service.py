@@ -447,7 +447,6 @@ class MistService:
         self,
         endpoint: str,
         data: dict[str, Any],
-        params: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
         """
         Generic POST request to Mist API.
@@ -455,7 +454,6 @@ class MistService:
         Args:
             endpoint: API endpoint path
             data: Request body data
-            params: Optional query parameters
 
         Returns:
             API response data
@@ -471,7 +469,6 @@ class MistService:
                 self.session.mist_post,
                 endpoint,
                 body=data,
-                params=params or {}
             )
 
             if result.status_code not in (200, 201):
@@ -488,7 +485,6 @@ class MistService:
         self,
         endpoint: str,
         data: dict[str, Any],
-        params: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
         """
         Generic PUT request to Mist API.
@@ -496,7 +492,6 @@ class MistService:
         Args:
             endpoint: API endpoint path
             data: Request body data
-            params: Optional query parameters
 
         Returns:
             API response data
@@ -512,7 +507,6 @@ class MistService:
                 self.session.mist_put,
                 endpoint,
                 body=data,
-                params=params or {}
             )
 
             if result.status_code != 200:

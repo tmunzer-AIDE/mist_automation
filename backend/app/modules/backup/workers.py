@@ -8,7 +8,7 @@ import structlog
 from celery import Celery
 from beanie import PydanticObjectId
 
-from app.modules.backup.models import BackupJob, BackupLogEntry, BackupStatus, BackupType
+from app.modules.backup.models import BackupJob, BackupEventType, BackupLogEntry, BackupObject, BackupStatus, BackupType
 from app.modules.backup.services.backup_logger import BackupLogger
 from app.modules.backup.services.backup_service import BackupService
 from app.modules.backup.services.git_service import GitService
@@ -355,6 +355,64 @@ def schedule_periodic_backups():
     )
 
 
+def _is_delete_event(event: dict) -> bool:
+    """Check whether a Mist audit event represents a deletion."""
+    message = (event.get("message") or "").strip()
+    return message.lower().startswith("delete ")
+
+
+async def _resolve_and_delete_by_name(
+    backup_service: "BackupService",
+    event: dict,
+    obj_type: str,
+    site_id: str | None,
+    deleted_by: str,
+) -> Optional["BackupObject"]:
+    """Resolve an object by name from the audit message and mark it deleted.
+
+    Mist delete webhooks often send ``<type>_id: "None"`` instead of the
+    real UUID.  The message however contains the object name, e.g.:
+    ``Delete PSK "fdsqfdqsf"``.
+
+    We extract the quoted name, look up the latest active BackupObject
+    matching (object_type, object_name, site_id), and mark it deleted.
+    """
+    import re as _re
+
+    message = event.get("message", "")
+    # Try to extract the name between quotes: Delete PSK "some name"
+    match = _re.search(r'"([^"]+)"', message)
+    if not match:
+        logger.warning("delete_event_no_name_in_message", message=message)
+        return None
+
+    object_name = match.group(1)
+
+    # Find the latest active version matching name + type
+    query: dict = {
+        "object_type": obj_type,
+        "object_name": object_name,
+        "is_deleted": False,
+    }
+    if site_id:
+        query["site_id"] = site_id
+
+    existing = await BackupObject.find(query).sort([("version", -1)]).first_or_none()
+    if not existing:
+        logger.warning(
+            "delete_event_object_not_found_by_name",
+            object_type=obj_type,
+            object_name=object_name,
+            site_id=site_id,
+        )
+        return None
+
+    return await backup_service.mark_object_deleted(
+        object_id=existing.object_id,
+        deleted_by=deleted_by,
+    )
+
+
 def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | None]:
     """Extract (object_type, object_id, site_id) from a flat Mist audit event.
 
@@ -376,6 +434,18 @@ def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | Non
     # Look for *_id fields and try to match them to known registry keys
     for field_name, value in event.items():
         if not field_name.endswith("_id") or field_name in _SKIP_FIELDS or not value:
+            continue
+
+        # Mist sends "None" (string) for some delete events — treat as missing
+        if value == "None":
+            # Still resolve the object type so deletion can look up by name
+            singular = field_name[: -len("_id")]
+            candidates = [singular, singular + "s"]
+            registry = SITE_OBJECTS if site_id else ORG_OBJECTS
+            fallback = ORG_OBJECTS if site_id else SITE_OBJECTS
+            for candidate in candidates:
+                if candidate in registry or candidate in fallback:
+                    return candidate, None, site_id
             continue
 
         # wlan_id -> wlan, then try plural forms
@@ -464,10 +534,60 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             prefixed_type = f"{scope}:{obj_type}"
 
             try:
+                # ── Handle delete events ────────────────────────────────
+                if _is_delete_event(event):
+                    deleted_by = event.get("admin_name", "system")
+
+                    if obj_id:
+                        # We have the object ID — mark it deleted directly
+                        result = await backup_service.mark_object_deleted(
+                            object_id=obj_id,
+                            deleted_by=deleted_by,
+                        )
+                    else:
+                        # Mist sent "None" as the ID — resolve by name from
+                        # the message, e.g. 'Delete PSK "fdsqfdqsf"'
+                        result = await _resolve_and_delete_by_name(
+                            backup_service, event, obj_type, site_id, deleted_by,
+                        )
+
+                    if result:
+                        backed_up += 1
+                        logger.info(
+                            "incremental_backup_object_deleted",
+                            object_type=prefixed_type,
+                            object_id=result.object_id,
+                            object_name=result.object_name,
+                            message=event.get("message", ""),
+                        )
+                        await backup_logger.info(
+                            "org_objects" if not site_id else "site_objects",
+                            f"Deleted {prefixed_type} '{result.object_name}' (v{result.version})",
+                            object_type=prefixed_type,
+                            object_id=result.object_id,
+                            object_name=result.object_name,
+                            site_id=site_id,
+                        )
+                    else:
+                        logger.warning(
+                            "incremental_backup_delete_not_found",
+                            object_type=prefixed_type,
+                            message=event.get("message", ""),
+                        )
+                        await backup_logger.warning(
+                            "org_objects" if not site_id else "site_objects",
+                            f"Could not find object to delete for {prefixed_type}: {event.get('message', '')}",
+                            object_type=prefixed_type,
+                            site_id=site_id,
+                        )
+                    continue
+
+                # ── Normal backup ───────────────────────────────────────
                 await backup_service.perform_manual_backup(
                     object_type=prefixed_type,
                     object_ids=[obj_id] if obj_id else None,
                     site_id=site_id,
+                    event_type_if_new=BackupEventType.CREATED,
                 )
                 backed_up += 1
                 logger.info(
