@@ -37,11 +37,11 @@ class SystemConfig(TimestampMixin, Document):
     workflow_max_timeout: int = Field(default=3600, description="Maximum allowed workflow timeout")
     
     # Password Policy
-    min_password_length: int = Field(default=8, description="Minimum password length")
+    min_password_length: int = Field(default=12, description="Minimum password length")
     require_uppercase: bool = Field(default=True, description="Require uppercase letters")
     require_lowercase: bool = Field(default=True, description="Require lowercase letters")
     require_digits: bool = Field(default=True, description="Require digits")
-    require_special_chars: bool = Field(default=False, description="Require special characters")
+    require_special_chars: bool = Field(default=True, description="Require special characters")
 
     # Session Management
     session_timeout_hours: int = Field(default=24, description="Session timeout in hours")

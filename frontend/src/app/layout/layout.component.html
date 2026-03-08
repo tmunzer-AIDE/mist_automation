@@ -4,7 +4,8 @@
     [mode]="isMobile ? 'over' : 'side'"
     [opened]="sidebarOpen"
     (closedStart)="sidebarOpen = false"
-    class="sidenav">
+    class="sidenav"
+    [class.collapsed]="sidebarCollapsed && !isMobile">
     <app-sidebar [collapsed]="sidebarCollapsed && !isMobile"></app-sidebar>
   </mat-sidenav>
 

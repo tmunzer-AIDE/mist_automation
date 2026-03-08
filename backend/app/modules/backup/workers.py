@@ -8,7 +8,8 @@ import structlog
 from celery import Celery
 from beanie import PydanticObjectId
 
-from app.modules.backup.models import BackupJob, BackupStatus, BackupType
+from app.modules.backup.models import BackupJob, BackupLogEntry, BackupStatus, BackupType
+from app.modules.backup.services.backup_logger import BackupLogger
 from app.modules.backup.services.backup_service import BackupService
 from app.modules.backup.services.git_service import GitService
 from app.services.mist_service import MistService
@@ -81,6 +82,9 @@ async def perform_backup(
         backup_job.started_at = start_time
         await backup_job.save()
 
+        backup_logger = BackupLogger(backup_id)
+        await backup_logger.info("init", f"Backup job started (type={backup_type})")
+
         logger.info(
             "backup_started",
             backup_id=backup_id,
@@ -106,7 +110,7 @@ async def perform_backup(
             org_id=org_id or settings.mist_org_id,
             cloud_region=cloud_region,
         )
-        backup_service = BackupService(mist_service=mist_service)
+        backup_service = BackupService(mist_service=mist_service, backup_logger=backup_logger)
 
         # Perform backup based on type
         if backup_type == "manual" and object_type:
@@ -170,6 +174,8 @@ async def perform_backup(
                 )
                 # Don't fail the backup if Git fails
 
+        await backup_logger.info("complete", f"Backup completed: {backup_job.object_count} objects in {duration_ms}ms")
+
         logger.info(
             "backup_completed",
             backup_id=backup_id,
@@ -200,6 +206,12 @@ async def perform_backup(
             backup_job.completed_at = datetime.now(timezone.utc)
             backup_job.error = str(e)
             await backup_job.save()
+
+            try:
+                backup_logger = BackupLogger(backup_id)
+                await backup_logger.error("complete", f"Backup failed: {str(e)}", details={"error": str(e)})
+            except Exception:
+                pass
 
         raise
 
@@ -263,6 +275,10 @@ async def cleanup_old_backups() -> dict[str, Any]:
 
         deleted_count = 0
         for backup in old_backups:
+            # Delete associated log entries
+            await BackupLogEntry.find(
+                BackupLogEntry.backup_job_id == backup.id
+            ).delete()
             await backup.delete()
             deleted_count += 1
 
@@ -396,6 +412,7 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
         org_id: Mist organization ID
         audit_events: List of audit event dicts from the Mist webhook payload
     """
+    backup_job = None
     try:
         from app.models.system import SystemConfig
         from app.core.security import decrypt_sensitive_data
@@ -415,7 +432,19 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             org_id=org_id or settings.mist_org_id,
             cloud_region=cloud_region,
         )
-        backup_service = BackupService(mist_service=mist_service)
+
+        # Create a BackupJob record for this incremental backup
+        backup_job = BackupJob(
+            backup_type=BackupType.WEBHOOK,
+            org_id=org_id,
+            status=BackupStatus.IN_PROGRESS,
+            started_at=datetime.now(timezone.utc),
+        )
+        await backup_job.insert()
+        backup_logger = BackupLogger(str(backup_job.id))
+        await backup_logger.info("init", f"Incremental backup started ({len(audit_events)} events)")
+
+        backup_service = BackupService(mist_service=mist_service, backup_logger=backup_logger)
 
         backed_up = 0
         for event in audit_events:
@@ -446,12 +475,27 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
                     object_id=obj_id,
                     message=event.get("message", ""),
                 )
+                await backup_logger.info(
+                    "org_objects" if not site_id else "site_objects",
+                    f"Incremental backup: {prefixed_type} {obj_id or 'all'}",
+                    object_type=prefixed_type,
+                    object_id=obj_id,
+                    site_id=site_id,
+                )
             except Exception as exc:
                 logger.warning(
                     "incremental_backup_object_failed",
                     object_type=prefixed_type,
                     object_id=obj_id,
                     error=str(exc),
+                )
+                await backup_logger.warning(
+                    "org_objects" if not site_id else "site_objects",
+                    f"Incremental backup failed for {prefixed_type}: {str(exc)}",
+                    object_type=prefixed_type,
+                    object_id=obj_id,
+                    site_id=site_id,
+                    details={"error": str(exc)},
                 )
 
         logger.info(
@@ -461,5 +505,22 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             backed_up=backed_up,
         )
 
+        await backup_logger.info("complete", f"Incremental backup completed: {backed_up}/{len(audit_events)} events processed")
+        backup_job.status = BackupStatus.COMPLETED
+        backup_job.completed_at = datetime.now(timezone.utc)
+        backup_job.object_count = backed_up
+        await backup_job.save()
+
     except Exception as exc:
         logger.error("incremental_backup_failed", org_id=org_id, error=str(exc))
+        # Try to mark the job as failed if it was created
+        try:
+            if backup_job:
+                backup_job.status = BackupStatus.FAILED
+                backup_job.completed_at = datetime.now(timezone.utc)
+                backup_job.error = str(exc)
+                await backup_job.save()
+                backup_logger = BackupLogger(str(backup_job.id))
+                await backup_logger.error("complete", f"Incremental backup failed: {str(exc)}", details={"error": str(exc)})
+        except Exception:
+            pass

@@ -11,7 +11,7 @@ class LoginRequest(BaseModel):
     """Login request schema."""
 
     email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., description="User password", min_length=8)
+    password: str = Field(..., description="User password", min_length=1)
     remember_me: bool = Field(default=False, description="Keep user logged in for longer")
 
 
@@ -43,14 +43,14 @@ class OnboardRequest(BaseModel):
     """Onboarding request schema for first admin user."""
 
     email: EmailStr = Field(..., description="Admin email address")
-    password: str = Field(..., description="Admin password", min_length=8)
+    password: str = Field(..., description="Admin password", min_length=1)
 
 
 class ChangePasswordRequest(BaseModel):
     """Change password request schema."""
 
     current_password: str = Field(..., description="Current password")
-    new_password: str = Field(..., description="New password", min_length=8)
+    new_password: str = Field(..., description="New password", min_length=1)
 
 
 class SessionResponse(BaseModel):

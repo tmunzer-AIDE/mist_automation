@@ -76,6 +76,7 @@ MODULES: list[AppModule] = [
             ("app.modules.backup.models", "BackupObject"),
             ("app.modules.backup.models", "BackupConfig"),
             ("app.modules.backup.models", "BackupJob"),
+            ("app.modules.backup.models", "BackupLogEntry"),
         ],
         tags=["Backups"],
     ),

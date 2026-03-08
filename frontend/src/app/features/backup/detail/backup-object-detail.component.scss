@@ -94,6 +94,155 @@
   max-width: 300px;
 }
 
+// ── Compare Mode ────────────────────────────────────────────────────────────
+
+.active-compare {
+  background: var(--mat-sys-primary) !important;
+  color: var(--mat-sys-on-primary) !important;
+}
+
+.compare-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--mat-sys-primary);
+  color: var(--mat-sys-on-primary);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.timeline-entry.compare-selected .timeline-dot {
+  transform: scale(1.5);
+  box-shadow: 0 0 0 3px var(--mat-sys-primary-container);
+}
+
+.compare-section {
+  margin-bottom: 24px;
+}
+
+.compare-hint {
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 14px;
+  padding: 16px;
+  border: 1px dashed var(--mat-sys-outline-variant);
+  border-radius: 8px;
+  background: var(--mat-sys-surface-container-low);
+}
+
+.diff-card {
+  mat-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.diff-summary {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.no-diff {
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+  padding: 24px;
+}
+
+.diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.diff-entry {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 6px;
+  overflow: hidden;
+
+  &.diff-added {
+    border-color: #4caf50;
+  }
+  &.diff-removed {
+    border-color: #f44336;
+  }
+  &.diff-modified {
+    border-color: #2196f3;
+  }
+}
+
+.diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--mat-sys-surface-container);
+}
+
+.diff-path {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.diff-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+
+  .diff-added & {
+    background: #e8f5e9;
+    color: #2e7d32;
+  }
+  .diff-removed & {
+    background: #ffebee;
+    color: #c62828;
+  }
+  .diff-modified & {
+    background: #e3f2fd;
+    color: #1565c0;
+  }
+}
+
+.diff-values {
+  display: flex;
+  gap: 0;
+}
+
+.diff-old,
+.diff-new {
+  flex: 1;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: 'Roboto Mono', monospace;
+  line-height: 1.4;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.diff-old {
+  background: rgba(244, 67, 54, 0.04);
+  border-right: 1px solid var(--mat-sys-outline-variant);
+}
+
+.diff-new {
+  background: rgba(76, 175, 80, 0.04);
+}
+
 // ── Object Information Card ──────────────────────────────────────────────────
 
 .info-card {

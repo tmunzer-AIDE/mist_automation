@@ -1,13 +1,51 @@
+:host {
+  display: block;
+}
+
 mat-toolbar {
   background: var(--mat-sys-surface);
   border-bottom: 1px solid var(--mat-sys-outline-variant);
-  height: 64px;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  padding: 0 12px;
+}
+
+::ng-deep .mat-toolbar-row, ::ng-deep .mat-toolbar-single-row {
+  height: 48px;
 }
 
 .spacer {
   flex: 1;
 }
 
+.menu-btn {
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+}
+
+.user-btn {
+  font-size: 13px;
+  height: 36px;
+  line-height: 36px;
+}
+
+.avatar-icon {
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .user-email {
-  margin: 0 4px;
+  margin: 0 2px;
+}
+
+.dropdown-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--mat-sys-on-surface-variant);
 }

@@ -1,58 +1,95 @@
 .filters {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
 
   mat-form-field {
-    width: 280px;
+    width: 260px;
   }
 }
 
+// ── Timeline ────────────────────────────────────────────────────────────────
+
 .timeline {
-  position: relative;
-  padding-left: 24px;
-  border-left: 2px solid var(--mat-sys-outline-variant);
+  display: flex;
+  flex-direction: column;
 }
 
 .timeline-entry {
-  position: relative;
-  margin-bottom: 16px;
+  display: flex;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.timeline-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
 }
 
 .timeline-dot {
-  position: absolute;
-  left: -31px;
-  top: 16px;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--mat-sys-primary);
+  background: var(--mat-sys-outline);
   border: 2px solid var(--mat-sys-surface);
+  flex-shrink: 0;
+  z-index: 1;
+  margin-top: 14px;
+
+  &.first {
+    background: var(--mat-sys-primary);
+    width: 12px;
+    height: 12px;
+    box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  }
+}
+
+.timeline-connector {
+  width: 2px;
+  flex: 1;
+  background: var(--mat-sys-outline-variant);
+  min-height: 8px;
 }
 
 .timeline-card {
-  cursor: pointer;
-  padding: 16px;
+  flex: 1;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-low);
+  transition: border-color 0.15s, box-shadow 0.15s;
 
-  &:hover {
-    background: var(--mat-sys-surface-variant);
+  .timeline-entry:hover & {
+    border-color: var(--mat-sys-outline);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   }
 }
 
 .timeline-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 10px;
+}
+
+.timeline-type {
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .timeline-time {
   color: var(--mat-sys-on-surface-variant);
-  font-size: 13px;
+  font-size: 12px;
+  margin-left: auto;
 }
 
-.timeline-body {
-  font-size: 14px;
+.timeline-meta {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: 4px;
 }

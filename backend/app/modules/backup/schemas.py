@@ -54,6 +54,7 @@ class BackupObjectSummary(BaseModel):
     latest_version: int
     first_backed_up_at: datetime
     last_backed_up_at: datetime
+    last_modified_at: datetime | None = None
     is_deleted: bool
     event_type: str
 
@@ -99,3 +100,25 @@ class BackupObjectVersionResponse(BaseModel):
     backed_up_by: str | None
     is_deleted: bool
     configuration: dict
+
+
+# ── Log schemas ──────────────────────────────────────────────────────────────
+
+class BackupLogEntryResponse(BaseModel):
+    """A single backup execution log entry."""
+    id: str
+    backup_job_id: str
+    timestamp: datetime
+    level: str
+    phase: str
+    message: str
+    object_type: str | None = None
+    object_id: str | None = None
+    object_name: str | None = None
+    site_id: str | None = None
+    details: dict | None = None
+
+
+class BackupLogListResponse(BaseModel):
+    logs: list[BackupLogEntryResponse]
+    total: int

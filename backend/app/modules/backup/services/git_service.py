@@ -47,6 +47,9 @@ class GitService:
         if not self.repo_url:
             raise ConfigurationError("Git repository URL not configured")
 
+        # Validate Git URL scheme to prevent command injection via ext:: protocol
+        self._validate_git_url(self.repo_url)
+
         # Ensure repo exists
         self.repo = self._init_or_open_repo()
 
@@ -402,6 +405,22 @@ class GitService:
             return False, error_msg
 
     # ===== Helper Methods =====
+
+    @staticmethod
+    def _validate_git_url(url: str) -> None:
+        """Validate Git URL scheme to prevent command injection."""
+        from urllib.parse import urlparse
+
+        _ALLOWED_SCHEMES = {"https", "ssh", "git"}
+        parsed = urlparse(url)
+        if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+            raise ConfigurationError(
+                f"Unsupported Git URL scheme '{parsed.scheme}'. "
+                f"Allowed: {', '.join(sorted(_ALLOWED_SCHEMES))}"
+            )
+        # Block ext:: protocol used for arbitrary command execution
+        if url.lower().startswith("ext::"):
+            raise ConfigurationError("ext:: Git protocol is not allowed")
 
     def _generate_commit_message(self, backup: BackupObject) -> str:
         """Generate commit message for backup."""

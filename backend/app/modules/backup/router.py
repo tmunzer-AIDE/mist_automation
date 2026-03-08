@@ -3,6 +3,7 @@ Backup and restore API endpoints.
 """
 
 import asyncio
+import re
 import structlog
 from datetime import datetime
 from beanie import PydanticObjectId
@@ -10,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_user_from_token
-from app.modules.backup.models import BackupJob, BackupStatus, BackupType
+from app.modules.backup.models import BackupJob, BackupLogEntry, BackupStatus, BackupType
 from app.models.user import User
 from app.models.system import SystemConfig
 from app.core.security import decrypt_sensitive_data
@@ -24,6 +25,8 @@ from app.modules.backup.schemas import (
     BackupChangeEvent,
     BackupChangeListResponse,
     BackupObjectVersionResponse,
+    BackupLogEntryResponse,
+    BackupLogListResponse,
 )
 
 router = APIRouter()
@@ -351,11 +354,17 @@ async def list_backup_objects(
     List backed-up objects with latest version summary.
     Groups by object_id and returns one row per unique object.
     """
+    # Scope to configured org
+    config = await SystemConfig.get_config()
+    configured_org_id = config.mist_org_id
+
     # Use MongoDB aggregation to get latest version per object_id
     pipeline: list[dict] = []
 
     # Match stage — apply filters
     match: dict = {}
+    if configured_org_id:
+        match["org_id"] = configured_org_id
     if object_type:
         match["object_type"] = object_type
     if site_id:
@@ -365,10 +374,11 @@ async def list_backup_objects(
     elif scope == "site":
         match["site_id"] = {"$ne": None}
     if search:
+        escaped_search = re.escape(search)
         match["$or"] = [
-            {"object_name": {"$regex": search, "$options": "i"}},
-            {"object_type": {"$regex": search, "$options": "i"}},
-            {"object_id": {"$regex": search, "$options": "i"}},
+            {"object_name": {"$regex": escaped_search, "$options": "i"}},
+            {"object_type": {"$regex": escaped_search, "$options": "i"}},
+            {"object_id": {"$regex": escaped_search, "$options": "i"}},
         ]
     if match:
         pipeline.append({"$match": match})
@@ -389,6 +399,7 @@ async def list_backup_objects(
             "version_count": {"$sum": 1},
             "first_backed_up_at": {"$min": "$backed_up_at"},
             "last_backed_up_at": {"$max": "$backed_up_at"},
+            "last_modified_at": {"$max": "$last_modified_at"},
             "is_deleted": {"$first": "$is_deleted"},
             "event_type": {"$first": "$event_type"},
         }
@@ -431,6 +442,7 @@ async def list_backup_objects(
             latest_version=r["latest_version"],
             first_backed_up_at=r["first_backed_up_at"],
             last_backed_up_at=r["last_backed_up_at"],
+            last_modified_at=r.get("last_modified_at"),
             is_deleted=r.get("is_deleted", False),
             event_type=r.get("event_type", ""),
         ))
@@ -454,7 +466,13 @@ async def list_backup_changes(
     List individual backup change events for the timeline view.
     Each row is a single version of a backed-up object.
     """
+    # Scope to configured org
+    config = await SystemConfig.get_config()
+    configured_org_id = config.mist_org_id
+
     query: dict = {}
+    if configured_org_id:
+        query["org_id"] = configured_org_id
 
     if object_type:
         query["object_type"] = object_type
@@ -544,6 +562,57 @@ async def get_object_versions(
         ))
 
     return {"versions": versions, "total": len(versions)}
+
+
+@router.get("/backups/{backup_id}/logs", response_model=BackupLogListResponse, tags=["Backups"])
+async def get_backup_logs(
+    backup_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+    level: str | None = Query(None, description="Filter by log level: info, warning, error"),
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Get execution logs for a specific backup job."""
+    try:
+        job_oid = PydanticObjectId(backup_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid backup ID format",
+        ) from exc
+
+    query: dict = {"backup_job_id": job_oid}
+    if level:
+        query["level"] = level
+
+    total = await BackupLogEntry.find(query).count()
+    entries = await (
+        BackupLogEntry.find(query)
+        .sort([("timestamp", 1)])
+        .skip(skip)
+        .limit(limit)
+        .to_list()
+    )
+
+    return BackupLogListResponse(
+        logs=[
+            BackupLogEntryResponse(
+                id=str(e.id),
+                backup_job_id=str(e.backup_job_id),
+                timestamp=e.timestamp,
+                level=e.level,
+                phase=e.phase,
+                message=e.message,
+                object_type=e.object_type,
+                object_id=e.object_id,
+                object_name=e.object_name,
+                site_id=e.site_id,
+                details=e.details,
+            )
+            for e in entries
+        ],
+        total=total,
+    )
 
 
 @router.get("/backups/{backup_id}", response_model=BackupJobResponse, tags=["Backups"])

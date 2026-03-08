@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -9,6 +9,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { UserResponse } from '../../../core/models/user.model';
 import { passwordValidator, matchPasswordValidator } from '../../../shared/validators/password.validator';
 
@@ -97,10 +98,11 @@ const TIMEZONES = [
     mat-form-field { width: 100%; }
   `],
 })
-export class UserDialogComponent {
+export class UserDialogComponent implements OnInit {
   readonly data = inject<DialogData>(MAT_DIALOG_DATA);
   private readonly dialogRef = inject(MatDialogRef<UserDialogComponent>);
   private readonly api = inject(ApiService);
+  private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly fb = inject(FormBuilder);
 
@@ -120,6 +122,20 @@ export class UserDialogComponent {
     if (this.data.mode === 'create') {
       this.form.get('password')!.setValidators([Validators.required, passwordValidator()]);
       this.form.get('confirmPassword')!.setValidators([Validators.required, matchPasswordValidator('password')]);
+    }
+  }
+
+  ngOnInit(): void {
+    if (this.data.mode === 'create') {
+      this.authService.checkHealth().subscribe({
+        next: (health) => {
+          if (health.password_policy) {
+            const ctrl = this.form.get('password')!;
+            ctrl.setValidators([Validators.required, passwordValidator(health.password_policy)]);
+            ctrl.updateValueAndValidity();
+          }
+        },
+      });
     }
   }
 

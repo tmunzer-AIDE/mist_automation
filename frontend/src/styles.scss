@@ -8,7 +8,7 @@ html {
       tertiary: mat.$violet-palette,
     ),
     typography: Roboto,
-    density: 0,
+    density: -1,
   ));
 }
 
@@ -17,6 +17,7 @@ body {
   background-color: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);
+  font-size: 13px;
   margin: 0;
   height: 100%;
 }
@@ -26,6 +27,12 @@ a {
   text-decoration: none;
 }
 
+// Force compact toolbar height globally
+:root {
+  --mat-toolbar-standard-height: 48px;
+  --mat-toolbar-mobile-height: 48px;
+}
+
 .mat-mdc-snack-bar-container {
-  margin-top: 72px;
+  margin-top: 56px;
 }

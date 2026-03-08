@@ -23,6 +23,8 @@ from app.core.security import (
     decode_token,
     generate_backup_codes,
     hash_backup_code,
+    encrypt_sensitive_data,
+    decrypt_sensitive_data,
 )
 from app.core.exceptions import (
     AuthenticationError,
@@ -235,8 +237,8 @@ class AuthService:
         # Generate backup codes
         backup_codes = generate_backup_codes()
 
-        # Save TOTP secret and hashed backup codes (but don't enable yet)
-        user.totp_secret = totp_secret
+        # Encrypt and save TOTP secret and hashed backup codes (but don't enable yet)
+        user.totp_secret = encrypt_sensitive_data(totp_secret)
         user.backup_codes = [hash_backup_code(code) for code in backup_codes]
         user.updated_at = datetime.now(timezone.utc)
         await user.save()
@@ -261,7 +263,7 @@ class AuthService:
         if not user.totp_secret:
             raise ValueError("TOTP not set up for this user")
 
-        # Verify TOTP code
+        # Verify TOTP code (uses decrypt internally)
         if not await AuthService.verify_totp(user, totp_code):
             logger.warning("totp_enable_failed_invalid_code", user_id=str(user.id))
             raise InvalidTOTPError("Invalid TOTP code")
@@ -314,8 +316,15 @@ class AuthService:
         if not user.totp_secret:
             return False
 
+        # Decrypt TOTP secret before verification
+        try:
+            decrypted_secret = decrypt_sensitive_data(user.totp_secret)
+        except Exception:
+            # Fallback: secret may be stored in plaintext (pre-migration)
+            decrypted_secret = user.totp_secret
+
         # Try TOTP code first
-        totp = pyotp.TOTP(user.totp_secret)
+        totp = pyotp.TOTP(decrypted_secret)
         if totp.verify(code, valid_window=1):  # Allow 1 time step tolerance
             return True
 

@@ -134,20 +134,41 @@ class SmeeClient:
         except json.JSONDecodeError:
             return
 
-        # Smee wraps the original request — extract body and headers
+        # Smee wraps the original request — extract body and headers.
+        # Smee.io flattens original HTTP headers as top-level keys in the
+        # SSE payload (alongside "body", "timestamp", etc.), so we look
+        # for Mist signature headers both at the top level and in a nested
+        # "headers" dict (for forward-compatibility).
         body = data.get("body", data)
-        original_headers: dict = data.get("headers", {})
 
-        # Build forwarding headers (keep content-type and Mist signature)
-        forward_headers: dict[str, str] = {"Content-Type": "application/json"}
+        # Build forwarding headers (keep content-type and Mist signature).
+        # Mark the request as smee-forwarded so the webhook endpoint can
+        # skip HMAC verification (the body has been round-tripped through
+        # JSON parse/serialize and the signature won't match).
+        forward_headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "X-Forwarded-By": "smee",
+        }
+        nested_headers: dict = data.get("headers", {})
         for key in ("x-mist-signature", "x-mist-signature-v2"):
-            if key in original_headers:
-                forward_headers[key] = original_headers[key]
+            value = nested_headers.get(key) or data.get(key)
+            if value:
+                forward_headers[key] = value
+
+        # Preserve the original body bytes so the HMAC signature stays valid.
+        # If "body" came from smee as a dict, we must re-serialize — but use
+        # separators without trailing whitespace to stay close to the original.
+        if isinstance(body, str):
+            content = body
+        elif isinstance(body, dict):
+            content = json.dumps(body, separators=(",", ":"))
+        else:
+            content = str(body)
 
         try:
             resp = await client.post(
                 self.target_url,
-                content=json.dumps(body) if isinstance(body, dict) else str(body),
+                content=content,
                 headers=forward_headers,
             )
             logger.debug(
@@ -168,8 +189,18 @@ def get_smee_client() -> SmeeClient | None:
     return _client
 
 
+def _validate_smee_url(url: str) -> None:
+    """Ensure the Smee channel URL is a valid smee.io URL."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "smee.io":
+        raise ValueError("Smee URL must be an https://smee.io/ URL")
+
+
 async def start_smee(channel_url: str, target_url: str) -> SmeeClient:
     global _client
+    _validate_smee_url(channel_url)
     if _client and _client.is_running:
         await _client.stop()
     _client = SmeeClient(channel_url, target_url)

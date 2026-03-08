@@ -89,6 +89,7 @@ export interface BackupObjectSummary {
   latest_version: number;
   first_backed_up_at: string;
   last_backed_up_at: string;
+  last_modified_at: string | null;
   is_deleted: boolean;
   event_type: string;
 }
@@ -126,4 +127,25 @@ export interface RestoreResponse {
   status: string;
   message: string;
   changes?: Record<string, unknown>;
+}
+
+// ── Log models ──────────────────────────────────────────────────────────────
+
+export interface BackupLogEntry {
+  id: string;
+  backup_job_id: string;
+  timestamp: string;
+  level: string;
+  phase: string;
+  message: string;
+  object_type: string | null;
+  object_id: string | null;
+  object_name: string | null;
+  site_id: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export interface BackupLogListResponse {
+  logs: BackupLogEntry[];
+  total: number;
 }

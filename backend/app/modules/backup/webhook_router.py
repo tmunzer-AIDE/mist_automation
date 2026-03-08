@@ -10,7 +10,7 @@ import hashlib
 import hmac
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Header, Query, Request, status
 
 from app.config import settings as app_settings
 from app.dependencies import get_current_user_from_token, require_admin
@@ -35,6 +35,7 @@ def _verify_signature(payload: bytes, signature: str, secret: str) -> bool:
 async def receive_backup_webhook(
     request: Request,
     x_mist_signature: str | None = Header(None, description="Mist webhook signature"),
+    x_forwarded_by: str | None = Header(None, description="Set by internal Smee forwarder"),
 ):
     """
     Receive Mist audit webhooks for incremental backup.
@@ -58,10 +59,27 @@ async def receive_backup_webhook(
     body = await request.body()
     payload = await request.json()
 
+    # When the Smee.io client forwards an event, the body has been
+    # round-tripped through JSON parse/serialize so the HMAC signature
+    # will not match.  We trust Smee-forwarded requests only when they
+    # originate from localhost (127.0.0.1).
+    smee_forwarded = (
+        x_forwarded_by == "smee"
+        and request.client
+        and request.client.host in ("127.0.0.1", "::1")
+    )
+
     # Signature verification using the system webhook secret
     config = await SystemConfig.get_config()
-    if x_mist_signature and config.webhook_secret:
+    if config.webhook_secret and not smee_forwarded:
         from app.core.security import decrypt_sensitive_data
+
+        if not x_mist_signature:
+            logger.warning("backup_webhook_signature_missing")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing webhook signature",
+            )
 
         secret = decrypt_sensitive_data(config.webhook_secret)
         if not _verify_signature(body, x_mist_signature, secret):
@@ -129,11 +147,26 @@ async def get_smee_status(
 
 @router.post("/backups/smee/start", tags=["Backups"])
 async def start_smee_client(
+    request: Request,
     current_user: User = Depends(require_admin),
 ):
-    """Start the Smee.io webhook forwarder for the backup module."""
+    """Start the Smee.io webhook forwarder for the backup module.
+
+    Accepts an optional ``smee_channel_url`` in the request body so the
+    user can start the client with a new URL without saving first.  The
+    provided URL is persisted automatically.
+    """
+    # Parse optional JSON body
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
     config = await SystemConfig.get_config()
-    if not config.smee_channel_url:
+
+    # Prefer URL from request body, fall back to saved config
+    channel_url = body.get("smee_channel_url") or config.smee_channel_url
+    if not channel_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Smee.io channel URL not configured",
@@ -142,14 +175,16 @@ async def start_smee_client(
     from app.modules.backup.services.smee_service import start_smee
 
     target = f"http://127.0.0.1:8000{app_settings.api_v1_prefix}/backups/webhooks/mist"
-    await start_smee(config.smee_channel_url, target)
+    await start_smee(channel_url, target)
 
+    # Persist the URL and enabled state
+    config.smee_channel_url = channel_url
     config.smee_enabled = True
     config.update_timestamp()
     await config.save()
 
     logger.info("smee_started_via_api", user_id=str(current_user.id))
-    return {"status": "started", "channel_url": config.smee_channel_url}
+    return {"status": "started", "channel_url": channel_url}
 
 
 @router.post("/backups/smee/stop", tags=["Backups"])

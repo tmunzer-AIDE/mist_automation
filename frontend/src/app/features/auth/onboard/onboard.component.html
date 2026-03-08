@@ -37,7 +37,7 @@
           </button>
           @if (form.get('password')?.errors; as errors) {
             <mat-error>
-              {{ errors['minLength'] || errors['uppercase'] || errors['lowercase'] || errors['digit'] || 'Invalid password' }}
+              {{ errors['minLength'] || errors['uppercase'] || errors['lowercase'] || errors['digit'] || errors['special'] || 'Invalid password' }}
             </mat-error>
           }
         </mat-form-field>

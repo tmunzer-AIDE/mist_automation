@@ -2,6 +2,8 @@
 Authentication API endpoints.
 """
 
+import time
+from collections import defaultdict
 from datetime import timedelta
 
 import structlog
@@ -30,12 +32,35 @@ from app.schemas.auth import (
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 
+# ── In-memory rate limiter for login ──────────────────────────────────────────
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_WINDOW = 300  # 5 minutes
+_RATE_LIMIT_MAX = 5  # max attempts per window
+
+
+def _check_login_rate_limit(key: str) -> None:
+    """Raise 429 if the key has exceeded the login rate limit."""
+    now = time.monotonic()
+    # Prune old entries
+    _login_attempts[key] = [t for t in _login_attempts[key] if now - t < _RATE_LIMIT_WINDOW]
+    if len(_login_attempts[key]) >= _RATE_LIMIT_MAX:
+        logger.warning("login_rate_limited", key=key)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+        )
+    _login_attempts[key].append(now)
+
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["Authentication"])
 async def login(request: Request, login_data: LoginRequest):
     """
     Login endpoint - authenticate user and return JWT token.
     """
+    # Rate limit by IP + email
+    ip = request.client.host if request.client else "unknown"
+    _check_login_rate_limit(f"{ip}:{login_data.email}")
+
     # Find user by email
     user = await User.find_one(User.email == login_data.email)
     if not user:
@@ -119,22 +144,41 @@ async def logout(request: Request, current_user: User = Depends(get_current_user
 
 
 @router.post("/auth/refresh", response_model=TokenResponse, tags=["Authentication"])
-async def refresh_token(current_user: User = Depends(get_current_user_from_token)):
+async def refresh_token(request: Request, current_user: User = Depends(get_current_user_from_token)):
     """
     Refresh JWT token.
+    Invalidates the old session and creates a new one.
     """
+    # Delete old session
+    old_jti = getattr(request.state, "token_jti", None)
+    if old_jti:
+        old_session = await UserSession.find_one(UserSession.token_jti == old_jti)
+        if old_session:
+            await old_session.delete()
+
     # Create new JWT token
     token_data = {
         "sub": str(current_user.id),
         "email": current_user.email,
         "roles": current_user.roles,
     }
-    
+
     expires_delta = timedelta(hours=settings.access_token_expire_hours)
     access_token, token_jti = create_access_token(data=token_data, expires_delta=expires_delta)
-    
+
+    # Create new session
+    ip_address = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "")
+    new_session = UserSession.create_session(
+        user_id=current_user.id,
+        token_jti=token_jti,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    await new_session.insert()
+
     logger.info("token_refreshed", user_id=str(current_user.id))
-    
+
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",

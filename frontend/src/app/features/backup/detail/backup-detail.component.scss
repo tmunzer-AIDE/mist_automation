@@ -43,3 +43,109 @@
     max-height: none;
   }
 }
+
+// Execution Log styles
+.log-card {
+  mat-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.log-summary {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+
+  .warn-count {
+    color: #f59e0b;
+    margin-left: 8px;
+  }
+
+  .error-count {
+    color: var(--mat-sys-error);
+    margin-left: 8px;
+  }
+}
+
+.log-filters {
+  margin-bottom: 12px;
+}
+
+.no-logs {
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+  padding: 24px;
+}
+
+.log-list {
+  max-height: 500px;
+  overflow-y: auto;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 8px;
+}
+
+.log-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &.log-warning {
+    background: rgba(245, 158, 11, 0.06);
+  }
+
+  &.log-error {
+    background: rgba(239, 68, 68, 0.06);
+  }
+}
+
+.log-time {
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.log-level-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+
+  &.log-icon-info {
+    color: var(--mat-sys-primary);
+  }
+
+  &.log-icon-warning {
+    color: #f59e0b;
+  }
+
+  &.log-icon-error {
+    color: var(--mat-sys-error);
+  }
+}
+
+.log-phase {
+  background: var(--mat-sys-surface-container);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.log-message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

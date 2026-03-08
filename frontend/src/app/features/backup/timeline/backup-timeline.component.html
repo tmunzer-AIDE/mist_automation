@@ -25,20 +25,24 @@
 
 @if (entries.length > 0) {
   <div class="timeline">
-    @for (entry of entries; track entry.id) {
-      <div class="timeline-entry">
-        <div class="timeline-dot"></div>
-        <mat-card class="timeline-card" [routerLink]="['/backup', entry.id]">
+    @for (entry of entries; track entry.id; let i = $index) {
+      <div class="timeline-entry" [routerLink]="['/backup', entry.id]">
+        <div class="timeline-marker">
+          <div class="timeline-dot" [class.first]="i === 0"></div>
+          @if (i < entries.length - 1) {
+            <div class="timeline-connector"></div>
+          }
+        </div>
+        <div class="timeline-card">
           <div class="timeline-header">
             <app-status-badge [status]="entry.status"></app-status-badge>
+            <span class="timeline-type">{{ entry.backup_type }}</span>
             <span class="timeline-time">{{ entry.created_at | relativeTime }}</span>
           </div>
-          <div class="timeline-body">
-            <strong>{{ entry.backup_type }}</strong> &middot;
-            {{ entry.object_count }} objects &middot;
-            {{ entry.size_bytes | fileSize }}
+          <div class="timeline-meta">
+            {{ entry.object_count }} objects &middot; {{ entry.size_bytes | fileSize }}
           </div>
-        </mat-card>
+        </div>
       </div>
     }
   </div>

@@ -8,7 +8,7 @@ import { Component, Input } from '@angular/core';
       <div class="page-header-text">
         <h1>{{ title }}</h1>
         @if (subtitle) {
-          <p class="subtitle">{{ subtitle }}</p>
+          <span class="subtitle">{{ subtitle }}</span>
         }
       </div>
       <div class="page-header-actions">
@@ -21,19 +21,24 @@ import { Component, Input } from '@angular/core';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 12px;
+    }
+    .page-header-text {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
     }
     h1 {
       margin: 0;
-      font-size: 24px;
-      font-weight: 500;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
     }
     .subtitle {
-      margin: 4px 0 0;
       color: var(--mat-sys-on-surface-variant);
-      font-size: 14px;
+      font-size: 13px;
     }
     .page-header-actions {
       display: flex;

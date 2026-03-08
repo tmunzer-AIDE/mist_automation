@@ -5,6 +5,15 @@
   <a mat-stroked-button routerLink="/backup">
     <mat-icon>arrow_back</mat-icon> Back
   </a>
+  @if (versions.length > 1) {
+    <button
+      mat-stroked-button
+      (click)="toggleCompareMode()"
+      [class.active-compare]="compareMode"
+    >
+      <mat-icon>compare</mat-icon> {{ compareMode ? 'Exit Compare' : 'Compare Versions' }}
+    </button>
+  }
 </app-page-header>
 
 @if (loading) {
@@ -23,8 +32,12 @@
             [matTooltip]="versionTooltip(v)"
             matTooltipClass="timeline-tooltip"
             [class.selected]="selectedVersionId === v.id"
-            (click)="selectVersion(v)"
+            [class.compare-selected]="compareMode && isCompareSelected(v)"
+            (click)="compareMode ? toggleCompareVersion(v) : selectVersion(v)"
           >
+            @if (compareMode && compareLabel(v)) {
+              <span class="compare-badge">{{ compareLabel(v) }}</span>
+            }
             <div class="timeline-dot" [ngClass]="dotClass(v.event_type)"></div>
             <span class="timeline-version-label">v{{ v.version }}</span>
           </div>
@@ -32,6 +45,54 @@
       </div>
     </div>
   </section>
+
+  <!-- ── Compare Mode ───────────────────────────────────────────────── -->
+  @if (compareMode) {
+    <section class="compare-section">
+      @if (!compareVersions[0]) {
+        <p class="compare-hint">Select two versions from the timeline to compare.</p>
+      } @else if (!compareVersions[1]) {
+        <p class="compare-hint">
+          Selected v{{ compareVersions[0]!.version }} (A). Now select a second version (B).
+        </p>
+      } @else {
+        <mat-card class="diff-card">
+          <mat-card-header>
+            <mat-card-title>
+              v{{ compareVersions[0]!.version }} → v{{ compareVersions[1]!.version }}
+            </mat-card-title>
+            <span class="diff-summary">
+              {{ diffEntries.length }} difference{{ diffEntries.length === 1 ? '' : 's' }}
+            </span>
+          </mat-card-header>
+          <mat-card-content>
+            @if (diffEntries.length === 0) {
+              <p class="no-diff">No differences found between these versions.</p>
+            } @else {
+              <div class="diff-list">
+                @for (d of diffEntries; track d.path) {
+                  <div class="diff-entry" [ngClass]="'diff-' + d.type">
+                    <div class="diff-header">
+                      <code class="diff-path">{{ d.path }}</code>
+                      <span class="diff-type-badge">{{ d.type }}</span>
+                    </div>
+                    <div class="diff-values">
+                      @if (d.type === 'removed' || d.type === 'modified') {
+                        <pre class="diff-old">{{ formatValue(d.oldValue) }}</pre>
+                      }
+                      @if (d.type === 'added' || d.type === 'modified') {
+                        <pre class="diff-new">{{ formatValue(d.newValue) }}</pre>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </mat-card-content>
+        </mat-card>
+      }
+    </section>
+  }
 
   <!-- ── Object Information Card ──────────────────────────────────────── -->
   <mat-card class="info-card">
@@ -151,6 +212,12 @@
                 <mat-icon>code</mat-icon>
                 <span>View JSON</span>
               </button>
+              @if (compareMode) {
+                <button mat-menu-item (click)="toggleCompareVersion(v)">
+                  <mat-icon>{{ isCompareSelected(v) ? 'remove_circle' : 'add_circle' }}</mat-icon>
+                  <span>{{ isCompareSelected(v) ? 'Deselect for Compare' : 'Select for Compare' }}</span>
+                </button>
+              }
               <button mat-menu-item (click)="restoreVersion(v)">
                 <mat-icon>restore</mat-icon>
                 <span>Restore This Version</span>

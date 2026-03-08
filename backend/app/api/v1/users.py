@@ -6,7 +6,7 @@ import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.security import hash_password
+from app.core.security import hash_password, validate_password_strength
 from app.dependencies import get_current_user_from_token, require_admin
 from app.models.user import User
 from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
@@ -64,6 +64,14 @@ async def create_user(
     """
     Create a new user (admin only).
     """
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(user_data.password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
     # Check if user already exists
     existing_user = await User.find_one(User.email == user_data.email)
     if existing_user:
@@ -71,7 +79,7 @@ async def create_user(
             status_code=status.HTTP_409_CONFLICT,
             detail="User with this email already exists"
         )
-    
+
     # Hash password
     password_hash = hash_password(user_data.password)
     

@@ -1,7 +1,4 @@
 <app-page-header title="Backups" subtitle="Configuration backup inventory">
-  <a mat-stroked-button routerLink="/backup/compare">
-    <mat-icon>compare</mat-icon> Compare
-  </a>
   <button mat-flat-button (click)="openCreateDialog()">
     <mat-icon>add</mat-icon> Create Backup
   </button>
@@ -9,7 +6,18 @@
 
 <!-- ── Timeline ─────────────────────────────────────────────────────── -->
 <section class="timeline-section">
-  <h2 class="section-title">Recent Changes</h2>
+  <div class="section-header">
+    <h2 class="section-title">Recent Changes</h2>
+    @if (!loadingChanges && changes.length > 0) {
+      <div class="timeline-legend">
+        <span class="legend-item"><span class="legend-dot dot-created"></span> Created</span>
+        <span class="legend-item"><span class="legend-dot dot-updated"></span> Updated</span>
+        <span class="legend-item"><span class="legend-dot dot-deleted"></span> Deleted</span>
+        <span class="legend-item"><span class="legend-dot dot-restored"></span> Restored</span>
+        <span class="legend-item"><span class="legend-dot dot-backup"></span> Backup</span>
+      </div>
+    }
+  </div>
 
   @if (loadingChanges) {
     <mat-progress-bar mode="indeterminate"></mat-progress-bar>
@@ -30,6 +38,7 @@
             (click)="filterByTimelineEvent(change)"
           >
             <div class="timeline-dot" [ngClass]="eventDotClass(change.event_type)"></div>
+            <span class="timeline-label">{{ change.object_name || change.object_type }}</span>
           </div>
         }
       </div>
@@ -37,8 +46,44 @@
 
     @if (changesTotal > timelineLimit) {
       <p class="timeline-overflow">
-        Showing {{ timelineLimit }} of {{ changesTotal }} changes.
+        Showing {{ timelineLimit }} of {{ changesTotal }} changes
       </p>
+    }
+  }
+</section>
+
+<!-- ── Backup Jobs ─────────────────────────────────────────────────── -->
+<section class="jobs-section">
+  <div class="section-header">
+    <h2 class="section-title">Backup Jobs</h2>
+  </div>
+
+  @if (loadingJobs) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+
+  @if (!loadingJobs && jobs.length === 0) {
+    <p class="jobs-empty">No backup jobs recorded yet.</p>
+  }
+
+  @if (!loadingJobs && jobs.length > 0) {
+    <div class="jobs-list">
+      @for (job of jobs; track job.id) {
+        <div class="job-row clickable" (click)="viewJobDetail(job)">
+          <div class="job-info">
+            <span class="job-type">{{ job.backup_type }}</span>
+            <app-status-badge [status]="job.status"></app-status-badge>
+            <span class="job-objects">{{ job.object_count }} objects</span>
+          </div>
+          <div class="job-meta">
+            <span class="job-date">{{ job.created_at | date:'MMM d, y HH:mm' }}</span>
+            <mat-icon class="job-arrow">chevron_right</mat-icon>
+          </div>
+        </div>
+      }
+    </div>
+    @if (jobsTotal > jobs.length) {
+      <p class="jobs-overflow">Showing {{ jobs.length }} of {{ jobsTotal }} jobs</p>
     }
   }
 </section>
@@ -84,7 +129,7 @@
     </div>
 
     @if (hasActiveFilters) {
-      <button mat-button (click)="clearFilters()">
+      <button mat-button (click)="clearFilters()" class="clear-btn">
         <mat-icon>clear</mat-icon> Clear
       </button>
     }
@@ -150,20 +195,20 @@
 
   @if (objects.length > 0) {
     <div class="table-container">
-      <table mat-table [dataSource]="objects">
+      <table mat-table [dataSource]="objects" matSort (matSortChange)="onSort($event)">
         <!-- Scope -->
         <ng-container matColumnDef="scope">
-          <th mat-header-cell *matHeaderCellDef>Scope</th>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Scope</th>
           <td mat-cell *matCellDef="let obj">
             <span class="scope-badge" [ngClass]="'scope-' + obj.scope">
-              {{ obj.scope === 'org' ? 'Organization' : (obj.site_name || obj.site_id || 'Site') }}
+              {{ obj.scope === 'org' ? 'Org' : (obj.site_name || 'Site') }}
             </span>
           </td>
         </ng-container>
 
         <!-- Type -->
         <ng-container matColumnDef="object_type">
-          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Type</th>
           <td mat-cell *matCellDef="let obj">
             <code class="type-label">{{ obj.object_type }}</code>
           </td>
@@ -171,7 +216,7 @@
 
         <!-- Name -->
         <ng-container matColumnDef="object_name">
-          <th mat-header-cell *matHeaderCellDef>Object Name</th>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Name</th>
           <td mat-cell *matCellDef="let obj">
             <a class="object-link" (click)="viewObjectDetail(obj); $event.stopPropagation()">
               {{ obj.object_name || obj.object_id }}
@@ -181,25 +226,37 @@
 
         <!-- Versions -->
         <ng-container matColumnDef="version_count">
-          <th mat-header-cell *matHeaderCellDef>Versions</th>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Versions</th>
           <td mat-cell *matCellDef="let obj">{{ obj.version_count }}</td>
         </ng-container>
 
         <!-- Created -->
         <ng-container matColumnDef="first_backed_up_at">
-          <th mat-header-cell *matHeaderCellDef>Created</th>
-          <td mat-cell *matCellDef="let obj">{{ obj.first_backed_up_at | relativeTime }}</td>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Created</th>
+          <td mat-cell *matCellDef="let obj">{{ obj.first_backed_up_at | date:'MMM d, y HH:mm' }}</td>
         </ng-container>
 
-        <!-- Last Update -->
+        <!-- Last Backup -->
         <ng-container matColumnDef="last_backed_up_at">
-          <th mat-header-cell *matHeaderCellDef>Last Update</th>
-          <td mat-cell *matCellDef="let obj">{{ obj.last_backed_up_at | relativeTime }}</td>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Last Backup</th>
+          <td mat-cell *matCellDef="let obj">{{ obj.last_backed_up_at | date:'MMM d, y HH:mm' }}</td>
+        </ng-container>
+
+        <!-- Last Modified -->
+        <ng-container matColumnDef="last_modified_at">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Last Modified</th>
+          <td mat-cell *matCellDef="let obj">
+            @if (obj.last_modified_at) {
+              {{ obj.last_modified_at | date:'MMM d, y HH:mm' }}
+            } @else {
+              <span class="no-data">&mdash;</span>
+            }
+          </td>
         </ng-container>
 
         <!-- Status -->
         <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Status</th>
           <td mat-cell *matCellDef="let obj">
             <app-status-badge [status]="obj.is_deleted ? 'deleted' : 'active'"></app-status-badge>
           </td>

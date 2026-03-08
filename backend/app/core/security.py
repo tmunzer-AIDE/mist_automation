@@ -14,10 +14,13 @@ from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
+# bcrypt cost factor — OWASP recommends >= 13 for bcrypt
+_BCRYPT_ROUNDS = 14
+
 
 def hash_password(password: str) -> str:
     """Hash a password using bcrypt."""
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -28,56 +31,56 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
     """
     Validate password against security policy.
-    
+
     Returns:
         tuple: (is_valid, error_message)
     """
     if len(password) < settings.min_password_length:
         return False, f"Password must be at least {settings.min_password_length} characters long"
-    
+
     if settings.require_uppercase and not any(c.isupper() for c in password):
         return False, "Password must contain at least one uppercase letter"
-    
+
     if settings.require_lowercase and not any(c.islower() for c in password):
         return False, "Password must contain at least one lowercase letter"
-    
+
     if settings.require_digits and not any(c.isdigit() for c in password):
         return False, "Password must contain at least one digit"
-    
+
     if settings.require_special_chars and not any(c in string.punctuation for c in password):
         return False, "Password must contain at least one special character"
-    
+
     return True, None
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> tuple[str, str]:
     """
     Create a JWT access token.
-    
+
     Args:
         data: Payload data to encode in the token
         expires_delta: Optional custom expiration time
-    
+
     Returns:
         Tuple of (encoded JWT token, token JTI)
     """
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(hours=settings.access_token_expire_hours)
-    
+
     # Generate JTI for token revocation
     token_jti = generate_token_id()
-    
+
     # Add standard JWT claims
     to_encode.update({
         "exp": expire,
         "iat": datetime.now(timezone.utc),
         "jti": token_jti,
     })
-    
+
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt, token_jti
 
@@ -85,27 +88,27 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """
     Create a JWT refresh token with longer expiration.
-    
+
     Args:
         data: Payload data to encode in the token
-    
+
     Returns:
         Encoded JWT refresh token
     """
     expires_delta = timedelta(days=settings.refresh_token_expire_days)
     to_encode = data.copy()
     to_encode["type"] = "refresh"  # Mark as refresh token
-    
+
     return create_access_token(to_encode, expires_delta)
 
 
 def decode_token(token: str) -> Optional[dict[str, Any]]:
     """
     Decode and validate a JWT token.
-    
+
     Args:
         token: JWT token to decode
-    
+
     Returns:
         Decoded token payload or None if invalid
     """
@@ -125,10 +128,10 @@ def generate_token_id() -> str:
 def generate_backup_codes(count: int = 10) -> list[str]:
     """
     Generate backup codes for 2FA recovery.
-    
+
     Args:
         count: Number of backup codes to generate
-    
+
     Returns:
         List of backup codes (unhashed)
     """
@@ -163,65 +166,79 @@ def generate_secret_key() -> str:
 def encrypt_sensitive_data(data: str, key: Optional[str] = None) -> str:
     """
     Encrypt sensitive data (e.g., API tokens).
-    Uses Fernet symmetric encryption.
-    
+    Uses AES-256-GCM via AESGCM from the cryptography library.
+    A random 16-byte salt and 12-byte nonce are generated per encryption
+    and prepended to the ciphertext for decryption.
+
+    Format: base64( salt(16) || nonce(12) || ciphertext )
+
     Args:
         data: Data to encrypt
         key: Optional encryption key (uses settings.secret_key if not provided)
-    
+
     Returns:
         Encrypted data as base64 string
     """
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import os
     import base64
-    
-    # Derive encryption key from secret
+
     encryption_key = key or settings.secret_key
+
+    # Random salt per encryption
+    salt = os.urandom(16)
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
-        length=32,
-        salt=b'mist_automation_salt',  # In production, use a random salt per encryption
-        iterations=100000,
-        backend=default_backend(),
+        length=32,  # 256-bit key for AES-256
+        salt=salt,
+        iterations=100_000,
     )
-    derived_key = base64.urlsafe_b64encode(kdf.derive(encryption_key.encode()))
-    
-    f = Fernet(derived_key)
-    encrypted = f.encrypt(data.encode())
-    return encrypted.decode()
+    derived_key = kdf.derive(encryption_key.encode())
+
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(derived_key)
+    ciphertext = aesgcm.encrypt(nonce, data.encode(), None)
+
+    # Concatenate salt + nonce + ciphertext and base64 encode
+    return base64.urlsafe_b64encode(salt + nonce + ciphertext).decode()
 
 
 def decrypt_sensitive_data(encrypted_data: str, key: Optional[str] = None) -> str:
     """
-    Decrypt sensitive data.
-    
+    Decrypt sensitive data encrypted with encrypt_sensitive_data.
+
     Args:
         encrypted_data: Encrypted data as base64 string
         key: Optional encryption key (uses settings.secret_key if not provided)
-    
+
     Returns:
         Decrypted data
     """
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     import base64
-    
-    # Derive encryption key from secret
+
     encryption_key = key or settings.secret_key
+
+    raw = base64.urlsafe_b64decode(encrypted_data.encode())
+
+    # Extract salt (16 bytes), nonce (12 bytes), ciphertext (rest)
+    salt = raw[:16]
+    nonce = raw[16:28]
+    ciphertext = raw[28:]
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b'mist_automation_salt',
-        iterations=100000,
-        backend=default_backend(),
+        salt=salt,
+        iterations=100_000,
     )
-    derived_key = base64.urlsafe_b64encode(kdf.derive(encryption_key.encode()))
-    
-    f = Fernet(derived_key)
-    decrypted = f.decrypt(encrypted_data.encode())
-    return decrypted.decode()
+    derived_key = kdf.derive(encryption_key.encode())
+
+    aesgcm = AESGCM(derived_key)
+    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+    return plaintext.decode()

@@ -1,9 +1,10 @@
 import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DatePipe } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -19,6 +20,8 @@ import { MatCardModule } from '@angular/material/card';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { ApiService } from '../../../core/services/api.service';
 import {
+  BackupJobResponse,
+  BackupJobListResponse,
   BackupObjectSummary,
   BackupObjectListResponse,
   BackupChangeEvent,
@@ -29,7 +32,6 @@ import {
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 
 @Component({
@@ -41,6 +43,7 @@ import { BackupCreateDialogComponent } from './backup-create-dialog.component';
     ReactiveFormsModule,
     MatTableModule,
     MatPaginatorModule,
+    MatSortModule,
     MatButtonModule,
     MatIconModule,
     MatDialogModule,
@@ -57,7 +60,7 @@ import { BackupCreateDialogComponent } from './backup-create-dialog.component';
     PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
-    RelativeTimePipe,
+    DatePipe,
   ],
   templateUrl: './backup-list.component.html',
   styleUrl: './backup-list.component.scss',
@@ -70,12 +73,21 @@ export class BackupListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly fb = inject(FormBuilder);
 
+  // ── Backup jobs ─────────────────────────────────────────────────────
+  jobs: BackupJobResponse[] = [];
+  jobsTotal = 0;
+  loadingJobs = true;
+
   // ── Object table ─────────────────────────────────────────────────────
   objects: BackupObjectSummary[] = [];
   objectsTotal = 0;
   objectsPageSize = 25;
   objectsPageIndex = 0;
   loadingObjects = true;
+
+  // ── Sort ──────────────────────────────────────────────────────────────
+  sortField = 'last_backed_up_at';
+  sortDirection: 'asc' | 'desc' | '' = 'desc';
 
   displayedColumns = [
     'scope',
@@ -84,6 +96,7 @@ export class BackupListComponent implements OnInit {
     'version_count',
     'first_backed_up_at',
     'last_backed_up_at',
+    'last_modified_at',
     'status',
     'actions',
   ];
@@ -114,6 +127,7 @@ export class BackupListComponent implements OnInit {
     this.loadSites();
     this.loadObjects();
     this.loadChanges();
+    this.loadJobs();
   }
 
   // ── Data loading ─────────────────────────────────────────────────────
@@ -126,6 +140,8 @@ export class BackupListComponent implements OnInit {
     };
 
     if (this.searchQuery) params['search'] = this.searchQuery;
+    if (this.sortField) params['sort'] = this.sortField;
+    if (this.sortDirection) params['order'] = this.sortDirection;
 
     const f = this.filterForm.value;
     if (f.object_type) params['object_type'] = f.object_type;
@@ -172,6 +188,26 @@ export class BackupListComponent implements OnInit {
     });
   }
 
+  loadJobs(): void {
+    this.loadingJobs = true;
+    this.api.get<BackupJobListResponse>('/backups', { limit: 10 }).subscribe({
+      next: (res) => {
+        this.jobs = res.backups;
+        this.jobsTotal = res.total;
+        this.loadingJobs = false;
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.loadingJobs = false;
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  viewJobDetail(job: BackupJobResponse): void {
+    this.router.navigate(['/backup', job.id]);
+  }
+
   private loadObjectTypes(): void {
     this.api
       .get<{ object_types: MistObjectTypeOption[] }>('/admin/mist/object-types')
@@ -190,6 +226,15 @@ export class BackupListComponent implements OnInit {
         this.cdr.detectChanges();
       },
     });
+  }
+
+  // ── Sort ──────────────────────────────────────────────────────────────
+
+  onSort(sort: Sort): void {
+    this.sortField = sort.active;
+    this.sortDirection = sort.direction;
+    this.objectsPageIndex = 0;
+    this.loadObjects();
   }
 
   // ── Filter actions ───────────────────────────────────────────────────
@@ -262,6 +307,7 @@ export class BackupListComponent implements OnInit {
         setTimeout(() => {
           this.loadObjects();
           this.loadChanges();
+          this.loadJobs();
         }, 2000);
       }
     });
@@ -279,18 +325,6 @@ export class BackupListComponent implements OnInit {
       restored: 'Restored',
     };
     return labels[eventType] || eventType;
-  }
-
-  eventTypeColor(eventType: string): string {
-    const colors: Record<string, string> = {
-      full_backup: 'primary',
-      incremental: 'primary',
-      created: 'accent',
-      updated: 'primary',
-      deleted: 'warn',
-      restored: 'accent',
-    };
-    return colors[eventType] || '';
   }
 
   eventDotClass(eventType: string): string {

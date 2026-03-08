@@ -1,120 +1,104 @@
-<app-page-header title="Dashboard" subtitle="System overview"></app-page-header>
+<app-page-header title="Dashboard" subtitle="System overview">
+  @if (isAdmin$ | async) {
+    <a mat-stroked-button routerLink="/backup" class="action-btn">
+      <mat-icon>backup</mat-icon> New Backup
+    </a>
+    <a mat-stroked-button routerLink="/admin/logs" class="action-btn">
+      <mat-icon>receipt_long</mat-icon> Audit Logs
+    </a>
+    <a mat-stroked-button routerLink="/admin/users" class="action-btn">
+      <mat-icon>people</mat-icon> Users
+    </a>
+    <a mat-stroked-button routerLink="/admin/settings" class="action-btn">
+      <mat-icon>settings</mat-icon> Settings
+    </a>
+  }
+</app-page-header>
 
 @if (loading) {
   <app-loading-spinner></app-loading-spinner>
 } @else {
-  <div class="dashboard-grid">
-    <!-- System Health -->
-    @if (health) {
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>monitor_heart</mat-icon>
-          <mat-card-title>System Health</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <app-status-badge [status]="health.status"></app-status-badge>
-          <p class="stat-detail">{{ health.app }} v{{ health.version }}</p>
-          <p class="stat-detail">Environment: {{ health.environment }}</p>
-        </mat-card-content>
-      </mat-card>
-    }
-
-    @if (stats) {
-      <!-- Users -->
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>people</mat-icon>
-          <mat-card-title>Users</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <div class="stat-number">{{ stats.users.total }}</div>
-          <p class="stat-detail">{{ stats.users.active }} active, {{ stats.users.admins }} admins</p>
-        </mat-card-content>
-      </mat-card>
-
-      <!-- Backups -->
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>backup</mat-icon>
-          <mat-card-title>Backups</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <div class="stat-number">{{ stats.backups.total }}</div>
-          <p class="stat-detail">{{ stats.backups.completed }} completed, {{ stats.backups.failed }} failed</p>
-        </mat-card-content>
-      </mat-card>
-
-      <!-- Workflows -->
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>account_tree</mat-icon>
-          <mat-card-title>Workflows</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <div class="stat-number">{{ stats.workflows.total }}</div>
-          <p class="stat-detail">{{ stats.workflows.enabled }} enabled, {{ stats.workflows.draft }} draft</p>
-        </mat-card-content>
-      </mat-card>
-
-      <!-- Executions -->
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>play_circle</mat-icon>
-          <mat-card-title>Executions</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <div class="stat-number">{{ stats.executions.total }}</div>
-          <p class="stat-detail">{{ stats.executions.succeeded }} succeeded, {{ stats.executions.failed }} failed</p>
-        </mat-card-content>
-      </mat-card>
-
-      <!-- Webhooks -->
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>webhook</mat-icon>
-          <mat-card-title>Webhooks</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <div class="stat-number">{{ stats.webhooks.total }}</div>
-          <p class="stat-detail">{{ stats.webhooks.processed }} processed, {{ stats.webhooks.pending }} pending</p>
-        </mat-card-content>
-      </mat-card>
-    } @else {
-      <!-- Non-admin welcome -->
-      @if (user$ | async; as user) {
-        <mat-card class="welcome-card">
-          <mat-card-header>
-            <mat-icon mat-card-avatar>waving_hand</mat-icon>
-            <mat-card-title>Welcome, {{ user.email }}</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <p>Use the sidebar to navigate to Backups or your Profile.</p>
-          </mat-card-content>
-          <mat-card-actions>
-            <a mat-flat-button routerLink="/backup">View Backups</a>
-            <a mat-stroked-button routerLink="/profile">My Profile</a>
-          </mat-card-actions>
-        </mat-card>
-      }
-    }
-  </div>
-
-  <!-- Quick Actions (admin) -->
-  @if (isAdmin$ | async) {
-    <h2 class="section-title">Quick Actions</h2>
-    <div class="quick-actions">
-      <a mat-stroked-button routerLink="/backup">
-        <mat-icon>backup</mat-icon> Create Backup
-      </a>
-      <a mat-stroked-button routerLink="/admin/logs">
-        <mat-icon>receipt_long</mat-icon> View Audit Logs
-      </a>
-      <a mat-stroked-button routerLink="/admin/users">
-        <mat-icon>people</mat-icon> Manage Users
-      </a>
-      <a mat-stroked-button routerLink="/admin/settings">
-        <mat-icon>settings</mat-icon> System Settings
-      </a>
+  <!-- System Health -->
+  @if (health) {
+    <div class="health-bar">
+      <div class="health-indicator">
+        <app-status-badge [status]="health.status"></app-status-badge>
+        <span class="health-meta">{{ health.app }} v{{ health.version }}</span>
+        <span class="health-meta">{{ health.environment }}</span>
+      </div>
     </div>
+  }
+
+  @if (stats) {
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon users">
+          <mat-icon>people</mat-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-number">{{ stats.users.total }}</div>
+          <div class="stat-label">Users</div>
+          <div class="stat-detail">{{ stats.users.active }} active &middot; {{ stats.users.admins }} admins</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon backups">
+          <mat-icon>backup</mat-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-number">{{ stats.backups.total }}</div>
+          <div class="stat-label">Backups</div>
+          <div class="stat-detail">{{ stats.backups.completed }} completed &middot; {{ stats.backups.failed }} failed</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon workflows">
+          <mat-icon>account_tree</mat-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-number">{{ stats.workflows.total }}</div>
+          <div class="stat-label">Workflows</div>
+          <div class="stat-detail">{{ stats.workflows.enabled }} enabled &middot; {{ stats.workflows.draft }} draft</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon executions">
+          <mat-icon>play_circle</mat-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-number">{{ stats.executions.total }}</div>
+          <div class="stat-label">Executions</div>
+          <div class="stat-detail">{{ stats.executions.succeeded }} ok &middot; {{ stats.executions.failed }} failed</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon webhooks">
+          <mat-icon>webhook</mat-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-number">{{ stats.webhooks.total }}</div>
+          <div class="stat-label">Webhooks</div>
+          <div class="stat-detail">{{ stats.webhooks.processed }} processed &middot; {{ stats.webhooks.pending }} pending</div>
+        </div>
+      </div>
+    </div>
+  } @else {
+    <!-- Non-admin welcome -->
+    @if (user$ | async; as user) {
+      <div class="welcome-card">
+        <div class="welcome-text">
+          <h2>Welcome, {{ user.email }}</h2>
+          <p>Use the sidebar to navigate to Backups or your Profile.</p>
+        </div>
+        <div class="welcome-actions">
+          <a mat-flat-button routerLink="/backup">View Backups</a>
+          <a mat-stroked-button routerLink="/profile">My Profile</a>
+        </div>
+      </div>
+    }
   }
 }

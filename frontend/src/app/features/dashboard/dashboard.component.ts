@@ -1,12 +1,11 @@
 import { Component, ChangeDetectorRef, DestroyRef, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { Store } from '@ngrx/store';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { filter, take, switchMap, of, catchError, forkJoin } from 'rxjs';
+import { filter, take, switchMap, of, catchError } from 'rxjs';
 import { selectCurrentUser, selectIsAdmin } from '../../core/state/auth/auth.selectors';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -23,7 +22,6 @@ import { LoadingSpinnerComponent } from '../../shared/components/loading-spinner
   imports: [
     CommonModule,
     RouterModule,
-    MatCardModule,
     MatIconModule,
     MatButtonModule,
     PageHeaderComponent,

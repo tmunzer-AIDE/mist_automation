@@ -21,10 +21,19 @@ export interface SessionListResponse {
   total: number;
 }
 
+export interface PasswordPolicy {
+  min_length: number;
+  require_uppercase: boolean;
+  require_lowercase: boolean;
+  require_digits: boolean;
+  require_special_chars: boolean;
+}
+
 export interface HealthResponse {
   status: string;
   app: string;
   version: string;
   environment: string;
   is_initialized: boolean;
+  password_policy?: PasswordPolicy;
 }

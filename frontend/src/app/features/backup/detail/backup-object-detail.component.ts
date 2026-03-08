@@ -70,6 +70,11 @@ export class BackupObjectDetailComponent implements OnInit {
   loading = true;
   selectedVersionId: string | null = null;
 
+  // Compare mode
+  compareMode = false;
+  compareVersions: [ObjectVersion | null, ObjectVersion | null] = [null, null];
+  diffEntries: { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] = [];
+
   versionColumns = ['version', 'date', 'admin', 'event_type', 'changed_fields', 'actions'];
 
   get latestVersion(): ObjectVersion | null {
@@ -139,6 +144,96 @@ export class BackupObjectDetailComponent implements OnInit {
       'OK',
       { duration: 4000 }
     );
+  }
+
+  toggleCompareMode(): void {
+    this.compareMode = !this.compareMode;
+    if (!this.compareMode) {
+      this.compareVersions = [null, null];
+      this.diffEntries = [];
+    }
+  }
+
+  toggleCompareVersion(v: ObjectVersion): void {
+    if (!this.compareMode) return;
+
+    // If already selected, deselect
+    if (this.compareVersions[0]?.id === v.id) {
+      this.compareVersions = [this.compareVersions[1], null];
+      this.diffEntries = [];
+      return;
+    }
+    if (this.compareVersions[1]?.id === v.id) {
+      this.compareVersions = [this.compareVersions[0], null];
+      this.diffEntries = [];
+      return;
+    }
+
+    // Add to selection
+    if (!this.compareVersions[0]) {
+      this.compareVersions = [v, null];
+    } else {
+      this.compareVersions = [this.compareVersions[0], v];
+      this.computeDiff();
+    }
+  }
+
+  isCompareSelected(v: ObjectVersion): boolean {
+    return this.compareVersions[0]?.id === v.id || this.compareVersions[1]?.id === v.id;
+  }
+
+  compareLabel(v: ObjectVersion): string | null {
+    if (this.compareVersions[0]?.id === v.id) return 'A';
+    if (this.compareVersions[1]?.id === v.id) return 'B';
+    return null;
+  }
+
+  private computeDiff(): void {
+    const [a, b] = this.compareVersions;
+    if (!a || !b) return;
+    // Order so that older version is on the left
+    const older = a.version < b.version ? a : b;
+    const newer = a.version < b.version ? b : a;
+    this.compareVersions = [older, newer];
+    this.diffEntries = this.deepDiff(older.configuration, newer.configuration);
+  }
+
+  private deepDiff(
+    a: Record<string, unknown>,
+    b: Record<string, unknown>,
+    path = ''
+  ): { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] {
+    const result: { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] = [];
+    const allKeys = new Set([...Object.keys(a), ...Object.keys(b)]);
+
+    for (const key of allKeys) {
+      const p = path ? `${path}.${key}` : key;
+      if (!(key in a)) {
+        result.push({ path: p, type: 'added', newValue: b[key] });
+      } else if (!(key in b)) {
+        result.push({ path: p, type: 'removed', oldValue: a[key] });
+      } else if (
+        typeof a[key] === 'object' && a[key] !== null && !Array.isArray(a[key]) &&
+        typeof b[key] === 'object' && b[key] !== null && !Array.isArray(b[key])
+      ) {
+        result.push(
+          ...this.deepDiff(
+            a[key] as Record<string, unknown>,
+            b[key] as Record<string, unknown>,
+            p
+          )
+        );
+      } else if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) {
+        result.push({ path: p, type: 'modified', oldValue: a[key], newValue: b[key] });
+      }
+    }
+    return result;
+  }
+
+  formatValue(val: unknown): string {
+    if (val === undefined || val === null) return '—';
+    if (typeof val === 'string') return val;
+    return JSON.stringify(val, null, 2);
   }
 
   private loadVersions(): void {

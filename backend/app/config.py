@@ -32,11 +32,11 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     
     # Password Policy
-    min_password_length: int = 8
+    min_password_length: int = 12
     require_uppercase: bool = True
     require_lowercase: bool = True
     require_digits: bool = True
-    require_special_chars: bool = False
+    require_special_chars: bool = True
     
     # Session Management
     max_concurrent_sessions: int = 5

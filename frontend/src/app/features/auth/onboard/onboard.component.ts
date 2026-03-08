@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -33,7 +33,7 @@ import {
   templateUrl: './onboard.component.html',
   styleUrl: './onboard.component.scss',
 })
-export class OnboardComponent {
+export class OnboardComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly authService = inject(AuthService);
   private readonly tokenService = inject(TokenService);
@@ -50,6 +50,19 @@ export class OnboardComponent {
     password: ['', [Validators.required, passwordValidator()]],
     confirmPassword: ['', [Validators.required, matchPasswordValidator('password')]],
   });
+
+  ngOnInit(): void {
+    // Fetch password policy from backend and update validator
+    this.authService.checkHealth().subscribe({
+      next: (health) => {
+        if (health.password_policy) {
+          const ctrl = this.form.get('password')!;
+          ctrl.setValidators([Validators.required, passwordValidator(health.password_policy)]);
+          ctrl.updateValueAndValidity();
+        }
+      },
+    });
+  }
 
   onSubmit(): void {
     if (this.form.invalid) return;

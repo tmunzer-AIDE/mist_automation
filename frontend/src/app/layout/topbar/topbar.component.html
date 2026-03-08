@@ -1,15 +1,15 @@
 <mat-toolbar>
-  <button mat-icon-button (click)="toggleSidebar.emit()">
+  <button mat-icon-button (click)="toggleSidebar.emit()" class="menu-btn">
     <mat-icon>menu</mat-icon>
   </button>
 
   <span class="spacer"></span>
 
   @if (user$ | async; as user) {
-    <button mat-button [matMenuTriggerFor]="userMenu">
-      <mat-icon>account_circle</mat-icon>
+    <button mat-button [matMenuTriggerFor]="userMenu" class="user-btn">
+      <mat-icon class="avatar-icon">account_circle</mat-icon>
       <span class="user-email">{{ user.email }}</span>
-      <mat-icon>arrow_drop_down</mat-icon>
+      <mat-icon class="dropdown-icon">expand_more</mat-icon>
     </button>
     <mat-menu #userMenu="matMenu">
       <a mat-menu-item routerLink="/profile">

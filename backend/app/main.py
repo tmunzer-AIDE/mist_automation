@@ -114,6 +114,13 @@ async def health_check():
         "version": settings.app_version,
         "environment": settings.environment,
         "is_initialized": is_initialized,
+        "password_policy": {
+            "min_length": settings.min_password_length,
+            "require_uppercase": settings.require_uppercase,
+            "require_lowercase": settings.require_lowercase,
+            "require_digits": settings.require_digits,
+            "require_special_chars": settings.require_special_chars,
+        },
     }
 
 

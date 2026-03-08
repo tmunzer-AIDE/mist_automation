@@ -1,31 +1,52 @@
 import { Component, Input } from '@angular/core';
-import { MatChipsModule } from '@angular/material/chips';
 
 @Component({
   selector: 'app-status-badge',
   standalone: true,
-  imports: [MatChipsModule],
   template: `
-    <mat-chip [class]="'status-' + normalizedStatus" highlighted>
+    <span class="badge" [class]="'badge-' + normalizedStatus">
+      <span class="dot"></span>
       {{ status }}
-    </mat-chip>
+    </span>
   `,
   styles: [`
-    .status-completed, .status-succeeded, .status-connected, .status-healthy, .status-enabled, .status-active {
-      --mat-chip-elevated-container-color: #e8f5e9;
-      --mat-chip-label-text-color: #2e7d32;
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px 2px 6px;
+      border-radius: 10px;
+      text-transform: capitalize;
+      letter-spacing: 0.2px;
     }
-    .status-pending, .status-draft, .status-in_progress, .status-running {
-      --mat-chip-elevated-container-color: #fff3e0;
-      --mat-chip-label-text-color: #e65100;
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
     }
-    .status-failed, .status-error, .status-inactive, .status-stopped {
-      --mat-chip-elevated-container-color: #ffebee;
-      --mat-chip-label-text-color: #c62828;
+
+    .badge-completed, .badge-succeeded, .badge-connected, .badge-healthy, .badge-enabled, .badge-active {
+      background: #ecfdf5;
+      color: #047857;
+      .dot { background: #10b981; }
     }
-    .status-manual, .status-scheduled {
-      --mat-chip-elevated-container-color: #e3f2fd;
-      --mat-chip-label-text-color: #1565c0;
+    .badge-pending, .badge-draft, .badge-in_progress, .badge-running {
+      background: #fffbeb;
+      color: #b45309;
+      .dot { background: #f59e0b; }
+    }
+    .badge-failed, .badge-error, .badge-inactive, .badge-stopped, .badge-deleted {
+      background: #fef2f2;
+      color: #b91c1c;
+      .dot { background: #ef4444; }
+    }
+    .badge-manual, .badge-scheduled {
+      background: #eff6ff;
+      color: #1d4ed8;
+      .dot { background: #3b82f6; }
     }
   `],
 })

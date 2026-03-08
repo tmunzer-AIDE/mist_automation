@@ -3,7 +3,7 @@ Admin API endpoints for system configuration and management.
 """
 
 import structlog
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 
 from app.config import settings as settings_module
 from app.core.security import decrypt_sensitive_data, encrypt_sensitive_data
@@ -237,29 +237,47 @@ async def get_system_stats(
 
 @router.post("/admin/mist/test-connection", tags=["Admin"])
 async def test_mist_connection(
-    current_user: User = Depends(require_admin)
+    request: Request,
+    current_user: User = Depends(require_admin),
 ):
     """
     Test connection to Mist API (admin only).
+
+    Accepts optional ``mist_api_token``, ``mist_org_id``, and
+    ``mist_cloud_region`` in the request body.  When provided, the
+    connection is tested with those values directly (no save required).
+    Missing fields fall back to the saved system configuration.
     """
-    # Get system config
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
     config = await SystemConfig.get_config()
 
-    if not config or not config.mist_api_token:
+    # Resolve each field: prefer request body, fall back to saved config
+    api_token_raw = body.get("mist_api_token") or None
+    if api_token_raw:
+        api_token = api_token_raw  # plain-text from the form
+    elif config and config.mist_api_token:
+        api_token = decrypt_sensitive_data(config.mist_api_token)
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mist API token not configured"
+            detail="Mist API token not configured",
         )
+
+    org_id = body.get("mist_org_id") or (config.mist_org_id if config else "") or ""
+    cloud_region = body.get("mist_cloud_region") or (config.mist_cloud_region if config else "global_01") or "global_01"
 
     logger.info("mist_connection_test", user_id=str(current_user.id))
 
     from app.services.mist_service import MistService
     try:
-        api_token = decrypt_sensitive_data(config.mist_api_token)
         service = MistService(
             api_token=api_token,
-            org_id=config.mist_org_id or "",
-            cloud_region=config.mist_cloud_region or "us",
+            org_id=org_id,
+            cloud_region=cloud_region,
         )
         connected, error = await service.test_connection()
         return {"status": "connected" if connected else "failed", "error": error}

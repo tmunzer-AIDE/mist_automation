@@ -8,7 +8,8 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
-import { BackupJobResponse } from '../../../core/models/backup.model';
+import { BackupJobResponse, BackupLogEntry, BackupLogListResponse } from '../../../core/models/backup.model';
+import { MatChipsModule } from '@angular/material/chips';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
@@ -28,6 +29,7 @@ import { RestoreDialogComponent } from './restore-dialog.component';
     MatDialogModule,
     MatSnackBarModule,
     MatProgressBarModule,
+    MatChipsModule,
     PageHeaderComponent,
     StatusBadgeComponent,
     LoadingSpinnerComponent,
@@ -48,6 +50,12 @@ export class BackupDetailComponent implements OnInit {
   loading = true;
   jsonExpanded = false;
 
+  // Execution logs
+  logs: BackupLogEntry[] = [];
+  logsTotal = 0;
+  logsLoading = false;
+  logLevelFilter: string | null = null;
+
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
@@ -56,6 +64,7 @@ export class BackupDetailComponent implements OnInit {
           this.backup = b;
           this.loading = false;
           this.cdr.detectChanges();
+          this.loadLogs();
         },
         error: () => {
           this.loading = false;
@@ -76,6 +85,48 @@ export class BackupDetailComponent implements OnInit {
         this.snackBar.open('Restore initiated', 'OK', { duration: 3000 });
       }
     });
+  }
+
+  loadLogs(): void {
+    if (!this.backup) return;
+    this.logsLoading = true;
+    let url = `/backups/${this.backup.id}/logs?limit=500`;
+    if (this.logLevelFilter) {
+      url += `&level=${this.logLevelFilter}`;
+    }
+    this.api.get<BackupLogListResponse>(url).subscribe({
+      next: (res) => {
+        this.logs = res.logs;
+        this.logsTotal = res.total;
+        this.logsLoading = false;
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.logsLoading = false;
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  filterLogs(level: string | null): void {
+    this.logLevelFilter = level;
+    this.loadLogs();
+  }
+
+  get logWarningCount(): number {
+    return this.logs.filter(l => l.level === 'warning').length;
+  }
+
+  get logErrorCount(): number {
+    return this.logs.filter(l => l.level === 'error').length;
+  }
+
+  getLevelIcon(level: string): string {
+    switch (level) {
+      case 'error': return 'error';
+      case 'warning': return 'warning';
+      default: return 'info';
+    }
   }
 
   formatJson(data: unknown): string {

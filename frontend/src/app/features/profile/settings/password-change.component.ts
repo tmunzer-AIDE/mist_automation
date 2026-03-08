@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject } from '@angular/core';
+import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -43,7 +43,7 @@ import {
             <input matInput type="password" formControlName="new_password" />
             @if (form.get('new_password')?.errors; as errors) {
               <mat-error>
-                {{ errors['minLength'] || errors['uppercase'] || errors['lowercase'] || errors['digit'] || 'Invalid' }}
+                {{ errors['minLength'] || errors['uppercase'] || errors['lowercase'] || errors['digit'] || errors['special'] || 'Invalid' }}
               </mat-error>
             }
           </mat-form-field>
@@ -75,7 +75,7 @@ import {
     mat-form-field { width: 100%; }
   `],
 })
-export class PasswordChangeComponent {
+export class PasswordChangeComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
@@ -88,6 +88,18 @@ export class PasswordChangeComponent {
     new_password: ['', [Validators.required, passwordValidator()]],
     confirm_password: ['', [Validators.required, matchPasswordValidator('new_password')]],
   });
+
+  ngOnInit(): void {
+    this.authService.checkHealth().subscribe({
+      next: (health) => {
+        if (health.password_policy) {
+          const ctrl = this.form.get('new_password')!;
+          ctrl.setValidators([Validators.required, passwordValidator(health.password_policy)]);
+          ctrl.updateValueAndValidity();
+        }
+      },
+    });
+  }
 
   onSubmit(): void {
     if (this.form.invalid) return;

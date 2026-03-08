@@ -209,7 +209,8 @@ export class SettingsWebhooksComponent implements OnInit {
 
   startSmee(): void {
     this.smeeAction = true;
-    this.api.post<{ status: string }>('/backups/smee/start').subscribe({
+    const url = this.form.value.smee_channel_url;
+    this.api.post<{ status: string }>('/backups/smee/start', url ? { smee_channel_url: url } : {}).subscribe({
       next: () => {
         this.smeeAction = false;
         this.snackBar.open('Smee client started', 'OK', { duration: 3000 });

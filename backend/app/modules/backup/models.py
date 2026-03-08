@@ -65,6 +65,7 @@ class BackupObject(Document):
     
     # Metadata
     backed_up_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_modified_at: datetime | None = Field(default=None, description="When the configuration last changed (new version created)")
     backed_up_by: str | None = Field(default="system", description="Who initiated the backup")
     
     # Deletion tracking
@@ -168,7 +169,29 @@ class BackupJob(Document):
             [("created_at", -1)],
             "created_by",
         ]
-    
+
+
+class BackupLogEntry(Document):
+    """Log entry for backup execution."""
+
+    backup_job_id: PydanticObjectId = Field(..., description="Reference to BackupJob")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    level: str = Field(..., description="Log level: info, warning, error")
+    phase: str = Field(..., description="Backup phase: init, org_objects, site_objects, git, complete")
+    message: str = Field(..., description="Log message")
+    object_type: str | None = Field(default=None, description="Object type if object-level log")
+    object_id: str | None = Field(default=None, description="Object ID if object-level log")
+    object_name: str | None = Field(default=None, description="Object name if object-level log")
+    site_id: str | None = Field(default=None, description="Site ID if site-scoped")
+    details: dict | None = Field(default=None, description="Additional details (stats, error info)")
+
+    class Settings:
+        name = "backup_log_entries"
+        indexes = [
+            "backup_job_id",
+            [("backup_job_id", 1), ("timestamp", 1)],
+            "level",
+        ]
 
 
 class BackupSchedule(BaseModel):

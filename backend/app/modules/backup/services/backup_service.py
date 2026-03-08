@@ -65,9 +65,10 @@ async def fetch_objects(
 class BackupService:
     """Service for managing configuration backups."""
 
-    def __init__(self, mist_service: Optional[MistService] = None):
+    def __init__(self, mist_service: Optional[MistService] = None, backup_logger=None):
         self.mist_service = mist_service or MistService()
         self.org_id = self.mist_service.org_id
+        self.backup_logger = backup_logger
 
     async def perform_full_backup(self) -> dict[str, Any]:
         """Perform a full backup of all Mist configurations."""
@@ -83,6 +84,9 @@ class BackupService:
             "by_type": {},
         }
 
+        if self.backup_logger:
+            await self.backup_logger.info("init", "Full backup started", details={"org_id": self.org_id})
+
         try:
             await self._backup_org_objects(stats)
             await self._backup_site_objects(stats)
@@ -95,6 +99,9 @@ class BackupService:
                 **stats,
             )
 
+            if self.backup_logger:
+                await self.backup_logger.info("complete", f"Full backup completed in {duration:.1f}s", details=stats)
+
             return {
                 **stats,
                 "duration_seconds": duration,
@@ -103,6 +110,8 @@ class BackupService:
 
         except Exception as e:
             logger.error("full_backup_failed", org_id=self.org_id, error=str(e))
+            if self.backup_logger:
+                await self.backup_logger.error("complete", f"Full backup failed: {str(e)}", details={"error": str(e)})
             raise BackupError(f"Full backup failed: {str(e)}")
 
     async def _backup_org_objects(self, stats: dict[str, Any]) -> None:
@@ -124,8 +133,23 @@ class BackupService:
                     )
                     self._update_stats(stats, obj_type_key, result)
                 logger.debug(f"org_{obj_type_key}_backed_up", count=len(objects))
+                if self.backup_logger:
+                    type_stats = stats["by_type"].get(obj_type_key, {})
+                    await self.backup_logger.info(
+                        "org_objects",
+                        f"Processed {len(objects)} {obj_type_key}: {type_stats.get('created', 0)} created, {type_stats.get('updated', 0)} updated, {type_stats.get('unchanged', 0)} unchanged",
+                        object_type=obj_type_key,
+                        details=type_stats,
+                    )
             except Exception as e:
                 logger.error(f"backup_org_{obj_type_key}_failed", error=str(e))
+                if self.backup_logger:
+                    await self.backup_logger.error(
+                        "org_objects",
+                        f"Failed to backup {obj_type_key}: {str(e)}",
+                        object_type=obj_type_key,
+                        details={"error": str(e)},
+                    )
                 stats["errors"] += 1
 
     async def _backup_site_objects(self, stats: dict[str, Any]) -> None:
@@ -157,12 +181,29 @@ class BackupService:
                                 name_override=get_object_name(obj, obj_def),
                             )
                             self._update_stats(stats, obj_type_key, result)
+                        if self.backup_logger:
+                            type_stats = stats["by_type"].get(obj_type_key, {})
+                            await self.backup_logger.info(
+                                "site_objects",
+                                f"Site {site_id[:8]}: processed {len(objects)} {obj_type_key}: {type_stats.get('created', 0)} created, {type_stats.get('updated', 0)} updated",
+                                object_type=obj_type_key,
+                                site_id=site_id,
+                                details=type_stats,
+                            )
                     except Exception as e:
                         logger.error(
                             f"backup_site_{obj_type_key}_failed",
                             site_id=site_id,
                             error=str(e),
                         )
+                        if self.backup_logger:
+                            await self.backup_logger.error(
+                                "site_objects",
+                                f"Site {site_id[:8]}: failed to backup {obj_type_key}: {str(e)}",
+                                object_type=obj_type_key,
+                                site_id=site_id,
+                                details={"error": str(e)},
+                            )
                         stats["errors"] += 1
 
             logger.debug("sites_backed_up", count=len(all_sites))
@@ -190,8 +231,13 @@ class BackupService:
             BackupObject.is_deleted == False,
         ).sort([("version", -1)]).first_or_none()
 
+        now = datetime.now(timezone.utc)
+
         if existing:
             if existing.configuration_hash == config_hash:
+                # No diff — just update backed_up_at on the existing version
+                existing.backed_up_at = now
+                await existing.save()
                 logger.debug(
                     "object_unchanged",
                     object_type=object_type,
@@ -214,6 +260,8 @@ class BackupService:
                 previous_version_id=existing.id,
                 event_type=BackupEventType.UPDATED,
                 changed_fields=changed_fields,
+                backed_up_at=now,
+                last_modified_at=now,
             )
             await new_backup.insert()
 
@@ -225,6 +273,16 @@ class BackupService:
                 version=new_backup.version,
                 changed_fields=changed_fields,
             )
+            if self.backup_logger:
+                await self.backup_logger.info(
+                    "org_objects" if not site_id else "site_objects",
+                    f"Updated {object_type} '{object_name}' (v{new_backup.version}, {len(changed_fields)} fields changed)",
+                    object_type=object_type,
+                    object_id=object_id,
+                    object_name=object_name,
+                    site_id=site_id,
+                    details={"changed_fields": changed_fields, "version": new_backup.version},
+                )
             return "updated"
 
         else:
@@ -239,6 +297,8 @@ class BackupService:
                 version=1,
                 event_type=BackupEventType.FULL_BACKUP,
                 changed_fields=[],
+                backed_up_at=now,
+                last_modified_at=now,
             )
             await new_backup.insert()
 
@@ -248,6 +308,15 @@ class BackupService:
                 object_id=object_id,
                 object_name=object_name,
             )
+            if self.backup_logger:
+                await self.backup_logger.info(
+                    "org_objects" if not site_id else "site_objects",
+                    f"Created {object_type} '{object_name}'",
+                    object_type=object_type,
+                    object_id=object_id,
+                    object_name=object_name,
+                    site_id=site_id,
+                )
             return "created"
 
     async def perform_manual_backup(

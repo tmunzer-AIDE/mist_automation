@@ -157,7 +157,15 @@ export class SettingsMistComponent implements OnInit {
   testConnection(): void {
     this.testingConnection = true;
     this.connectionResult = null;
-    this.api.post<MistConnectionResult>('/admin/mist/test-connection').subscribe({
+
+    // Send current form values so the user can test before saving
+    const v = this.form.getRawValue();
+    const body: Record<string, string> = {};
+    if (v.mist_org_id) body['mist_org_id'] = v.mist_org_id;
+    if (v.mist_cloud_region) body['mist_cloud_region'] = v.mist_cloud_region;
+    if (v.mist_api_token) body['mist_api_token'] = v.mist_api_token;
+
+    this.api.post<MistConnectionResult>('/admin/mist/test-connection', body).subscribe({
       next: (result) => {
         this.connectionResult = result;
         this.testingConnection = false;

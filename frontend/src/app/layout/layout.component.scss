@@ -4,10 +4,15 @@
 
 .sidenav {
   border-right: none;
+  --mat-sidenav-container-width: 240px;
+
+  &.collapsed {
+    --mat-sidenav-container-width: 56px;
+  }
 }
 
 .content {
-  padding: 24px;
+  padding: 20px 24px;
   max-width: 1400px;
   margin: 0 auto;
 }

@@ -59,16 +59,27 @@ async def receive_mist_webhook(
         return {"status": "duplicate", "message": "Event already processed"}
 
     # Verify signature with stored webhook secret from SystemConfig
+    from app.models.system import SystemConfig
+    config = await SystemConfig.get_config()
     signature_valid = True
-    if x_mist_signature:
-        from app.models.system import SystemConfig
-        config = await SystemConfig.get_config()
-        if config.webhook_secret:
-            signature_valid = verify_mist_signature(body, x_mist_signature, config.webhook_secret)
-            if not signature_valid:
-                logger.warning("webhook_signature_invalid", webhook_type=webhook_type)
-        else:
-            logger.info("webhook_signature_present_no_secret", webhook_type=webhook_type)
+    if config.webhook_secret:
+        from app.core.security import decrypt_sensitive_data
+
+        if not x_mist_signature:
+            logger.warning("webhook_signature_missing", webhook_type=webhook_type)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing webhook signature",
+            )
+
+        secret = decrypt_sensitive_data(config.webhook_secret)
+        signature_valid = verify_mist_signature(body, x_mist_signature, secret)
+        if not signature_valid:
+            logger.warning("webhook_signature_invalid", webhook_type=webhook_type)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook signature",
+            )
 
     # Store the webhook event
     webhook_event = WebhookEvent(

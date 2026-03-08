@@ -2,8 +2,8 @@
   <app-loading-spinner></app-loading-spinner>
 } @else if (backup) {
   <app-page-header [title]="'Backup ' + backup.id" [subtitle]="backup.backup_type + ' backup'">
-    <a mat-stroked-button routerLink="/backup/compare" [queryParams]="{id1: backup.id}">
-      <mat-icon>compare</mat-icon> Compare
+    <a mat-stroked-button routerLink="/backup">
+      <mat-icon>arrow_back</mat-icon> Back
     </a>
     <button mat-flat-button (click)="openRestore()" [disabled]="backup.status !== 'completed'">
       <mat-icon>restore</mat-icon> Restore
@@ -68,5 +68,48 @@
         </mat-card-content>
       </mat-card>
     }
+
+    <!-- Execution Log -->
+    <mat-card class="log-card">
+      <mat-card-header>
+        <mat-card-title>Execution Log</mat-card-title>
+        <span class="log-summary">
+          {{ logsTotal }} entries
+          @if (logWarningCount > 0) {
+            <span class="warn-count">{{ logWarningCount }} warnings</span>
+          }
+          @if (logErrorCount > 0) {
+            <span class="error-count">{{ logErrorCount }} errors</span>
+          }
+        </span>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="log-filters">
+          <mat-chip-set>
+            <mat-chip [highlighted]="logLevelFilter === null" (click)="filterLogs(null)">All</mat-chip>
+            <mat-chip [highlighted]="logLevelFilter === 'info'" (click)="filterLogs('info')">Info</mat-chip>
+            <mat-chip [highlighted]="logLevelFilter === 'warning'" (click)="filterLogs('warning')">Warning</mat-chip>
+            <mat-chip [highlighted]="logLevelFilter === 'error'" (click)="filterLogs('error')">Error</mat-chip>
+          </mat-chip-set>
+        </div>
+
+        @if (logsLoading) {
+          <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+        } @else if (logs.length === 0) {
+          <p class="no-logs">No log entries found.</p>
+        } @else {
+          <div class="log-list">
+            @for (log of logs; track log.id) {
+              <div class="log-entry" [class.log-warning]="log.level === 'warning'" [class.log-error]="log.level === 'error'">
+                <span class="log-time">{{ log.timestamp | date:'HH:mm:ss.SSS' }}</span>
+                <mat-icon class="log-level-icon" [class]="'log-icon-' + log.level">{{ getLevelIcon(log.level) }}</mat-icon>
+                <span class="log-phase">{{ log.phase }}</span>
+                <span class="log-message">{{ log.message }}</span>
+              </div>
+            }
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
   </div>
 }
