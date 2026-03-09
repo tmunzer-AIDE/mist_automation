@@ -15,8 +15,6 @@ class WorkflowCreate(BaseModel):
     description: str | None = Field(None, description="Workflow description")
     timeout_seconds: int = Field(default=300, description="Workflow execution timeout", ge=10, le=3600)
     trigger: dict[str, Any] = Field(..., description="Trigger configuration")
-    filters: list[dict[str, Any]] = Field(default_factory=list, description="Primary filters")
-    secondary_filters: list[dict[str, Any]] = Field(default_factory=list, description="Secondary filters")
     actions: list[dict[str, Any]] = Field(..., description="Actions to execute", min_length=1)
 
 
@@ -28,8 +26,6 @@ class WorkflowUpdate(BaseModel):
     status: str | None = Field(None, description="Workflow status")
     timeout_seconds: int | None = Field(None, description="Workflow execution timeout", ge=10, le=3600)
     trigger: dict[str, Any] | None = Field(None, description="Trigger configuration")
-    filters: list[dict[str, Any]] | None = Field(None, description="Primary filters")
-    secondary_filters: list[dict[str, Any]] | None = Field(None, description="Secondary filters")
     actions: list[dict[str, Any]] | None = Field(None, description="Actions to execute")
 
 
@@ -44,8 +40,6 @@ class WorkflowResponse(BaseModel):
     sharing: str = Field(..., description="Sharing permission")
     timeout_seconds: int = Field(..., description="Execution timeout")
     trigger: dict[str, Any] = Field(..., description="Trigger configuration")
-    filters: list[dict[str, Any]] = Field(..., description="Primary filters")
-    secondary_filters: list[dict[str, Any]] = Field(..., description="Secondary filters")
     actions: list[dict[str, Any]] = Field(..., description="Actions")
     execution_count: int = Field(..., description="Total executions")
     success_count: int = Field(..., description="Successful executions")

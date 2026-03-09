@@ -2,27 +2,6 @@
 
 export type WorkflowStatus = 'enabled' | 'disabled' | 'draft';
 export type TriggerType = 'webhook' | 'cron';
-export type FilterOperator =
-  | 'equals'
-  | 'not_equals'
-  | 'contains'
-  | 'not_contains'
-  | 'starts_with'
-  | 'ends_with'
-  | 'greater_than'
-  | 'less_than'
-  | 'greater_equal'
-  | 'less_equal'
-  | 'in'
-  | 'not_in'
-  | 'in_list'
-  | 'not_in_list'
-  | 'between'
-  | 'is_true'
-  | 'is_false'
-  | 'exists'
-  | 'regex';
-export type FilterLogic = 'and' | 'or';
 export type ActionType =
   | 'mist_api_get'
   | 'mist_api_post'
@@ -33,7 +12,9 @@ export type ActionType =
   | 'servicenow'
   | 'pagerduty'
   | 'delay'
-  | 'condition';
+  | 'condition'
+  | 'set_variable'
+  | 'for_each';
 export type ExecutionStatus =
   | 'pending'
   | 'running'
@@ -53,24 +34,22 @@ export interface WorkflowTrigger {
   cron_expression?: string;
   timezone?: string;
   skip_if_running?: boolean;
+  condition?: string;
+  save_as?: VariableBinding[];
 }
 
-// ── Filters ──────────────────────────────────────────────────────────────────
+// ── Condition branches ───────────────────────────────────────────────────────
 
-export interface WorkflowFilter {
-  field: string;
-  operator: FilterOperator;
-  value: unknown;
-  case_sensitive?: boolean;
-  logic?: FilterLogic;
+export interface ConditionBranch {
+  condition: string;
+  actions: WorkflowAction[];
 }
 
-export interface SecondaryFilter {
-  api_endpoint: string;
-  field: string;
-  operator: FilterOperator;
-  value: unknown;
-  logic?: FilterLogic;
+// ── Variable binding ─────────────────────────────────────────────────────────
+
+export interface VariableBinding {
+  name: string;
+  expression: string;
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -88,10 +67,20 @@ export interface WorkflowAction {
   webhook_body?: Record<string, unknown>;
   notification_template?: string;
   notification_channel?: string;
-  condition?: string;
-  then_actions?: WorkflowAction[];
+  branches?: ConditionBranch[];
   else_actions?: WorkflowAction[];
   delay_seconds?: number;
+  // Variable storage — list of bindings extracted from action output
+  save_as?: VariableBinding[];
+  // SET_VARIABLE action
+  variable_name?: string;
+  variable_expression?: string;
+  // FOR_EACH loop
+  loop_over?: string;
+  loop_variable?: string;
+  loop_actions?: WorkflowAction[];
+  max_iterations?: number;
+  // Retry / error handling
   max_retries?: number;
   retry_delay?: number;
   continue_on_error?: boolean;
@@ -104,8 +93,6 @@ export interface WorkflowCreate {
   description?: string;
   timeout_seconds?: number;
   trigger: Record<string, unknown>;
-  filters?: Record<string, unknown>[];
-  secondary_filters?: Record<string, unknown>[];
   actions: Record<string, unknown>[];
 }
 
@@ -115,8 +102,6 @@ export interface WorkflowUpdate {
   status?: WorkflowStatus;
   timeout_seconds?: number;
   trigger?: Record<string, unknown>;
-  filters?: Record<string, unknown>[];
-  secondary_filters?: Record<string, unknown>[];
   actions?: Record<string, unknown>[];
 }
 
@@ -129,8 +114,6 @@ export interface WorkflowResponse {
   sharing: string;
   timeout_seconds: number;
   trigger: WorkflowTrigger;
-  filters: WorkflowFilter[];
-  secondary_filters: SecondaryFilter[];
   actions: WorkflowAction[];
   execution_count: number;
   success_count: number;
@@ -169,14 +152,16 @@ export interface WorkflowExecution {
   started_at: string;
   completed_at: string | null;
   duration_ms: number | null;
-  filters_passed: boolean;
-  filter_results: Record<string, unknown>[];
+  trigger_condition_passed: boolean | null;
+  trigger_condition: string | null;
   actions_executed: number;
   actions_succeeded: number;
   actions_failed: number;
   action_results: ActionExecutionResult[];
   error: string | null;
   error_details: string | null;
+  variables?: Record<string, unknown>;
+  logs?: string[];
 }
 
 export interface WorkflowExecutionListResponse {
@@ -184,12 +169,33 @@ export interface WorkflowExecutionListResponse {
   total: number;
 }
 
+// ── API Catalog ──────────────────────────────────────────────────────────────
+
+export interface QueryParam {
+  name: string;
+  description: string;
+  required: boolean;
+  type: string;
+}
+
+export interface ApiCatalogEntry {
+  id: string;
+  label: string;
+  method: string;
+  endpoint: string;
+  path_params: string[];
+  query_params: QueryParam[];
+  category: string;
+  description: string;
+  has_body: boolean;
+}
+
 // ── Pipeline UI types ────────────────────────────────────────────────────────
 
 export interface PipelineBlock {
   id: string;
-  kind: 'trigger' | 'filter' | 'secondary_filter' | 'action';
-  data: WorkflowTrigger | WorkflowFilter | SecondaryFilter | WorkflowAction;
+  kind: 'trigger' | 'action';
+  data: WorkflowTrigger | WorkflowAction;
   label: string;
   icon: string;
   color: string;

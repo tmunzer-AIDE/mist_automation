@@ -52,56 +52,65 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
             status=ExecutionStatus.RUNNING,
         )
         await execution.insert()
+        execution.add_log("Triggered by cron schedule")
+        await execution.save()
 
-        # Initialize executor
+        # Initialize executor — get credentials from system config (DB), fall back to env settings
+        from app.models.system import SystemConfig
+        from app.core.security import decrypt_sensitive_data
+        config = await SystemConfig.get_config()
+        api_token = settings.mist_api_token
+        if config and config.mist_api_token:
+            try:
+                api_token = decrypt_sensitive_data(config.mist_api_token)
+            except Exception:
+                pass  # Fall back to settings
+        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+
         mist_service = MistService(
-            api_token=settings.mist_api_token,
-            org_id=settings.mist_org_id
+            api_token=api_token,
+            org_id=(config.mist_org_id if config else None) or settings.mist_org_id,
+            cloud_region=cloud_region,
         )
         executor = WorkflowExecutor(mist_service=mist_service)
 
         try:
-            # Execute workflow with empty trigger data (no webhook payload)
+            # Execute workflow — pass the pre-created execution to avoid duplicates
+            trigger_data = {
+                "trigger_type": "cron",
+                "scheduled_time": datetime.now(timezone.utc).isoformat(),
+            }
             result = await executor.execute_workflow(
                 workflow=workflow,
-                trigger_data={
-                    "trigger_type": "cron",
-                    "scheduled_time": datetime.now(timezone.utc).isoformat(),
-                },
-                trigger_source="cron"
+                trigger_data=trigger_data,
+                trigger_source="cron",
+                execution=execution,
             )
-
-            # Mark as completed
-            if result.get("filters_passed", False) and result.get("all_actions_succeeded", False):
-                execution.mark_completed(ExecutionStatus.SUCCESS)
-            elif not result.get("filters_passed", False):
-                execution.mark_completed(ExecutionStatus.SUCCESS, error="Filters did not pass")
-            else:
-                execution.mark_completed(ExecutionStatus.FAILED, error="Some actions failed")
-
-            await execution.save()
 
             logger.info(
                 "cron_workflow_execution_completed",
                 workflow_id=workflow_id,
-                execution_id=str(execution.id),
-                status=execution.status,
-                duration_ms=execution.duration_ms
+                execution_id=str(result.id),
+                status=result.status,
+                duration_ms=result.duration_ms
             )
 
             return {
                 "workflow_id": workflow_id,
-                "execution_id": str(execution.id),
-                "status": execution.status,
-                "duration_ms": execution.duration_ms,
-                "filters_passed": result.get("filters_passed", False),
-                "actions_executed": result.get("actions_executed", 0),
+                "execution_id": str(result.id),
+                "status": result.status,
+                "duration_ms": result.duration_ms,
+                "trigger_condition_passed": result.trigger_condition_passed,
+                "actions_executed": result.actions_executed,
             }
 
         except Exception as e:
-            # Mark execution as failed
-            execution.mark_completed(ExecutionStatus.FAILED, error=str(e))
-            await execution.save()
+            # Mark execution as failed if the executor hasn't already done so
+            # (e.g. MistService init failure happens before the executor runs)
+            if execution.status == ExecutionStatus.RUNNING:
+                execution.mark_completed(ExecutionStatus.FAILED, error=str(e))
+                execution.add_log(f"Workflow execution error: {e}", "error")
+                await execution.save()
 
             logger.error(
                 "cron_workflow_execution_error",

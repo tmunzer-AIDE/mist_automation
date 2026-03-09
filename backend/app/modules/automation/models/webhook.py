@@ -35,6 +35,13 @@ class WebhookEvent(Document):
     # Validation
     signature_valid: bool = Field(default=True, description="Whether webhook signature was valid")
 
+    # Routing
+    routed_to: list[str] = Field(default_factory=list, description="Modules routed to: 'automation', 'backup'")
+
+    # HTTP response sent back to Mist
+    response_status: int = Field(default=200, description="HTTP status code returned")
+    response_body: dict = Field(default_factory=dict, description="Response body returned to caller")
+
     # Timestamps
     received_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     processed_at: datetime | None = Field(default=None, description="When webhook was processed")

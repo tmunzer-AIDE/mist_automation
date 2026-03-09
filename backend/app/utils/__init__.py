@@ -2,21 +2,10 @@
 Utilities package.
 
 Provides common utility functions for:
-- Filter evaluation
 - Variable substitution
 - Input validation
 - Webhook validation
 """
-
-from app.utils.filters import (
-    FilterOperator,
-    FilterLogic,
-    FilterEvaluationError,
-    get_nested_value,
-    evaluate_single_filter,
-    evaluate_filter_group,
-    evaluate_filters,
-)
 
 from app.utils.variables import (
     VariableSubstitutionError,
@@ -58,15 +47,6 @@ from app.utils.webhook_validator import (
 )
 
 __all__ = [
-    # Filters
-    "FilterOperator",
-    "FilterLogic",
-    "FilterEvaluationError",
-    "get_nested_value",
-    "evaluate_single_filter",
-    "evaluate_filter_group",
-    "evaluate_filters",
-    
     # Variables
     "VariableSubstitutionError",
     "build_context",

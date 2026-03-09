@@ -52,7 +52,7 @@ class WorkflowScheduler:
     async def start(self):
         """
         Start the scheduler and load all cron-based workflows.
-        
+
         Called during application startup.
         """
         if self._initialized:
@@ -60,14 +60,17 @@ class WorkflowScheduler:
             return
 
         self.scheduler = self._create_scheduler()
-        
+
         # Load all enabled cron workflows
         await self._load_cron_workflows()
-        
+
+        # Load scheduled backup job
+        await self._load_backup_schedule()
+
         # Start the scheduler
         self.scheduler.start()
         self._initialized = True
-        
+
         logger.info(
             "scheduler_started",
             job_count=len(self.scheduler.get_jobs())
@@ -236,6 +239,105 @@ class WorkflowScheduler:
                 workflow_name=workflow_name,
                 error=str(e)
             )
+
+    async def _load_backup_schedule(self):
+        """Load backup schedule from system config."""
+        try:
+            from app.models.system import SystemConfig
+            config = await SystemConfig.get_config()
+            if config and config.backup_enabled and config.backup_full_schedule_cron:
+                await self.schedule_backup(config.backup_full_schedule_cron)
+            else:
+                logger.info("backup_schedule_disabled_or_not_configured")
+        except Exception as e:
+            logger.error("failed_to_load_backup_schedule", error=str(e))
+
+    async def schedule_backup(self, cron_expression: str):
+        """Add or update the scheduled backup job."""
+        if not self.scheduler:
+            logger.warning("scheduler_not_initialized")
+            return
+
+        job_id = "scheduled_full_backup"
+
+        # Remove existing job if present
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+
+        parts = cron_expression.split()
+        if len(parts) != 5:
+            logger.error("invalid_backup_cron_expression", cron=cron_expression)
+            return
+
+        trigger = CronTrigger(
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2],
+            month=parts[3],
+            day_of_week=parts[4],
+            timezone='UTC',
+        )
+
+        self.scheduler.add_job(
+            self._execute_backup,
+            trigger=trigger,
+            id=job_id,
+            name="Scheduled Full Backup",
+            replace_existing=True,
+        )
+
+        job = self.scheduler.get_job(job_id)
+        next_run = job.next_run_time if job else None
+
+        logger.info(
+            "backup_scheduled",
+            cron_expression=cron_expression,
+            next_run=next_run.isoformat() if next_run else None,
+        )
+
+    async def unschedule_backup(self):
+        """Remove the scheduled backup job."""
+        if not self.scheduler:
+            return
+        job_id = "scheduled_full_backup"
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+            logger.info("backup_unscheduled")
+
+    async def _execute_backup(self):
+        """Execute a scheduled full backup."""
+        from app.models.system import SystemConfig
+        from app.core.security import decrypt_sensitive_data
+        from app.modules.backup.models import BackupJob, BackupType, BackupStatus
+        from app.modules.backup.workers import perform_backup
+
+        logger.info("scheduled_backup_triggered")
+
+        try:
+            config = await SystemConfig.get_config()
+            if not config or not config.backup_enabled:
+                logger.info("scheduled_backup_skipped_disabled")
+                return
+
+            org_id = config.mist_org_id
+
+            # Create a backup job record
+            job = BackupJob(
+                backup_type=BackupType.SCHEDULED,
+                org_id=org_id or "",
+                status=BackupStatus.PENDING,
+            )
+            await job.insert()
+
+            # Run the backup
+            await perform_backup(
+                backup_id=str(job.id),
+                backup_type="scheduled",
+                org_id=org_id,
+            )
+
+        except Exception as e:
+            logger.error("scheduled_backup_failed", error=str(e))
 
     def get_scheduled_workflows(self) -> list[dict]:
         """

@@ -1,544 +1,308 @@
 """
-Unit tests for filter evaluation engine.
+Unit tests for trigger condition evaluation (replaces old filter tests).
+
+Tests the Jinja2 condition evaluation engine used by workflow triggers
+and condition branches.
 """
 
 import pytest
-from app.utils.filters import (
-    FilterOperator,
-    FilterLogic,
-    FilterEvaluationError,
-    get_nested_value,
-    evaluate_single_filter,
-    evaluate_filter_group,
-    evaluate_filters,
-)
+from unittest.mock import MagicMock, AsyncMock, patch
+
+from app.modules.automation.services.executor_service import WorkflowExecutor
+from app.utils.variables import validate_template
 
 
-class TestGetNestedValue:
-    """Test nested value extraction."""
+class TestTriggerConditionEvaluation:
+    """Test Jinja2 condition evaluation via WorkflowExecutor."""
 
-    def test_simple_field(self):
-        data = {"name": "test"}
-        assert get_nested_value(data, "name") == "test"
-
-    def test_nested_field(self):
-        data = {"event": {"device": {"name": "AP-01"}}}
-        assert get_nested_value(data, "event.device.name") == "AP-01"
-
-    def test_missing_field(self):
-        data = {"name": "test"}
-        assert get_nested_value(data, "missing") is None
-
-    def test_missing_nested_field(self):
-        data = {"event": {"type": "alarm"}}
-        assert get_nested_value(data, "event.device.name") is None
-
-    def test_empty_path(self):
-        data = {"name": "test"}
-        assert get_nested_value(data, "") is None
-
-    def test_non_dict_intermediate(self):
-        data = {"event": "string"}
-        assert get_nested_value(data, "event.device.name") is None
-
-
-class TestStringFilters:
-    """Test string filter operations."""
-
-    def test_equals_true(self):
-        filter_config = {
-            "field": "type",
-            "operator": "equals",
-            "value": "alarm"
+    def setup_method(self):
+        self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
+        self.executor.mist_service = MagicMock()
+        self.executor.variable_context = {
+            "trigger": {
+                "type": "alarm",
+                "severity": "critical",
+                "events": [{"type": "ap_offline", "device": {"name": "AP-01"}}],
+                "count": 5,
+                "active": True,
+            },
+            "results": {},
         }
-        data = {"type": "alarm"}
-        assert evaluate_single_filter(filter_config, data) is True
 
-    def test_equals_false(self):
-        filter_config = {
-            "field": "type",
-            "operator": "equals",
-            "value": "alarm"
+    def test_simple_equality_true(self):
+        result = self.executor._evaluate_condition_expression("{{ type == 'alarm' }}")
+        assert result is True
+
+    def test_simple_equality_false(self):
+        result = self.executor._evaluate_condition_expression("{{ type == 'audit' }}")
+        assert result is False
+
+    def test_nested_field_access(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ events[0].device.name == 'AP-01' }}"
+        )
+        assert result is True
+
+    def test_nested_field_mismatch(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ events[0].device.name == 'SW-01' }}"
+        )
+        assert result is False
+
+    def test_severity_critical(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ severity == 'critical' }}"
+        )
+        assert result is True
+
+    def test_numeric_comparison(self):
+        result = self.executor._evaluate_condition_expression("{{ count > 3 }}")
+        assert result is True
+
+    def test_numeric_comparison_false(self):
+        result = self.executor._evaluate_condition_expression("{{ count > 10 }}")
+        assert result is False
+
+    def test_boolean_truthy(self):
+        result = self.executor._evaluate_condition_expression("{{ active }}")
+        assert result is True
+
+    def test_and_condition(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ type == 'alarm' and severity == 'critical' }}"
+        )
+        assert result is True
+
+    def test_and_condition_partial_fail(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ type == 'alarm' and severity == 'major' }}"
+        )
+        assert result is False
+
+    def test_or_condition(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ severity == 'critical' or severity == 'major' }}"
+        )
+        assert result is True
+
+    def test_in_operator(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ severity in ['critical', 'major'] }}"
+        )
+        assert result is True
+
+    def test_not_in_operator(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ severity not in ['info', 'warning'] }}"
+        )
+        assert result is True
+
+    def test_empty_expression_is_falsy(self):
+        result = self.executor._evaluate_condition_expression("")
+        assert result is False
+
+    def test_false_string_is_falsy(self):
+        result = self.executor._evaluate_condition_expression("{{ false }}")
+        assert result is False
+
+    def test_none_string_is_falsy(self):
+        result = self.executor._evaluate_condition_expression("{{ none }}")
+        assert result is False
+
+    def test_undefined_variable_is_falsy(self):
+        result = self.executor._evaluate_condition_expression("{{ nonexistent_var }}")
+        assert result is False
+
+    def test_contains_check(self):
+        result = self.executor._evaluate_condition_expression(
+            "{{ 'offline' in events[0].type }}"
+        )
+        assert result is True
+
+
+class TestTriggerConditionValidation:
+    """Test Jinja2 template validation for trigger conditions."""
+
+    def test_valid_simple_expression(self):
+        is_valid, error = validate_template("{{ type == 'alarm' }}")
+        assert is_valid is True
+        assert error is None
+
+    def test_valid_complex_expression(self):
+        is_valid, error = validate_template(
+            "{{ severity in ['critical', 'major'] and count > 0 }}"
+        )
+        assert is_valid is True
+        assert error is None
+
+    def test_invalid_unclosed_brace(self):
+        is_valid, error = validate_template("{{ type == 'alarm'")
+        assert is_valid is False
+        assert error is not None
+
+    def test_invalid_syntax(self):
+        is_valid, error = validate_template("{% if %}")
+        assert is_valid is False
+
+    def test_empty_string_is_valid(self):
+        is_valid, error = validate_template("")
+        assert is_valid is True
+
+    def test_none_is_valid(self):
+        is_valid, error = validate_template(None)
+        assert is_valid is True
+
+    def test_plain_text_is_valid(self):
+        is_valid, error = validate_template("just plain text")
+        assert is_valid is True
+
+
+class TestSaveAsVariableStorage:
+    """Test save_as variable storage in executor."""
+
+    def setup_method(self):
+        self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
+        self.executor.mist_service = MagicMock()
+        self.executor.variable_context = {
+            "trigger": {"type": "alarm"},
+            "results": {},
         }
-        data = {"type": "audit"}
-        assert evaluate_single_filter(filter_config, data) is False
 
-    def test_contains_true(self):
-        filter_config = {
-            "field": "message",
-            "operator": "contains",
-            "value": "offline"
-        }
-        data = {"message": "Device went offline"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_contains_false(self):
-        filter_config = {
-            "field": "message",
-            "operator": "contains",
-            "value": "offline"
-        }
-        data = {"message": "Device online"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_starts_with_true(self):
-        filter_config = {
-            "field": "name",
-            "operator": "starts_with",
-            "value": "AP-"
-        }
-        data = {"name": "AP-01"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_starts_with_false(self):
-        filter_config = {
-            "field": "name",
-            "operator": "starts_with",
-            "value": "AP-"
-        }
-        data = {"name": "SW-01"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_ends_with_true(self):
-        filter_config = {
-            "field": "name",
-            "operator": "ends_with",
-            "value": "-01"
-        }
-        data = {"name": "AP-01"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_ends_with_false(self):
-        filter_config = {
-            "field": "name",
-            "operator": "ends_with",
-            "value": "-01"
-        }
-        data = {"name": "AP-02"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_regex_match(self):
-        filter_config = {
-            "field": "name",
-            "operator": "regex",
-            "value": r"AP-\d+"
-        }
-        data = {"name": "AP-123"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_regex_no_match(self):
-        filter_config = {
-            "field": "name",
-            "operator": "regex",
-            "value": r"AP-\d+"
-        }
-        data = {"name": "SW-123"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_regex_invalid_pattern(self):
-        filter_config = {
-            "field": "name",
-            "operator": "regex",
-            "value": r"[invalid("
-        }
-        data = {"name": "test"}
-        with pytest.raises(FilterEvaluationError, match="Invalid regex pattern"):
-            evaluate_single_filter(filter_config, data)
-
-
-class TestNumericFilters:
-    """Test numeric filter operations."""
-
-    def test_equals_true(self):
-        filter_config = {
-            "field": "count",
-            "operator": "equals",
-            "value": 5
-        }
-        data = {"count": 5}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_equals_false(self):
-        filter_config = {
-            "field": "count",
-            "operator": "equals",
-            "value": 5
-        }
-        data = {"count": 10}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_greater_than_true(self):
-        filter_config = {
-            "field": "count",
-            "operator": "greater_than",
-            "value": 5
-        }
-        data = {"count": 10}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_greater_than_false(self):
-        filter_config = {
-            "field": "count",
-            "operator": "greater_than",
-            "value": 5
-        }
-        data = {"count": 3}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_less_than_true(self):
-        filter_config = {
-            "field": "count",
-            "operator": "less_than",
-            "value": 10
-        }
-        data = {"count": 5}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_less_than_false(self):
-        filter_config = {
-            "field": "count",
-            "operator": "less_than",
-            "value": 10
-        }
-        data = {"count": 15}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_between_true(self):
-        filter_config = {
-            "field": "count",
-            "operator": "between",
-            "value": [5, 10]
-        }
-        data = {"count": 7}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_between_false(self):
-        filter_config = {
-            "field": "count",
-            "operator": "between",
-            "value": [5, 10]
-        }
-        data = {"count": 15}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_between_invalid_value(self):
-        filter_config = {
-            "field": "count",
-            "operator": "between",
-            "value": [5]  # Only one value
-        }
-        data = {"count": 7}
-        with pytest.raises(FilterEvaluationError, match="requires a list of two values"):
-            evaluate_single_filter(filter_config, data)
-
-    def test_numeric_string_conversion(self):
-        filter_config = {
-            "field": "count",
-            "operator": "greater_than",
-            "value": "5"
-        }
-        data = {"count": "10"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_numeric_invalid_value(self):
-        filter_config = {
-            "field": "count",
-            "operator": "greater_than",
-            "value": 5
-        }
-        data = {"count": "not_a_number"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-
-class TestBooleanFilters:
-    """Test boolean filter operations."""
-
-    def test_is_true_with_bool(self):
-        filter_config = {
-            "field": "active",
-            "operator": "is_true"
-        }
-        data = {"active": True}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_is_true_with_string(self):
-        filter_config = {
-            "field": "active",
-            "operator": "is_true"
-        }
-        data = {"active": "true"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_is_true_with_number(self):
-        filter_config = {
-            "field": "active",
-            "operator": "is_true"
-        }
-        data = {"active": 1}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_is_false_with_bool(self):
-        filter_config = {
-            "field": "active",
-            "operator": "is_false"
-        }
-        data = {"active": False}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_is_false_with_string(self):
-        filter_config = {
-            "field": "active",
-            "operator": "is_false"
-        }
-        data = {"active": "false"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_is_false_with_zero(self):
-        filter_config = {
-            "field": "active",
-            "operator": "is_false"
-        }
-        data = {"active": 0}
-        assert evaluate_single_filter(filter_config, data) is True
-
-
-class TestListFilters:
-    """Test list filter operations."""
-
-    def test_in_list_true(self):
-        filter_config = {
-            "field": "severity",
-            "operator": "in_list",
-            "value": ["critical", "major", "minor"]
-        }
-        data = {"severity": "critical"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_in_list_false(self):
-        filter_config = {
-            "field": "severity",
-            "operator": "in_list",
-            "value": ["critical", "major"]
-        }
-        data = {"severity": "minor"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_not_in_list_true(self):
-        filter_config = {
-            "field": "severity",
-            "operator": "not_in_list",
-            "value": ["info", "debug"]
-        }
-        data = {"severity": "critical"}
-        assert evaluate_single_filter(filter_config, data) is True
-
-    def test_not_in_list_false(self):
-        filter_config = {
-            "field": "severity",
-            "operator": "not_in_list",
-            "value": ["critical", "major"]
-        }
-        data = {"severity": "critical"}
-        assert evaluate_single_filter(filter_config, data) is False
-
-    def test_in_list_invalid_value(self):
-        filter_config = {
-            "field": "severity",
-            "operator": "in_list",
-            "value": "not_a_list"
-        }
-        data = {"severity": "critical"}
-        with pytest.raises(FilterEvaluationError, match="List operators require a list value"):
-            evaluate_single_filter(filter_config, data)
-
-
-class TestFilterValidation:
-    """Test filter configuration validation."""
-
-    def test_missing_field(self):
-        filter_config = {
-            "operator": "equals",
-            "value": "test"
-        }
-        data = {"name": "test"}
-        with pytest.raises(FilterEvaluationError, match="missing required field: field"):
-            evaluate_single_filter(filter_config, data)
-
-    def test_missing_operator(self):
-        filter_config = {
-            "field": "name",
-            "value": "test"
-        }
-        data = {"name": "test"}
-        with pytest.raises(FilterEvaluationError, match="missing required field: operator"):
-            evaluate_single_filter(filter_config, data)
-
-    def test_invalid_operator(self):
-        filter_config = {
-            "field": "name",
-            "operator": "invalid_op",
-            "value": "test"
-        }
-        data = {"name": "test"}
-        with pytest.raises(FilterEvaluationError, match="Invalid operator"):
-            evaluate_single_filter(filter_config, data)
-
-    def test_not_a_dict(self):
-        filter_config = "not a dict"
-        data = {"name": "test"}
-        with pytest.raises(FilterEvaluationError, match="must be a dictionary"):
-            evaluate_single_filter(filter_config, data)
-
-
-class TestFilterGroups:
-    """Test filter group evaluation."""
-
-    def test_empty_filter_list(self):
-        filters = []
-        data = {"name": "test"}
-        assert evaluate_filter_group(filters, data) is True
-
-    def test_and_logic_all_pass(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"},
-            {"field": "severity", "operator": "equals", "value": "critical"}
+    def test_results_stored_in_context(self):
+        """Verify save_as stores output into variable_context."""
+        self.executor.variable_context["results"]["my_sites"] = [
+            {"name": "Site A"},
+            {"name": "Site B"},
         ]
-        data = {"type": "alarm", "severity": "critical"}
-        assert evaluate_filter_group(filters, data, FilterLogic.AND) is True
+        assert len(self.executor.variable_context["results"]["my_sites"]) == 2
+        assert self.executor.variable_context["results"]["my_sites"][0]["name"] == "Site A"
 
-    def test_and_logic_one_fails(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"},
-            {"field": "severity", "operator": "equals", "value": "critical"}
-        ]
-        data = {"type": "alarm", "severity": "major"}
-        assert evaluate_filter_group(filters, data, FilterLogic.AND) is False
+    def test_variable_accessible_in_condition(self):
+        """Verify stored variables are accessible via Jinja2 evaluation."""
+        self.executor.variable_context["results"]["site_count"] = 5
+        result = self.executor._evaluate_condition_expression("{{ site_count > 3 }}")
+        assert result is True
 
-    def test_or_logic_one_passes(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"},
-            {"field": "type", "operator": "equals", "value": "audit"}
-        ]
-        data = {"type": "alarm"}
-        assert evaluate_filter_group(filters, data, FilterLogic.OR) is True
 
-    def test_or_logic_all_fail(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"},
-            {"field": "type", "operator": "equals", "value": "audit"}
-        ]
-        data = {"type": "event"}
-        assert evaluate_filter_group(filters, data, FilterLogic.OR) is False
+class TestSetVariableAction:
+    """Test set_variable action execution."""
 
-    def test_nested_group_with_logic(self):
-        filter_group = {
-            "logic": "or",
-            "filters": [
-                {"field": "type", "operator": "equals", "value": "alarm"},
-                {"field": "type", "operator": "equals", "value": "audit"}
-            ]
+    def setup_method(self):
+        self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
+        self.executor.mist_service = MagicMock()
+        self.executor.variable_context = {
+            "trigger": {"events": [{"severity": "critical"}]},
+            "results": {},
         }
-        data = {"type": "alarm"}
-        assert evaluate_filter_group(filter_group, data) is True
+
+    @pytest.mark.asyncio
+    async def test_set_variable_string(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        action = WorkflowAction(
+            name="Set severity",
+            type=ActionType.SET_VARIABLE,
+            variable_name="sev",
+            variable_expression="{{ events[0].severity }}",
+        )
+        result = await self.executor._execute_set_variable(action)
+        assert result["variable_name"] == "sev"
+        assert self.executor.variable_context["results"]["sev"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_set_variable_json(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        action = WorkflowAction(
+            name="Set data",
+            type=ActionType.SET_VARIABLE,
+            variable_name="data",
+            variable_expression='{"key": "value"}',
+        )
+        result = await self.executor._execute_set_variable(action)
+        assert self.executor.variable_context["results"]["data"] == {"key": "value"}
 
 
-class TestEvaluateFilters:
-    """Test complete filter evaluation with detailed results."""
+class TestForEachAction:
+    """Test for_each loop execution."""
 
-    def test_empty_filters(self):
-        result = evaluate_filters([], {"name": "test"})
-        assert result["passed"] is True
-        assert result["filter_results"] == []
-
-    def test_all_filters_pass(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"},
-            {"field": "severity", "operator": "in_list", "value": ["critical", "major"]}
-        ]
-        data = {"type": "alarm", "severity": "critical"}
-        result = evaluate_filters(filters, data)
-
-        assert result["passed"] is True
-        assert len(result["filter_results"]) == 2
-        assert all(r["passed"] for r in result["filter_results"])
-
-    def test_one_filter_fails(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"},
-            {"field": "severity", "operator": "equals", "value": "critical"}
-        ]
-        data = {"type": "alarm", "severity": "major"}
-        result = evaluate_filters(filters, data)
-
-        assert result["passed"] is False
-        assert len(result["filter_results"]) == 2
-        assert result["filter_results"][0]["passed"] is True
-        assert result["filter_results"][1]["passed"] is False
-
-    def test_detailed_results(self):
-        filters = [
-            {"field": "type", "operator": "equals", "value": "alarm"}
-        ]
-        data = {"type": "alarm"}
-        result = evaluate_filters(filters, data)
-
-        assert "filter_results" in result
-        assert result["filter_results"][0]["filter_type"] == "single"
-        assert result["filter_results"][0]["field"] == "type"
-        assert result["filter_results"][0]["operator"] == "equals"
-        assert result["filter_results"][0]["expected_value"] == "alarm"
-        assert result["filter_results"][0]["actual_value"] == "alarm"
-
-    def test_filter_error_handling(self):
-        filters = [
-            {"field": "name", "operator": "invalid", "value": "test"}
-        ]
-        data = {"name": "test"}
-        result = evaluate_filters(filters, data)
-
-        assert result["passed"] is False
-        assert "error" in result["filter_results"][0]
-
-    def test_nested_field_extraction(self):
-        filters = [
-            {"field": "event.device.name", "operator": "equals", "value": "AP-01"}
-        ]
-        data = {"event": {"device": {"name": "AP-01"}}}
-        result = evaluate_filters(filters, data)
-
-        assert result["passed"] is True
-        assert result["filter_results"][0]["actual_value"] == "AP-01"
-
-
-class TestSourceFiltering:
-    """Test source-based filter evaluation."""
-
-    def test_webhook_source_matches(self):
-        filter_config = {
-            "field": "type",
-            "operator": "equals",
-            "value": "alarm",
-            "source": "webhook"
+    def setup_method(self):
+        self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
+        self.executor.mist_service = MagicMock()
+        self.executor.variable_context = {
+            "trigger": {},
+            "results": {
+                "sites": [
+                    {"name": "Site A"},
+                    {"name": "Site B"},
+                    {"name": "Site C"},
+                ]
+            },
         }
-        data = {"type": "alarm"}
-        assert evaluate_single_filter(filter_config, data, source="webhook") is True
 
-    def test_source_mismatch_skips(self):
-        filter_config = {
-            "field": "type",
-            "operator": "equals",
-            "value": "alarm",
-            "source": "api_result"
-        }
-        data = {"type": "event"}  # Would fail if evaluated
-        # Should skip this filter and return True
-        assert evaluate_single_filter(filter_config, data, source="webhook") is True
+    @pytest.mark.asyncio
+    async def test_for_each_basic(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        action = WorkflowAction(
+            name="Loop over sites",
+            type=ActionType.FOR_EACH,
+            loop_over="results.sites",
+            loop_variable="site",
+            loop_actions=[],
+            max_iterations=100,
+        )
+        result = await self.executor._execute_for_each(action, MagicMock())
+        assert result["iterations"] == 3
 
-    def test_default_source_is_webhook(self):
-        filter_config = {
-            "field": "type",
-            "operator": "equals",
-            "value": "alarm"
-        }
-        data = {"type": "alarm"}
-        assert evaluate_single_filter(filter_config, data) is True
+    @pytest.mark.asyncio
+    async def test_for_each_max_iterations(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        action = WorkflowAction(
+            name="Loop capped",
+            type=ActionType.FOR_EACH,
+            loop_over="results.sites",
+            loop_variable="site",
+            loop_actions=[],
+            max_iterations=2,
+        )
+        result = await self.executor._execute_for_each(action, MagicMock())
+        assert result["iterations"] == 2
+
+    @pytest.mark.asyncio
+    async def test_for_each_none_raises(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        action = WorkflowAction(
+            name="Loop missing",
+            type=ActionType.FOR_EACH,
+            loop_over="results.nonexistent",
+            loop_variable="item",
+            loop_actions=[],
+        )
+        with pytest.raises(ValueError, match="resolved to None"):
+            await self.executor._execute_for_each(action, MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_for_each_not_list_raises(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        self.executor.variable_context["results"]["scalar"] = "not a list"
+        action = WorkflowAction(
+            name="Loop not list",
+            type=ActionType.FOR_EACH,
+            loop_over="results.scalar",
+            loop_variable="item",
+            loop_actions=[],
+        )
+        with pytest.raises(ValueError, match="is not a list"):
+            await self.executor._execute_for_each(action, MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_for_each_cleans_up_context(self):
+        from app.modules.automation.models.workflow import WorkflowAction, ActionType
+        action = WorkflowAction(
+            name="Loop cleanup",
+            type=ActionType.FOR_EACH,
+            loop_over="results.sites",
+            loop_variable="site",
+            loop_actions=[],
+        )
+        await self.executor._execute_for_each(action, MagicMock())
+        assert "loop" not in self.executor.variable_context
+        assert "item" not in self.executor.variable_context

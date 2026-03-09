@@ -42,11 +42,19 @@ async def lifespan(_app: FastAPI):
             config = await SystemConfig.get_config()
             if config.smee_enabled and config.smee_channel_url:
                 from app.modules.backup.services.smee_service import start_smee
-                target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/backups/webhooks/mist"
+                target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
                 await start_smee(config.smee_channel_url, target)
                 logger.info("smee_client_auto_started", channel=config.smee_channel_url)
         except Exception as e:
             logger.warning("smee_auto_start_failed", error=str(e))
+
+        # Start APScheduler (cron workflows + scheduled backups)
+        try:
+            from app.workers import start_scheduler
+            await start_scheduler()
+            logger.info("scheduler_started")
+        except Exception as e:
+            logger.warning("scheduler_start_failed", error=str(e))
 
         logger.info("application_started_successfully")
 
@@ -55,6 +63,13 @@ async def lifespan(_app: FastAPI):
     finally:
         # Shutdown
         logger.info("application_shutting_down")
+
+        # Stop scheduler
+        try:
+            from app.workers import stop_scheduler
+            await stop_scheduler()
+        except Exception:
+            pass
 
         # Stop Smee.io client if running
         try:

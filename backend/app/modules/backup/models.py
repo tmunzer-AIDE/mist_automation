@@ -39,9 +39,16 @@ class BackupStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ObjectReference(BaseModel):
+    """A reference from one backup object to another."""
+    target_type: str = Field(..., description="Target object type key")
+    target_id: str = Field(..., description="Target object UUID")
+    field_path: str = Field(..., description="Dot-notation path where reference was found")
+
+
 class BackupObject(Document):
     """Individual backed up configuration object."""
-    
+
     # Object identification
     object_type: str = Field(..., description="Type of Mist object")
     object_id: str = Field(..., description="Mist object ID (UUID)")
@@ -75,9 +82,15 @@ class BackupObject(Document):
     # Restore lineage
     restored_from_object_id: str | None = Field(default=None, description="Original object ID if restored from a deleted object")
 
+    # Cross-object references
+    references: list[ObjectReference] = Field(
+        default_factory=list,
+        description="References to other Mist objects found in configuration",
+    )
+
     # Git integration
     git_commit_sha: str | None = Field(default=None, description="Git commit SHA if pushed to Git")
-    
+
     class Settings:
         name = "backup_objects"
         indexes = [
@@ -88,6 +101,7 @@ class BackupObject(Document):
             [("backed_up_at", -1)],
             [("object_type", 1), ("object_id", 1), ("version", -1)],  # Compound index for latest version
             "is_deleted",
+            [("references.target_id", 1)],
         ]
     
     def create_new_version(
@@ -96,6 +110,7 @@ class BackupObject(Document):
         configuration_hash: str,
         event_type: BackupEventType,
         changed_fields: list[str] = None,
+        references: list["ObjectReference"] | None = None,
     ) -> "BackupObject":
         """Create a new version of this backup object."""
         return BackupObject(
@@ -110,6 +125,7 @@ class BackupObject(Document):
             previous_version_id=self.id,
             event_type=event_type,
             changed_fields=changed_fields or [],
+            references=references or [],
         )
     
     def mark_deleted(self):

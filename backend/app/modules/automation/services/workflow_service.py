@@ -13,7 +13,6 @@ from app.modules.automation.models.workflow import (
     WorkflowStatus,
     SharingPermission,
     WorkflowTrigger,
-    WorkflowFilter,
     WorkflowAction,
 )
 from app.models.user import User
@@ -31,7 +30,6 @@ class WorkflowService:
         trigger: WorkflowTrigger,
         created_by: PydanticObjectId,
         description: Optional[str] = None,
-        filters: Optional[list[WorkflowFilter]] = None,
         actions: Optional[list[WorkflowAction]] = None,
         timeout_seconds: int = 300,
         status: WorkflowStatus = WorkflowStatus.DRAFT,
@@ -45,7 +43,6 @@ class WorkflowService:
             trigger: Trigger configuration
             created_by: User ID who created the workflow
             description: Optional description
-            filters: List of filters
             actions: List of actions
             timeout_seconds: Execution timeout
             status: Initial status
@@ -58,7 +55,7 @@ class WorkflowService:
             ValidationError: If workflow configuration is invalid
         """
         # Validate workflow configuration
-        WorkflowService._validate_workflow_config(trigger, filters or [], actions or [])
+        WorkflowService._validate_workflow_config(trigger, actions or [])
 
         # Create workflow
         workflow = Workflow(
@@ -69,8 +66,6 @@ class WorkflowService:
             sharing=sharing,
             timeout_seconds=timeout_seconds,
             trigger=trigger,
-            filters=filters or [],
-            secondary_filters=[],
             actions=actions or [],
         )
 
@@ -167,7 +162,6 @@ class WorkflowService:
         name: Optional[str] = None,
         description: Optional[str] = None,
         trigger: Optional[WorkflowTrigger] = None,
-        filters: Optional[list[WorkflowFilter]] = None,
         actions: Optional[list[WorkflowAction]] = None,
         timeout_seconds: Optional[int] = None,
         sharing: Optional[SharingPermission] = None,
@@ -181,7 +175,6 @@ class WorkflowService:
             name: New name
             description: New description
             trigger: New trigger configuration
-            filters: New filters
             actions: New actions
             timeout_seconds: New timeout
             sharing: New sharing permission
@@ -209,8 +202,6 @@ class WorkflowService:
             workflow.description = description
         if trigger is not None:
             workflow.trigger = trigger
-        if filters is not None:
-            workflow.filters = filters
         if actions is not None:
             workflow.actions = actions
         if timeout_seconds is not None:
@@ -221,7 +212,6 @@ class WorkflowService:
         # Validate configuration
         WorkflowService._validate_workflow_config(
             workflow.trigger,
-            workflow.filters,
             workflow.actions,
         )
 
@@ -464,7 +454,6 @@ class WorkflowService:
     @staticmethod
     def _validate_workflow_config(
         trigger: WorkflowTrigger,
-        filters: list[WorkflowFilter],
         actions: list[WorkflowAction],
     ) -> None:
         """
@@ -476,7 +465,7 @@ class WorkflowService:
         # Validate trigger
         if trigger.type.value == "webhook":
             if not trigger.webhook_type:
-                raise ValidationError("Webhook trigger requires webhook_type")
+                raise ValidationError("Webhook trigger requires a webhook topic")
         elif trigger.type.value == "cron":
             if not trigger.cron_expression:
                 raise ValidationError("Cron trigger requires cron_expression")
@@ -486,12 +475,33 @@ class WorkflowService:
             except ValueError as e:
                 raise ValidationError(f"Invalid cron expression: {e}")
 
+        # Validate trigger condition if set
+        if trigger.condition:
+            from app.utils.variables import validate_template
+            is_valid, error = validate_template(trigger.condition)
+            if not is_valid:
+                raise ValidationError(f"Invalid trigger condition: {error}")
+
         # Validate that at least one action exists
         if not actions:
             raise ValidationError("Workflow must have at least one action")
 
         # Validate actions
+        WorkflowService._validate_actions(trigger, actions)
+
+    @staticmethod
+    def _validate_actions(
+        trigger: WorkflowTrigger,
+        actions: list[WorkflowAction],
+    ) -> None:
+        """Validate a list of actions recursively."""
         for i, action in enumerate(actions):
+            # Validate save_as bindings
+            if action.save_as:
+                for j, binding in enumerate(action.save_as):
+                    if not binding.name.isidentifier():
+                        raise ValidationError(f"Action {i}: save_as[{j}].name must be a valid identifier, got '{binding.name}'")
+
             if action.type.value.startswith("mist_api"):
                 if not action.api_endpoint:
                     raise ValidationError(f"Action {i}: API endpoint required for {action.type}")
@@ -509,7 +519,36 @@ class WorkflowService:
                     raise ValidationError(f"Action {i}: Valid delay_seconds required")
 
             elif action.type.value == "condition":
-                if not action.condition:
-                    raise ValidationError(f"Action {i}: Condition expression required")
-                if not action.then_actions:
-                    raise ValidationError(f"Action {i}: then_actions required for condition")
+                if not action.branches:
+                    raise ValidationError(f"Action {i}: At least one condition branch required")
+                for j, branch in enumerate(action.branches):
+                    if not branch.condition:
+                        raise ValidationError(f"Action {i}, branch {j}: Condition expression required")
+                    if not branch.actions:
+                        raise ValidationError(f"Action {i}, branch {j}: Actions required")
+                    WorkflowService._validate_actions(trigger, branch.actions)
+                if action.else_actions:
+                    WorkflowService._validate_actions(trigger, action.else_actions)
+
+            elif action.type.value == "set_variable":
+                if not action.variable_name:
+                    raise ValidationError(f"Action {i}: variable_name required for set_variable")
+                if not action.variable_name.isidentifier():
+                    raise ValidationError(f"Action {i}: variable_name must be a valid identifier")
+                if not action.variable_expression:
+                    raise ValidationError(f"Action {i}: variable_expression required for set_variable")
+                from app.utils.variables import validate_template
+                is_valid, error = validate_template(action.variable_expression)
+                if not is_valid:
+                    raise ValidationError(f"Action {i}: Invalid variable_expression: {error}")
+
+            elif action.type.value == "for_each":
+                if not action.loop_over:
+                    raise ValidationError(f"Action {i}: loop_over required for for_each")
+                if not action.loop_variable:
+                    raise ValidationError(f"Action {i}: loop_variable required for for_each")
+                if not action.loop_actions:
+                    raise ValidationError(f"Action {i}: loop_actions required for for_each")
+                if not (1 <= action.max_iterations <= 1000):
+                    raise ValidationError(f"Action {i}: max_iterations must be between 1 and 1000")
+                WorkflowService._validate_actions(trigger, action.loop_actions)

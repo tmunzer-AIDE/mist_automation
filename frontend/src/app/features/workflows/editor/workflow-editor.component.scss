@@ -28,7 +28,7 @@
 .canvas-area {
   flex: 1;
   min-width: 320px;
-  overflow-y: auto;
+  overflow: auto;
   background: var(--mat-sys-surface-variant);
   border-radius: var(--app-radius);
 }
@@ -48,6 +48,15 @@
   color: var(--mat-sys-error);
   font-size: 12px;
   margin-left: 4px;
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--mat-sys-surface-variant);
+  }
 }
 
 @media (max-width: 768px) {

@@ -1,14 +1,19 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
+  MAT_DIALOG_DATA,
   MatDialogModule,
   MatDialogRef,
 } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 
+export interface BlockPaletteDialogData {
+  actionsOnly?: boolean;
+}
+
 export interface BlockOption {
-  kind: 'filter' | 'secondary_filter' | 'action';
+  kind: 'action';
   actionType?: string;
   label: string;
   icon: string;
@@ -30,27 +35,9 @@ interface BlockCategory {
 })
 export class BlockPaletteDialogComponent {
   private readonly dialogRef = inject(MatDialogRef<BlockPaletteDialogComponent>);
+  private readonly dialogData: BlockPaletteDialogData | null = inject(MAT_DIALOG_DATA, { optional: true });
 
-  categories: BlockCategory[] = [
-    {
-      name: 'Filters',
-      options: [
-        {
-          kind: 'filter',
-          label: 'Field Filter',
-          icon: 'filter_list',
-          color: '#00838f',
-          description: 'Filter events by field values',
-        },
-        {
-          kind: 'secondary_filter',
-          label: 'Secondary Filter',
-          icon: 'filter_alt',
-          color: '#00695c',
-          description: 'Filter using API lookups',
-        },
-      ],
-    },
+  readonly categories: BlockCategory[] = [
     {
       name: 'API Actions',
       options: [
@@ -143,6 +130,22 @@ export class BlockPaletteDialogComponent {
           icon: 'call_split',
           color: '#0097a7',
           description: 'Branch based on a condition',
+        },
+        {
+          kind: 'action',
+          actionType: 'set_variable',
+          label: 'Set Variable',
+          icon: 'data_object',
+          color: '#795548',
+          description: 'Compute and store a variable',
+        },
+        {
+          kind: 'action',
+          actionType: 'for_each',
+          label: 'For Each',
+          icon: 'loop',
+          color: '#4527a0',
+          description: 'Iterate over a list with nested actions',
         },
       ],
     },

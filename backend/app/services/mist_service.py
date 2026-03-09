@@ -430,7 +430,7 @@ class MistService:
             result = await asyncio.to_thread(
                 self.session.mist_get,
                 endpoint,
-                params=params or {}
+                query=params or {}
             )
 
             if result.status_code != 200:
@@ -541,7 +541,7 @@ class MistService:
             result = await asyncio.to_thread(
                 self.session.mist_delete,
                 endpoint,
-                params=params or {}
+                query=params or {}
             )
 
             if result.status_code not in (200, 204):

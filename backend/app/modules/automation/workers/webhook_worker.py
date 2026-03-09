@@ -8,7 +8,7 @@ import structlog
 from celery import Celery
 from beanie import PydanticObjectId
 
-from app.modules.automation.models.workflow import Workflow, TriggerType
+from app.modules.automation.models.workflow import Workflow, TriggerType, WorkflowStatus
 from app.modules.automation.models.webhook import WebhookEvent
 from app.modules.automation.models.execution import WorkflowExecution, ExecutionStatus
 from app.modules.automation.services.executor_service import WorkflowExecutor
@@ -94,9 +94,9 @@ async def process_webhook(
 
         # Find matching workflows
         matching_workflows = await Workflow.find(
-            Workflow.enabled == True,
+            Workflow.status == WorkflowStatus.ENABLED,
             Workflow.trigger.type == TriggerType.WEBHOOK,
-            Workflow.trigger.webhook_topic == webhook_type
+            Workflow.trigger.webhook_type == webhook_type
         ).to_list()
 
         logger.info(
@@ -208,64 +208,65 @@ async def execute_workflow_for_webhook(
     )
     await execution.insert()
     execution.add_log(f"Triggered by webhook {webhook_id}")
+    await execution.save()
 
     try:
-        # Initialize executor
+        # Initialize executor — get credentials from system config (DB), fall back to env settings
+        from app.models.system import SystemConfig
+        from app.core.security import decrypt_sensitive_data
+        config = await SystemConfig.get_config()
+        api_token = settings.mist_api_token
+        if config and config.mist_api_token:
+            try:
+                api_token = decrypt_sensitive_data(config.mist_api_token)
+            except Exception:
+                pass  # Fall back to settings
+        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+
         mist_service = MistService(
-            api_token=settings.mist_api_token,
-            org_id=settings.mist_org_id
+            api_token=api_token,
+            org_id=(config.mist_org_id if config else None) or settings.mist_org_id,
+            cloud_region=cloud_region,
         )
         executor = WorkflowExecutor(mist_service=mist_service)
 
-        # Execute workflow
+        # Execute workflow — pass the pre-created execution to avoid duplicates
         result = await executor.execute_workflow(
             workflow=workflow,
             trigger_data=webhook_payload,
-            trigger_source="webhook"
+            trigger_source="webhook",
+            execution=execution,
         )
-
-        # Determine final status
-        if result.get("filters_passed", False):
-            if result.get("all_actions_succeeded", False):
-                final_status = ExecutionStatus.SUCCESS
-                final_error = None
-            else:
-                final_status = ExecutionStatus.FAILED
-                final_error = "Some actions failed"
-        else:
-            # Filters didn't pass - this is not an error
-            final_status = ExecutionStatus.FILTERED
-            final_error = "Filters did not match"
-
-        execution.mark_completed(final_status, error=final_error)
-        await execution.save()
 
         logger.info(
             "workflow_execution_completed",
             workflow_id=str(workflow.id),
-            execution_id=str(execution.id),
-            status=execution.status,
-            duration_ms=execution.duration_ms,
-            filters_passed=result.get("filters_passed", False),
-            actions_executed=execution.actions_executed
+            execution_id=str(result.id),
+            status=result.status,
+            duration_ms=result.duration_ms,
+            trigger_condition_passed=result.trigger_condition_passed,
+            actions_executed=result.actions_executed
         )
 
         return {
             "workflow_id": str(workflow.id),
             "workflow_name": workflow.name,
-            "execution_id": str(execution.id),
-            "status": execution.status,
-            "filters_passed": result.get("filters_passed", False),
-            "actions_executed": execution.actions_executed,
-            "actions_succeeded": execution.actions_succeeded,
-            "actions_failed": execution.actions_failed,
-            "duration_ms": execution.duration_ms,
+            "execution_id": str(result.id),
+            "status": result.status,
+            "trigger_condition_passed": result.trigger_condition_passed,
+            "actions_executed": result.actions_executed,
+            "actions_succeeded": result.actions_succeeded,
+            "actions_failed": result.actions_failed,
+            "duration_ms": result.duration_ms,
         }
 
     except Exception as e:
-        # Mark execution as failed
-        execution.mark_completed(ExecutionStatus.FAILED, error=str(e))
-        await execution.save()
+        # Mark execution as failed if the executor hasn't already done so
+        # (e.g. MistService init failure happens before the executor runs)
+        if execution.status == ExecutionStatus.RUNNING:
+            execution.mark_completed(ExecutionStatus.FAILED, error=str(e))
+            execution.add_log(f"Workflow execution error: {e}", "error")
+            await execution.save()
 
         logger.error(
             "workflow_execution_error",

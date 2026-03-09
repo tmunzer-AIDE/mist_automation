@@ -176,3 +176,28 @@ export interface BackupObjectStatsResponse {
 export interface BackupJobStatsResponse {
   days: DailyJobStats[];
 }
+
+// ── Dependency models ───────────────────────────────────────────────────────
+
+export interface ParentReference {
+  target_type: string;
+  target_id: string;
+  target_name: string | null;
+  field_path: string;
+  exists_in_backup: boolean;
+}
+
+export interface ChildReference {
+  source_type: string;
+  source_id: string;
+  source_name: string | null;
+  field_path: string;
+}
+
+export interface ObjectDependencyResponse {
+  object_id: string;
+  object_type: string;
+  object_name: string | null;
+  parents: ParentReference[];
+  children: ChildReference[];
+}

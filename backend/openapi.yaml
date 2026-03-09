@@ -9,8 +9,12 @@ info:
     1. Call `POST /api/v1/auth/login` with your credentials
     2. Use the returned `access_token` in the `Authorization` header as `Bearer <token>`
     
+    ## First-Time Setup (Onboarding)
+    When the system has no users, use `POST /api/v1/auth/onboard` to create the first admin user.
+    
     ## Rate Limiting
     API requests are rate-limited per user. Please handle 429 responses appropriately.
+    Login attempts are rate-limited to 5 attempts per 5 minutes per IP/email combination.
   version: 1.0.0
   contact:
     name: API Support
@@ -41,13 +45,15 @@ security:
   - BearerAuth: []
 
 paths:
+  # ═══════════════════════════════════════════════════════════════════════════
   # Health Endpoints (no prefix)
+  # ═══════════════════════════════════════════════════════════════════════════
   /health:
     get:
       tags:
         - Health
       summary: Health check
-      description: Returns application health status
+      description: Returns application health status including initialization state and password policy
       operationId: healthCheck
       security: []
       responses:
@@ -58,13 +64,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
 
+  # ═══════════════════════════════════════════════════════════════════════════
   # Authentication Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
   /auth/login:
     post:
       tags:
         - Authentication
       summary: User login
-      description: Authenticate user and return JWT token
+      description: |
+        Authenticate user and return JWT token.
+        Rate limited to 5 attempts per 5 minutes per IP/email combination.
       operationId: login
       security: []
       requestBody:
@@ -92,13 +102,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many login attempts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /auth/logout:
     post:
       tags:
         - Authentication
       summary: User logout
-      description: Invalidate current JWT token
+      description: Invalidate current JWT token and delete session
       operationId: logout
       responses:
         '204':
@@ -115,7 +131,7 @@ paths:
       tags:
         - Authentication
       summary: Refresh token
-      description: Refresh the current JWT token
+      description: Refresh the current JWT token. Invalidates the old session and creates a new one.
       operationId: refreshToken
       responses:
         '200':
@@ -152,7 +168,162 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /auth/profile:
+    put:
+      tags:
+        - Authentication
+      summary: Update profile
+      description: Update current user's profile settings (e.g., timezone)
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/onboard:
+    post:
+      tags:
+        - Authentication
+      summary: System onboarding
+      description: |
+        Create the first admin user. Only works when no users exist in the system.
+        Returns a JWT token after successful account creation.
+      operationId: onboard
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardRequest'
+      responses:
+        '200':
+          description: Onboarding successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Invalid password (does not meet policy)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: System is already initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/change-password:
+    post:
+      tags:
+        - Authentication
+      summary: Change password
+      description: Change password for the current user
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessageResponse'
+        '400':
+          description: Current password incorrect or new password does not meet policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/sessions:
+    get:
+      tags:
+        - Authentication
+      summary: Get user sessions
+      description: Get active sessions for the current user
+      operationId: getUserSessions
+      responses:
+        '200':
+          description: List of active sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/sessions/{session_id}:
+    delete:
+      tags:
+        - Authentication
+      summary: Revoke session
+      description: Revoke a specific session. Cannot revoke the current session.
+      operationId: revokeSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Session ID to revoke
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Session revoked
+        '400':
+          description: Invalid session ID or trying to revoke current session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # User Management Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
   /users:
     get:
       tags:
@@ -220,6 +391,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid password or roles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           description: Not authenticated
           content:
@@ -312,7 +489,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserResponse'
         '400':
-          description: Invalid user ID format
+          description: Invalid user ID format or cannot disable own account
           content:
             application/json:
               schema:
@@ -383,7 +560,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # ═══════════════════════════════════════════════════════════════════════════
   # Workflow Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /workflows/api-catalog:
+    get:
+      tags:
+        - Workflows
+      summary: Get API catalog
+      description: Return the Mist API endpoint catalog for action autocomplete
+      operationId: getApiCatalog
+      responses:
+        '200':
+          description: API catalog entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiCatalogEntry'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /workflows:
     get:
       tags:
@@ -596,7 +798,7 @@ paths:
       tags:
         - Workflows
       summary: Execute workflow
-      description: Manually execute a workflow
+      description: Manually execute a workflow. Workflow must be enabled.
       operationId: executeWorkflow
       parameters:
         - name: workflow_id
@@ -686,19 +888,75 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /workflows/{workflow_id}/executions/{execution_id}:
+    get:
+      tags:
+        - Workflows
+      summary: Get execution details
+      description: Get full execution details including action results, logs, and variables
+      operationId: getWorkflowExecution
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+        - name: execution_id
+          in: path
+          required: true
+          description: Execution ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionDetailResponse'
+        '400':
+          description: Invalid ID format or execution doesn't belong to workflow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # Webhook Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
   /webhooks/mist:
     post:
       tags:
         - Webhooks
       summary: Receive Mist webhook
-      description: Receive and process Mist webhook events (called by Mist Cloud)
+      description: |
+        Unified Mist webhook gateway. Receives all Mist webhooks, stores them as WebhookEvents,
+        and routes internally to both the automation and backup modules.
+        Called by Mist Cloud or Smee.io forwarder.
       operationId: receiveMistWebhook
       security: []
       parameters:
         - name: X-Mist-Signature
           in: header
-          description: Mist webhook signature for verification
+          description: Mist webhook HMAC-SHA256 signature for verification
+          schema:
+            type: string
+        - name: X-Forwarded-By
+          in: header
+          description: Set by internal Smee forwarder (value 'smee' bypasses signature check from localhost)
           schema:
             type: string
       requestBody:
@@ -711,11 +969,17 @@ paths:
               description: Mist webhook payload
       responses:
         '200':
-          description: Webhook received
+          description: Webhook received and processed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookReceivedResponse'
+        '401':
+          description: Missing or invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /webhooks/events:
     get:
@@ -769,7 +1033,7 @@ paths:
       tags:
         - Webhooks
       summary: Get webhook event
-      description: Get webhook event details by ID
+      description: Get webhook event details by ID including full payload and headers
       operationId: getWebhookEvent
       parameters:
         - name: event_id
@@ -784,7 +1048,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WebhookEventResponse'
+                $ref: '#/components/schemas/WebhookEventDetailResponse'
         '400':
           description: Invalid event ID format
           content:
@@ -844,13 +1108,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # ═══════════════════════════════════════════════════════════════════════════
   # Backup Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
   /backups:
     get:
       tags:
         - Backups
       summary: List backups
-      description: List all configuration backups
+      description: List all configuration backup jobs
       operationId: listBackups
       parameters:
         - name: skip
@@ -916,11 +1182,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/BackupJobResponse'
         '400':
-          description: Invalid request parameters
+          description: Invalid request parameters or Mist not configured
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/stats/objects:
+    get:
+      tags:
+        - Backups
+      summary: Get object backup stats
+      description: Daily count of distinct objects backed up over the last 30 days
+      operationId: getObjectStats
+      responses:
+        '200':
+          description: Object backup statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupObjectStatsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/stats/jobs:
+    get:
+      tags:
+        - Backups
+      summary: Get backup job stats
+      description: Daily job statistics over the last 30 days including success/failure rates and durations
+      operationId: getJobStats
+      responses:
+        '200':
+          description: Backup job statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobStatsResponse'
         '401':
           description: Not authenticated
           content:
@@ -1069,6 +1377,18 @@ paths:
           schema:
             type: string
             enum: [active, deleted]
+        - name: sort
+          in: query
+          description: Sort field
+          schema:
+            type: string
+            enum: [object_name, object_type, version_count, last_backed_up_at, first_backed_up_at, latest_version]
+        - name: order
+          in: query
+          description: Sort direction
+          schema:
+            type: string
+            enum: [asc, desc]
       responses:
         '200':
           description: List of backup objects
@@ -1153,6 +1473,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /backups/objects/{object_id}/dependencies:
+    get:
+      tags:
+        - Backups
+      summary: Get object dependencies
+      description: |
+        Get parent and child dependencies for a backed-up object.
+        Parents: objects this object references (from its references field).
+        Children: objects that reference this object.
+        Implicit site parent is included when the object has a site_id.
+      operationId: getObjectDependencies
+      parameters:
+        - name: object_id
+          in: path
+          required: true
+          description: Object ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Object dependencies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectDependencyResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No active backup found for this object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /backups/objects/{object_id}/versions:
     get:
       tags:
@@ -1187,12 +1545,64 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /backups/objects/versions/{version_id}/restore:
+    post:
+      tags:
+        - Backups
+      summary: Restore object version
+      description: Restore a backed-up object to a specific version in Mist
+      operationId: restoreObjectVersion
+      parameters:
+        - name: version_id
+          in: path
+          required: true
+          description: Version document ID
+          schema:
+            type: string
+        - name: dry_run
+          in: query
+          description: Preview restore without applying
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Restore result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreResultResponse'
+        '400':
+          description: Invalid version ID format or Mist not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Backup version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Restore failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /backups/{backup_id}:
     get:
       tags:
         - Backups
       summary: Get backup
-      description: Get backup details by ID with full configuration data
+      description: Get backup job details by ID
       operationId: getBackup
       parameters:
         - name: backup_id
@@ -1227,12 +1637,67 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /backups/{backup_id}/logs:
+    get:
+      tags:
+        - Backups
+      summary: Get backup logs
+      description: Get execution logs for a specific backup job
+      operationId: getBackupLogs
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          description: Backup ID
+          schema:
+            type: string
+        - name: skip
+          in: query
+          description: Number of logs to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of logs to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+        - name: level
+          in: query
+          description: Filter by log level
+          schema:
+            type: string
+            enum: [info, warning, error]
+      responses:
+        '200':
+          description: Backup logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupLogListResponse'
+        '400':
+          description: Invalid backup ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /backups/{backup_id}/restore:
     post:
       tags:
         - Backups
       summary: Restore backup
-      description: Restore configuration from a backup
+      description: Restore configuration from a backup job
       operationId: restoreBackup
       parameters:
         - name: backup_id
@@ -1249,7 +1714,7 @@ paths:
             default: false
       responses:
         '200':
-          description: Restore queued
+          description: Restore initiated
           content:
             application/json:
               schema:
@@ -1273,7 +1738,105 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /backups/smee/status:
+    get:
+      tags:
+        - Backups
+      summary: Get Smee status
+      description: Get Smee.io webhook forwarder client status (admin only)
+      operationId: getSmeeStatus
+      responses:
+        '200':
+          description: Smee status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmeeStatusResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/smee/start:
+    post:
+      tags:
+        - Backups
+      summary: Start Smee client
+      description: |
+        Start the Smee.io webhook forwarder (admin only).
+        Accepts an optional smee_channel_url in the request body.
+        The provided URL is persisted automatically.
+      operationId: startSmeeClient
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmeeStartRequest'
+      responses:
+        '200':
+          description: Smee started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmeeStatusResponse'
+        '400':
+          description: Smee.io channel URL not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /backups/smee/stop:
+    post:
+      tags:
+        - Backups
+      summary: Stop Smee client
+      description: Stop the Smee.io webhook forwarder (admin only)
+      operationId: stopSmeeClient
+      responses:
+        '200':
+          description: Smee stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessageResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # Admin Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
   /admin/settings:
     get:
       tags:
@@ -1418,8 +1981,18 @@ paths:
       tags:
         - Admin
       summary: Test Mist connection
-      description: Test connection to Mist API (admin only)
+      description: |
+        Test connection to Mist API (admin only).
+        Accepts optional mist_api_token, mist_org_id, and mist_cloud_region in the request body.
+        When provided, the connection is tested with those values directly (no save required).
+        Missing fields fall back to saved system configuration.
       operationId: testMistConnection
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MistConnectionTestRequest'
       responses:
         '200':
           description: Connection test result
@@ -1428,38 +2001,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ConnectionTestResponse'
         '400':
-          description: Mist API not configured
+          description: Mist API token not configured
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Admin access required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /admin/workers/status:
-    get:
-      tags:
-        - Admin
-      summary: Get worker status
-      description: Get status of background workers (admin only)
-      operationId: getWorkerStatus
-      responses:
-        '200':
-          description: Worker status
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkerStatusResponse'
         '401':
           description: Not authenticated
           content:
@@ -1572,6 +2118,36 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /admin/workers/status:
+    get:
+      tags:
+        - Admin
+      summary: Get worker status
+      description: Get status of background workers (admin only)
+      operationId: getWorkerStatus
+      responses:
+        '200':
+          description: Worker status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerStatusResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Components
+# ═══════════════════════════════════════════════════════════════════════════════
 components:
   securitySchemes:
     BearerAuth:
@@ -1581,7 +2157,9 @@ components:
       description: JWT token obtained from /auth/login
 
   schemas:
+    # ─────────────────────────────────────────────────────────────────────────
     # Common Schemas
+    # ─────────────────────────────────────────────────────────────────────────
     ErrorResponse:
       type: object
       required:
@@ -1602,7 +2180,9 @@ components:
         message:
           type: string
 
+    # ─────────────────────────────────────────────────────────────────────────
     # Health
+    # ─────────────────────────────────────────────────────────────────────────
     HealthResponse:
       type: object
       required:
@@ -1610,6 +2190,8 @@ components:
         - app
         - version
         - environment
+        - is_initialized
+        - password_policy
       properties:
         status:
           type: string
@@ -1623,8 +2205,27 @@ components:
         environment:
           type: string
           example: development
+        is_initialized:
+          type: boolean
+          description: Whether the system has been initialized (has at least one user)
+        password_policy:
+          type: object
+          properties:
+            min_length:
+              type: integer
+              description: Minimum password length
+            require_uppercase:
+              type: boolean
+            require_lowercase:
+              type: boolean
+            require_digits:
+              type: boolean
+            require_special_chars:
+              type: boolean
 
+    # ─────────────────────────────────────────────────────────────────────────
     # Authentication
+    # ─────────────────────────────────────────────────────────────────────────
     LoginRequest:
       type: object
       required:
@@ -1638,12 +2239,12 @@ components:
         password:
           type: string
           format: password
-          minLength: 8
+          minLength: 1
           description: User password
         remember_me:
           type: boolean
           default: false
-          description: Keep user logged in for longer
+          description: Keep user logged in for longer (extends token expiry)
 
     TokenResponse:
       type: object
@@ -1663,7 +2264,103 @@ components:
           type: integer
           description: Token expiration time in seconds
 
+    OnboardRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: Admin email address
+        password:
+          type: string
+          format: password
+          minLength: 1
+          description: Admin password (must meet password policy)
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        timezone:
+          type: string
+          nullable: true
+          description: User timezone (IANA format, e.g., 'America/New_York')
+
+    ChangePasswordRequest:
+      type: object
+      required:
+        - current_password
+        - new_password
+      properties:
+        current_password:
+          type: string
+          format: password
+          description: Current password
+        new_password:
+          type: string
+          format: password
+          minLength: 1
+          description: New password (must meet password policy)
+
+    SessionResponse:
+      type: object
+      required:
+        - id
+        - user_id
+        - device_info
+        - trusted_device
+        - created_at
+        - last_activity
+        - expires_at
+        - is_current
+      properties:
+        id:
+          type: string
+          description: Session ID
+        user_id:
+          type: string
+          description: User ID
+        device_info:
+          type: object
+          additionalProperties: true
+          description: Device information (browser, OS, etc.)
+        trusted_device:
+          type: boolean
+          description: Whether this is a trusted/remembered device
+        created_at:
+          type: string
+          format: date-time
+          description: Session creation timestamp
+        last_activity:
+          type: string
+          format: date-time
+          description: Last activity timestamp
+        expires_at:
+          type: string
+          format: date-time
+          description: Session expiration timestamp
+        is_current:
+          type: boolean
+          description: Whether this is the current session
+
+    SessionListResponse:
+      type: object
+      required:
+        - sessions
+        - total
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionResponse'
+        total:
+          type: integer
+
+    # ─────────────────────────────────────────────────────────────────────────
     # User
+    # ─────────────────────────────────────────────────────────────────────────
     UserCreate:
       type: object
       required:
@@ -1677,14 +2374,15 @@ components:
         password:
           type: string
           format: password
-          minLength: 8
+          minLength: 1
           description: User password
         roles:
           type: array
           items:
             type: string
+            enum: [admin, automation, backup]
           default: []
-          description: User roles
+          description: "User roles. Allowed values: admin, automation, backup"
         timezone:
           type: string
           default: UTC
@@ -1701,7 +2399,8 @@ components:
           type: array
           items:
             type: string
-          description: User roles
+            enum: [admin, automation, backup]
+          description: "User roles. Allowed values: admin, automation, backup"
         timezone:
           type: string
           description: User timezone
@@ -1770,7 +2469,25 @@ components:
           type: integer
           description: Total number of users
 
+    # ─────────────────────────────────────────────────────────────────────────
     # Workflow
+    # ─────────────────────────────────────────────────────────────────────────
+    ApiCatalogEntry:
+      type: object
+      properties:
+        method:
+          type: string
+          description: HTTP method
+        path:
+          type: string
+          description: API path template
+        description:
+          type: string
+          description: Endpoint description
+        category:
+          type: string
+          description: Category for grouping
+
     WorkflowCreate:
       type: object
       required:
@@ -1797,20 +2514,6 @@ components:
           type: object
           additionalProperties: true
           description: Trigger configuration
-        filters:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-          default: []
-          description: Primary filters
-        secondary_filters:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-          default: []
-          description: Secondary filters
         actions:
           type: array
           items:
@@ -1844,18 +2547,6 @@ components:
           type: object
           additionalProperties: true
           description: Trigger configuration
-        filters:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-          description: Primary filters
-        secondary_filters:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-          description: Secondary filters
         actions:
           type: array
           items:
@@ -1873,8 +2564,6 @@ components:
         - sharing
         - timeout_seconds
         - trigger
-        - filters
-        - secondary_filters
         - actions
         - execution_count
         - success_count
@@ -1910,18 +2599,6 @@ components:
           type: object
           additionalProperties: true
           description: Trigger configuration
-        filters:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-          description: Primary filters
-        secondary_filters:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-          description: Secondary filters
         actions:
           type: array
           items:
@@ -2016,6 +2693,15 @@ components:
           type: integer
           nullable: true
           description: Duration in milliseconds
+        actions_executed:
+          type: integer
+          description: Number of actions executed
+        actions_succeeded:
+          type: integer
+          description: Number of actions succeeded
+        actions_failed:
+          type: integer
+          description: Number of actions failed
 
     ExecutionListResponse:
       type: object
@@ -2032,12 +2718,128 @@ components:
           type: integer
           description: Total number of executions
 
+    ExecutionDetailResponse:
+      type: object
+      required:
+        - id
+        - workflow_id
+        - workflow_name
+        - status
+        - trigger_type
+        - started_at
+      properties:
+        id:
+          type: string
+          description: Execution ID
+        workflow_id:
+          type: string
+          description: Workflow ID
+        workflow_name:
+          type: string
+          description: Workflow name
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed, cancelled]
+          description: Execution status
+        trigger_type:
+          type: string
+          description: How execution was triggered
+        trigger_data:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Trigger data (e.g., webhook payload)
+        triggered_by:
+          type: string
+          nullable: true
+          description: User ID who triggered (for manual)
+        started_at:
+          type: string
+          format: date-time
+          description: Start timestamp
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Completion timestamp
+        duration_ms:
+          type: integer
+          nullable: true
+          description: Duration in milliseconds
+        trigger_condition_passed:
+          type: boolean
+          nullable: true
+          description: Whether trigger condition was met
+        trigger_condition:
+          type: string
+          nullable: true
+          description: Trigger condition expression
+        actions_executed:
+          type: integer
+          description: Number of actions executed
+        actions_succeeded:
+          type: integer
+          description: Number of actions succeeded
+        actions_failed:
+          type: integer
+          description: Number of actions failed
+        action_results:
+          type: array
+          items:
+            type: object
+            properties:
+              action_name:
+                type: string
+              status:
+                type: string
+              started_at:
+                type: string
+                format: date-time
+              completed_at:
+                type: string
+                format: date-time
+                nullable: true
+              duration_ms:
+                type: integer
+                nullable: true
+              error:
+                type: string
+                nullable: true
+              output:
+                type: object
+                additionalProperties: true
+                nullable: true
+              retry_count:
+                type: integer
+          description: Results of each action
+        error:
+          type: string
+          nullable: true
+          description: Error message if failed
+        error_details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Detailed error information
+        variables:
+          type: object
+          additionalProperties: true
+          description: Variables available during execution
+        logs:
+          type: array
+          items:
+            type: string
+          description: Execution logs
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Webhook
+    # ─────────────────────────────────────────────────────────────────────────
     WebhookReceivedResponse:
       type: object
       required:
         - status
         - event_id
+        - routed_to
         - message
       properties:
         status:
@@ -2046,8 +2848,18 @@ components:
         event_id:
           type: string
           description: Stored event ID
+        routed_to:
+          type: array
+          items:
+            type: string
+          description: Modules the webhook was routed to
         message:
           type: string
+        backup_result:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Result from backup module if applicable
 
     WebhookEventResponse:
       type: object
@@ -2055,10 +2867,7 @@ components:
         - id
         - webhook_type
         - webhook_id
-        - payload
         - processed
-        - matched_workflows
-        - executions_triggered
         - signature_valid
         - received_at
       properties:
@@ -2087,10 +2896,6 @@ components:
           type: string
           nullable: true
           description: Mist organization ID
-        payload:
-          type: object
-          additionalProperties: true
-          description: Webhook payload
         processed:
           type: boolean
           description: Whether processed
@@ -2107,6 +2912,18 @@ components:
         signature_valid:
           type: boolean
           description: Signature validity
+        routed_to:
+          type: array
+          items:
+            type: string
+          description: Modules routed to
+        response_status:
+          type: integer
+          description: HTTP status code returned
+        response_body:
+          type: object
+          additionalProperties: true
+          description: Response body returned
         received_at:
           type: string
           format: date-time
@@ -2116,6 +2933,23 @@ components:
           format: date-time
           nullable: true
           description: Processing timestamp
+
+    WebhookEventDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEventResponse'
+        - type: object
+          required:
+            - payload
+          properties:
+            payload:
+              type: object
+              additionalProperties: true
+              description: Webhook payload
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+              description: HTTP headers
 
     WebhookListResponse:
       type: object
@@ -2132,7 +2966,32 @@ components:
           type: integer
           description: Total number of events
 
+    # ─────────────────────────────────────────────────────────────────────────
     # Backup
+    # ─────────────────────────────────────────────────────────────────────────
+    BackupCreateRequest:
+      type: object
+      properties:
+        backup_type:
+          type: string
+          enum: [full, manual]
+          default: full
+          description: Backup type
+        site_id:
+          type: string
+          nullable: true
+          description: Site ID (for site-scoped manual backup)
+        object_type:
+          type: string
+          nullable: true
+          description: Object type in 'org:key' or 'site:key' format (for manual backup)
+        object_ids:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: Object IDs to backup (for manual list-type backup)
+
     BackupJobResponse:
       type: object
       required:
@@ -2149,7 +3008,7 @@ components:
           description: Backup ID
         backup_type:
           type: string
-          enum: [manual, scheduled, pre_change]
+          enum: [manual, full]
           description: Backup type
         org_id:
           type: string
@@ -2184,11 +3043,13 @@ components:
           type: string
           nullable: true
           description: Creator user ID
-        data:
-          type: object
-          additionalProperties: true
+        webhook_event:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
           nullable: true
-          description: Full backup data (only in single backup response)
+          description: Associated webhook events (for incremental backups)
         error:
           type: string
           nullable: true
@@ -2229,7 +3090,20 @@ components:
           type: array
           items:
             type: object
-            additionalProperties: true
+            properties:
+              path:
+                type: string
+                description: Path to the changed field
+              type:
+                type: string
+                enum: [added, removed, modified]
+                description: Type of change
+              value:
+                description: Value (for added/removed)
+              old:
+                description: Old value (for modified)
+              new:
+                description: New value (for modified)
           description: List of differences
         added_count:
           type: integer
@@ -2279,27 +3153,501 @@ components:
           type: integer
           description: Total number of backups
 
+    BackupObjectSummary:
+      type: object
+      required:
+        - object_id
+        - object_type
+        - org_id
+        - scope
+        - version_count
+        - latest_version
+        - first_backed_up_at
+        - last_backed_up_at
+        - is_deleted
+        - event_type
+      properties:
+        object_id:
+          type: string
+          description: Object ID
+        object_type:
+          type: string
+          description: Object type
+        object_name:
+          type: string
+          nullable: true
+          description: Object name
+        org_id:
+          type: string
+          description: Organization ID
+        site_id:
+          type: string
+          nullable: true
+          description: Site ID
+        site_name:
+          type: string
+          nullable: true
+          description: Site name
+        scope:
+          type: string
+          enum: [org, site]
+          description: Object scope
+        version_count:
+          type: integer
+          description: Number of versions
+        latest_version:
+          type: integer
+          description: Latest version number
+        first_backed_up_at:
+          type: string
+          format: date-time
+          description: First backup timestamp
+        last_backed_up_at:
+          type: string
+          format: date-time
+          description: Last backup timestamp
+        last_modified_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last modification timestamp
+        is_deleted:
+          type: boolean
+          description: Whether object is deleted
+        event_type:
+          type: string
+          description: Last event type
+
+    BackupObjectListResponse:
+      type: object
+      required:
+        - objects
+        - total
+      properties:
+        objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupObjectSummary'
+        total:
+          type: integer
+
+    BackupChangeEvent:
+      type: object
+      required:
+        - id
+        - object_id
+        - object_type
+        - scope
+        - event_type
+        - version
+        - changed_fields
+        - backed_up_at
+      properties:
+        id:
+          type: string
+          description: Change event ID
+        object_id:
+          type: string
+          description: Object ID
+        object_type:
+          type: string
+          description: Object type
+        object_name:
+          type: string
+          nullable: true
+          description: Object name
+        site_id:
+          type: string
+          nullable: true
+          description: Site ID
+        site_name:
+          type: string
+          nullable: true
+          description: Site name
+        scope:
+          type: string
+          enum: [org, site]
+          description: Object scope
+        event_type:
+          type: string
+          description: Event type (full_backup, updated, deleted, restored, etc.)
+        version:
+          type: integer
+          description: Version number
+        changed_fields:
+          type: array
+          items:
+            type: string
+          description: List of changed field paths
+        backed_up_at:
+          type: string
+          format: date-time
+          description: Backup timestamp
+        backed_up_by:
+          type: string
+          nullable: true
+          description: User who triggered backup
+
+    BackupChangeListResponse:
+      type: object
+      required:
+        - changes
+        - total
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupChangeEvent'
+        total:
+          type: integer
+
+    BackupObjectVersionResponse:
+      type: object
+      required:
+        - id
+        - object_id
+        - object_type
+        - org_id
+        - version
+        - event_type
+        - changed_fields
+        - backed_up_at
+        - is_deleted
+        - configuration
+      properties:
+        id:
+          type: string
+          description: Version document ID
+        object_id:
+          type: string
+          description: Object ID
+        object_type:
+          type: string
+          description: Object type
+        object_name:
+          type: string
+          nullable: true
+          description: Object name
+        org_id:
+          type: string
+          description: Organization ID
+        site_id:
+          type: string
+          nullable: true
+          description: Site ID
+        version:
+          type: integer
+          description: Version number
+        event_type:
+          type: string
+          description: Event type
+        changed_fields:
+          type: array
+          items:
+            type: string
+          description: Changed field paths
+        backed_up_at:
+          type: string
+          format: date-time
+          description: Backup timestamp
+        backed_up_by:
+          type: string
+          nullable: true
+          description: User who triggered backup
+        is_deleted:
+          type: boolean
+          description: Whether this version represents deletion
+        configuration:
+          type: object
+          additionalProperties: true
+          description: Full configuration data
+
+    BackupObjectVersionListResponse:
+      type: object
+      required:
+        - versions
+        - total
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupObjectVersionResponse'
+        total:
+          type: integer
+
+    ParentReference:
+      type: object
+      required:
+        - target_type
+        - target_id
+        - field_path
+        - exists_in_backup
+      properties:
+        target_type:
+          type: string
+          description: Parent object type
+        target_id:
+          type: string
+          description: Parent object ID
+        target_name:
+          type: string
+          nullable: true
+          description: Parent object name
+        field_path:
+          type: string
+          description: Field path referencing the parent
+        exists_in_backup:
+          type: boolean
+          description: Whether parent exists in backup
+
+    ChildReference:
+      type: object
+      required:
+        - source_type
+        - source_id
+        - field_path
+      properties:
+        source_type:
+          type: string
+          description: Child object type
+        source_id:
+          type: string
+          description: Child object ID
+        source_name:
+          type: string
+          nullable: true
+          description: Child object name
+        field_path:
+          type: string
+          description: Field path referencing this object
+
+    ObjectDependencyResponse:
+      type: object
+      required:
+        - object_id
+        - object_type
+        - parents
+        - children
+      properties:
+        object_id:
+          type: string
+          description: Object ID
+        object_type:
+          type: string
+          description: Object type
+        object_name:
+          type: string
+          nullable: true
+          description: Object name
+        parents:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParentReference'
+          description: Parent dependencies
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChildReference'
+          description: Child dependencies
+
+    BackupLogEntryResponse:
+      type: object
+      required:
+        - id
+        - backup_job_id
+        - timestamp
+        - level
+        - phase
+        - message
+      properties:
+        id:
+          type: string
+          description: Log entry ID
+        backup_job_id:
+          type: string
+          description: Backup job ID
+        timestamp:
+          type: string
+          format: date-time
+          description: Log timestamp
+        level:
+          type: string
+          enum: [info, warning, error]
+          description: Log level
+        phase:
+          type: string
+          description: Backup phase
+        message:
+          type: string
+          description: Log message
+        object_type:
+          type: string
+          nullable: true
+          description: Related object type
+        object_id:
+          type: string
+          nullable: true
+          description: Related object ID
+        object_name:
+          type: string
+          nullable: true
+          description: Related object name
+        site_id:
+          type: string
+          nullable: true
+          description: Related site ID
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Additional details
+
+    BackupLogListResponse:
+      type: object
+      required:
+        - logs
+        - total
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupLogEntryResponse'
+        total:
+          type: integer
+
+    DailyObjectStats:
+      type: object
+      required:
+        - date
+        - object_count
+      properties:
+        date:
+          type: string
+          format: date
+          description: Date (YYYY-MM-DD)
+        object_count:
+          type: integer
+          description: Number of distinct objects backed up
+
+    DailyJobStats:
+      type: object
+      required:
+        - date
+        - total
+        - completed
+        - failed
+        - webhook_events
+      properties:
+        date:
+          type: string
+          format: date
+          description: Date (YYYY-MM-DD)
+        total:
+          type: integer
+          description: Total jobs
+        completed:
+          type: integer
+          description: Completed jobs
+        failed:
+          type: integer
+          description: Failed jobs
+        webhook_events:
+          type: integer
+          description: Webhook events processed
+        avg_duration_seconds:
+          type: number
+          nullable: true
+          description: Average job duration
+        min_duration_seconds:
+          type: number
+          nullable: true
+          description: Minimum job duration
+        max_duration_seconds:
+          type: number
+          nullable: true
+          description: Maximum job duration
+
+    BackupObjectStatsResponse:
+      type: object
+      required:
+        - days
+      properties:
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyObjectStats'
+
+    BackupJobStatsResponse:
+      type: object
+      required:
+        - days
+      properties:
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyJobStats'
+
     RestoreQueuedResponse:
       type: object
       required:
-        - status
+        - message
         - backup_id
         - dry_run
-        - message
       properties:
-        status:
+        message:
           type: string
-          example: queued
         backup_id:
           type: string
           description: Backup ID
         dry_run:
           type: boolean
           description: Whether this is a dry run
+
+    RestoreResultResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Restore status
         message:
           type: string
+          description: Result message
+        dry_run:
+          type: boolean
+          description: Whether this was a dry run
+        changes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Changes made or to be made
 
+    SmeeStatusResponse:
+      type: object
+      required:
+        - running
+      properties:
+        running:
+          type: boolean
+          description: Whether Smee client is running
+        channel_url:
+          type: string
+          nullable: true
+          description: Smee channel URL
+        status:
+          type: string
+          description: Status message
+
+    SmeeStartRequest:
+      type: object
+      properties:
+        smee_channel_url:
+          type: string
+          description: Smee.io channel URL (optional, uses saved config if not provided)
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Admin
+    # ─────────────────────────────────────────────────────────────────────────
     SystemSettingsResponse:
       type: object
       required:
@@ -2318,15 +3666,87 @@ components:
           type: string
           nullable: true
           description: Mist cloud region
-        webhook_secret_set:
+        webhook_secret:
+          type: string
+          nullable: true
+          description: Webhook verification secret (decrypted)
+        smee_enabled:
           type: boolean
-          description: Whether webhook secret is configured
+          description: Whether Smee.io is enabled
+        smee_channel_url:
+          type: string
+          nullable: true
+          description: Smee.io channel URL
         max_concurrent_workflows:
           type: integer
           description: Maximum concurrent workflows
         workflow_default_timeout:
           type: integer
           description: Default workflow timeout in seconds
+        min_password_length:
+          type: integer
+          description: Minimum password length
+        require_uppercase:
+          type: boolean
+        require_lowercase:
+          type: boolean
+        require_digits:
+          type: boolean
+        require_special_chars:
+          type: boolean
+        session_timeout_hours:
+          type: integer
+          description: Session timeout in hours
+        max_concurrent_sessions:
+          type: integer
+          description: Maximum concurrent sessions per user
+        backup_enabled:
+          type: boolean
+          description: Whether scheduled backups are enabled
+        backup_full_schedule_cron:
+          type: string
+          nullable: true
+          description: Cron expression for full backups
+        backup_retention_days:
+          type: integer
+          description: Backup retention period in days
+        backup_git_enabled:
+          type: boolean
+          description: Whether Git backup is enabled
+        backup_git_repo_url:
+          type: string
+          nullable: true
+          description: Git repository URL
+        backup_git_branch:
+          type: string
+          nullable: true
+          description: Git branch name
+        backup_git_author_name:
+          type: string
+          nullable: true
+          description: Git commit author name
+        backup_git_author_email:
+          type: string
+          nullable: true
+          description: Git commit author email
+        slack_webhook_url:
+          type: string
+          nullable: true
+          description: Slack webhook URL for notifications
+        servicenow_instance_url:
+          type: string
+          nullable: true
+          description: ServiceNow instance URL
+        servicenow_username:
+          type: string
+          nullable: true
+          description: ServiceNow username
+        servicenow_password_set:
+          type: boolean
+          description: Whether ServiceNow password is configured
+        pagerduty_api_key_set:
+          type: boolean
+          description: Whether PagerDuty API key is configured
         updated_at:
           type: string
           format: date-time
@@ -2348,12 +3768,71 @@ components:
         webhook_secret:
           type: string
           description: Webhook verification secret
+        smee_enabled:
+          type: boolean
+          description: Enable Smee.io
+        smee_channel_url:
+          type: string
+          description: Smee.io channel URL
         max_concurrent_workflows:
           type: integer
           description: Maximum concurrent workflows
         workflow_default_timeout:
           type: integer
           description: Default workflow timeout
+        min_password_length:
+          type: integer
+        require_uppercase:
+          type: boolean
+        require_lowercase:
+          type: boolean
+        require_digits:
+          type: boolean
+        require_special_chars:
+          type: boolean
+        session_timeout_hours:
+          type: integer
+        max_concurrent_sessions:
+          type: integer
+        backup_enabled:
+          type: boolean
+        backup_full_schedule_cron:
+          type: string
+        backup_retention_days:
+          type: integer
+        backup_git_enabled:
+          type: boolean
+        backup_git_repo_url:
+          type: string
+        backup_git_branch:
+          type: string
+        backup_git_author_name:
+          type: string
+        backup_git_author_email:
+          type: string
+        slack_webhook_url:
+          type: string
+        servicenow_instance_url:
+          type: string
+        servicenow_username:
+          type: string
+        servicenow_password:
+          type: string
+        pagerduty_api_key:
+          type: string
+
+    MistConnectionTestRequest:
+      type: object
+      properties:
+        mist_api_token:
+          type: string
+          description: Mist API token to test
+        mist_org_id:
+          type: string
+          description: Mist organization ID
+        mist_cloud_region:
+          type: string
+          description: Mist cloud region
 
     AuditLogResponse:
       type: object
@@ -2368,6 +3847,14 @@ components:
         event_type:
           type: string
           description: Event type
+        event_category:
+          type: string
+          nullable: true
+          description: Event category
+        description:
+          type: string
+          nullable: true
+          description: Event description
         user_id:
           type: string
           nullable: true
@@ -2500,3 +3987,61 @@ components:
                 type: object
                 additionalProperties: true
               description: List of scheduled jobs
+
+    MistSitesResponse:
+      type: object
+      required:
+        - sites
+      properties:
+        sites:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                description: Site ID
+              name:
+                type: string
+                description: Site name
+
+    MistObjectTypesResponse:
+      type: object
+      required:
+        - object_types
+      properties:
+        object_types:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+                description: Object type value (e.g., 'org:wlans')
+              label:
+                type: string
+                description: Human-readable label
+              scope:
+                type: string
+                enum: [org, site]
+                description: Object scope
+
+    MistObjectsResponse:
+      type: object
+      required:
+        - objects
+      properties:
+        objects:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                description: Object ID
+              name:
+                type: string
+                description: Object name
+              type:
+                type: string
+                description: Object type

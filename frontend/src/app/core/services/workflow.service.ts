@@ -1,18 +1,19 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, of } from 'rxjs';
+import { map, shareReplay } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import {
   WorkflowCreate,
   WorkflowUpdate,
   WorkflowResponse,
   WorkflowListResponse,
+  WorkflowExecution,
   WorkflowExecutionListResponse,
   PipelineBlock,
   WorkflowTrigger,
-  WorkflowFilter,
-  SecondaryFilter,
   WorkflowAction,
   ActionType,
+  ApiCatalogEntry,
 } from '../models/workflow.model';
 
 const ACTION_META: Record<
@@ -49,6 +50,8 @@ const ACTION_META: Record<
   },
   delay: { label: 'Delay', icon: 'schedule', color: '#616161' },
   condition: { label: 'Condition', icon: 'call_split', color: '#0097a7' },
+  set_variable: { label: 'Set Variable', icon: 'data_object', color: '#795548' },
+  for_each: { label: 'For Each', icon: 'loop', color: '#4527a0' },
 };
 
 let blockIdCounter = 0;
@@ -60,6 +63,7 @@ function nextBlockId(): string {
 @Injectable({ providedIn: 'root' })
 export class WorkflowService {
   private readonly api = inject(ApiService);
+  private catalogCache$: Observable<ApiCatalogEntry[]> | null = null;
 
   // ── CRUD ──────────────────────────────────────────────────────────────
 
@@ -106,6 +110,26 @@ export class WorkflowService {
     );
   }
 
+  getExecution(
+    workflowId: string,
+    executionId: string
+  ): Observable<WorkflowExecution> {
+    return this.api.get<WorkflowExecution>(
+      `/workflows/${workflowId}/executions/${executionId}`
+    );
+  }
+
+  // ── API Catalog ───────────────────────────────────────────────────────
+
+  getApiCatalog(): Observable<ApiCatalogEntry[]> {
+    if (!this.catalogCache$) {
+      this.catalogCache$ = this.api
+        .get<ApiCatalogEntry[]>('/workflows/api-catalog')
+        .pipe(shareReplay(1));
+    }
+    return this.catalogCache$;
+  }
+
   // ── Block conversion ──────────────────────────────────────────────────
 
   toPipelineBlocks(workflow: WorkflowResponse): PipelineBlock[] {
@@ -119,35 +143,11 @@ export class WorkflowService {
       data: trigger,
       label:
         trigger.type === 'webhook'
-          ? `Webhook: ${trigger.webhook_topic || trigger.webhook_type || 'any'}`
+          ? `Webhook: ${trigger.webhook_type || 'any'}`
           : `Cron: ${trigger.cron_expression || ''}`,
       icon: trigger.type === 'webhook' ? 'webhook' : 'schedule',
       color: '#6a1b9a',
     });
-
-    // Primary filters
-    for (const f of workflow.filters) {
-      blocks.push({
-        id: nextBlockId(),
-        kind: 'filter',
-        data: f,
-        label: `${f.field} ${f.operator} ${f.value}`,
-        icon: 'filter_list',
-        color: '#00838f',
-      });
-    }
-
-    // Secondary filters
-    for (const sf of workflow.secondary_filters) {
-      blocks.push({
-        id: nextBlockId(),
-        kind: 'secondary_filter',
-        data: sf,
-        label: `${sf.api_endpoint}: ${sf.field} ${sf.operator}`,
-        icon: 'filter_alt',
-        color: '#00695c',
-      });
-    }
 
     // Actions
     for (const a of workflow.actions) {
@@ -171,13 +171,8 @@ export class WorkflowService {
 
   fromPipelineBlocks(
     blocks: PipelineBlock[]
-  ): Pick<
-    WorkflowCreate,
-    'trigger' | 'filters' | 'secondary_filters' | 'actions'
-  > {
+  ): Pick<WorkflowCreate, 'trigger' | 'actions'> {
     let trigger: Record<string, unknown> = { type: 'webhook' };
-    const filters: Record<string, unknown>[] = [];
-    const secondaryFilters: Record<string, unknown>[] = [];
     const actions: Record<string, unknown>[] = [];
 
     for (const block of blocks) {
@@ -185,24 +180,13 @@ export class WorkflowService {
         case 'trigger':
           trigger = { ...(block.data as WorkflowTrigger) };
           break;
-        case 'filter':
-          filters.push({ ...(block.data as WorkflowFilter) });
-          break;
-        case 'secondary_filter':
-          secondaryFilters.push({ ...(block.data as SecondaryFilter) });
-          break;
         case 'action':
           actions.push({ ...(block.data as WorkflowAction) });
           break;
       }
     }
 
-    return {
-      trigger,
-      filters,
-      secondary_filters: secondaryFilters,
-      actions,
-    };
+    return { trigger, actions };
   }
 
   createDefaultTriggerBlock(): PipelineBlock {
@@ -217,45 +201,27 @@ export class WorkflowService {
   }
 
   createBlockForType(
-    kind: 'filter' | 'secondary_filter' | 'action',
+    kind: 'action',
     actionType?: ActionType
   ): PipelineBlock {
-    if (kind === 'filter') {
-      return {
-        id: nextBlockId(),
-        kind: 'filter',
-        data: {
-          field: '',
-          operator: 'equals',
-          value: '',
-        } as WorkflowFilter,
-        label: 'New Filter',
-        icon: 'filter_list',
-        color: '#00838f',
-      };
-    }
-    if (kind === 'secondary_filter') {
-      return {
-        id: nextBlockId(),
-        kind: 'secondary_filter',
-        data: {
-          api_endpoint: '',
-          field: '',
-          operator: 'equals',
-          value: '',
-        } as SecondaryFilter,
-        label: 'New Secondary Filter',
-        icon: 'filter_alt',
-        color: '#00695c',
-      };
-    }
-    // Action
     const type = actionType || 'webhook';
     const meta = ACTION_META[type];
+    let actionData: WorkflowAction;
+
+    if (type === 'condition') {
+      actionData = { name: '', type, enabled: true, branches: [{ condition: '', actions: [] }] };
+    } else if (type === 'for_each') {
+      actionData = { name: '', type, enabled: true, loop_over: '', loop_variable: 'item', loop_actions: [], max_iterations: 100 };
+    } else if (type === 'set_variable') {
+      actionData = { name: '', type, enabled: true, variable_name: '', variable_expression: '' };
+    } else {
+      actionData = { name: '', type, enabled: true };
+    }
+
     return {
       id: nextBlockId(),
       kind: 'action',
-      data: { name: '', type, enabled: true } as WorkflowAction,
+      data: actionData,
       label: meta.label,
       icon: meta.icon,
       color: meta.color,

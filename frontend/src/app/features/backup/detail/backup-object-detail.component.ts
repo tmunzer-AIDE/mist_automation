@@ -1,6 +1,7 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, ChangeDetectorRef, inject, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -9,9 +10,11 @@ import { MatTableModule } from '@angular/material/table';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { ObjectDependencyResponse } from '../../../core/models/backup.model';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
@@ -48,6 +51,7 @@ interface ObjectVersion {
     MatChipsModule,
     MatTooltipModule,
     MatMenuModule,
+    MatExpansionModule,
     MatDialogModule,
     MatSnackBarModule,
     PageHeaderComponent,
@@ -58,17 +62,20 @@ interface ObjectVersion {
   templateUrl: './backup-object-detail.component.html',
   styleUrl: './backup-object-detail.component.scss',
 })
-export class BackupObjectDetailComponent implements OnInit {
+export class BackupObjectDetailComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
+  private routeSub!: Subscription;
 
   objectId = '';
   versions: ObjectVersion[] = [];
   loading = true;
   selectedVersionId: string | null = null;
+  dependencies: ObjectDependencyResponse | null = null;
+  depsLoading = true;
 
   // Compare mode
   compareMode = false;
@@ -86,8 +93,30 @@ export class BackupObjectDetailComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.objectId = this.route.snapshot.paramMap.get('objectId') || '';
-    this.loadVersions();
+    this.routeSub = this.route.paramMap.subscribe((params) => {
+      const id = params.get('objectId') || '';
+      if (id !== this.objectId) {
+        this.objectId = id;
+        this.resetState();
+        this.loadVersions();
+        this.loadDependencies();
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSub.unsubscribe();
+  }
+
+  private resetState(): void {
+    this.versions = [];
+    this.loading = true;
+    this.selectedVersionId = null;
+    this.dependencies = null;
+    this.depsLoading = true;
+    this.compareMode = false;
+    this.compareVersions = [null, null];
+    this.diffEntries = [];
   }
 
   eventLabel(eventType: string): string {
@@ -102,29 +131,10 @@ export class BackupObjectDetailComponent implements OnInit {
     return labels[eventType] || eventType;
   }
 
-  dotClass(eventType: string): string {
-    const classes: Record<string, string> = {
-      updated: 'dot-updated',
-      deleted: 'dot-deleted',
-      created: 'dot-created',
-      restored: 'dot-restored',
-      full_backup: 'dot-backup',
-      incremental: 'dot-backup',
-    };
-    return classes[eventType] || 'dot-backup';
-  }
-
-  versionTooltip(v: ObjectVersion): string {
-    const event = this.eventLabel(v.event_type);
-    const admin = v.backed_up_by ? `\nBy: ${v.backed_up_by}` : '';
-    const fields = v.changed_fields.length > 0
-      ? '\nChanged: ' + v.changed_fields.slice(0, 5).join(', ')
-      : '';
-    return `v${v.version} — ${event}${admin}${fields}`;
-  }
-
-  selectVersion(v: ObjectVersion): void {
-    this.selectedVersionId = this.selectedVersionId === v.id ? null : v.id;
+  onRowClick(v: ObjectVersion): void {
+    if (this.compareMode) {
+      this.toggleCompareVersion(v);
+    }
   }
 
   viewJson(v: ObjectVersion): void {
@@ -267,6 +277,25 @@ export class BackupObjectDetailComponent implements OnInit {
     return JSON.stringify(val, null, 2);
   }
 
+  private loadDependencies(): void {
+    this.depsLoading = true;
+    this.api
+      .get<ObjectDependencyResponse>(
+        `/backups/objects/${this.objectId}/dependencies`
+      )
+      .subscribe({
+        next: (res) => {
+          this.dependencies = res;
+          this.depsLoading = false;
+          this.cdr.detectChanges();
+        },
+        error: () => {
+          this.depsLoading = false;
+          this.cdr.detectChanges();
+        },
+      });
+  }
+
   private loadVersions(): void {
     this.loading = true;
     this.api
@@ -285,4 +314,5 @@ export class BackupObjectDetailComponent implements OnInit {
         },
       });
   }
+
 }

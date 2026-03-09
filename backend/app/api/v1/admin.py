@@ -139,12 +139,25 @@ async def update_system_settings(
         details={"updated_fields": list(settings.keys())}
     )
 
+    # If backup schedule changed, update the scheduler
+    if "backup_enabled" in settings or "backup_full_schedule_cron" in settings:
+        try:
+            from app.workers import get_scheduler
+            scheduler = get_scheduler()
+            refreshed = await SystemConfig.get_config()
+            if refreshed.backup_enabled and refreshed.backup_full_schedule_cron:
+                await scheduler.schedule_backup(refreshed.backup_full_schedule_cron)
+            else:
+                await scheduler.unschedule_backup()
+        except Exception as e:
+            logger.warning("backup_schedule_update_failed", error=str(e))
+
     # If smee settings changed, notify the backup module
     if "smee_enabled" in settings or "smee_channel_url" in settings:
         from app.modules.backup.services.smee_service import start_smee, stop_smee
         refreshed = await SystemConfig.get_config()
         if refreshed.smee_enabled and refreshed.smee_channel_url:
-            target = f"http://127.0.0.1:8000{settings_module.api_v1_prefix}/backups/webhooks/mist"
+            target = f"http://127.0.0.1:8000{settings_module.api_v1_prefix}/webhooks/mist"
             await start_smee(refreshed.smee_channel_url, target)
         else:
             await stop_smee()

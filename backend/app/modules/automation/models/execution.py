@@ -52,9 +52,9 @@ class WorkflowExecution(Document):
     completed_at: datetime | None = Field(default=None, description="Execution completion time")
     duration_ms: int | None = Field(default=None, description="Total execution duration in milliseconds")
     
-    # Filter evaluation
-    filters_passed: bool = Field(default=False, description="Whether filters passed")
-    filter_results: list[dict] = Field(default_factory=list, description="Individual filter evaluation results")
+    # Trigger condition evaluation
+    trigger_condition_passed: bool | None = Field(default=None, description="Whether trigger condition passed (None if no condition)")
+    trigger_condition: str | None = Field(default=None, description="The trigger condition expression that was evaluated")
     
     # Action execution
     actions_executed: int = Field(default=0, description="Number of actions executed")
@@ -102,9 +102,12 @@ class WorkflowExecution(Document):
         """Mark execution as completed."""
         self.status = status
         self.completed_at = datetime.now(timezone.utc)
-        
+
         if self.started_at and self.completed_at:
-            delta = self.completed_at - self.started_at
+            # Ensure both datetimes are aware — MongoDB may return naive UTC
+            started = self.started_at if self.started_at.tzinfo else self.started_at.replace(tzinfo=timezone.utc)
+            completed = self.completed_at if self.completed_at.tzinfo else self.completed_at.replace(tzinfo=timezone.utc)
+            delta = completed - started
             self.duration_ms = int(delta.total_seconds() * 1000)
         
         if error:
@@ -131,7 +134,7 @@ class WorkflowExecution(Document):
                 "workflow_name": "AP Offline Alert",
                 "status": "success",
                 "trigger_type": "webhook",
-                "filters_passed": True,
+                "trigger_condition_passed": True,
                 "actions_executed": 2,
                 "actions_succeeded": 2,
                 "actions_failed": 0,

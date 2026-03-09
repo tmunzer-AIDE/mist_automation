@@ -31,6 +31,9 @@ from app.modules.backup.schemas import (
     DailyJobStats,
     BackupObjectStatsResponse,
     BackupJobStatsResponse,
+    ParentReference,
+    ChildReference,
+    ObjectDependencyResponse,
 )
 
 router = APIRouter()
@@ -645,6 +648,97 @@ async def list_backup_changes(
         ))
 
     return BackupChangeListResponse(changes=changes, total=total)
+
+
+@router.get("/backups/objects/{object_id}/dependencies", response_model=ObjectDependencyResponse, tags=["Backups"])
+async def get_object_dependencies(
+    object_id: str,
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """
+    Get parent and child dependencies for a backed-up object.
+
+    Parents: objects this object references (from its ``references`` field).
+    Children: objects that reference this object.
+    Implicit site parent is included when the object has a ``site_id``.
+    """
+    # Find latest non-deleted version
+    obj = await BackupObject.find(
+        BackupObject.object_id == object_id,
+        BackupObject.is_deleted == False,
+    ).sort([("version", -1)]).first_or_none()
+
+    if not obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active backup found for this object",
+        )
+
+    # --- Parents ---
+    parents: list[ParentReference] = []
+
+    # Explicit references stored on the document
+    for ref in obj.references:
+        target = await BackupObject.find(
+            BackupObject.object_id == ref.target_id,
+            BackupObject.is_deleted == False,
+        ).sort([("version", -1)]).first_or_none()
+
+        parents.append(ParentReference(
+            target_type=ref.target_type,
+            target_id=ref.target_id,
+            target_name=target.object_name if target else None,
+            field_path=ref.field_path,
+            exists_in_backup=target is not None,
+        ))
+
+    # Implicit site parent
+    if obj.site_id:
+        site = await BackupObject.find(
+            BackupObject.object_id == obj.site_id,
+            BackupObject.object_type == "sites",
+            BackupObject.is_deleted == False,
+        ).sort([("version", -1)]).first_or_none()
+
+        parents.append(ParentReference(
+            target_type="sites",
+            target_id=obj.site_id,
+            target_name=site.object_name if site else None,
+            field_path="site_id",
+            exists_in_backup=site is not None,
+        ))
+
+    # --- Children ---
+    # Find objects whose references.target_id matches this object_id
+    child_docs = await BackupObject.find(
+        {"references.target_id": object_id},
+        BackupObject.is_deleted == False,
+    ).sort([("version", -1)]).to_list()
+
+    # Deduplicate by object_id (keep latest version)
+    seen_children: set[str] = set()
+    children: list[ChildReference] = []
+    for doc in child_docs:
+        if doc.object_id in seen_children:
+            continue
+        seen_children.add(doc.object_id)
+        # Find matching field_path(s) from the child's references
+        for ref in doc.references:
+            if ref.target_id == object_id:
+                children.append(ChildReference(
+                    source_type=doc.object_type,
+                    source_id=doc.object_id,
+                    source_name=doc.object_name,
+                    field_path=ref.field_path,
+                ))
+
+    return ObjectDependencyResponse(
+        object_id=obj.object_id,
+        object_type=obj.object_type,
+        object_name=obj.object_name,
+        parents=parents,
+        children=children,
+    )
 
 
 @router.get("/backups/objects/{object_id}/versions", tags=["Backups"])

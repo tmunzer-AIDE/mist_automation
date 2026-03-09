@@ -25,8 +25,6 @@ class TestCreateWorkflow:
         payload = {
             "name": "API Test Workflow",
             "trigger": {"type": "webhook", "webhook_type": "device-updowns"},
-            "filters": [],
-            "secondary_filters": [],
             "actions": [{"name": "notify", "type": "webhook", "webhook_url": "http://example.com"}],
         }
         response = await client.post("/api/v1/workflows", json=payload)

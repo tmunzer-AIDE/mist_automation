@@ -15,7 +15,8 @@
             <span class="nav-label">{{ item.label }}</span>
           </mat-expansion-panel-header>
           @for (child of item.children; track child.route) {
-            <a mat-list-item [routerLink]="child.route" routerLinkActive="active">
+            <a mat-list-item [routerLink]="child.route" routerLinkActive="active"
+               [routerLinkActiveOptions]="{ exact: child.route === item.route }">
               <mat-icon matListItemIcon>{{ child.icon }}</mat-icon>
               <span matListItemTitle>{{ child.label }}</span>
             </a>

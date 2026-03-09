@@ -351,9 +351,20 @@ class RestoreService:
             warnings.append("Object no longer exists in Mist and would be recreated")
 
         # Check for reference integrity
-        # (e.g., WLAN references to non-existent templates)
-        # This would be object-type specific in real implementation
-        
+        from app.modules.backup.reference_map import extract_references
+
+        refs = extract_references(backup.object_type, backup.configuration)
+        for ref in refs:
+            ref_exists = await BackupObject.find_one(
+                BackupObject.object_id == ref["target_id"],
+                BackupObject.is_deleted == False,
+            )
+            if not ref_exists:
+                warnings.append(
+                    f"Referenced {ref['target_type']} ({ref['target_id']}) "
+                    f"via '{ref['field_path']}' not found in backups"
+                )
+
         return {
             "valid": True,
             "exists_in_mist": exists,

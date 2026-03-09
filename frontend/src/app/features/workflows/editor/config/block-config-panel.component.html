@@ -19,18 +19,21 @@
 
         @if (triggerType === 'webhook') {
           <mat-form-field>
-            <mat-label>Webhook Type</mat-label>
+            <mat-label>Webhook Topic</mat-label>
             <mat-select formControlName="webhook_type">
               <mat-option value="">Any</mat-option>
-              <mat-option value="alarm">Alarm</mat-option>
-              <mat-option value="audit">Audit</mat-option>
+              <mat-option value="alarms">Alarms</mat-option>
+              <mat-option value="audits">Audits</mat-option>
               <mat-option value="device-events">Device Events</mat-option>
+              <mat-option value="device-updowns">Device Updowns</mat-option>
+              <mat-option value="mxtunnels">MxTunnels</mat-option>
+              <mat-option value="nac-events">NAC Events</mat-option>
             </mat-select>
           </mat-form-field>
 
           <mat-form-field>
-            <mat-label>Webhook Topic</mat-label>
-            <input matInput formControlName="webhook_topic" placeholder="e.g. device-events">
+            <mat-label>Event Type</mat-label>
+            <input matInput formControlName="webhook_topic" placeholder="e.g. ap_offline">
           </mat-form-field>
         }
 
@@ -47,73 +50,50 @@
         }
 
         <mat-checkbox formControlName="skip_if_running">Skip if already running</mat-checkbox>
-      }
 
-      <!-- ── Filter ───────────────────────────────────────────── -->
-      @if (block.kind === 'filter') {
-        <mat-form-field>
-          <mat-label>Field (JSON path)</mat-label>
-          <input matInput formControlName="field" placeholder="e.g. type">
-        </mat-form-field>
+        <div class="section-divider">Trigger Condition</div>
 
         <mat-form-field>
-          <mat-label>Operator</mat-label>
-          <mat-select formControlName="operator">
-            @for (op of filterOperators; track op.value) {
-              <mat-option [value]="op.value">{{ op.label }}</mat-option>
-            }
-          </mat-select>
+          <mat-label>Condition (Jinja2)</mat-label>
+          <textarea matInput formControlName="condition" rows="3" class="mono"
+            placeholder="e.g. {{ '{{' }} events[0].type == 'ap_offline' {{ '}}' }}"></textarea>
         </mat-form-field>
 
-        <mat-form-field>
-          <mat-label>Value</mat-label>
-          <input matInput formControlName="value">
-        </mat-form-field>
+        <div class="hint-text">
+          If set, the workflow will only run when this expression evaluates to true.
+          Leave empty to run on every matching trigger.
+        </div>
 
-        <mat-checkbox formControlName="case_sensitive">Case sensitive</mat-checkbox>
+        <div class="section-divider">Variable Storage</div>
 
-        <mat-form-field>
-          <mat-label>Logic</mat-label>
-          <mat-select formControlName="logic">
-            <mat-option value="and">AND</mat-option>
-            <mat-option value="or">OR</mat-option>
-          </mat-select>
-        </mat-form-field>
-      }
+        @for (binding of saveAsArray.controls; track binding; let i = $index) {
+          <div class="save-as-row" [formGroup]="$any(binding)">
+            <mat-form-field class="save-as-name">
+              <mat-label>Variable name</mat-label>
+              <input matInput formControlName="name" placeholder="e.g. event">
+            </mat-form-field>
+            <mat-form-field class="save-as-expression">
+              <mat-label>Expression (optional)</mat-label>
+              <input matInput formControlName="expression" class="mono"
+                placeholder="e.g. {{ '{{' }} output.events[0] {{ '}}' }}">
+            </mat-form-field>
+            <button mat-icon-button color="warn" (click)="removeSaveAsBinding(i)" type="button">
+              <mat-icon>delete</mat-icon>
+            </button>
+          </div>
+        }
 
-      <!-- ── Secondary Filter ─────────────────────────────────── -->
-      @if (block.kind === 'secondary_filter') {
-        <mat-form-field>
-          <mat-label>API Endpoint</mat-label>
-          <input matInput formControlName="api_endpoint" placeholder="/api/v1/...">
-        </mat-form-field>
+        <button mat-stroked-button color="primary" (click)="addSaveAsBinding()" type="button"
+          class="add-branch-btn">
+          <mat-icon>add</mat-icon> Add Variable
+        </button>
 
-        <mat-form-field>
-          <mat-label>Field</mat-label>
-          <input matInput formControlName="field">
-        </mat-form-field>
-
-        <mat-form-field>
-          <mat-label>Operator</mat-label>
-          <mat-select formControlName="operator">
-            @for (op of filterOperators; track op.value) {
-              <mat-option [value]="op.value">{{ op.label }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        <mat-form-field>
-          <mat-label>Value</mat-label>
-          <input matInput formControlName="value">
-        </mat-form-field>
-
-        <mat-form-field>
-          <mat-label>Logic</mat-label>
-          <mat-select formControlName="logic">
-            <mat-option value="and">AND</mat-option>
-            <mat-option value="or">OR</mat-option>
-          </mat-select>
-        </mat-form-field>
+        <div class="hint-text">
+          Extract values from the trigger payload into named variables.
+          Use <code>output</code> to reference the payload.
+          Leave expression empty to save the full payload.<br>
+          Tip: check the <strong>Trigger Data</strong> tab in execution details to see the payload structure.
+        </div>
       }
 
       <!-- ── Action ───────────────────────────────────────────── -->
@@ -127,10 +107,83 @@
 
         <!-- API action fields -->
         @if (isApiAction) {
-          <mat-form-field>
-            <mat-label>API Endpoint</mat-label>
-            <input matInput formControlName="api_endpoint" placeholder="/api/v1/sites/:site_id/...">
-          </mat-form-field>
+          @if (!useCustomEndpoint) {
+
+            <!-- Catalog mode: search + select + path/query params -->
+            @if (!selectedCatalogEntry) {
+              <!-- Search field (not bound to api_endpoint) -->
+              <mat-form-field>
+                <mat-label>Search API Endpoint</mat-label>
+                <input matInput
+                  [formControl]="catalogSearchControl"
+                  [matAutocomplete]="catalogAuto"
+                  placeholder="Type to search...">
+                <mat-autocomplete #catalogAuto="matAutocomplete"
+                  (optionSelected)="selectCatalogEntry($event.option.value)">
+                  @for (entry of filteredCatalog; track entry.id) {
+                    <mat-option [value]="entry">
+                      <span class="catalog-option">
+                        <strong>{{ entry.label }}</strong>
+                        <span class="catalog-description">{{ entry.description }}</span>
+                      </span>
+                    </mat-option>
+                  }
+                </mat-autocomplete>
+              </mat-form-field>
+            } @else {
+              <!-- Selected entry display -->
+              <div class="selected-entry-info">
+                <div class="selected-entry-text">
+                  <span class="selected-entry-label">{{ selectedCatalogEntry.label }}</span>
+                  <span class="selected-entry-category">{{ selectedCatalogEntry.category }}</span>
+                </div>
+                <button mat-icon-button type="button" (click)="clearCatalogSelection()"
+                  matTooltip="Change endpoint">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </div>
+
+              <!-- Path Parameters -->
+              @if (pathParamControls && selectedCatalogEntry.path_params.length > 0) {
+                <div class="section-divider">Path Parameters</div>
+                @for (param of selectedCatalogEntry.path_params; track param) {
+                  <mat-form-field>
+                    <mat-label>{{ param }}</mat-label>
+                    <input matInput [formControl]="$any(pathParamControls.get(param))"
+                      placeholder="Enter {{ param }} or use {{ '{{' }} variable {{ '}}' }}">
+                  </mat-form-field>
+                }
+              }
+
+              <!-- Query Parameters -->
+              @if (queryParamControls && selectedCatalogEntry.query_params.length > 0) {
+                <div class="section-divider">Query Parameters (optional)</div>
+                @for (qp of selectedCatalogEntry.query_params; track qp.name) {
+                  <mat-form-field>
+                    <mat-label>{{ qp.name }}</mat-label>
+                    <input matInput [formControl]="$any(queryParamControls.get(qp.name))"
+                      [placeholder]="qp.description">
+                  </mat-form-field>
+                }
+              }
+            }
+
+            <button mat-stroked-button type="button" class="toggle-endpoint-btn" (click)="toggleCustomEndpoint()">
+              Use custom endpoint
+            </button>
+
+          } @else {
+
+            <!-- Custom endpoint mode: raw text input -->
+            <mat-form-field>
+              <mat-label>Custom API Endpoint</mat-label>
+              <input matInput formControlName="api_endpoint" placeholder="/api/v1/sites/{site_id}/...">
+            </mat-form-field>
+            <button mat-stroked-button type="button" class="toggle-endpoint-btn" (click)="toggleCustomEndpoint()">
+              Browse catalog
+            </button>
+
+          }
 
           @if (actionType !== 'mist_api_get' && actionType !== 'mist_api_delete') {
             <mat-form-field>
@@ -179,29 +232,129 @@
           </mat-form-field>
         }
 
-        <!-- Condition -->
-        @if (isConditionAction) {
+        <!-- Set Variable -->
+        @if (isSetVariableAction) {
           <mat-form-field>
-            <mat-label>Condition Expression</mat-label>
-            <textarea matInput formControlName="condition" rows="3" class="mono"
-              placeholder="e.g. {{ '{{' }} event.severity {{ '}}' }} == 'critical'"></textarea>
+            <mat-label>Variable Name</mat-label>
+            <input matInput formControlName="variable_name" placeholder="e.g. my_data">
           </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Expression (Jinja2)</mat-label>
+            <textarea matInput formControlName="variable_expression" rows="3" class="mono"
+              placeholder="e.g. {{ '{{' }} sites | length {{ '}}' }}"></textarea>
+          </mat-form-field>
+
+          <div class="hint-text">
+            Use saved variable names directly. Example: if you saved a variable called <code>sites</code>, use <code>{{ '{{' }} sites {{ '}}' }}</code>.
+          </div>
         }
 
-        <!-- Common action settings -->
-        <div class="section-divider">Error Handling</div>
+        <!-- For Each -->
+        @if (isForEachAction) {
+          <mat-form-field>
+            <mat-label>Loop Over (dot-path)</mat-label>
+            <input matInput formControlName="loop_over" placeholder="e.g. results.sites">
+          </mat-form-field>
 
-        <mat-form-field>
-          <mat-label>Max Retries</mat-label>
-          <input matInput type="number" formControlName="max_retries">
-        </mat-form-field>
+          <mat-form-field>
+            <mat-label>Loop Variable Name</mat-label>
+            <input matInput formControlName="loop_variable" placeholder="e.g. site">
+          </mat-form-field>
 
-        <mat-form-field>
-          <mat-label>Retry Delay (seconds)</mat-label>
-          <input matInput type="number" formControlName="retry_delay">
-        </mat-form-field>
+          <mat-form-field>
+            <mat-label>Max Iterations</mat-label>
+            <input matInput type="number" formControlName="max_iterations">
+          </mat-form-field>
 
-        <mat-checkbox formControlName="continue_on_error">Continue on error</mat-checkbox>
+          <div class="hint-text">
+            <code>loop_over</code> uses dot-path notation into the variable context.
+            Saved variables live under <code>results</code>. Example: <code>results.sites</code>
+          </div>
+
+          <div class="hint-text">
+            Nested actions for this loop are managed in the pipeline canvas.
+          </div>
+        }
+
+        <!-- Condition branches -->
+        @if (isConditionAction) {
+          <div class="section-divider">Condition Branches</div>
+
+          @for (branch of branchesArray.controls; track branch; let i = $index) {
+            <div class="branch-row" [formGroup]="$any(branch)">
+              <span class="branch-label">{{ i === 0 ? 'If' : 'Else if' }}</span>
+              <mat-form-field class="branch-condition">
+                <mat-label>Condition Expression</mat-label>
+                <textarea matInput formControlName="condition" rows="2" class="mono"
+                  placeholder="e.g. {{ '{{' }} event.severity == 'critical' {{ '}}' }}"></textarea>
+              </mat-form-field>
+              <button mat-icon-button color="warn" (click)="removeBranch(i)" type="button"
+                [disabled]="branchesArray.length <= 1">
+                <mat-icon>delete</mat-icon>
+              </button>
+            </div>
+          }
+
+          <button mat-stroked-button color="primary" (click)="addBranch()" type="button"
+            class="add-branch-btn">
+            <mat-icon>add</mat-icon> Add Else-If Branch
+          </button>
+
+          <div class="branch-else-note">
+            <mat-icon>info</mat-icon>
+            <span>If no branch matches, the <strong>Else</strong> actions will run (if defined).</span>
+          </div>
+        }
+
+        <!-- Save As (for output-producing actions) -->
+        @if (hasOutput) {
+          <div class="section-divider">Variable Storage</div>
+
+          @for (binding of saveAsArray.controls; track binding; let i = $index) {
+            <div class="save-as-row" [formGroup]="$any(binding)">
+              <mat-form-field class="save-as-name">
+                <mat-label>Variable name</mat-label>
+                <input matInput formControlName="name" placeholder="e.g. sites">
+              </mat-form-field>
+              <mat-form-field class="save-as-expression">
+                <mat-label>Expression (optional)</mat-label>
+                <input matInput formControlName="expression" class="mono"
+                  placeholder="e.g. {{ '{{' }} output.data {{ '}}' }}">
+              </mat-form-field>
+              <button mat-icon-button color="warn" (click)="removeSaveAsBinding(i)" type="button">
+                <mat-icon>delete</mat-icon>
+              </button>
+            </div>
+          }
+
+          <button mat-stroked-button color="primary" (click)="addSaveAsBinding()" type="button"
+            class="add-branch-btn">
+            <mat-icon>add</mat-icon> Add Variable
+          </button>
+
+          <div class="hint-text">
+            <code>output</code> refers to this action's response data. Example: <code>{{ '{{' }} output.name {{ '}}' }}</code>.
+            Leave expression empty to save the full output.
+          </div>
+        }
+
+        <!-- Error handling (not for set_variable, for_each, condition, delay) -->
+        @if (hasErrorHandling) {
+          <div class="section-divider">Error Handling</div>
+
+          <mat-form-field>
+            <mat-label>Max Retries</mat-label>
+            <input matInput type="number" formControlName="max_retries">
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Retry Delay (seconds)</mat-label>
+            <input matInput type="number" formControlName="retry_delay">
+          </mat-form-field>
+
+          <mat-checkbox formControlName="continue_on_error">Continue on error</mat-checkbox>
+        }
       }
     </form>
   }

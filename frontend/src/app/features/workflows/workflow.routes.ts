@@ -9,6 +9,13 @@ const routes: Routes = [
       ),
   },
   {
+    path: 'webhooks',
+    loadComponent: () =>
+      import('./webhooks/webhook-event-list.component').then(
+        (m) => m.WebhookEventListComponent
+      ),
+  },
+  {
     path: 'new',
     loadComponent: () =>
       import('./editor/workflow-editor.component').then(

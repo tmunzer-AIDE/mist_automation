@@ -14,7 +14,9 @@ from app.modules.backup.models import (
     BackupObject,
     BackupEventType,
     BackupStatus,
+    ObjectReference,
 )
+from app.modules.backup.reference_map import extract_references
 from app.modules.backup.object_registry import (
     ORG_OBJECTS,
     SITE_OBJECTS,
@@ -226,6 +228,9 @@ class BackupService:
         config_hash = self._calculate_hash(config)
         object_name = name_override or config.get("name") or config.get("ssid") or object_id[:8]
 
+        # Extract cross-object references
+        refs = [ObjectReference(**r) for r in extract_references(object_type, config)]
+
         # Check if object already exists (latest version)
         existing = await BackupObject.find(
             BackupObject.object_id == object_id,
@@ -263,6 +268,7 @@ class BackupService:
                 changed_fields=changed_fields,
                 backed_up_at=now,
                 last_modified_at=now,
+                references=refs,
             )
             await new_backup.insert()
 
@@ -300,6 +306,7 @@ class BackupService:
                 changed_fields=[],
                 backed_up_at=now,
                 last_modified_at=now,
+                references=refs,
             )
             await new_backup.insert()
 

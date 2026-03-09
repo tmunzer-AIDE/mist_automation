@@ -103,6 +103,35 @@ class BackupObjectVersionResponse(BaseModel):
     configuration: dict
 
 
+# ── Dependency schemas ────────────────────────────────────────────────────────
+
+
+class ParentReference(BaseModel):
+    """A parent object that this object depends on."""
+    target_type: str
+    target_id: str
+    target_name: str | None = None
+    field_path: str
+    exists_in_backup: bool
+
+
+class ChildReference(BaseModel):
+    """A child object that depends on this object."""
+    source_type: str
+    source_id: str
+    source_name: str | None = None
+    field_path: str
+
+
+class ObjectDependencyResponse(BaseModel):
+    """Full dependency information for a backup object."""
+    object_id: str
+    object_type: str
+    object_name: str | None
+    parents: list[ParentReference]
+    children: list[ChildReference]
+
+
 # ── Log schemas ──────────────────────────────────────────────────────────────
 
 class BackupLogEntryResponse(BaseModel):

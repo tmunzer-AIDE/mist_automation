@@ -11,6 +11,7 @@ from app.modules.automation.models.execution import ExecutionStatus, WorkflowExe
 from app.models.user import User
 from app.modules.automation.models.workflow import Workflow, WorkflowStatus, SharingPermission
 from app.modules.automation.schemas.workflow import WorkflowCreate, WorkflowListResponse, WorkflowResponse, WorkflowUpdate
+from app.modules.automation.api_catalog import API_CATALOG
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -26,8 +27,6 @@ def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
         sharing=wf.sharing.value,
         timeout_seconds=wf.timeout_seconds,
         trigger=wf.trigger.dict() if hasattr(wf.trigger, 'dict') else wf.trigger,
-        filters=[f.dict() if hasattr(f, 'dict') else f for f in wf.filters],
-        secondary_filters=[sf.dict() if hasattr(sf, 'dict') else sf for sf in wf.secondary_filters],
         actions=[a.dict() if hasattr(a, 'dict') else a for a in wf.actions],
         execution_count=wf.execution_count,
         success_count=wf.success_count,
@@ -35,6 +34,14 @@ def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
         created_at=wf.created_at,
         updated_at=wf.updated_at,
     )
+
+
+@router.get("/workflows/api-catalog", tags=["Workflows"])
+async def get_api_catalog(
+    _current_user: User = Depends(get_current_user_from_token)
+):
+    """Return the Mist API endpoint catalog for action autocomplete."""
+    return [entry.model_dump() for entry in API_CATALOG]
 
 
 @router.get("/workflows", response_model=WorkflowListResponse, tags=["Workflows"])
@@ -84,8 +91,6 @@ async def create_workflow(
         status=WorkflowStatus.DRAFT,
         timeout_seconds=workflow_data.timeout_seconds,
         trigger=workflow_data.trigger,
-        filters=workflow_data.filters,
-        secondary_filters=workflow_data.secondary_filters,
         actions=workflow_data.actions
     )
     await workflow.insert()
@@ -168,10 +173,6 @@ async def update_workflow(
         workflow.timeout_seconds = workflow_data.timeout_seconds
     if workflow_data.trigger is not None:
         workflow.trigger = workflow_data.trigger
-    if workflow_data.filters is not None:
-        workflow.filters = workflow_data.filters
-    if workflow_data.secondary_filters is not None:
-        workflow.secondary_filters = workflow_data.secondary_filters
     if workflow_data.actions is not None:
         workflow.actions = workflow_data.actions
     
@@ -308,9 +309,79 @@ async def list_workflow_executions(
                 "trigger_type": ex.trigger_type,
                 "started_at": ex.started_at,
                 "completed_at": ex.completed_at,
-                "duration_ms": ex.duration_ms
+                "duration_ms": ex.duration_ms,
+                "actions_executed": ex.actions_executed,
+                "actions_succeeded": ex.actions_succeeded,
+                "actions_failed": ex.actions_failed,
             }
             for ex in executions
         ],
         "total": total
+    }
+
+
+@router.get("/workflows/{workflow_id}/executions/{execution_id}", tags=["Workflows"])
+async def get_workflow_execution(
+    workflow_id: str,
+    execution_id: str,
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """
+    Get full execution details including action results, logs, and variables.
+    """
+    try:
+        wf_oid = PydanticObjectId(workflow_id)
+        ex_oid = PydanticObjectId(execution_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid ID format",
+        ) from exc
+
+    execution = await WorkflowExecution.get(ex_oid)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Execution not found",
+        )
+
+    if execution.workflow_id != wf_oid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Execution does not belong to this workflow",
+        )
+
+    return {
+        "id": str(execution.id),
+        "workflow_id": str(execution.workflow_id),
+        "workflow_name": execution.workflow_name,
+        "status": execution.status.value,
+        "trigger_type": execution.trigger_type,
+        "trigger_data": execution.trigger_data,
+        "triggered_by": str(execution.triggered_by) if execution.triggered_by else None,
+        "started_at": execution.started_at,
+        "completed_at": execution.completed_at,
+        "duration_ms": execution.duration_ms,
+        "trigger_condition_passed": execution.trigger_condition_passed,
+        "trigger_condition": execution.trigger_condition,
+        "actions_executed": execution.actions_executed,
+        "actions_succeeded": execution.actions_succeeded,
+        "actions_failed": execution.actions_failed,
+        "action_results": [
+            {
+                "action_name": r.action_name,
+                "status": r.status,
+                "started_at": r.started_at,
+                "completed_at": r.completed_at,
+                "duration_ms": r.duration_ms,
+                "error": r.error,
+                "output": r.output,
+                "retry_count": r.retry_count,
+            }
+            for r in execution.action_results
+        ],
+        "error": execution.error,
+        "error_details": execution.error_details,
+        "variables": execution.variables,
+        "logs": execution.logs,
     }

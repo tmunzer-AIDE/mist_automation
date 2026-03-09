@@ -35,9 +35,13 @@
       <app-pipeline-canvas
         [blocks]="blocks"
         [selectedIndex]="selectedBlockIndex"
+        [selectedBranch]="selectedBranch"
         (blockSelected)="selectBlock($event)"
         (blockRemoved)="removeBlock($event)"
-        (addRequested)="addBlock($event)">
+        (addRequested)="addBlock($event)"
+        (branchBlockSelected)="selectBranchBlock($event)"
+        (branchBlockRemoved)="removeBranchBlock($event)"
+        (branchAddRequested)="addBranchBlock($event)">
       </app-pipeline-canvas>
     </div>
 
@@ -94,7 +98,8 @@
         </ng-container>
 
         <tr mat-header-row *matHeaderRowDef="executionColumns"></tr>
-        <tr mat-row *matRowDef="let ex; columns: executionColumns;"></tr>
+        <tr mat-row *matRowDef="let ex; columns: executionColumns;"
+            class="clickable-row" (click)="viewExecution(ex)"></tr>
       </table>
     </mat-expansion-panel>
   }

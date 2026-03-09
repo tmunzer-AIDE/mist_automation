@@ -1,0 +1,114 @@
+<app-page-header title="Webhook Monitor" subtitle="Incoming Mist webhook events">
+  <button mat-stroked-button routerLink="/workflows">
+    <mat-icon>arrow_back</mat-icon> Workflows
+  </button>
+</app-page-header>
+
+<!-- Filters -->
+<div class="filter-row">
+  <mat-form-field>
+    <mat-label>Webhook Type</mat-label>
+    <mat-select [(ngModel)]="webhookTypeFilter" (selectionChange)="onFilterChange()">
+      <mat-option [value]="undefined">All</mat-option>
+      <mat-option value="audits">audits</mat-option>
+      <mat-option value="alarms">alarms</mat-option>
+      <mat-option value="device-events">device-events</mat-option>
+      <mat-option value="device-updowns">device-updowns</mat-option>
+      <mat-option value="mxtunnels">mxtunnels</mat-option>
+      <mat-option value="nac-events">nac-events</mat-option>
+    </mat-select>
+  </mat-form-field>
+  <mat-form-field>
+    <mat-label>Processed</mat-label>
+    <mat-select [(ngModel)]="processedFilter" (selectionChange)="onFilterChange()">
+      <mat-option [value]="undefined">All</mat-option>
+      <mat-option [value]="true">Processed</mat-option>
+      <mat-option [value]="false">Pending</mat-option>
+    </mat-select>
+  </mat-form-field>
+</div>
+
+@if (loading) {
+  <div class="loading-bar">
+    <mat-icon>hourglass_empty</mat-icon>
+    Loading webhook events…
+  </div>
+} @else if (events.length === 0) {
+  <app-empty-state
+    icon="webhook"
+    title="No webhook events"
+    message="Webhook events will appear here once Mist sends them.">
+  </app-empty-state>
+} @else {
+  <div class="table-card">
+    <table mat-table [dataSource]="events">
+      <!-- Received At -->
+      <ng-container matColumnDef="received_at">
+        <th mat-header-cell *matHeaderCellDef>Received</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.received_at | relativeTime }}</td>
+      </ng-container>
+
+      <!-- Webhook Type -->
+      <ng-container matColumnDef="webhook_type">
+        <th mat-header-cell *matHeaderCellDef>Type / Topic</th>
+        <td mat-cell *matCellDef="let ev">
+          <span class="wh-type">{{ ev.webhook_type }}</span>
+          @if (ev.webhook_topic && ev.webhook_topic !== ev.webhook_type) {
+            <span class="wh-topic">{{ ev.webhook_topic }}</span>
+          }
+        </td>
+      </ng-container>
+
+      <!-- Routed To -->
+      <ng-container matColumnDef="routed_to">
+        <th mat-header-cell *matHeaderCellDef>Routed To</th>
+        <td mat-cell *matCellDef="let ev">
+          <div class="chip-list">
+            @for (target of ev.routed_to; track target) {
+              <span class="route-chip" [class]="'chip-' + target">{{ target }}</span>
+            }
+          </div>
+        </td>
+      </ng-container>
+
+      <!-- Response Status -->
+      <ng-container matColumnDef="response_status">
+        <th mat-header-cell *matHeaderCellDef>Response</th>
+        <td mat-cell *matCellDef="let ev">
+          <span class="http-status" [class]="getStatusClass(ev.response_status)">
+            {{ ev.response_status }}
+          </span>
+        </td>
+      </ng-container>
+
+      <!-- Processed -->
+      <ng-container matColumnDef="processed">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let ev">
+          <app-status-badge [status]="ev.processed ? 'completed' : 'pending'"></app-status-badge>
+        </td>
+      </ng-container>
+
+      <!-- Matched Workflows -->
+      <ng-container matColumnDef="matched_workflows">
+        <th mat-header-cell *matHeaderCellDef>Matched</th>
+        <td mat-cell *matCellDef="let ev">
+          {{ ev.matched_workflows.length }} workflow(s)
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let ev; columns: displayedColumns;"
+          class="clickable-row" (click)="openEventDetail(ev)"></tr>
+    </table>
+
+    <mat-paginator
+      [length]="total"
+      [pageSize]="pageSize"
+      [pageIndex]="pageIndex"
+      [pageSizeOptions]="[25, 50, 100]"
+      (page)="onPage($event)"
+      showFirstLastButtons>
+    </mat-paginator>
+  </div>
+}

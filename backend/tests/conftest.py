@@ -98,7 +98,6 @@ async def test_workflow(test_db, test_user):
         name="Test Workflow", created_by=test_user.id,
         status=WorkflowStatus.DRAFT,
         trigger=WorkflowTrigger(type=TriggerType.WEBHOOK, webhook_type="device-updowns"),
-        filters=[], secondary_filters=[],
         actions=[WorkflowAction(name="notify", type=ActionType.WEBHOOK,
                                 webhook_url="http://example.com")],
     )

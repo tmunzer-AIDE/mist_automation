@@ -5,6 +5,8 @@
   padding: 24px;
 }
 
+// ── Regular block cards ────────────────────────────────────
+
 .block-card {
   display: flex;
   align-items: center;
@@ -106,6 +108,8 @@
   }
 }
 
+// ── Connectors ─────────────────────────────────────────────
+
 .connector {
   display: flex;
   flex-direction: column;
@@ -131,6 +135,7 @@
   justify-content: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
+  padding: 0;
 
   mat-icon {
     font-size: 18px;
@@ -147,4 +152,249 @@
       color: var(--mat-sys-primary);
     }
   }
+}
+
+// ── Condition branching ────────────────────────────────────
+
+.condition-card {
+  width: auto;
+  min-width: 300px;
+}
+
+.branch-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.branch-connector-top,
+.branch-connector-bottom {
+  width: 2px;
+  height: 20px;
+  background: var(--mat-sys-outline-variant);
+}
+
+.branch-lanes {
+  display: flex;
+  gap: 16px;
+  padding: 0 8px;
+  position: relative;
+
+  // Horizontal rail connecting lane tops
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--mat-sys-outline-variant);
+  }
+
+  // Horizontal rail connecting lane bottoms
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--mat-sys-outline-variant);
+  }
+}
+
+.branch-lane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 180px;
+  max-width: 240px;
+  padding: 12px 0;
+  position: relative;
+
+  // Vertical line from top rail into lane
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 12px;
+    background: var(--mat-sys-outline-variant);
+    transform: translateX(-50%);
+  }
+
+  // Vertical line from lane into bottom rail
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    height: 12px;
+    background: var(--mat-sys-outline-variant);
+    transform: translateX(-50%);
+  }
+}
+
+.branch-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  max-width: 100%;
+}
+
+.branch-tag {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #fff;
+  background: #0097a7;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.else-tag {
+  background: var(--mat-sys-outline);
+}
+
+.branch-expr {
+  font-size: 12px;
+  font-family: var(--app-font-mono, monospace);
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.branch-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+}
+
+.branch-action-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--app-radius-sm);
+  background: var(--mat-sys-surface);
+  box-shadow: var(--app-shadow-sm);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+
+  &:hover {
+    box-shadow: var(--app-shadow-md);
+
+    .remove-btn {
+      opacity: 1;
+    }
+  }
+
+  &.selected {
+    border-color: var(--mat-sys-primary);
+  }
+}
+
+.branch-action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  mat-icon {
+    color: #fff;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.branch-action-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.mini-connector {
+  display: flex;
+  justify-content: center;
+  height: 20px;
+}
+
+.mini-connector-line {
+  width: 2px;
+  height: 100%;
+  background: var(--mat-sys-outline-variant);
+}
+
+.branch-add-btn {
+  margin-top: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px dashed var(--mat-sys-outline-variant);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  &:hover {
+    border-color: var(--mat-sys-primary);
+    border-style: solid;
+    background: var(--mat-sys-primary-container);
+
+    mat-icon {
+      color: var(--mat-sys-primary);
+    }
+  }
+}
+
+// ── For-Each loop styling ─────────────────────────────────
+
+.loop-card {
+  width: auto;
+  min-width: 300px;
+}
+
+.loop-container {
+  .branch-lanes {
+    justify-content: center;
+  }
+}
+
+.loop-lane {
+  min-width: 240px;
+  max-width: 300px;
+}
+
+.loop-tag {
+  background: #4527a0;
 }

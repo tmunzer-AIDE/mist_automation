@@ -21,36 +21,11 @@
 }
 
 @if (!loading && latestVersion) {
-  <!-- ── Object Timeline ──────────────────────────────────────────────── -->
-  <section class="object-timeline-section">
-    <h2 class="section-title">Object Timeline</h2>
-    <div class="timeline-scroll">
-      <div class="timeline">
-        @for (v of versions; track v.id) {
-          <div
-            class="timeline-entry"
-            [matTooltip]="versionTooltip(v)"
-            matTooltipClass="timeline-tooltip"
-            [class.selected]="selectedVersionId === v.id"
-            [class.compare-selected]="compareMode && isCompareSelected(v)"
-            (click)="compareMode ? toggleCompareVersion(v) : selectVersion(v)"
-          >
-            @if (compareMode && compareLabel(v)) {
-              <span class="compare-badge">{{ compareLabel(v) }}</span>
-            }
-            <div class="timeline-dot" [ngClass]="dotClass(v.event_type)"></div>
-            <span class="timeline-version-label">v{{ v.version }}</span>
-          </div>
-        }
-      </div>
-    </div>
-  </section>
-
   <!-- ── Compare Mode ───────────────────────────────────────────────── -->
   @if (compareMode) {
     <section class="compare-section">
       @if (!compareVersions[0]) {
-        <p class="compare-hint">Select two versions from the timeline to compare.</p>
+        <p class="compare-hint">Click two rows in the Version History table to compare.</p>
       } @else if (!compareVersions[1]) {
         <p class="compare-hint">
           Selected v{{ compareVersions[0]!.version }} (A). Now select a second version (B).
@@ -147,6 +122,65 @@
     </mat-card-content>
   </mat-card>
 
+  <!-- ── References ─────────────────────────────────────────────────── -->
+  @if (dependencies && (dependencies.parents.length > 0 || dependencies.children.length > 0)) {
+    <mat-accordion class="ref-accordion" multi>
+      @if (dependencies.parents.length > 0) {
+        <mat-expansion-panel>
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              <mat-icon class="ref-icon">arrow_upward</mat-icon>
+              References
+              <span class="ref-count">{{ dependencies.parents.length }}</span>
+            </mat-panel-title>
+            <mat-panel-description>Objects this {{ latestVersion!.object_type }} depends on</mat-panel-description>
+          </mat-expansion-panel-header>
+          <div class="ref-list">
+            @for (p of dependencies.parents; track p.target_id + p.field_path) {
+              <div class="ref-row">
+                <span class="ref-type-badge">{{ p.target_type }}</span>
+                @if (p.exists_in_backup) {
+                  <a class="ref-name ref-link" [routerLink]="'/backup/object/' + p.target_id">
+                    {{ p.target_name || p.target_id.slice(0, 8) }}
+                  </a>
+                } @else {
+                  <span class="ref-name ref-missing">{{ p.target_name || p.target_id.slice(0, 8) }}</span>
+                }
+                <code class="ref-field">{{ p.field_path }}</code>
+                <app-status-badge
+                  [status]="p.exists_in_backup ? 'active' : 'missing'"
+                ></app-status-badge>
+              </div>
+            }
+          </div>
+        </mat-expansion-panel>
+      }
+      @if (dependencies.children.length > 0) {
+        <mat-expansion-panel>
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              <mat-icon class="ref-icon">arrow_downward</mat-icon>
+              Referenced by
+              <span class="ref-count">{{ dependencies.children.length }}</span>
+            </mat-panel-title>
+            <mat-panel-description>Objects that depend on this {{ latestVersion!.object_type }}</mat-panel-description>
+          </mat-expansion-panel-header>
+          <div class="ref-list">
+            @for (c of dependencies.children; track c.source_id + c.field_path) {
+              <div class="ref-row">
+                <span class="ref-type-badge">{{ c.source_type }}</span>
+                <a class="ref-name ref-link" [routerLink]="'/backup/object/' + c.source_id">
+                  {{ c.source_name || c.source_id.slice(0, 8) }}
+                </a>
+                <code class="ref-field">{{ c.field_path }}</code>
+              </div>
+            }
+          </div>
+        </mat-expansion-panel>
+      }
+    </mat-accordion>
+  }
+
   <!-- ── Version History Table ────────────────────────────────────────── -->
   <section class="version-history-section">
     <h2 class="section-title">Version History</h2>
@@ -204,25 +238,14 @@
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef></th>
           <td mat-cell *matCellDef="let v">
-            <button mat-icon-button [matMenuTriggerFor]="versionMenu" (click)="$event.stopPropagation()">
-              <mat-icon>more_vert</mat-icon>
-            </button>
-            <mat-menu #versionMenu="matMenu">
-              <button mat-menu-item (click)="viewJson(v)">
+            <div class="inline-actions">
+              <button mat-icon-button matTooltip="View JSON" (click)="$event.stopPropagation(); viewJson(v)">
                 <mat-icon>code</mat-icon>
-                <span>View JSON</span>
               </button>
-              @if (compareMode) {
-                <button mat-menu-item (click)="toggleCompareVersion(v)">
-                  <mat-icon>{{ isCompareSelected(v) ? 'remove_circle' : 'add_circle' }}</mat-icon>
-                  <span>{{ isCompareSelected(v) ? 'Deselect for Compare' : 'Select for Compare' }}</span>
-                </button>
-              }
-              <button mat-menu-item (click)="restoreVersion(v)">
+              <button mat-icon-button matTooltip="Restore this version" (click)="$event.stopPropagation(); restoreVersion(v)">
                 <mat-icon>restore</mat-icon>
-                <span>Restore This Version</span>
               </button>
-            </mat-menu>
+            </div>
           </td>
         </ng-container>
 
@@ -230,7 +253,9 @@
         <tr
           mat-row
           *matRowDef="let row; columns: versionColumns"
-          [class.selected-row]="selectedVersionId === row.id"
+          [class.compare-row-selected]="compareMode && isCompareSelected(row)"
+          [class.compare-row-selectable]="compareMode"
+          (click)="onRowClick(row)"
         ></tr>
       </table>
     </div>
