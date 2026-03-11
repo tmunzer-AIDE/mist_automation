@@ -1,17 +1,7 @@
-import {
-  Component,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChanges,
-  inject,
-} from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
-import { MatTreeModule, MatTreeNestedDataSource } from '@angular/material/tree';
-import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -25,6 +15,12 @@ interface VarNode {
   children?: VarNode[];
 }
 
+interface FilterDef {
+  name: string;
+  syntax: string;
+  description: string;
+}
+
 @Component({
   selector: 'app-variable-picker',
   standalone: true,
@@ -32,7 +28,6 @@ interface VarNode {
     CommonModule,
     MatIconModule,
     MatButtonModule,
-    MatTreeModule,
     MatTooltipModule,
     MatInputModule,
     MatFormFieldModule,
@@ -40,7 +35,7 @@ interface VarNode {
   ],
   template: `
     <div class="variable-picker">
-      <div class="picker-header">
+      <div class="picker-header" (click)="$event.stopPropagation()">
         <span class="picker-title">Insert Variable</span>
         <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
           <mat-icon matPrefix>search</mat-icon>
@@ -58,7 +53,7 @@ interface VarNode {
 
         @for (section of filteredSections; track section.name) {
           <div class="section">
-            <div class="section-header" (click)="toggleSection(section.name)">
+            <div class="section-header" (click)="$event.stopPropagation(); toggleSection(section.name)">
               <mat-icon>{{ expandedSections.has(section.name) ? 'expand_more' : 'chevron_right' }}</mat-icon>
               <span>{{ section.name }}</span>
             </div>
@@ -75,7 +70,27 @@ interface VarNode {
                   </mat-icon>
                   <span class="var-name">{{ node.name }}</span>
                   <code class="var-path">{{ '{{' }} {{ node.path }} {{ '}}' }}</code>
+                  @if (!node.children?.length) {
+                    <button
+                      class="pipe-btn"
+                      (click)="$event.stopPropagation(); toggleFilterMenu(node)"
+                      matTooltip="Apply filter"
+                    >|</button>
+                  }
                 </div>
+                @if (filterMenuNode?.path === node.path) {
+                  <div class="filter-menu" (click)="$event.stopPropagation()">
+                    @for (f of availableFilters; track f.name) {
+                      <div
+                        class="filter-item"
+                        (click)="selectWithFilter(node, f.syntax)"
+                        [matTooltip]="f.description"
+                      >
+                        <code>| {{ f.name }}</code>
+                      </div>
+                    }
+                  </div>
+                }
                 @if (node.children?.length) {
                   @for (child of node.children; track child.path) {
                     <div
@@ -86,7 +101,25 @@ interface VarNode {
                       <mat-icon class="var-icon">data_object</mat-icon>
                       <span class="var-name">{{ child.name }}</span>
                       <code class="var-path">{{ '{{' }} {{ child.path }} {{ '}}' }}</code>
+                      <button
+                        class="pipe-btn"
+                        (click)="$event.stopPropagation(); toggleFilterMenu(child)"
+                        matTooltip="Apply filter"
+                      >|</button>
                     </div>
+                    @if (filterMenuNode?.path === child.path) {
+                      <div class="filter-menu" (click)="$event.stopPropagation()">
+                        @for (f of availableFilters; track f.name) {
+                          <div
+                            class="filter-item"
+                            (click)="selectWithFilter(child, f.syntax)"
+                            [matTooltip]="f.description"
+                          >
+                            <code>| {{ f.name }}</code>
+                          </div>
+                        }
+                      </div>
+                    }
                   }
                 }
               }
@@ -97,7 +130,7 @@ interface VarNode {
         <!-- Utilities section -->
         @if (utilities.length > 0) {
           <div class="section">
-            <div class="section-header" (click)="toggleSection('Utilities')">
+            <div class="section-header" (click)="$event.stopPropagation(); toggleSection('Utilities')">
               <mat-icon>{{ expandedSections.has('Utilities') ? 'expand_more' : 'chevron_right' }}</mat-icon>
               <span>Utilities</span>
             </div>
@@ -107,7 +140,25 @@ interface VarNode {
                   <mat-icon class="var-icon">schedule</mat-icon>
                   <span class="var-name">{{ u.name }}</span>
                   <code class="var-path">{{ '{{' }} {{ u.path }} {{ '}}' }}</code>
+                  <button
+                    class="pipe-btn"
+                    (click)="$event.stopPropagation(); toggleFilterMenu(u)"
+                    matTooltip="Apply filter"
+                  >|</button>
                 </div>
+                @if (filterMenuNode?.path === u.path) {
+                  <div class="filter-menu" (click)="$event.stopPropagation()">
+                    @for (f of availableFilters; track f.name) {
+                      <div
+                        class="filter-item"
+                        (click)="selectWithFilter(u, f.syntax)"
+                        [matTooltip]="f.description"
+                      >
+                        <code>| {{ f.name }}</code>
+                      </div>
+                    }
+                  </div>
+                }
               }
             }
           </div>
@@ -196,6 +247,10 @@ interface VarNode {
 
         &:hover {
           background: var(--mat-sys-primary-container, #e3f2fd);
+
+          .pipe-btn {
+            opacity: 1;
+          }
         }
 
         &.nested {
@@ -225,6 +280,54 @@ interface VarNode {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+
+      .pipe-btn {
+        opacity: 0;
+        border: none;
+        background: var(--mat-sys-surface-variant, #e8e8e8);
+        color: var(--mat-sys-on-surface-variant, #666);
+        font-family: var(--app-font-mono, monospace);
+        font-size: 12px;
+        font-weight: 700;
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: opacity 0.15s, background 0.15s;
+
+        &:hover {
+          background: var(--mat-sys-primary);
+          color: var(--mat-sys-on-primary);
+        }
+      }
+
+      .filter-menu {
+        background: var(--mat-sys-surface-container, #f3f3f3);
+        border-left: 2px solid var(--mat-sys-primary);
+        margin: 0 8px 4px 36px;
+        border-radius: 0 4px 4px 0;
+        padding: 4px 0;
+      }
+
+      .filter-item {
+        padding: 4px 12px;
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--mat-sys-on-surface);
+
+        &:hover {
+          background: var(--mat-sys-primary-container, #e3f2fd);
+        }
+
+        code {
+          font-family: var(--app-font-mono, monospace);
+          color: var(--mat-sys-primary);
+        }
+      }
     `,
   ],
 })
@@ -238,6 +341,26 @@ export class VariablePickerComponent implements OnChanges {
   filteredSections: { name: string; children: VarNode[] }[] = [];
   expandedSections = new Set<string>();
   filter = '';
+  filterMenuNode: VarNode | null = null;
+
+  readonly availableFilters: FilterDef[] = [
+    { name: 'datetimeformat', syntax: "datetimeformat('%Y-%m-%d %H:%M')", description: 'Format timestamp to date/time (Unix epoch or ISO string)' },
+    { name: 'upper', syntax: 'upper', description: 'Convert to UPPERCASE' },
+    { name: 'lower', syntax: 'lower', description: 'Convert to lowercase' },
+    { name: 'title', syntax: 'title', description: 'Convert to Title Case' },
+    { name: 'trim', syntax: 'trim', description: 'Strip leading/trailing whitespace' },
+    { name: 'int', syntax: 'int', description: 'Convert to integer' },
+    { name: 'float', syntax: 'float', description: 'Convert to decimal number' },
+    { name: 'round', syntax: 'round', description: 'Round to nearest integer' },
+    { name: 'length', syntax: 'length', description: 'Get length or item count' },
+    { name: 'first', syntax: 'first', description: 'Get first item of a list' },
+    { name: 'last', syntax: 'last', description: 'Get last item of a list' },
+    { name: 'join', syntax: "join(', ')", description: 'Join list items with separator' },
+    { name: 'default', syntax: "default('')", description: 'Provide fallback value if empty' },
+    { name: 'tojson', syntax: 'tojson', description: 'Convert to JSON string' },
+    { name: 'replace', syntax: "replace('old', 'new')", description: 'Replace text occurrences' },
+    { name: 'truncate', syntax: 'truncate(50)', description: 'Truncate to N characters' },
+  ];
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['variableTree']) {
@@ -317,7 +440,17 @@ export class VariablePickerComponent implements OnChanges {
   }
 
   selectVariable(node: VarNode): void {
+    this.filterMenuNode = null;
     this.variableSelected.emit(`{{ ${node.path} }}`);
+  }
+
+  toggleFilterMenu(node: VarNode): void {
+    this.filterMenuNode = this.filterMenuNode?.path === node.path ? null : node;
+  }
+
+  selectWithFilter(node: VarNode, filterSyntax: string): void {
+    this.filterMenuNode = null;
+    this.variableSelected.emit(`{{ ${node.path} | ${filterSyntax} }}`);
   }
 
   applyFilter(): void {

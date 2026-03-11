@@ -12,7 +12,6 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { AuditLogEntry, AuditLogListResponse } from '../../../core/models/admin.model';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 
 const EVENT_TYPES = [
@@ -43,7 +42,6 @@ const EVENT_TYPES = [
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
-    PageHeaderComponent,
     DateTimePipe,
   ],
   templateUrl: './audit-logs.component.html',

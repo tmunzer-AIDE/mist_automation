@@ -13,7 +13,6 @@ import {
   BackupLogEntry,
   BackupLogListResponse,
 } from '../../../core/models/backup.model';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { FileSizePipe } from '../../../shared/pipes/file-size.pipe';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
@@ -30,7 +29,6 @@ import { RestoreDialogComponent } from './restore-dialog.component';
     MatDialogModule,
     MatSnackBarModule,
     MatProgressBarModule,
-    PageHeaderComponent,
     StatusBadgeComponent,
     FileSizePipe,
     DateTimePipe,

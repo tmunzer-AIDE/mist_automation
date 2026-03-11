@@ -10,6 +10,12 @@ export const CHART_COLORS = {
   grid: '#e2e8f0',
 } as const;
 
+/** Read the current --app-chart-grid CSS custom property at runtime */
+export function getChartGridColor(): string {
+  if (typeof document === 'undefined') return CHART_COLORS.grid;
+  return getComputedStyle(document.documentElement).getPropertyValue('--app-chart-grid').trim() || CHART_COLORS.grid;
+}
+
 /** Common chart options shared across backup list charts */
 export function baseChartOptions(
   yLeftTitle: string,
@@ -28,7 +34,7 @@ export function baseChartOptions(
         position: 'left',
         stacked: true,
         beginAtZero: true,
-        grid: { color: CHART_COLORS.grid },
+        grid: { color: getChartGridColor() },
         ticks: { precision: 0, font: { size: 10 } },
         title: { display: true, text: yLeftTitle, font: { size: 11 } },
       },

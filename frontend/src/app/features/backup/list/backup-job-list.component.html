@@ -1,11 +1,11 @@
-<app-page-header subtitle="Job execution history">
+<div class="page-actions">
   <button mat-stroked-button (click)="navigateToBackups()">
     <mat-icon>arrow_back</mat-icon> Back to Backups
   </button>
   <button mat-flat-button class="btn-accent" (click)="openCreateDialog()">
     <mat-icon>add</mat-icon> New Backup
   </button>
-</app-page-header>
+</div>
 
 <!-- Chart -->
 @if (chartConfig()) {

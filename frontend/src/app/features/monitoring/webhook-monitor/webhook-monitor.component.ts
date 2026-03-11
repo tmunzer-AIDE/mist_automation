@@ -26,7 +26,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
-// PageHeaderComponent removed — no subtitle or divider needed on this page
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { WebhookEventDetailDialogComponent } from '../../../shared/components/webhook-event-detail-dialog/webhook-event-detail-dialog.component';
@@ -35,7 +34,7 @@ import { WebhookEventService } from '../../../core/services/webhook-event.servic
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { MonitorEvent } from '../../../core/models/webhook-event.model';
-import { barDataset, CHART_COLORS } from '../../../shared/utils/chart-defaults';
+import { barDataset, getChartGridColor } from '../../../shared/utils/chart-defaults';
 
 const MAX_EVENTS = 500;
 
@@ -374,7 +373,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
               y: {
                 stacked: true,
                 beginAtZero: true,
-                grid: { color: CHART_COLORS.grid },
+                grid: { color: getChartGridColor() },
                 ticks: { precision: 0, font: { size: 10 } },
               },
             },

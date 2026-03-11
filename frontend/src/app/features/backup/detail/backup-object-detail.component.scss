@@ -64,13 +64,13 @@
   overflow: hidden;
 
   &.diff-added {
-    border-color: #10b981;
+    border-color: var(--app-success-border);
   }
   &.diff-removed {
-    border-color: #f43f5e;
+    border-color: var(--app-error-border);
   }
   &.diff-modified {
-    border-color: #3b82f6;
+    border-color: var(--app-info-border);
   }
 }
 
@@ -97,16 +97,16 @@
   letter-spacing: 0.3px;
 
   .diff-added & {
-    background: #ecfdf5;
-    color: #10b981;
+    background: var(--app-success-badge-bg);
+    color: var(--app-success-badge);
   }
   .diff-removed & {
-    background: #fff1f2;
-    color: #f43f5e;
+    background: var(--app-error-badge-bg);
+    color: var(--app-error-badge);
   }
   .diff-modified & {
-    background: #eff6ff;
-    color: #3b82f6;
+    background: var(--app-info-badge-bg);
+    color: var(--app-info-badge);
   }
 }
 
@@ -131,12 +131,12 @@
 }
 
 .diff-old {
-  background: rgba(220, 38, 38, 0.03);
+  background: var(--app-diff-old-bg);
   border-right: 1px solid var(--mat-sys-outline-variant);
 }
 
 .diff-new {
-  background: rgba(5, 150, 105, 0.03);
+  background: var(--app-diff-new-bg);
 }
 
 // ── Object Information Card ─────────────────────────────────────────────────
@@ -318,25 +318,25 @@ td.mat-mdc-cell {
   border-radius: 10px;
 
   &.event-created {
-    background: #ecfdf5;
-    color: #10b981;
+    background: var(--app-success-badge-bg);
+    color: var(--app-success-badge);
   }
   &.event-updated {
-    background: #eff6ff;
-    color: #3b82f6;
+    background: var(--app-info-badge-bg);
+    color: var(--app-info-badge);
   }
   &.event-deleted {
-    background: #fff1f2;
-    color: #f43f5e;
+    background: var(--app-error-badge-bg);
+    color: var(--app-error-badge);
   }
   &.event-restored {
-    background: #faf5ff;
-    color: #a855f7;
+    background: var(--app-purple-badge-bg);
+    color: var(--app-purple-badge);
   }
   &.event-full_backup,
   &.event-incremental {
-    background: #eef2ff;
-    color: #6366f1;
+    background: var(--app-indigo-bg);
+    color: var(--app-indigo);
   }
 }
 

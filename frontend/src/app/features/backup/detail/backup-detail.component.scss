@@ -140,7 +140,7 @@
 .log-warn-count {
   font-size: 11px;
   font-weight: 600;
-  color: #f59e0b;
+  color: var(--app-warning);
 }
 
 .log-error-count {
@@ -178,8 +178,8 @@
   }
 
   &.pill-warn.active {
-    background: #f59e0b;
-    border-color: #f59e0b;
+    background: var(--app-warning-pill-bg);
+    border-color: var(--app-warning-pill-bg);
     color: #fff;
   }
 
@@ -221,10 +221,10 @@
   }
 
   &.log-w {
-    background: rgba(245, 158, 11, 0.05);
+    background: var(--app-warning-log-bg);
   }
   &.log-e {
-    background: rgba(239, 68, 68, 0.05);
+    background: var(--app-error-log-bg);
   }
 }
 
@@ -250,12 +250,12 @@
     color: var(--mat-sys-primary);
   }
   &.lvl-warning {
-    background: #fef3c7;
-    color: #b45309;
+    background: var(--app-warning-bg);
+    color: var(--app-warning-lvl);
   }
   &.lvl-error {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--app-error-lvl-bg);
+    color: var(--app-error-lvl);
   }
 }
 

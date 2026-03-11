@@ -11,7 +11,6 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
@@ -37,14 +36,11 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
     MatDialogModule,
     MatTooltipModule,
     MatProgressBarModule,
-    PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
     DateTimePipe,
   ],
   template: `
-    <app-page-header subtitle="Execution history across all workflows"></app-page-header>
-
     <div class="filters-bar">
       <mat-form-field appearance="outline" class="filter-field">
         <mat-label>Status</mat-label>

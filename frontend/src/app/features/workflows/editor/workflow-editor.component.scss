@@ -98,18 +98,18 @@
   margin: 0 4px;
 
   &.status-enabled {
-    background: #e8f5e9;
-    color: #2e7d32;
+    background: var(--app-success-bg);
+    color: var(--app-success-text);
   }
 
   &.status-disabled {
-    background: #fafafa;
-    color: #757575;
+    background: var(--app-neutral-bg);
+    color: var(--app-neutral);
   }
 
   &.status-draft {
-    background: #fff3e0;
-    color: #e65100;
+    background: var(--app-modified-chip-bg);
+    color: var(--app-modified);
   }
 }
 

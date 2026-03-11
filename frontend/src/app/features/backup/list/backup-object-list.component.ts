@@ -26,7 +26,6 @@ import {
   MistObjectTypeOption,
   MistSiteOption,
 } from '../../../core/models/backup.model';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
@@ -58,7 +57,6 @@ import {
     MatInputModule,
     MatSelectModule,
     BaseChartDirective,
-    PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
     BackupChartCardComponent,

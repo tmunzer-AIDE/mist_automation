@@ -9,7 +9,7 @@ export interface CanvasViewport {
 }
 
 export interface DragState {
-  type: 'none' | 'pan' | 'node' | 'edge';
+  type: 'none' | 'pan' | 'node' | 'edge' | 'select';
   nodeId?: string;
   startX: number;
   startY: number;

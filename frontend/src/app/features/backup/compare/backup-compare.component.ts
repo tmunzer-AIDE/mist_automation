@@ -13,7 +13,6 @@ import { MatChipsModule } from '@angular/material/chips';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { BackupDiffResponse } from '../../../core/models/backup.model';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 
 @Component({
@@ -30,7 +29,6 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
     MatTableModule,
     MatProgressBarModule,
     MatChipsModule,
-    PageHeaderComponent,
     EmptyStateComponent,
   ],
   templateUrl: './backup-compare.component.html',

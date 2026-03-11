@@ -5,10 +5,12 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Store } from '@ngrx/store';
 import { AuthService } from '../../../core/services/auth.service';
 import { AuthActions } from '../../../core/state/auth/auth.actions';
+import { ThemeService, ThemePreference } from '../../../core/services/theme.service';
 
 @Component({
   selector: 'app-general-profile',
@@ -20,6 +22,7 @@ import { AuthActions } from '../../../core/state/auth/auth.actions';
     MatFormFieldModule,
     MatSelectModule,
     MatButtonModule,
+    MatIconModule,
     MatSnackBarModule,
   ],
   template: `
@@ -44,6 +47,28 @@ import { AuthActions } from '../../../core/state/auth/auth.actions';
         </form>
       </mat-card-content>
     </mat-card>
+
+    <mat-card class="appearance-card">
+      <mat-card-header>
+        <mat-card-title>Appearance</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="appearance-form">
+          <mat-form-field appearance="outline">
+            <mat-label>Theme</mat-label>
+            <mat-icon matPrefix>palette</mat-icon>
+            <mat-select
+              [value]="themeService.preference()"
+              (selectionChange)="themeService.setPreference($event.value)"
+            >
+              <mat-option value="auto">Auto (System)</mat-option>
+              <mat-option value="light">Light</mat-option>
+              <mat-option value="dark">Dark</mat-option>
+            </mat-select>
+          </mat-form-field>
+        </div>
+      </mat-card-content>
+    </mat-card>
   `,
   styles: [
     `
@@ -54,6 +79,12 @@ import { AuthActions } from '../../../core/state/auth/auth.actions';
         display: flex;
         flex-direction: column;
         gap: 4px;
+        padding-top: 16px;
+      }
+      .appearance-card {
+        margin-top: 24px;
+      }
+      .appearance-form {
         padding-top: 16px;
       }
       mat-form-field {
@@ -67,6 +98,7 @@ export class GeneralProfileComponent implements OnInit {
   private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly store = inject(Store);
+  readonly themeService = inject(ThemeService);
 
   saving = signal(false);
 

@@ -15,9 +15,6 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 import structlog
-from jinja2 import ChainableUndefined
-from jinja2.sandbox import SandboxedEnvironment
-
 from app.core.exceptions import WorkflowExecutionError, WorkflowTimeoutError
 from app.modules.automation.models.execution import (
     ExecutionStatus,
@@ -27,7 +24,7 @@ from app.modules.automation.models.execution import (
 )
 from app.modules.automation.models.workflow import ActionType, Workflow, WorkflowNode
 from app.services.mist_service import MistService
-from app.utils.variables import get_nested_value
+from app.utils.variables import create_jinja_env, get_nested_value
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +35,7 @@ ProgressCallback = Callable[[str, dict[str, Any]], Awaitable[None]] | None
 class WorkflowExecutor:
     """Graph-based workflow executor."""
 
-    _jinja_env = SandboxedEnvironment(undefined=ChainableUndefined)
+    _jinja_env = create_jinja_env()
 
     def __init__(self, mist_service: MistService | None = None, progress_callback: ProgressCallback = None):
         self.mist_service = mist_service or MistService()
@@ -951,9 +948,15 @@ class WorkflowExecutor:
         seen_keys: dict[str, int] = {}
         columns: list[dict[str, str]] = []
         for field in fields:
-            path = field.get("path", "")
+            path = field.get("path", "").strip()
             label = field.get("label", "")
-            key = path.split(".")[-1] if path else ""
+            # Strip {{ }} wrappers and pipe/filter for key derivation
+            if path.startswith("{{"):
+                path = path[2:]
+            if path.endswith("}}"):
+                path = path[:-2]
+            dot_path = path.split("|")[0].strip() if "|" in path else path.strip()
+            key = dot_path.split(".")[-1] if dot_path else ""
             if key in seen_keys:
                 seen_keys[key] += 1
                 key = f"{key}_{seen_keys[key]}"
@@ -970,12 +973,30 @@ class WorkflowExecutor:
                 if rendered.lower() in ("", "false", "0", "none", "null", "undefined"):
                     continue
 
-            # Extract fields
+            # Extract fields (supports pipe filters: "path.to.field | datetimeformat")
             row: dict[str, Any] = {}
             for i, field in enumerate(fields):
-                path = field.get("path", "")
+                raw_path = field.get("path", "").strip()
                 col_key = columns[i]["key"]
-                value = self._get_nested_field(item, path)
+
+                # Strip {{ }} wrappers if present
+                if raw_path.startswith("{{"):
+                    raw_path = raw_path[2:]
+                if raw_path.endswith("}}"):
+                    raw_path = raw_path[:-2]
+                raw_path = raw_path.strip()
+
+                if "|" in raw_path:
+                    dot_path, filter_expr = raw_path.split("|", 1)
+                    raw_value = self._get_nested_field(item, dot_path.strip())
+                    try:
+                        tpl = self._jinja_env.from_string(f"{{{{ value | {filter_expr.strip()} }}}}")
+                        value = tpl.render(value=raw_value)
+                    except Exception:
+                        value = raw_value
+                else:
+                    value = self._get_nested_field(item, raw_path)
+
                 row[col_key] = value
             rows.append(row)
 

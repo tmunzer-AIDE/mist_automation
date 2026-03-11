@@ -6,8 +6,6 @@ from typing import Any, Optional
 from datetime import datetime, timezone
 import structlog
 import httpx
-from jinja2.sandbox import SandboxedEnvironment
-
 from app.core.exceptions import NotificationError, ConfigurationError
 from app.config import settings
 
@@ -453,7 +451,9 @@ class NotificationService:
             NotificationError: If rendering fails
         """
         try:
-            env = SandboxedEnvironment()
+            from app.utils.variables import create_jinja_env
+
+            env = create_jinja_env()
             template = env.from_string(template_str)
             rendered = template.render(**context)
             return rendered

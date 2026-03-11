@@ -4,6 +4,7 @@ import { Store } from '@ngrx/store';
 import { MatIconRegistry } from '@angular/material/icon';
 import { TokenService } from './core/services/token.service';
 import { AuthActions } from './core/state/auth/auth.actions';
+import { ThemeService } from './core/services/theme.service';
 
 @Component({
   selector: 'app-root',
@@ -15,6 +16,7 @@ export class App implements OnInit {
   private readonly store = inject(Store);
   private readonly tokenService = inject(TokenService);
   private readonly iconRegistry = inject(MatIconRegistry);
+  private readonly themeService = inject(ThemeService);
 
   ngOnInit(): void {
     this.iconRegistry.setDefaultFontSetClass('material-symbols-rounded');

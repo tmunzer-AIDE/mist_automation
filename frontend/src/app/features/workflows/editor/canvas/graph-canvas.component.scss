@@ -32,10 +32,20 @@
   height: 100%;
   cursor: default;
   outline: none;
-  background: var(--canvas-bg, #fafafa);
+  background: var(--app-canvas-bg);
 
-  --grid-color: #e8e8e8;
-  --edge-color: #9e9e9e;
+  --grid-color: var(--app-canvas-grid);
+  --edge-color: var(--app-canvas-edge);
+}
+
+// ── Selection rectangle ──────────────────────────────────────────────────
+
+.selection-rect {
+  fill: rgba(25, 118, 210, 0.08);
+  stroke: var(--app-canvas-selected);
+  stroke-width: 1;
+  stroke-dasharray: 4 2;
+  pointer-events: none;
 }
 
 // ── Edges ────────────────────────────────────────────────────────────────
@@ -52,12 +62,12 @@
   }
 
   &.selected .edge-path {
-    stroke: #1976d2;
+    stroke: var(--app-canvas-selected);
     stroke-width: 2.5;
   }
 
   &.active .edge-path {
-    stroke: #4caf50;
+    stroke: var(--app-canvas-active);
     stroke-width: 2.5;
     animation: edgeFlow 1s linear infinite;
   }
@@ -92,7 +102,7 @@
   }
 
   &.selected .node-card {
-    stroke: #1976d2 !important;
+    stroke: var(--app-canvas-selected) !important;
     stroke-width: 2;
     filter: drop-shadow(0 0 6px rgba(25, 118, 210, 0.3));
   }
@@ -150,15 +160,15 @@
 
 .port {
   fill: var(--mat-sys-surface, #fff);
-  stroke: #9e9e9e;
+  stroke: var(--app-canvas-port-stroke);
   stroke-width: 1.5;
   transition:
     fill 0.15s,
     stroke 0.15s;
 
   &:hover {
-    fill: #1976d2;
-    stroke: #1976d2;
+    fill: var(--app-canvas-selected);
+    stroke: var(--app-canvas-selected);
     cursor: crosshair;
   }
 }
@@ -200,22 +210,3 @@
   }
 }
 
-// ── Dark theme support ──────────────────────────────────────────────────
-
-:host-context(.dark-theme) {
-  .graph-canvas {
-    --canvas-bg: #1e1e1e;
-    --grid-color: #333;
-    --edge-color: #616161;
-  }
-
-  .node-card {
-    fill: #2d2d2d;
-    stroke: #424242;
-  }
-
-  .port {
-    fill: #2d2d2d;
-    stroke: #757575;
-  }
-}

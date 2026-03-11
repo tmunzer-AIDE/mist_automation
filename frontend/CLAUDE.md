@@ -65,6 +65,8 @@ Dev server proxies `/api` and `/health` to `http://localhost:8000` (Python/FastA
 - **Forms**: Use reactive forms (`ReactiveFormsModule`) for all form inputs including filters — do not use `ngModel`/template-driven forms
 - **Confirmations**: Use `ConfirmDialogComponent` via `MatDialog` — do not use native `confirm()`
 - **TopbarService**: Use `setActions(templateRef)` / `clearActions()` to inject action buttons into the topbar from feature components
+- **ThemeService** (`core/services/theme.service.ts`): Manages dark mode via `preference` signal (`'light' | 'dark' | 'auto'`), persisted to localStorage. Toggles `html.dark-theme` class and `document.body.style.colorScheme`. Injected in `App` to run at startup. Theme selector in Profile > General Settings.
+- **`--app-*` CSS custom properties**: All semantic colors (success, error, warning, info, purple, pink, yellow, indigo, neutral, canvas, sim, spinner, chart) are defined as `--app-*` tokens in `styles.scss` `:root` (light) and `.dark-theme` (dark). New components must use these vars — never hardcode hex colors in component SCSS.
 
 ## Maintenance
 

@@ -8,15 +8,15 @@
   margin-right: 8px;
 
   &.spinner-disconnected ::ng-deep circle {
-    stroke: #ef4444 !important;
+    stroke: var(--app-spinner-disconnected) !important;
   }
 
   &.spinner-paused ::ng-deep circle {
-    stroke: #f59e0b !important;
+    stroke: var(--app-spinner-paused) !important;
   }
 
   &.spinner-live ::ng-deep circle {
-    stroke: #22c55e !important;
+    stroke: var(--app-spinner-live) !important;
   }
 }
 
@@ -132,13 +132,13 @@
 }
 
 .chip-automation {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--app-info-chip-bg);
+  color: var(--app-info-chip);
 }
 
 .chip-backup {
-  background: #ecfdf5;
-  color: #047857;
+  background: var(--app-success-bg);
+  color: var(--app-success);
 }
 
 .http-status {
@@ -150,18 +150,18 @@
 }
 
 .status-ok {
-  background: #ecfdf5;
-  color: #047857;
+  background: var(--app-success-bg);
+  color: var(--app-success);
 }
 
 .status-client-error {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--app-error-status-bg);
+  color: var(--app-error-status);
 }
 
 .status-server-error {
-  background: #fef2f2;
-  color: #991b1b;
+  background: var(--app-error-status-bg);
+  color: var(--app-error-server);
 }
 
 // New-event highlight animation

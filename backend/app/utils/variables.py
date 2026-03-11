@@ -21,6 +21,35 @@ from jinja2 import (
 from jinja2.sandbox import SandboxedEnvironment
 
 
+# ── Custom Jinja2 filters ───────────────────────────────────────────────────
+
+
+def _datetimeformat(value: Any, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """Format a Unix timestamp or ISO date string to a human-readable date/time."""
+    try:
+        if isinstance(value, (int, float)):
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+        elif isinstance(value, str):
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        elif isinstance(value, datetime):
+            dt = value
+        else:
+            return str(value)
+        return dt.strftime(fmt)
+    except (ValueError, TypeError, OSError):
+        return str(value)
+
+
+def create_jinja_env(strict: bool = False) -> SandboxedEnvironment:
+    """Create a SandboxedEnvironment with custom filters registered."""
+    if strict:
+        env = SandboxedEnvironment(undefined=StrictUndefined)
+    else:
+        env = SandboxedEnvironment(undefined=ChainableUndefined)
+    env.filters["datetimeformat"] = _datetimeformat
+    return env
+
+
 class VariableSubstitutionError(Exception):
     """Raised when variable substitution fails."""
 
@@ -152,11 +181,7 @@ def substitute_variables(
         webhook_data=webhook_data, api_results=api_results, workflow_context=workflow_context, include_env=include_env
     )
 
-    # Create sandboxed Jinja2 environment
-    if strict:
-        env = SandboxedEnvironment(undefined=StrictUndefined)
-    else:
-        env = SandboxedEnvironment(undefined=ChainableUndefined)
+    env = create_jinja_env(strict=strict)
 
     try:
         # Render template
@@ -369,7 +394,7 @@ def validate_template(template: str) -> tuple[bool, str | None]:
         return True, None
 
     try:
-        env = SandboxedEnvironment()
+        env = create_jinja_env()
         env.from_string(template)
         return True, None
     except TemplateSyntaxError as e:
@@ -407,7 +432,7 @@ def preview_substitution(template: str, context: dict[str, Any]) -> dict[str, An
 
     # Try substitution
     try:
-        env = SandboxedEnvironment(undefined=ChainableUndefined)
+        env = create_jinja_env()
         jinja_template = env.from_string(template)
         result = jinja_template.render(context)
 

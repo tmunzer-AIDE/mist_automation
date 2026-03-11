@@ -41,6 +41,8 @@ import {
   snapToGrid,
 } from './canvas-state';
 
+const DRAG_THRESHOLD = 4; // pixels before rubber-band starts
+
 @Component({
   selector: 'app-graph-canvas',
   standalone: true,
@@ -85,6 +87,11 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   // Pending edge (being dragged from a port)
   pendingEdgePath: string | null = null;
+
+  // Multi-selection
+  multiSelectedIds = new Set<string>();
+  selectionRect: { x: number; y: number; w: number; h: number } | null = null;
+  private multiDragStartPositions = new Map<string, { x: number; y: number }>();
 
   readonly NODE_WIDTH = NODE_WIDTH;
   readonly NODE_HEIGHT = NODE_HEIGHT;
@@ -143,6 +150,10 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   isEdgeActive(edgeId: string): boolean {
     return this.simulationState?.activeEdges?.has(edgeId) ?? false;
+  }
+
+  isNodeHighlighted(nodeId: string): boolean {
+    return nodeId === this.selectedNodeId || this.multiSelectedIds.has(nodeId);
   }
 
   // ── Edge path computation ─────────────────────────────────────────────
@@ -264,9 +275,17 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    // Left click on empty canvas = deselect
-    if (event.button === 0 && (event.target as Element) === this.svgCanvas.nativeElement) {
-      this.nodeDeselected.emit();
+    // Left click on canvas → start rubber-band selection (or deselect if no drag)
+    if (event.button === 0) {
+      const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+      this.drag = {
+        type: 'select',
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: pos.x, // canvas-space start
+        offsetY: pos.y,
+      };
     }
   }
 
@@ -277,15 +296,63 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
+    if (this.drag.type === 'select') {
+      const dx = event.clientX - this.drag.startX;
+      const dy = event.clientY - this.drag.startY;
+      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+
+      const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+      const sx = this.drag.offsetX;
+      const sy = this.drag.offsetY;
+
+      this.selectionRect = {
+        x: Math.min(sx, pos.x),
+        y: Math.min(sy, pos.y),
+        w: Math.abs(pos.x - sx),
+        h: Math.abs(pos.y - sy),
+      };
+
+      // Update multi-selection based on nodes intersecting the rect
+      this.multiSelectedIds.clear();
+      for (const node of this.nodes) {
+        if (this.nodeIntersectsRect(node, this.selectionRect)) {
+          this.multiSelectedIds.add(node.id);
+        }
+      }
+      return;
+    }
+
     if (this.drag.type === 'node' && this.drag.nodeId) {
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
       const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
-      const node = this.nodeMap.get(this.drag.nodeId);
-      if (node) {
-        node.position.x = snapToGrid(pos.x - this.drag.offsetX);
-        node.position.y = snapToGrid(pos.y - this.drag.offsetY);
-        this.recalcEdgePaths();
+
+      if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)) {
+        // Multi-drag: move all selected nodes by the same delta
+        const primaryStart = this.multiDragStartPositions.get(this.drag.nodeId);
+        if (primaryStart) {
+          const newX = snapToGrid(pos.x - this.drag.offsetX);
+          const newY = snapToGrid(pos.y - this.drag.offsetY);
+          const dx = newX - primaryStart.x;
+          const dy = newY - primaryStart.y;
+
+          for (const [id, startPos] of this.multiDragStartPositions) {
+            const n = this.nodeMap.get(id);
+            if (n) {
+              n.position.x = snapToGrid(startPos.x + dx);
+              n.position.y = snapToGrid(startPos.y + dy);
+            }
+          }
+        }
+      } else {
+        // Single node drag
+        const node = this.nodeMap.get(this.drag.nodeId);
+        if (node) {
+          node.position.x = snapToGrid(pos.x - this.drag.offsetX);
+          node.position.y = snapToGrid(pos.y - this.drag.offsetY);
+        }
       }
+      this.recalcEdgePaths();
       return;
     }
 
@@ -317,15 +384,39 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       this.viewportChanged.emit({ ...this.viewport });
     }
 
-    if (this.drag.type === 'node' && this.drag.nodeId) {
-      const node = this.nodeMap.get(this.drag.nodeId);
-      if (node) {
-        this.nodeMoved.emit({
-          nodeId: this.drag.nodeId,
-          x: node.position.x,
-          y: node.position.y,
-        });
+    if (this.drag.type === 'select') {
+      const dx = event.clientX - this.drag.startX;
+      const dy = event.clientY - this.drag.startY;
+
+      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
+        // Click (no drag) → deselect all
+        this.multiSelectedIds.clear();
+        this.nodeDeselected.emit();
       }
+      // else: rubber-band completed, multiSelectedIds is already populated
+      this.selectionRect = null;
+    }
+
+    if (this.drag.type === 'node' && this.drag.nodeId) {
+      if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)) {
+        // Emit nodeMoved for each moved node
+        for (const id of this.multiSelectedIds) {
+          const n = this.nodeMap.get(id);
+          if (n) {
+            this.nodeMoved.emit({ nodeId: id, x: n.position.x, y: n.position.y });
+          }
+        }
+      } else {
+        const node = this.nodeMap.get(this.drag.nodeId);
+        if (node) {
+          this.nodeMoved.emit({
+            nodeId: this.drag.nodeId,
+            x: node.position.x,
+            y: node.position.y,
+          });
+        }
+      }
+      this.multiDragStartPositions.clear();
     }
 
     if (this.drag.type === 'edge' && this.drag.sourceNodeId) {
@@ -362,6 +453,47 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
     const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
     const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+
+    if (event.shiftKey) {
+      // Shift+click: toggle node in multi-selection
+      if (this.multiSelectedIds.has(node.id)) {
+        this.multiSelectedIds.delete(node.id);
+      } else {
+        this.multiSelectedIds.add(node.id);
+        // Also include the currently single-selected node if any
+        if (this.selectedNodeId && !this.multiSelectedIds.has(this.selectedNodeId)) {
+          this.multiSelectedIds.add(this.selectedNodeId);
+        }
+      }
+      this.nodeSelected.emit(node.id);
+      return;
+    }
+
+    // Not shift: check if this node is part of a multi-selection
+    if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(node.id)) {
+      // Start multi-drag — keep selection, record start positions
+      this.multiDragStartPositions.clear();
+      for (const id of this.multiSelectedIds) {
+        const n = this.nodeMap.get(id);
+        if (n) {
+          this.multiDragStartPositions.set(id, { x: n.position.x, y: n.position.y });
+        }
+      }
+
+      this.drag = {
+        type: 'node',
+        nodeId: node.id,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: pos.x - node.position.x,
+        offsetY: pos.y - node.position.y,
+      };
+      this.nodeSelected.emit(node.id);
+      return;
+    }
+
+    // Click on unselected node: clear multi-selection, single select + drag
+    this.multiSelectedIds.clear();
 
     this.drag = {
       type: 'node',
@@ -431,7 +563,17 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (this.selectedNodeId) {
+      if (this.multiSelectedIds.size > 0) {
+        // Delete all multi-selected nodes (except trigger)
+        const toRemove = [...this.multiSelectedIds].filter((id) => {
+          const n = this.nodeMap.get(id);
+          return n && n.type !== 'trigger';
+        });
+        this.multiSelectedIds.clear();
+        for (const id of toRemove) {
+          this.nodeRemoved.emit(id);
+        }
+      } else if (this.selectedNodeId) {
         const node = this.nodeMap.get(this.selectedNodeId);
         if (node && node.type !== 'trigger') {
           this.nodeRemoved.emit(this.selectedNodeId);
@@ -440,6 +582,29 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
         this.edgeRemoved.emit(this.selectedEdgeId);
       }
     }
+
+    // Ctrl/Cmd+A: select all nodes
+    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+      event.preventDefault();
+      this.multiSelectedIds.clear();
+      for (const node of this.nodes) {
+        this.multiSelectedIds.add(node.id);
+      }
+    }
+  }
+
+  // ── Multi-selection helpers ───────────────────────────────────────────
+
+  private nodeIntersectsRect(
+    node: WorkflowNode,
+    rect: { x: number; y: number; w: number; h: number }
+  ): boolean {
+    return (
+      node.position.x < rect.x + rect.w &&
+      node.position.x + NODE_WIDTH > rect.x &&
+      node.position.y < rect.y + rect.h &&
+      node.position.y + NODE_HEIGHT > rect.y
+    );
   }
 
   // ── Port position helpers for template ────────────────────────────────
@@ -467,5 +632,24 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   getZoomPercent(): number {
     return Math.round(this.viewport.zoom * 100);
+  }
+
+  getEdgeStroke(edgeId: string): string {
+    if (this.isEdgeActive(edgeId)) return 'var(--app-canvas-active)';
+    if (this.selectedEdgeId === edgeId) return 'var(--app-canvas-selected)';
+    return 'var(--app-canvas-edge)';
+  }
+
+  getSimColor(status: string | null): string {
+    switch (status) {
+      case 'success':
+        return 'var(--app-sim-success)';
+      case 'failed':
+        return 'var(--app-sim-failed)';
+      case 'active':
+        return 'var(--app-sim-active)';
+      default:
+        return 'var(--app-sim-pending)';
+    }
   }
 }

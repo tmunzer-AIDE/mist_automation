@@ -38,26 +38,26 @@
 }
 
 .added {
-  color: #2e7d32;
+  color: var(--app-success-text);
 }
 .removed {
-  color: #c62828;
+  color: var(--app-error-text);
 }
 .modified {
-  color: #e65100;
+  color: var(--app-modified);
 }
 
 .change-added {
-  --mat-chip-elevated-container-color: #e8f5e9;
-  --mat-chip-label-text-color: #2e7d32;
+  --mat-chip-elevated-container-color: var(--app-success-bg);
+  --mat-chip-label-text-color: var(--app-success-text);
 }
 .change-removed {
-  --mat-chip-elevated-container-color: #ffebee;
-  --mat-chip-label-text-color: #c62828;
+  --mat-chip-elevated-container-color: var(--app-error-bg);
+  --mat-chip-label-text-color: var(--app-error-text);
 }
 .change-modified {
-  --mat-chip-elevated-container-color: #fff3e0;
-  --mat-chip-label-text-color: #e65100;
+  --mat-chip-elevated-container-color: var(--app-modified-chip-bg);
+  --mat-chip-label-text-color: var(--app-modified);
 }
 
 .table-container {

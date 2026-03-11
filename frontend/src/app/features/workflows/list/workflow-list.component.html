@@ -1,10 +1,7 @@
-<app-page-header subtitle="Automation workflow pipelines">
-  <button mat-stroked-button routerLink="webhooks">
-    <mat-icon>webhook</mat-icon> Webhook Monitor
-  </button>
+<div class="page-actions">
   <button mat-stroked-button (click)="importWorkflow()"><mat-icon>upload</mat-icon> Import</button>
   <button mat-flat-button (click)="createWorkflow()"><mat-icon>add</mat-icon> New Workflow</button>
-</app-page-header>
+</div>
 
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>

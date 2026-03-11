@@ -87,7 +87,8 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 - NgRx for auth state only; features use service-local observables
 - `ApiService` is the single HTTP client (base URL `/api/v1`)
 - Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile
-- Angular Material with CSS custom property theming
+- Angular Material with CSS custom property theming; dark mode via `ThemeService` toggling `html.dark-theme` class
+- All custom colors use `--app-*` CSS custom properties (defined in `styles.scss` with light defaults + `.dark-theme` overrides) — never hardcode hex colors in component SCSS
 - Dev proxy: `/api` and `/health` → `http://localhost:8000` (see `proxy.conf.json`)
 
 ### Workflow Editor (Graph-based)

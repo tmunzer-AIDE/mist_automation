@@ -1,8 +1,8 @@
-<app-page-header subtitle="Manage user accounts">
+<div class="page-actions">
   <button mat-flat-button (click)="openCreateDialog()">
     <mat-icon>person_add</mat-icon> Add User
   </button>
-</app-page-header>
+</div>
 
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>

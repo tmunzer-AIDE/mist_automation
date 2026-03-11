@@ -14,7 +14,6 @@ import { TopbarService } from '../../core/services/topbar.service';
 import { SystemStats } from '../../core/models/admin.model';
 import { HealthResponse } from '../../core/models/session.model';
 import { UserResponse } from '../../core/models/user.model';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 @Component({
   selector: 'app-dashboard',
@@ -25,7 +24,6 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     MatIconModule,
     MatButtonModule,
     MatProgressBarModule,
-    PageHeaderComponent,
     StatusBadgeComponent,
   ],
   templateUrl: './dashboard.component.html',

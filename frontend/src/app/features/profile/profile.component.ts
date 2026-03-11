@@ -2,15 +2,12 @@ import { Component, OnInit, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
 import { TopbarService } from '../../core/services/topbar.service';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [RouterModule, MatTabsModule, PageHeaderComponent],
+  imports: [RouterModule, MatTabsModule],
   template: `
-    <app-page-header subtitle="Manage your account"></app-page-header>
-
     <nav mat-tab-nav-bar [tabPanel]="tabPanel">
       <a
         mat-tab-link

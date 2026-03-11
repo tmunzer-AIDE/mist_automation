@@ -31,43 +31,48 @@ import { Component, Input } from '@angular/core';
 
       .badge-completed,
       .badge-succeeded,
+      .badge-success,
       .badge-connected,
       .badge-healthy,
       .badge-enabled,
       .badge-active {
-        background: #ecfdf5;
-        color: #047857;
+        background: var(--app-success-bg);
+        color: var(--app-success);
         .dot {
-          background: #10b981;
+          background: var(--app-success-badge);
         }
       }
       .badge-pending,
       .badge-draft,
       .badge-in_progress,
       .badge-running {
-        background: #fffbeb;
-        color: #b45309;
+        background: var(--app-success-bg);
+        color: var(--app-success-lvl);
         .dot {
-          background: #f59e0b;
+          background: var(--app-success);
         }
       }
       .badge-failed,
       .badge-error,
+      .badge-timeout,
+      .badge-cancelled,
       .badge-inactive,
       .badge-stopped,
       .badge-deleted {
-        background: #fef2f2;
-        color: #b91c1c;
+        background: var(--app-error-status-bg);
+        color: var(--app-error-status);
         .dot {
-          background: #ef4444;
+          background: var(--app-spinner-disconnected);
         }
       }
+      .badge-filtered,
+      .badge-partial,
       .badge-manual,
       .badge-scheduled {
-        background: #eff6ff;
-        color: #1d4ed8;
+        background: var(--app-info-bg);
+        color: var(--app-info-chip);
         .dot {
-          background: #3b82f6;
+          background: var(--app-info-badge);
         }
       }
     `,

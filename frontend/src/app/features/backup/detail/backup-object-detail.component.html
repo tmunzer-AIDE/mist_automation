@@ -1,17 +1,11 @@
-<app-page-header
-  [subtitle]="
-    latestVersion()
-      ? latestVersion()!.object_type + ' — ' + versions().length + ' version(s)'
-      : 'Loading...'
-  "
->
+<div class="page-actions">
   <a mat-stroked-button routerLink="/backup"> <mat-icon>arrow_back</mat-icon> Back </a>
   @if (versions().length > 1) {
     <button mat-stroked-button (click)="toggleCompareMode()" [class.active-compare]="compareMode">
       <mat-icon>compare</mat-icon> {{ compareMode ? 'Exit Compare' : 'Compare Versions' }}
     </button>
   }
-</app-page-header>
+</div>
 
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>

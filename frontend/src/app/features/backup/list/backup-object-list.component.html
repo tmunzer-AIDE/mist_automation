@@ -1,11 +1,11 @@
-<app-page-header subtitle="Configuration backup & version tracking">
+<div class="page-actions">
   <button mat-flat-button (click)="navigateToJobs()">
     <mat-icon>work_history</mat-icon> Backup Jobs
   </button>
   <button mat-flat-button class="btn-accent" (click)="openCreateDialog()">
     <mat-icon>add</mat-icon> New Backup
   </button>
-</app-page-header>
+</div>
 
 <!-- Chart -->
 @if (chartConfig()) {

@@ -61,24 +61,24 @@
   }
 
   &.users {
-    background: #eff6ff;
-    color: #2563eb;
+    background: var(--app-info-bg);
+    color: var(--app-info);
   }
   &.backups {
-    background: #ecfdf5;
-    color: #059669;
+    background: var(--app-success-bg);
+    color: var(--app-success);
   }
   &.workflows {
-    background: #faf5ff;
-    color: #7c3aed;
+    background: var(--app-purple-bg);
+    color: var(--app-purple);
   }
   &.executions {
-    background: #fefce8;
-    color: #ca8a04;
+    background: var(--app-yellow-bg);
+    color: var(--app-yellow);
   }
   &.webhooks {
-    background: #fdf2f8;
-    color: #db2777;
+    background: var(--app-pink-bg);
+    color: var(--app-pink);
   }
 }
 

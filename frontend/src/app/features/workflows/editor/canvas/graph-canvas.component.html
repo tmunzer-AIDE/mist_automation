@@ -36,7 +36,7 @@
       <path
         [attr.d]="'M ' + GRID_SIZE + ' 0 L 0 0 0 ' + GRID_SIZE"
         fill="none"
-        stroke="var(--grid-color, #e0e0e0)"
+        stroke="var(--grid-color)"
         stroke-width="0.5"
       />
     </pattern>
@@ -52,7 +52,7 @@
     >
       <polygon
         points="0 0, 10 3.5, 0 7"
-        fill="var(--edge-color, #9e9e9e)"
+        fill="var(--edge-color)"
       />
     </marker>
     <marker
@@ -63,7 +63,7 @@
       refY="3.5"
       orient="auto"
     >
-      <polygon points="0 0, 10 3.5, 0 7" fill="#4caf50" />
+      <polygon points="0 0, 10 3.5, 0 7" fill="var(--app-canvas-active)" />
     </marker>
   </defs>
 
@@ -88,13 +88,14 @@
           stroke="transparent"
           stroke-width="12"
           class="edge-hitarea"
+          (pointerdown)="$event.stopPropagation()"
           (click)="onEdgeClick($event, ep.edge.id)"
         />
         <!-- Visible edge path -->
         <path
           [attr.d]="ep.path"
           fill="none"
-          [attr.stroke]="isEdgeActive(ep.edge.id) ? '#4caf50' : (selectedEdgeId === ep.edge.id ? '#1976d2' : '#9e9e9e')"
+          [attr.stroke]="getEdgeStroke(ep.edge.id)"
           stroke-width="2"
           [attr.marker-end]="isEdgeActive(ep.edge.id) ? 'url(#arrowhead-active)' : 'url(#arrowhead)'"
           class="edge-path"
@@ -119,10 +120,21 @@
       <path
         [attr.d]="pendingEdgePath"
         fill="none"
-        stroke="#1976d2"
+        [attr.stroke]="'var(--app-canvas-selected)'"
         stroke-width="2"
         stroke-dasharray="6 3"
         class="pending-edge"
+      />
+    }
+
+    <!-- Selection rectangle (rubber-band) -->
+    @if (selectionRect) {
+      <rect
+        [attr.x]="selectionRect.x"
+        [attr.y]="selectionRect.y"
+        [attr.width]="selectionRect.w"
+        [attr.height]="selectionRect.h"
+        class="selection-rect"
       />
     }
 
@@ -130,7 +142,7 @@
     @for (node of nodes; track node.id) {
       <g
         class="node-group"
-        [class.selected]="selectedNodeId === node.id"
+        [class.selected]="isNodeHighlighted(node.id)"
         [class.disabled]="!node.enabled"
         [attr.transform]="'translate(' + node.position.x + ',' + node.position.y + ')'"
         (pointerdown)="onNodePointerDown($event, node)"
@@ -142,7 +154,7 @@
           rx="8"
           ry="8"
           class="node-card"
-          [style.stroke]="selectedNodeId === node.id ? '#1976d2' : 'transparent'"
+          [style.stroke]="isNodeHighlighted(node.id) ? 'var(--app-canvas-selected)' : 'transparent'"
         />
 
         <!-- Simulation status indicator -->
@@ -151,7 +163,7 @@
             [attr.cx]="NODE_WIDTH - 12"
             cy="12"
             r="6"
-            [attr.fill]="simStatus === 'success' ? '#4caf50' : simStatus === 'failed' ? '#f44336' : simStatus === 'active' ? '#ff9800' : '#9e9e9e'"
+            [attr.fill]="getSimColor(simStatus)"
             class="sim-indicator"
           />
           @if (simStatus === 'active') {
@@ -160,7 +172,7 @@
               cy="12"
               r="6"
               fill="none"
-              stroke="#ff9800"
+              [attr.stroke]="'var(--app-sim-active)'"
               stroke-width="2"
               class="sim-pulse"
             />

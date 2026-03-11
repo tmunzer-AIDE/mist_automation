@@ -6,7 +6,6 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { SystemStats, WorkerStatus } from '../../../core/models/admin.model';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 @Component({
   selector: 'app-stats',
@@ -16,7 +15,6 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
     MatCardModule,
     MatIconModule,
     MatProgressBarModule,
-    PageHeaderComponent,
     StatusBadgeComponent,
   ],
   templateUrl: './stats.component.html',

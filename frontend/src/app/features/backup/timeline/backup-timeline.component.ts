@@ -11,7 +11,6 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { BackupJobListResponse, BackupJobResponse } from '../../../core/models/backup.model';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { FileSizePipe } from '../../../shared/pipes/file-size.pipe';
@@ -30,7 +29,6 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
-    PageHeaderComponent,
     StatusBadgeComponent,
     DateTimePipe,
     FileSizePipe,

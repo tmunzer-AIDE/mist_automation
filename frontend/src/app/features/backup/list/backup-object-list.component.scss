@@ -119,12 +119,12 @@
   border-radius: 4px;
 
   &.scope-org {
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: var(--app-info-chip-bg);
+    color: var(--app-info-chip);
   }
 
   &.scope-site {
-    background: #faf5ff;
-    color: #7c3aed;
+    background: var(--app-purple-bg);
+    color: var(--app-purple);
   }
 }

@@ -16,7 +16,6 @@ import { ApiService } from '../../../core/services/api.service';
 import { UserResponse, UserListResponse } from '../../../core/models/user.model';
 import { selectCurrentUser } from '../../../core/state/auth/auth.selectors';
 import { TopbarService } from '../../../core/services/topbar.service';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
@@ -37,7 +36,6 @@ import { UserDialogComponent } from './user-dialog.component';
     MatProgressBarModule,
     MatSnackBarModule,
     MatTooltipModule,
-    PageHeaderComponent,
     EmptyStateComponent,
     DateTimePipe,
   ],

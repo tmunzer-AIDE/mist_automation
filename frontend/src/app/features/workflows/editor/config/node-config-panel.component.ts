@@ -394,6 +394,15 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                     <mat-form-field appearance="outline" class="save-as-name">
                       <mat-label>Path</mat-label>
                       <input matInput formControlName="path" placeholder="port_stat.eth0.up" />
+                      <button mat-icon-button matSuffix [matMenuTriggerFor]="dtPathVarMenu">
+                        <mat-icon>data_object</mat-icon>
+                      </button>
+                      <mat-menu #dtPathVarMenu="matMenu">
+                        <app-variable-picker
+                          [variableTree]="variableTree"
+                          (variableSelected)="insertDtFieldPath(i, $event)"
+                        />
+                      </mat-menu>
                     </mat-form-field>
                     <mat-form-field appearance="outline" class="save-as-name">
                       <mat-label>Label</mat-label>
@@ -905,6 +914,18 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   insertIntoControl(control: FormControl | any, value: string): void {
     const current = control.value || '';
     control.setValue(current + value);
+  }
+
+  insertDtFieldPath(index: number, value: string): void {
+    const group = this.dtFieldsArray.at(index);
+    if (!group) return;
+    const pathCtrl = (group as any).get('path');
+    if (pathCtrl) {
+      // Strip {{ }} wrappers — data transform paths use plain dot-notation with optional pipe
+      let plain = value.replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '');
+      const current = pathCtrl.value || '';
+      pathCtrl.setValue(current + plain);
+    }
   }
 
   // ── Catalog helpers ───────────────────────────────────────────────
