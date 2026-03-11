@@ -39,18 +39,30 @@ async def lifespan(_app: FastAPI):
         # Start Smee.io client if enabled
         try:
             from app.models.system import SystemConfig
+
             config = await SystemConfig.get_config()
             if config.smee_enabled and config.smee_channel_url:
-                from app.modules.backup.services.smee_service import start_smee
+                from app.core.smee_service import start_smee
+
                 target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
                 await start_smee(config.smee_channel_url, target)
                 logger.info("smee_client_auto_started", channel=config.smee_channel_url)
         except Exception as e:
             logger.warning("smee_auto_start_failed", error=str(e))
 
+        # Load Mist OpenAPI Specification (for variable autocomplete + mock responses)
+        if settings.mist_oas_url:
+            try:
+                from app.modules.automation.services.oas_service import OASService
+
+                await OASService.load(settings.mist_oas_url)
+            except Exception as e:
+                logger.warning("oas_load_failed", error=str(e))
+
         # Start APScheduler (cron workflows + scheduled backups)
         try:
             from app.workers import start_scheduler
+
             await start_scheduler()
             logger.info("scheduler_started")
         except Exception as e:
@@ -67,13 +79,15 @@ async def lifespan(_app: FastAPI):
         # Stop scheduler
         try:
             from app.workers import stop_scheduler
+
             await stop_scheduler()
         except Exception:
             pass
 
         # Stop Smee.io client if running
         try:
-            from app.modules.backup.services.smee_service import stop_smee
+            from app.core.smee_service import stop_smee
+
             await stop_smee()
         except Exception:
             pass

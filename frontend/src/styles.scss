@@ -2,14 +2,16 @@
 
 html {
   height: 100%;
-  @include mat.theme((
-    color: (
-      primary: mat.$azure-palette,
-      tertiary: mat.$spring-green-palette,
-    ),
-    typography: Inter,
-    density: 0,
-  ));
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$azure-palette,
+        tertiary: mat.$spring-green-palette,
+      ),
+      typography: Inter,
+      density: 0,
+    )
+  );
 }
 
 body {
@@ -29,9 +31,9 @@ a {
 }
 
 :root {
-  --app-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-  --app-shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06);
-  --app-shadow-lg: 0 8px 24px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.08);
+  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --app-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --app-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08);
   --app-radius: 12px;
   --app-radius-sm: 8px;
   --app-font-mono: 'JetBrains Mono', monospace;
@@ -49,10 +51,45 @@ a {
 }
 
 // Global transition for interactive elements
-button, a, input, select, textarea {
+button,
+a,
+input,
+select,
+textarea {
   transition: all 0.15s ease;
 }
 
 .mat-mdc-snack-bar-container {
   margin-top: 64px;
+}
+
+// ── Shared table styles ────────────────────────────────────────────────────
+
+.table-card {
+  background: var(--mat-sys-surface);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-sm);
+  overflow: hidden;
+
+  table {
+    width: 100%;
+  }
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--mat-sys-surface-variant);
+  }
+}
+
+.actions-cell {
+  text-align: right;
+  width: 48px;
+}
+
+.danger {
+  color: var(--mat-sys-error);
 }

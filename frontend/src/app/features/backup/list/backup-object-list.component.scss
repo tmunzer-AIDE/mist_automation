@@ -32,7 +32,9 @@
   border-radius: var(--app-radius-sm);
   background: var(--mat-sys-surface-container-low);
   border: 1px solid var(--mat-sys-outline-variant);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 
   &:focus-within {
     border-color: var(--mat-sys-primary);
@@ -81,7 +83,7 @@
   align-items: center;
   gap: 12px;
   margin: 16px 0;
-    justify-content: flex-start;
+  justify-content: flex-start;
 
   mat-form-field {
     width: calc((100% - 150px) / 4);
@@ -92,26 +94,7 @@
   font-size: 13px;
 }
 
-// ── Table Card ─────────────────────────────────────────────────────────────
-
-.table-card {
-  border-radius: var(--app-radius);
-  box-shadow: var(--app-shadow-sm);
-  overflow: hidden;
-
-  table {
-    width: 100%;
-  }
-}
-
-.clickable-row {
-  cursor: pointer;
-  transition: background 0.12s;
-
-  &:hover {
-    background: var(--mat-sys-surface-container-low);
-  }
-}
+// ── Table ─────────────────────────────────────────────────────────────
 
 .name-cell {
   font-weight: 500;

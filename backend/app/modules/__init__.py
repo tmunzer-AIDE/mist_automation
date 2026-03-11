@@ -5,6 +5,7 @@ To add a new module:
   1. Create a directory at app/modules/<name>/ with router.py, models.py, etc.
   2. Add one AppModule(...) entry to MODULES below — nothing else to change.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from fastapi import APIRouter
 @dataclass
 class AppModule:
     name: str
-    router_module: str          # dotted import path, e.g. "app.api.v1.workflows"
+    router_module: str  # dotted import path, e.g. "app.api.v1.workflows"
     router_attr: str = "router"
     model_imports: list[tuple[str, str]] = field(default_factory=list)
     # Each entry: ("app.models.workflow", "Workflow")
@@ -25,11 +26,13 @@ class AppModule:
 
     def get_router(self) -> APIRouter:
         import importlib
+
         mod = importlib.import_module(self.router_module)
         return getattr(mod, self.router_attr)
 
     def get_document_models(self) -> list[Any]:
         import importlib
+
         models = []
         for module_path, class_name in self.model_imports:
             mod = importlib.import_module(module_path)
@@ -50,7 +53,7 @@ MODULES: list[AppModule] = [
     AppModule(
         name="users",
         router_module="app.api.v1.users",
-        model_imports=[],       # User/UserSession already owned by auth
+        model_imports=[],  # User/UserSession already owned by auth
         tags=["Users"],
     ),
     AppModule(
@@ -65,8 +68,8 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="webhooks",
-        router_module="app.modules.automation.webhook_router",
-        model_imports=[],       # WebhookEvent already owned by automation
+        router_module="app.api.v1.webhooks",
+        model_imports=[],  # WebhookEvent already owned by automation
         tags=["Webhooks"],
     ),
     AppModule(
@@ -78,12 +81,6 @@ MODULES: list[AppModule] = [
             ("app.modules.backup.models", "BackupJob"),
             ("app.modules.backup.models", "BackupLogEntry"),
         ],
-        tags=["Backups"],
-    ),
-    AppModule(
-        name="backup_webhooks",
-        router_module="app.modules.backup.webhook_router",
-        model_imports=[],
         tags=["Backups"],
     ),
     AppModule(

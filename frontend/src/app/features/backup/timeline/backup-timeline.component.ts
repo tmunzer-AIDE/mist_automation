@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
@@ -9,10 +9,11 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { BackupJobListResponse, BackupJobResponse } from '../../../core/models/backup.model';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { FileSizePipe } from '../../../shared/pipes/file-size.pipe';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 
@@ -31,21 +32,25 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
     MatProgressBarModule,
     PageHeaderComponent,
     StatusBadgeComponent,
-    RelativeTimePipe,
+    DateTimePipe,
     FileSizePipe,
     EmptyStateComponent,
   ],
   templateUrl: './backup-timeline.component.html',
   styleUrl: './backup-timeline.component.scss',
 })
-export class BackupTimelineComponent {
+export class BackupTimelineComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly fb = inject(FormBuilder);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly topbarService = inject(TopbarService);
 
-  entries: BackupJobResponse[] = [];
-  loading = false;
-  loaded = false;
+  entries = signal<BackupJobResponse[]>([]);
+  loading = signal(false);
+  loaded = signal(false);
+
+  ngOnInit(): void {
+    this.topbarService.setTitle('Backup Timeline');
+  }
 
   filterForm = this.fb.group({
     org_id: ['', Validators.required],
@@ -54,7 +59,7 @@ export class BackupTimelineComponent {
 
   loadTimeline(): void {
     if (this.filterForm.invalid) return;
-    this.loading = true;
+    this.loading.set(true);
     const { org_id, site_id } = this.filterForm.getRawValue();
 
     this.api
@@ -65,15 +70,13 @@ export class BackupTimelineComponent {
       })
       .subscribe({
         next: (res) => {
-          this.entries = res.backups;
-          this.loading = false;
-          this.loaded = true;
-          this.cdr.detectChanges();
+          this.entries.set(res.backups);
+          this.loading.set(false);
+          this.loaded.set(true);
         },
         error: () => {
-          this.loading = false;
-          this.loaded = true;
-          this.cdr.detectChanges();
+          this.loading.set(false);
+          this.loaded.set(true);
         },
       });
   }

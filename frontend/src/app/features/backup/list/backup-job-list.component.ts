@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
@@ -11,6 +11,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import {
   BackupJobResponse,
   BackupJobListResponse,
@@ -21,6 +22,12 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
+import {
+  CHART_COLORS,
+  baseChartOptions,
+  barDataset,
+  lineDataset,
+} from '../../../shared/utils/chart-defaults';
 
 @Component({
   selector: 'app-backup-job-list',
@@ -50,20 +57,21 @@ export class BackupJobListComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly topbarService = inject(TopbarService);
 
   // ── Job table ────────────────────────────────────────────────────────
-  jobs: BackupJobResponse[] = [];
-  jobsTotal = 0;
-  jobsPageSize = 10;
+  jobs = signal<BackupJobResponse[]>([]);
+  jobsTotal = signal(0);
+  jobsPageSize = 25;
   jobsPageIndex = 0;
-  loadingJobs = true;
+  loadingJobs = signal(true);
   jobColumns = ['status', 'backup_type', 'object_count', 'size', 'created_at'];
 
   // ── Chart ────────────────────────────────────────────────────────────
-  chartConfig: ChartConfiguration<'bar'> | null = null;
+  chartConfig = signal<ChartConfiguration<'bar'> | null>(null);
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Backup Jobs');
     this.loadJobs();
     this.loadCharts();
   }
@@ -71,111 +79,57 @@ export class BackupJobListComponent implements OnInit {
   // ── Data loading ─────────────────────────────────────────────────────
 
   loadJobs(): void {
-    this.loadingJobs = true;
+    this.loadingJobs.set(true);
     const params: Record<string, string | number> = {
       skip: this.jobsPageIndex * this.jobsPageSize,
       limit: this.jobsPageSize,
     };
     this.api.get<BackupJobListResponse>('/backups', params).subscribe({
       next: (res) => {
-        this.jobs = res.backups;
-        this.jobsTotal = res.total;
-        this.loadingJobs = false;
-        this.cdr.detectChanges();
+        this.jobs.set(res.backups);
+        this.jobsTotal.set(res.total);
+        this.loadingJobs.set(false);
       },
       error: () => {
-        this.loadingJobs = false;
-        this.cdr.detectChanges();
+        this.loadingJobs.set(false);
       },
     });
   }
 
   private loadCharts(): void {
-    const completed = '#2563eb';   // vivid blue
-    const failed = '#ef4444';      // vivid red
-    const webhooks = '#8b5cf6';    // vivid violet
-    const durationLine = '#f59e0b'; // vivid amber
-    const gridColor = '#e2e8f0';
-
     this.api.get<BackupJobStatsResponse>('/backups/stats/jobs').subscribe({
       next: (res) => {
         const labels = res.days.map((d) => d.date.slice(5));
 
-        this.chartConfig = {
+        this.chartConfig.set({
           type: 'bar',
           data: {
             labels,
             datasets: [
-              {
-                label: 'Webhook events',
-                data: res.days.map((d) => d.webhook_events),
-                backgroundColor: webhooks,
-                borderRadius: 2,
-                stack: 'jobs',
-                order: 1,
-                yAxisID: 'y',
-              },
-              {
-                label: 'Completed',
-                data: res.days.map((d) => d.completed),
-                backgroundColor: completed,
-                borderRadius: 2,
-                stack: 'jobs',
-                order: 1,
-                yAxisID: 'y',
-              },
-              {
-                label: 'Failed',
-                data: res.days.map((d) => d.failed),
-                backgroundColor: failed,
-                borderRadius: 2,
-                stack: 'jobs',
-                order: 1,
-                yAxisID: 'y',
-              },
-              {
-                label: 'Avg duration (s)',
-                data: res.days.map((d) => d.avg_duration_seconds),
-                type: 'line' as const,
-                borderColor: durationLine,
-                backgroundColor: 'transparent',
-                fill: false,
-                pointRadius: 2,
-                tension: 0.3,
-                borderWidth: 2,
-                order: 0,
-                yAxisID: 'y1',
-              } as any,
+              barDataset(
+                'Webhook events',
+                res.days.map((d) => d.webhook_events),
+                CHART_COLORS.webhooks,
+              ),
+              barDataset(
+                'Completed',
+                res.days.map((d) => d.completed),
+                CHART_COLORS.completed,
+              ),
+              barDataset(
+                'Failed',
+                res.days.map((d) => d.failed),
+                CHART_COLORS.failed,
+              ),
+              lineDataset(
+                'Avg duration (s)',
+                res.days.map((d) => d.avg_duration_seconds ?? 0),
+                CHART_COLORS.durationLine,
+              ),
             ],
           },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: true } },
-            scales: {
-              x: {
-                grid: { display: false },
-                ticks: { maxTicksLimit: 15, font: { size: 10 } },
-              },
-              y: {
-                position: 'left',
-                stacked: true,
-                beginAtZero: true,
-                grid: { color: gridColor },
-                ticks: { precision: 0, font: { size: 10 } },
-                title: { display: true, text: 'Count', font: { size: 11 } },
-              },
-              y1: {
-                position: 'right',
-                beginAtZero: true,
-                grid: { drawOnChartArea: false },
-                ticks: { font: { size: 10 } },
-                title: { display: true, text: 'Duration (s)', font: { size: 11 } },
-              },
-            },
-          },
-        };
-        this.cdr.detectChanges();
+          options: baseChartOptions('Count', 'Duration (s)'),
+        });
       },
     });
   }

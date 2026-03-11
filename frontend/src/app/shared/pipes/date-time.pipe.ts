@@ -1,7 +1,7 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
-@Pipe({ name: 'relativeTime', standalone: true })
-export class RelativeTimePipe implements PipeTransform {
+@Pipe({ name: 'dateTime', standalone: true })
+export class DateTimePipe implements PipeTransform {
   transform(value: string | Date | null | undefined): string {
     if (!value) return '';
     const d = typeof value === 'string' ? new Date(value) : value;

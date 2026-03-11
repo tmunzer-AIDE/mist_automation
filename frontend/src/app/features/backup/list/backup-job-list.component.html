@@ -1,4 +1,4 @@
-<app-page-header title="Backup Jobs" subtitle="Job execution history">
+<app-page-header subtitle="Job execution history">
   <button mat-stroked-button (click)="navigateToBackups()">
     <mat-icon>arrow_back</mat-icon> Back to Backups
   </button>
@@ -8,21 +8,25 @@
 </app-page-header>
 
 <!-- Chart -->
-@if (chartConfig) {
+@if (chartConfig()) {
   <app-backup-chart-card title="Job activity & duration (30 days)">
     <div class="chart-container">
-      <canvas baseChart [datasets]="chartConfig!.data.datasets"
-              [labels]="chartConfig!.data.labels!" [options]="chartConfig!.options!"
-              type="bar"></canvas>
+      <canvas
+        baseChart
+        [datasets]="chartConfig()!.data.datasets"
+        [labels]="chartConfig()!.data.labels!"
+        [options]="chartConfig()!.options!"
+        type="bar"
+      ></canvas>
     </div>
   </app-backup-chart-card>
 }
 
-@if (loadingJobs) {
+@if (loadingJobs()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
-@if (!loadingJobs && jobs.length === 0) {
+@if (!loadingJobs() && jobs().length === 0) {
   <app-empty-state
     icon="work_history"
     title="No jobs yet"
@@ -32,9 +36,9 @@
   </app-empty-state>
 }
 
-@if (jobs.length > 0) {
+@if (jobs().length > 0) {
   <div class="table-card">
-    <table mat-table [dataSource]="jobs">
+    <table mat-table [dataSource]="jobs()">
       <ng-container matColumnDef="status">
         <th mat-header-cell *matHeaderCellDef>Status</th>
         <td mat-cell *matCellDef="let job">
@@ -55,19 +59,24 @@
       </ng-container>
       <ng-container matColumnDef="created_at">
         <th mat-header-cell *matHeaderCellDef>Date</th>
-        <td mat-cell *matCellDef="let job">{{ job.created_at | date:'MMM d, yyyy HH:mm' }}</td>
+        <td mat-cell *matCellDef="let job">{{ job.created_at | date: 'MMM d, yyyy HH:mm' }}</td>
       </ng-container>
 
       <tr mat-header-row *matHeaderRowDef="jobColumns"></tr>
-      <tr mat-row *matRowDef="let job; columns: jobColumns;" class="clickable-row" (click)="viewJobDetail(job)"></tr>
+      <tr
+        mat-row
+        *matRowDef="let job; columns: jobColumns"
+        class="clickable-row"
+        (click)="viewJobDetail(job)"
+      ></tr>
     </table>
   </div>
 
   <mat-paginator
-    [length]="jobsTotal"
+    [length]="jobsTotal()"
     [pageSize]="jobsPageSize"
     [pageIndex]="jobsPageIndex"
-    [pageSizeOptions]="[10, 25, 50]"
+    [pageSizeOptions]="[25, 50, 100]"
     (page)="onJobsPage($event)"
     showFirstLastButtons
   ></mat-paginator>

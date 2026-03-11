@@ -197,27 +197,21 @@ class TestSetVariableAction:
 
     @pytest.mark.asyncio
     async def test_set_variable_string(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
-        action = WorkflowAction(
-            name="Set severity",
-            type=ActionType.SET_VARIABLE,
-            variable_name="sev",
-            variable_expression="{{ events[0].severity }}",
-        )
-        result = await self.executor._execute_set_variable(action)
+        config = {
+            "variable_name": "sev",
+            "variable_expression": "{{ events[0].severity }}",
+        }
+        result = await self.executor._execute_set_variable(config)
         assert result["variable_name"] == "sev"
         assert self.executor.variable_context["results"]["sev"] == "critical"
 
     @pytest.mark.asyncio
     async def test_set_variable_json(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
-        action = WorkflowAction(
-            name="Set data",
-            type=ActionType.SET_VARIABLE,
-            variable_name="data",
-            variable_expression='{"key": "value"}',
-        )
-        result = await self.executor._execute_set_variable(action)
+        config = {
+            "variable_name": "data",
+            "variable_expression": '{"key": "value"}',
+        }
+        result = await self.executor._execute_set_variable(config)
         assert self.executor.variable_context["results"]["data"] == {"key": "value"}
 
 
@@ -238,71 +232,47 @@ class TestForEachAction:
             },
         }
 
+    def _make_for_each_node(self, loop_over, loop_variable="site", max_iterations=100):
+        from app.modules.automation.models.workflow import WorkflowNode
+        return WorkflowNode(
+            id="foreach-1",
+            type="for_each",
+            name="Loop",
+            config={
+                "loop_over": loop_over,
+                "loop_variable": loop_variable,
+                "max_iterations": max_iterations,
+            },
+        )
+
     @pytest.mark.asyncio
     async def test_for_each_basic(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
-        action = WorkflowAction(
-            name="Loop over sites",
-            type=ActionType.FOR_EACH,
-            loop_over="results.sites",
-            loop_variable="site",
-            loop_actions=[],
-            max_iterations=100,
-        )
-        result = await self.executor._execute_for_each(action, MagicMock())
+        node = self._make_for_each_node("results.sites")
+        result = await self.executor._execute_for_each(node, MagicMock())
         assert result["iterations"] == 3
 
     @pytest.mark.asyncio
     async def test_for_each_max_iterations(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
-        action = WorkflowAction(
-            name="Loop capped",
-            type=ActionType.FOR_EACH,
-            loop_over="results.sites",
-            loop_variable="site",
-            loop_actions=[],
-            max_iterations=2,
-        )
-        result = await self.executor._execute_for_each(action, MagicMock())
+        node = self._make_for_each_node("results.sites", max_iterations=2)
+        result = await self.executor._execute_for_each(node, MagicMock())
         assert result["iterations"] == 2
 
     @pytest.mark.asyncio
     async def test_for_each_none_raises(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
-        action = WorkflowAction(
-            name="Loop missing",
-            type=ActionType.FOR_EACH,
-            loop_over="results.nonexistent",
-            loop_variable="item",
-            loop_actions=[],
-        )
+        node = self._make_for_each_node("results.nonexistent", loop_variable="item")
         with pytest.raises(ValueError, match="resolved to None"):
-            await self.executor._execute_for_each(action, MagicMock())
+            await self.executor._execute_for_each(node, MagicMock())
 
     @pytest.mark.asyncio
     async def test_for_each_not_list_raises(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
         self.executor.variable_context["results"]["scalar"] = "not a list"
-        action = WorkflowAction(
-            name="Loop not list",
-            type=ActionType.FOR_EACH,
-            loop_over="results.scalar",
-            loop_variable="item",
-            loop_actions=[],
-        )
+        node = self._make_for_each_node("results.scalar", loop_variable="item")
         with pytest.raises(ValueError, match="is not a list"):
-            await self.executor._execute_for_each(action, MagicMock())
+            await self.executor._execute_for_each(node, MagicMock())
 
     @pytest.mark.asyncio
     async def test_for_each_cleans_up_context(self):
-        from app.modules.automation.models.workflow import WorkflowAction, ActionType
-        action = WorkflowAction(
-            name="Loop cleanup",
-            type=ActionType.FOR_EACH,
-            loop_over="results.sites",
-            loop_variable="site",
-            loop_actions=[],
-        )
-        await self.executor._execute_for_each(action, MagicMock())
+        node = self._make_for_each_node("results.sites")
+        await self.executor._execute_for_each(node, MagicMock())
         assert "loop" not in self.executor.variable_context
         assert "item" not in self.executor.variable_context

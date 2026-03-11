@@ -63,7 +63,9 @@
   border-radius: 8px;
   border: 1px solid var(--mat-sys-outline-variant);
   background: var(--mat-sys-surface-container-low);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 
   .timeline-entry:hover & {
     border-color: var(--mat-sys-outline);

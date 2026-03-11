@@ -4,32 +4,28 @@ Webhook worker - processes incoming webhooks asynchronously using Celery.
 
 from datetime import datetime, timezone
 from typing import Any
-import structlog
-from celery import Celery
-from beanie import PydanticObjectId
 
-from app.modules.automation.models.workflow import Workflow, TriggerType, WorkflowStatus
-from app.modules.automation.models.webhook import WebhookEvent
-from app.modules.automation.models.execution import WorkflowExecution, ExecutionStatus
-from app.modules.automation.services.executor_service import WorkflowExecutor
-from app.services.mist_service import MistService
+import structlog
+from beanie import PydanticObjectId
+from celery import Celery
+
 from app.config import settings
+from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
+from app.modules.automation.models.webhook import WebhookEvent
+from app.modules.automation.models.workflow import Workflow, WorkflowStatus
+from app.modules.automation.services.executor_service import WorkflowExecutor
 
 logger = structlog.get_logger(__name__)
 
 # Initialize Celery
-celery_app = Celery(
-    'webhook_worker',
-    broker=settings.celery_broker_url,
-    backend=settings.celery_result_backend
-)
+celery_app = Celery("webhook_worker", broker=settings.celery_broker_url, backend=settings.celery_result_backend)
 
 # Configure Celery
 celery_app.conf.update(
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    timezone='UTC',
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
     enable_utc=True,
     task_track_started=True,
     task_time_limit=settings.workflow_max_timeout,  # Hard limit
@@ -39,7 +35,7 @@ celery_app.conf.update(
 )
 
 
-@celery_app.task(name='process_webhook', bind=True, max_retries=3)
+@celery_app.task(name="process_webhook", bind=True, max_retries=3)
 def process_webhook_task(self, webhook_id: str, webhook_type: str, payload: dict):
     """
     Celery task to process a webhook and trigger matching workflows.
@@ -53,32 +49,24 @@ def process_webhook_task(self, webhook_id: str, webhook_type: str, payload: dict
         dict: Processing result
     """
     import asyncio
-    
-    # Run async function in sync context
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(
-        process_webhook(webhook_id, webhook_type, payload)
-    )
+
+    return asyncio.run(process_webhook(webhook_id, webhook_type, payload))
 
 
-async def process_webhook(
-    webhook_id: str,
-    webhook_type: str,
-    payload: dict[str, Any]
-) -> dict[str, Any]:
+async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     """
     Process a webhook and trigger matching workflows.
 
     Args:
         webhook_id: WebhookEvent ID
-        webhook_type: Type of webhook  
+        webhook_type: Type of webhook
         payload: Webhook payload
 
     Returns:
         dict: Processing result with matched workflows and executions
     """
     start_time = datetime.now(timezone.utc)
-    
+
     try:
         # Get webhook event record
         webhook_event = await WebhookEvent.get(PydanticObjectId(webhook_id))
@@ -86,24 +74,21 @@ async def process_webhook(
             raise ValueError(f"Webhook event {webhook_id} not found")
 
         # Mark as processing (will be set to processed=True at the end)
-        logger.info(
-            "webhook_processing_started",
-            webhook_id=webhook_id,
-            webhook_type=webhook_type
-        )
+        logger.info("webhook_processing_started", webhook_id=webhook_id, webhook_type=webhook_type)
 
-        # Find matching workflows
-        matching_workflows = await Workflow.find(
-            Workflow.status == WorkflowStatus.ENABLED,
-            Workflow.trigger.type == TriggerType.WEBHOOK,
-            Workflow.trigger.webhook_type == webhook_type
-        ).to_list()
+        # Find matching workflows — graph model stores trigger config in nodes
+        all_enabled = await Workflow.find(Workflow.status == WorkflowStatus.ENABLED).to_list()
+        matching_workflows = []
+        for wf in all_enabled:
+            trigger_node = wf.get_trigger_node()
+            if not trigger_node:
+                continue
+            cfg = trigger_node.config
+            if cfg.get("trigger_type") == "webhook" and (cfg.get("webhook_topic") or cfg.get("webhook_type")) == webhook_type:
+                matching_workflows.append(wf)
 
         logger.info(
-            "workflows_matched",
-            webhook_id=webhook_id,
-            webhook_type=webhook_type,
-            matched_count=len(matching_workflows)
+            "workflows_matched", webhook_id=webhook_id, webhook_type=webhook_type, matched_count=len(matching_workflows)
         )
 
         execution_results = []
@@ -112,9 +97,7 @@ async def process_webhook(
         for workflow in matching_workflows:
             try:
                 result = await execute_workflow_for_webhook(
-                    workflow=workflow,
-                    webhook_payload=payload,
-                    webhook_id=webhook_id
+                    workflow=workflow, webhook_payload=payload, webhook_id=webhook_id
                 )
                 execution_results.append(result)
 
@@ -124,21 +107,21 @@ async def process_webhook(
                     workflow_id=str(workflow.id),
                     workflow_name=workflow.name,
                     webhook_id=webhook_id,
-                    error=str(e)
+                    error=str(e),
                 )
-                execution_results.append({
-                    "workflow_id": str(workflow.id),
-                    "workflow_name": workflow.name,
-                    "status": "failed",
-                    "error": str(e)
-                })
+                execution_results.append(
+                    {
+                        "workflow_id": str(workflow.id),
+                        "workflow_name": workflow.name,
+                        "status": "failed",
+                        "error": str(e),
+                    }
+                )
 
         # Update webhook event with results
         webhook_event.processed = True
         webhook_event.processed_at = datetime.now(timezone.utc)
-        webhook_event.matched_workflows = [
-            workflow.id for workflow in matching_workflows
-        ]
+        webhook_event.matched_workflows = [workflow.id for workflow in matching_workflows]
         await webhook_event.save()
 
         processing_time_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
@@ -148,7 +131,7 @@ async def process_webhook(
             webhook_id=webhook_id,
             matched_workflows=len(matching_workflows),
             executions=len(execution_results),
-            processing_time_ms=processing_time_ms
+            processing_time_ms=processing_time_ms,
         )
 
         return {
@@ -160,11 +143,7 @@ async def process_webhook(
         }
 
     except Exception as e:
-        logger.error(
-            "webhook_processing_error",
-            webhook_id=webhook_id,
-            error=str(e)
-        )
+        logger.error("webhook_processing_error", webhook_id=webhook_id, error=str(e))
 
         # Mark webhook as failed
         if webhook_event:
@@ -176,9 +155,7 @@ async def process_webhook(
 
 
 async def execute_workflow_for_webhook(
-    workflow: Workflow,
-    webhook_payload: dict[str, Any],
-    webhook_id: str
+    workflow: Workflow, webhook_payload: dict[str, Any], webhook_id: str
 ) -> dict[str, Any]:
     """
     Execute a single workflow triggered by a webhook.
@@ -195,7 +172,7 @@ async def execute_workflow_for_webhook(
         "executing_workflow_for_webhook",
         workflow_id=str(workflow.id),
         workflow_name=workflow.name,
-        webhook_id=webhook_id
+        webhook_id=webhook_id,
     )
 
     # Create execution record
@@ -211,23 +188,9 @@ async def execute_workflow_for_webhook(
     await execution.save()
 
     try:
-        # Initialize executor — get credentials from system config (DB), fall back to env settings
-        from app.models.system import SystemConfig
-        from app.core.security import decrypt_sensitive_data
-        config = await SystemConfig.get_config()
-        api_token = settings.mist_api_token
-        if config and config.mist_api_token:
-            try:
-                api_token = decrypt_sensitive_data(config.mist_api_token)
-            except Exception:
-                pass  # Fall back to settings
-        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+        from app.services.mist_service_factory import create_mist_service
 
-        mist_service = MistService(
-            api_token=api_token,
-            org_id=(config.mist_org_id if config else None) or settings.mist_org_id,
-            cloud_region=cloud_region,
-        )
+        mist_service = await create_mist_service()
         executor = WorkflowExecutor(mist_service=mist_service)
 
         # Execute workflow — pass the pre-created execution to avoid duplicates
@@ -245,7 +208,7 @@ async def execute_workflow_for_webhook(
             status=result.status,
             duration_ms=result.duration_ms,
             trigger_condition_passed=result.trigger_condition_passed,
-            actions_executed=result.actions_executed
+            actions_executed=result.actions_executed,
         )
 
         return {
@@ -254,9 +217,9 @@ async def execute_workflow_for_webhook(
             "execution_id": str(result.id),
             "status": result.status,
             "trigger_condition_passed": result.trigger_condition_passed,
-            "actions_executed": result.actions_executed,
-            "actions_succeeded": result.actions_succeeded,
-            "actions_failed": result.actions_failed,
+            "nodes_executed": result.nodes_executed,
+            "nodes_succeeded": result.nodes_succeeded,
+            "nodes_failed": result.nodes_failed,
             "duration_ms": result.duration_ms,
         }
 
@@ -269,10 +232,7 @@ async def execute_workflow_for_webhook(
             await execution.save()
 
         logger.error(
-            "workflow_execution_error",
-            workflow_id=str(workflow.id),
-            execution_id=str(execution.id),
-            error=str(e)
+            "workflow_execution_error", workflow_id=str(workflow.id), execution_id=str(execution.id), error=str(e)
         )
 
         return {
@@ -297,12 +257,7 @@ def queue_webhook_processing(webhook_id: str, webhook_type: str, payload: dict) 
         str: Celery task ID
     """
     task = process_webhook_task.delay(webhook_id, webhook_type, payload)
-    
-    logger.info(
-        "webhook_queued",
-        webhook_id=webhook_id,
-        webhook_type=webhook_type,
-        task_id=task.id
-    )
-    
+
+    logger.info("webhook_queued", webhook_id=webhook_id, webhook_type=webhook_type, task_id=task.id)
+
     return task.id

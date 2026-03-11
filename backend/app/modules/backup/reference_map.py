@@ -144,3 +144,30 @@ def extract_references(
             })
 
     return refs
+
+
+# ── Reverse reference map ────────────────────────────────────────────────────
+
+# Parent types where children need API verification before cascade-marking deleted
+API_VERIFIED_CASCADE_TYPES: set[str] = {"templates"}
+
+_REVERSE_REFERENCE_MAP: dict[str, list[tuple[str, str]]] | None = None
+
+
+def get_reverse_reference_map() -> dict[str, list[tuple[str, str]]]:
+    """Invert ``REFERENCE_MAP``: parent type → list of (child_type, field_path).
+
+    Example: ``"templates" -> [("wlans", "template_id")]``
+
+    Cached in module-level ``_REVERSE_REFERENCE_MAP``.
+    """
+    global _REVERSE_REFERENCE_MAP
+    if _REVERSE_REFERENCE_MAP is None:
+        result: dict[str, list[tuple[str, str]]] = {}
+        for child_type, descriptors in REFERENCE_MAP.items():
+            for desc in descriptors:
+                result.setdefault(desc.target_type, []).append(
+                    (child_type, desc.field_path)
+                )
+        _REVERSE_REFERENCE_MAP = result
+    return _REVERSE_REFERENCE_MAP

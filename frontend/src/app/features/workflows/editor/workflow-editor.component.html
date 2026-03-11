@@ -1,106 +1,90 @@
-<app-page-header [title]="pageTitle" subtitle="Build your automation pipeline">
-  <div class="editor-actions">
-    <button mat-stroked-button (click)="cancel()">Cancel</button>
-    <button mat-flat-button (click)="save()" [disabled]="!canSave">
-      @if (saving) {
-        Saving…
-      } @else {
-        Save
-      }
+<!-- Topbar actions template (projected into app topbar via TopbarService) -->
+<ng-template #topbarActions>
+  <button mat-icon-button (click)="cancel()" matTooltip="Back to workflows">
+    <mat-icon>arrow_back</mat-icon>
+  </button>
+  <input class="topbar-workflow-name" [ngModel]="workflowName()" (ngModelChange)="workflowName.set($event)" placeholder="Workflow name" />
+  <span class="spacer"></span>
+  @if (workflowId()) {
+    <span class="status-chip" [ngClass]="statusChipClass()">{{ workflowStatus() }}</span>
+  }
+  <button mat-icon-button [matMenuTriggerFor]="editorMenu" matTooltip="More actions">
+    <mat-icon>more_vert</mat-icon>
+  </button>
+  <mat-menu #editorMenu>
+    <button mat-menu-item (click)="openDescription()">
+      <mat-icon>description</mat-icon> Edit Description
     </button>
-    @if (isEditMode) {
-      <button mat-stroked-button (click)="run()">
-        <mat-icon>play_arrow</mat-icon> Run
+    @if (workflowId()) {
+      <button mat-menu-item (click)="toggleStatus()">
+        <mat-icon>{{ workflowStatus() === 'enabled' ? 'pause' : 'play_arrow' }}</mat-icon>
+        {{ workflowStatus() === 'enabled' ? 'Disable' : 'Enable' }}
+      </button>
+      <button mat-menu-item (click)="runWorkflow()"><mat-icon>play_arrow</mat-icon> Run Now</button>
+      <button mat-menu-item (click)="openExecutions()">
+        <mat-icon>history</mat-icon> View Executions
       </button>
     }
-  </div>
-</app-page-header>
+  </mat-menu>
+  <button mat-flat-button (click)="save()" [disabled]="saving()">
+    {{ saving() ? 'Saving...' : 'Save' }}
+  </button>
+</ng-template>
 
-@if (loading) {
-  <div class="loading">Loading workflow…</div>
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
 } @else {
-  <div class="editor-toolbar">
-    <mat-form-field>
-      <mat-label>Workflow Name</mat-label>
-      <input matInput [(ngModel)]="workflowName" placeholder="My Workflow">
-    </mat-form-field>
-    <mat-form-field>
-      <mat-label>Description</mat-label>
-      <input matInput [(ngModel)]="workflowDescription" placeholder="Optional description">
-    </mat-form-field>
-  </div>
-
-  <div class="editor-layout">
-    <div class="canvas-area">
-      <app-pipeline-canvas
-        [blocks]="blocks"
-        [selectedIndex]="selectedBlockIndex"
-        [selectedBranch]="selectedBranch"
-        (blockSelected)="selectBlock($event)"
-        (blockRemoved)="removeBlock($event)"
-        (addRequested)="addBlock($event)"
-        (branchBlockSelected)="selectBranchBlock($event)"
-        (branchBlockRemoved)="removeBranchBlock($event)"
-        (branchAddRequested)="addBranchBlock($event)">
-      </app-pipeline-canvas>
+  <!-- Editor shell: sidebar + canvas + config -->
+  <div class="editor-shell">
+    <!-- Left: Block palette sidebar -->
+    <div class="palette-sidebar">
+      <app-block-palette-sidebar (blockSelected)="onPaletteBlockSelected($event)" />
     </div>
 
-    @if (selectedBlock) {
-      <div class="config-area">
-        <app-block-config-panel
-          [block]="selectedBlock"
-          (configChanged)="onConfigChanged($event)">
-        </app-block-config-panel>
+    <!-- Center: Graph canvas + simulation panel -->
+    <div class="canvas-area">
+      <app-graph-canvas
+        [nodes]="graph().nodes"
+        [edges]="graph().edges"
+        [selectedNodeId]="selectedNodeId()"
+        [selectedEdgeId]="selectedEdgeId()"
+        [simulationState]="simulationState()"
+        (nodeSelected)="onNodeSelected($event)"
+        (nodeDeselected)="onNodeDeselected()"
+        (nodeMoved)="onNodeMoved($event)"
+        (nodeRemoved)="onNodeRemoved($event)"
+        (edgeCreated)="onEdgeCreated($event)"
+        (edgeSelected)="onEdgeSelected($event)"
+        (edgeRemoved)="onEdgeRemoved($event)"
+        (canvasDropped)="onCanvasDropped($event)"
+        (viewportChanged)="onViewportChanged($event)"
+      />
+
+      <!-- Bottom: Simulation panel -->
+      <app-simulation-panel
+        [workflowId]="workflowId()"
+        [simulationState]="simulationState()"
+        (simulationStarted)="onSimulationStarted($event)"
+        (simulationStepChanged)="onSimulationStepChanged($event)"
+      />
+    </div>
+
+    <!-- Right: Resizable config panel (when a node is selected) -->
+    @if (selectedNode()) {
+      <div class="config-panel-container" [style.width.px]="configPanelWidth()">
+        <div class="resize-handle" (mousedown)="onResizeStart($event)"></div>
+        <div class="config-panel-header-actions">
+          <button mat-icon-button matTooltip="Close" (click)="onNodeDeselected()">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+        <app-node-config-panel
+          [node]="selectedNode()!"
+          [workflowId]="workflowId()"
+          [variableTree]="variableTree()"
+          (configChanged)="onNodeConfigChanged($event)"
+        />
       </div>
     }
   </div>
-
-  <!-- Execution History -->
-  @if (isEditMode && executions.length > 0) {
-    <mat-expansion-panel class="executions-panel">
-      <mat-expansion-panel-header>
-        <mat-panel-title>
-          Recent Executions ({{ executionsTotal }})
-        </mat-panel-title>
-      </mat-expansion-panel-header>
-
-      <table mat-table [dataSource]="executions">
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let ex">
-            <app-status-badge [status]="ex.status"></app-status-badge>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="trigger_type">
-          <th mat-header-cell *matHeaderCellDef>Trigger</th>
-          <td mat-cell *matCellDef="let ex">{{ ex.trigger_type }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="started_at">
-          <th mat-header-cell *matHeaderCellDef>Started</th>
-          <td mat-cell *matCellDef="let ex">{{ ex.started_at | relativeTime }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="duration">
-          <th mat-header-cell *matHeaderCellDef>Duration</th>
-          <td mat-cell *matCellDef="let ex">{{ formatDuration(ex.duration_ms) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="actions_executed">
-          <th mat-header-cell *matHeaderCellDef>Actions</th>
-          <td mat-cell *matCellDef="let ex">
-            {{ ex.actions_succeeded }}/{{ ex.actions_executed }}
-            @if (ex.actions_failed > 0) {
-              <span class="failure-count">({{ ex.actions_failed }} failed)</span>
-            }
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="executionColumns"></tr>
-        <tr mat-row *matRowDef="let ex; columns: executionColumns;"
-            class="clickable-row" (click)="viewExecution(ex)"></tr>
-      </table>
-    </mat-expansion-panel>
-  }
 }

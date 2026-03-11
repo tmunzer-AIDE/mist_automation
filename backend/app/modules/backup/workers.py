@@ -2,18 +2,20 @@
 Backup worker - handles scheduled and on-demand backup operations using Celery.
 """
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Optional
+
 import structlog
-from celery import Celery
 from beanie import PydanticObjectId
 
-from app.modules.backup.models import BackupJob, BackupEventType, BackupLogEntry, BackupObject, BackupStatus, BackupType
+from app.config import settings
+from app.core.exceptions import MistAPIError
+from app.modules.backup.models import BackupEventType, BackupJob, BackupLogEntry, BackupObject, BackupStatus, BackupType
 from app.modules.backup.services.backup_logger import BackupLogger
 from app.modules.backup.services.backup_service import BackupService
 from app.modules.backup.services.git_service import GitService
 from app.services.mist_service import MistService
-from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -21,13 +23,9 @@ logger = structlog.get_logger(__name__)
 from app.modules.automation.workers.webhook_worker import celery_app
 
 
-@celery_app.task(name='perform_backup', bind=True, max_retries=2)
+@celery_app.task(name="perform_backup", bind=True, max_retries=2)
 def perform_backup_task(
-    self,
-    backup_id: str,
-    backup_type: str = "scheduled",
-    org_id: Optional[str] = None,
-    site_id: Optional[str] = None
+    self, backup_id: str, backup_type: str = "scheduled", org_id: str | None = None, site_id: str | None = None
 ):
     """
     Celery task to perform a configuration backup.
@@ -42,20 +40,17 @@ def perform_backup_task(
         dict: Backup result
     """
     import asyncio
-    
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(
-        perform_backup(backup_id, backup_type, org_id, site_id)
-    )
+
+    return asyncio.run(perform_backup(backup_id, backup_type, org_id, site_id))
 
 
 async def perform_backup(
     backup_id: str,
     backup_type: str = "scheduled",
-    org_id: Optional[str] = None,
-    site_id: Optional[str] = None,
-    object_type: Optional[str] = None,
-    object_ids: Optional[list[str]] = None,
+    org_id: str | None = None,
+    site_id: str | None = None,
+    object_type: str | None = None,
+    object_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Perform a configuration backup operation.
@@ -85,31 +80,12 @@ async def perform_backup(
         backup_logger = BackupLogger(backup_id)
         await backup_logger.info("init", f"Backup job started (type={backup_type})")
 
-        logger.info(
-            "backup_started",
-            backup_id=backup_id,
-            backup_type=backup_type,
-            org_id=org_id,
-            site_id=site_id
-        )
+        logger.info("backup_started", backup_id=backup_id, backup_type=backup_type, org_id=org_id, site_id=site_id)
 
-        # Initialize services - get credentials from system config
-        from app.models.system import SystemConfig
-        from app.core.security import decrypt_sensitive_data
-        config = await SystemConfig.get_config()
-        api_token = settings.mist_api_token
-        if config and config.mist_api_token:
-            try:
-                api_token = decrypt_sensitive_data(config.mist_api_token)
-            except Exception:
-                pass  # Fall back to settings
-        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+        # Initialize services
+        from app.services.mist_service_factory import create_mist_service
 
-        mist_service = MistService(
-            api_token=api_token,
-            org_id=org_id or settings.mist_org_id,
-            cloud_region=cloud_region,
-        )
+        mist_service = await create_mist_service(org_id=org_id)
         backup_service = BackupService(mist_service=mist_service, backup_logger=backup_logger)
 
         # Perform backup based on type
@@ -127,7 +103,7 @@ async def perform_backup(
         backup_job.completed_at = datetime.now(timezone.utc)
         backup_job.object_count = result.get("total", result.get("total_objects", 0))
         backup_job.size_bytes = result.get("total_size_bytes", 0)
-        
+
         # Calculate duration
         if backup_job.started_at and backup_job.completed_at:
             started = backup_job.started_at
@@ -151,27 +127,19 @@ async def perform_backup(
                     repo_url=settings.backup_git_repo_url,
                     branch=settings.backup_git_branch,
                     author_name=settings.backup_git_author_name,
-                    author_email=settings.backup_git_author_email
+                    author_email=settings.backup_git_author_email,
                 )
 
                 commit_sha = await git_service.commit_backup(
                     backup_id=backup_id,
                     message=f"Automated backup - {backup_type}",
-                    objects_count=backup_job.object_count
+                    objects_count=backup_job.object_count,
                 )
 
-                logger.info(
-                    "backup_committed_to_git",
-                    backup_id=backup_id,
-                    commit_sha=commit_sha
-                )
+                logger.info("backup_committed_to_git", backup_id=backup_id, commit_sha=commit_sha)
 
             except Exception as e:
-                logger.warning(
-                    "git_commit_failed",
-                    backup_id=backup_id,
-                    error=str(e)
-                )
+                logger.warning("git_commit_failed", backup_id=backup_id, error=str(e))
                 # Don't fail the backup if Git fails
 
         await backup_logger.info("complete", f"Backup completed: {backup_job.object_count} objects in {duration_ms}ms")
@@ -181,7 +149,7 @@ async def perform_backup(
             backup_id=backup_id,
             duration_ms=duration_ms,
             object_count=backup_job.object_count,
-            size_bytes=backup_job.size_bytes
+            size_bytes=backup_job.size_bytes,
         )
 
         return {
@@ -190,15 +158,11 @@ async def perform_backup(
             "duration_ms": duration_ms,
             "object_count": backup_job.object_count,
             "size_bytes": backup_job.size_bytes,
-            "details": result
+            "details": result,
         }
 
     except Exception as e:
-        logger.error(
-            "backup_failed",
-            backup_id=backup_id,
-            error=str(e)
-        )
+        logger.error("backup_failed", backup_id=backup_id, error=str(e))
 
         # Mark backup as failed
         if backup_job:
@@ -226,6 +190,7 @@ async def perform_restore(backup_id: str, dry_run: bool = False):
         backup.status = BackupStatus.IN_PROGRESS
         await backup.save()
         from app.modules.backup.services.restore_service import RestoreService
+
         restore_service = RestoreService()
         await restore_service.restore_backup(backup, dry_run=dry_run)
         backup.status = BackupStatus.COMPLETED
@@ -237,18 +202,17 @@ async def perform_restore(backup_id: str, dry_run: bool = False):
         await backup.save()
 
 
-@celery_app.task(name='cleanup_old_backups')
+@celery_app.task(name="cleanup_old_backups")
 def cleanup_old_backups_task():
     """
     Celery task to clean up old backups based on retention policy.
-    
+
     Returns:
         dict: Cleanup result
     """
     import asyncio
-    
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(cleanup_old_backups())
+
+    return asyncio.run(cleanup_old_backups())
 
 
 async def cleanup_old_backups() -> dict[str, Any]:
@@ -262,37 +226,28 @@ async def cleanup_old_backups() -> dict[str, Any]:
         logger.info("backup_cleanup_started")
 
         # Calculate cutoff date
-        cutoff_date = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        cutoff_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff_date = cutoff_date.replace(day=cutoff_date.day - settings.backup_retention_days)
 
         # Find old backups
         old_backups = await BackupJob.find(
-            BackupJob.created_at < cutoff_date,
-            BackupJob.status.in_([BackupStatus.COMPLETED, BackupStatus.FAILED])
+            BackupJob.created_at < cutoff_date, BackupJob.status.in_([BackupStatus.COMPLETED, BackupStatus.FAILED])
         ).to_list()
 
         deleted_count = 0
         for backup in old_backups:
             # Delete associated log entries
-            await BackupLogEntry.find(
-                BackupLogEntry.backup_job_id == backup.id
-            ).delete()
+            await BackupLogEntry.find(BackupLogEntry.backup_job_id == backup.id).delete()
             await backup.delete()
             deleted_count += 1
 
-        logger.info(
-            "backup_cleanup_completed",
-            deleted_count=deleted_count,
-            cutoff_date=cutoff_date.isoformat()
-        )
+        logger.info("backup_cleanup_completed", deleted_count=deleted_count, cutoff_date=cutoff_date.isoformat())
 
         return {
             "status": "completed",
             "deleted_count": deleted_count,
             "cutoff_date": cutoff_date.isoformat(),
-            "retention_days": settings.backup_retention_days
+            "retention_days": settings.backup_retention_days,
         }
 
     except Exception as e:
@@ -301,10 +256,7 @@ async def cleanup_old_backups() -> dict[str, Any]:
 
 
 def queue_backup(
-    backup_id: str,
-    backup_type: str = "scheduled",
-    org_id: Optional[str] = None,
-    site_id: Optional[str] = None
+    backup_id: str, backup_type: str = "scheduled", org_id: str | None = None, site_id: str | None = None
 ) -> str:
     """
     Queue a backup operation for asynchronous processing.
@@ -319,40 +271,32 @@ def queue_backup(
         str: Celery task ID
     """
     task = perform_backup_task.delay(backup_id, backup_type, org_id, site_id)
-    
-    logger.info(
-        "backup_queued",
-        backup_id=backup_id,
-        backup_type=backup_type,
-        task_id=task.id
-    )
-    
+
+    logger.info("backup_queued", backup_id=backup_id, backup_type=backup_type, task_id=task.id)
+
     return task.id
 
 
 def schedule_periodic_backups():
     """
     Set up periodic backup tasks using Celery Beat.
-    
+
     This should be configured in Celery Beat schedule.
     """
     # Configure in celerybeat-schedule.py or via celery_app.conf.beat_schedule
     celery_app.conf.beat_schedule = {
-        'daily-full-backup': {
-            'task': 'perform_backup',
-            'schedule': settings.backup_full_schedule_cron,
-            'args': (None, 'scheduled', settings.mist_org_id, None)
+        "daily-full-backup": {
+            "task": "perform_backup",
+            "schedule": settings.backup_full_schedule_cron,
+            "args": (None, "scheduled", settings.mist_org_id, None),
         },
-        'weekly-cleanup': {
-            'task': 'cleanup_old_backups',
-            'schedule': '0 3 * * 0',  # Weekly on Sunday at 3 AM
+        "weekly-cleanup": {
+            "task": "cleanup_old_backups",
+            "schedule": "0 3 * * 0",  # Weekly on Sunday at 3 AM
         },
     }
 
-    logger.info(
-        "periodic_backups_scheduled",
-        full_backup_schedule=settings.backup_full_schedule_cron
-    )
+    logger.info("periodic_backups_scheduled", full_backup_schedule=settings.backup_full_schedule_cron)
 
 
 def _is_delete_event(event: dict) -> bool:
@@ -413,12 +357,38 @@ async def _resolve_and_delete_by_name(
     )
 
 
+_REFERENCE_FIELD_INDEX: dict[str, set[str]] | None = None
+
+
+def _get_reference_field_index() -> dict[str, set[str]]:
+    """Build a reverse index: field_name -> set of object types that own that reference.
+
+    Only includes simple (non-dotted) field_paths since event fields are flat.
+    Cached in a module-level variable since REFERENCE_MAP is static.
+    """
+    global _REFERENCE_FIELD_INDEX
+    if _REFERENCE_FIELD_INDEX is None:
+        from app.modules.backup.reference_map import REFERENCE_MAP
+
+        _REFERENCE_FIELD_INDEX = {}
+        for owner_type, descriptors in REFERENCE_MAP.items():
+            for desc in descriptors:
+                if "." not in desc.field_path:
+                    _REFERENCE_FIELD_INDEX.setdefault(desc.field_path, set()).add(owner_type)
+    return _REFERENCE_FIELD_INDEX
+
+
 def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | None]:
     """Extract (object_type, object_id, site_id) from a flat Mist audit event.
 
     Mist audit events contain ``<type>_id`` fields that identify the changed
     object.  For example ``wlan_id`` maps to object type ``wlans`` in the
     backup object registry.
+
+    When multiple ``*_id`` fields are present (e.g. ``wlan_id`` and
+    ``template_id`` for a WLAN belonging to a template), the function uses
+    :data:`REFERENCE_MAP` to disambiguate: fields that are cross-object
+    references of another candidate are filtered out.
 
     Returns:
         Tuple of (registry_key, object_id, site_id).  Any element may be None
@@ -431,43 +401,219 @@ def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | Non
     # Fields that are metadata, not object references
     _SKIP_FIELDS = {"id", "org_id", "site_id", "admin_id"}
 
-    # Look for *_id fields and try to match them to known registry keys
+    # Phase 1: Collect all candidate matches
+    # Each candidate is (registry_key, field_name, value_or_None)
+    matches: list[tuple[str, str, str | None]] = []
+
     for field_name, value in event.items():
         if not field_name.endswith("_id") or field_name in _SKIP_FIELDS or not value:
             continue
 
         # Mist sends "None" (string) for some delete events — treat as missing
-        if value == "None":
-            # Still resolve the object type so deletion can look up by name
-            singular = field_name[: -len("_id")]
-            candidates = [singular, singular + "s"]
-            registry = SITE_OBJECTS if site_id else ORG_OBJECTS
-            fallback = ORG_OBJECTS if site_id else SITE_OBJECTS
-            for candidate in candidates:
-                if candidate in registry or candidate in fallback:
-                    return candidate, None, site_id
-            continue
+        resolved_value: str | None = None if value == "None" else value
 
-        # wlan_id -> wlan, then try plural forms
         singular = field_name[: -len("_id")]
-        candidates = [singular, singular + "s"]
+        candidate_keys = [singular, singular + "s"]
+        if singular.endswith("y"):
+            candidate_keys.append(singular[:-1] + "ies")
 
         registry = SITE_OBJECTS if site_id else ORG_OBJECTS
-        # Also check the other scope as fallback
         fallback = ORG_OBJECTS if site_id else SITE_OBJECTS
 
-        for candidate in candidates:
-            if candidate in registry:
-                return candidate, value, site_id
-            if candidate in fallback:
-                # Flip scope if found in other registry
-                return candidate, value, site_id
+        for candidate in candidate_keys:
+            if candidate in registry or candidate in fallback:
+                matches.append((candidate, field_name, resolved_value))
+                break
 
-    # If we have an explicit "object" field (envelope format), use that
-    if event.get("object"):
-        return event["object"], event.get("id"), site_id
+    if not matches:
+        # If we have an explicit "object" field (envelope format), use that
+        if event.get("object"):
+            return event["object"], event.get("id"), site_id
+        return None, None, site_id
 
-    return None, None, site_id
+    if len(matches) == 1:
+        registry_key, _, obj_value = matches[0]
+        return registry_key, obj_value, site_id
+
+    # Phase 2: Multiple candidates — use REFERENCE_MAP to disambiguate.
+    # Filter out candidates whose field_name is a reference field owned by
+    # another candidate's object type.
+    ref_index = _get_reference_field_index()
+    match_keys = {m[0] for m in matches}
+
+    filtered = [m for m in matches if not (ref_index.get(m[1], set()) & match_keys)]
+
+    # Safety: if filtering removed everything, fall back to original list
+    if not filtered:
+        filtered = matches
+
+    registry_key, _, obj_value = filtered[0]
+    return registry_key, obj_value, site_id
+
+
+async def _check_object_exists_in_mist(
+    mist_service: MistService,
+    object_type: str,
+    object_id: str,
+    org_id: str,
+    site_id: str | None,
+) -> bool:
+    """Check if an object still exists in Mist.  Returns True if 200, False if 404."""
+    if site_id:
+        endpoint = f"/api/v1/sites/{site_id}/{object_type}/{object_id}"
+    else:
+        endpoint = f"/api/v1/orgs/{org_id}/{object_type}/{object_id}"
+    try:
+        await mist_service.api_get(endpoint)
+        return True
+    except MistAPIError as e:
+        if e.details.get("api_status_code") == 404:
+            return False
+        raise
+
+
+async def _cascade_mark_children_deleted(
+    backup_service: "BackupService",
+    mist_service: MistService,
+    parent_object: BackupObject,
+    deleted_by: str,
+    backup_logger: "BackupLogger",
+) -> int:
+    """Mark children as deleted when a parent is deleted.
+
+    Returns the count of children marked deleted.
+    """
+    from app.modules.backup.reference_map import (
+        API_VERIFIED_CASCADE_TYPES,
+        get_reverse_reference_map,
+    )
+
+    count = 0
+    parent_type = parent_object.object_type
+
+    if parent_type in API_VERIFIED_CASCADE_TYPES:
+        # e.g. templates → verify each child via API before marking
+        reverse_refs = get_reverse_reference_map().get(parent_type, [])
+        if not reverse_refs:
+            return 0
+
+        children = (
+            await BackupObject.find({"references.target_id": parent_object.object_id, "is_deleted": False})
+            .sort([("version", -1)])
+            .to_list()
+        )
+
+        # Deduplicate by object_id (keep latest version)
+        seen: set[str] = set()
+        unique_children: list[BackupObject] = []
+        for child in children:
+            if child.object_id not in seen:
+                seen.add(child.object_id)
+                unique_children.append(child)
+
+        sem = asyncio.Semaphore(5)
+
+        async def _check_and_mark(child: BackupObject) -> int:
+            async with sem:
+                try:
+                    exists = await _check_object_exists_in_mist(
+                        mist_service,
+                        child.object_type,
+                        child.object_id,
+                        child.org_id,
+                        child.site_id,
+                    )
+                    if not exists:
+                        result = await backup_service.mark_object_deleted(
+                            object_id=child.object_id,
+                            deleted_by=deleted_by,
+                        )
+                        if result:
+                            logger.info(
+                                "cascade_child_marked_deleted",
+                                parent_type=parent_type,
+                                parent_id=parent_object.object_id,
+                                child_type=child.object_type,
+                                child_id=child.object_id,
+                            )
+                            await backup_logger.info(
+                                "org_objects" if not child.site_id else "site_objects",
+                                f"Cascade delete: {child.object_type} '{child.object_name}' "
+                                f"(parent {parent_type} deleted)",
+                                object_type=child.object_type,
+                                object_id=child.object_id,
+                                object_name=child.object_name,
+                                site_id=child.site_id,
+                            )
+                            return 1
+                except Exception as exc:
+                    logger.warning(
+                        "cascade_check_failed",
+                        child_id=child.object_id,
+                        error=str(exc),
+                    )
+                return 0
+
+        results = await asyncio.gather(*[_check_and_mark(c) for c in unique_children])
+        count = sum(results)
+
+    elif parent_type == "sites":
+        # All objects scoped to this site are deleted
+        children = (
+            await BackupObject.find({"site_id": parent_object.object_id, "is_deleted": False})
+            .sort([("version", -1)])
+            .to_list()
+        )
+
+        seen: set[str] = set()
+        for child in children:
+            if child.object_id in seen:
+                continue
+            seen.add(child.object_id)
+            result = await backup_service.mark_object_deleted(
+                object_id=child.object_id,
+                deleted_by=deleted_by,
+            )
+            if result:
+                count += 1
+                await backup_logger.info(
+                    "site_objects",
+                    f"Cascade delete: {child.object_type} '{child.object_name}' " f"(site deleted)",
+                    object_type=child.object_type,
+                    object_id=child.object_id,
+                    object_name=child.object_name,
+                    site_id=child.site_id,
+                )
+
+    elif parent_type == "data":
+        # Org deleted — mark everything in org
+        children = (
+            await BackupObject.find({"org_id": parent_object.org_id, "is_deleted": False})
+            .sort([("version", -1)])
+            .to_list()
+        )
+
+        seen: set[str] = set()
+        for child in children:
+            if child.object_id in seen:
+                continue
+            seen.add(child.object_id)
+            result = await backup_service.mark_object_deleted(
+                object_id=child.object_id,
+                deleted_by=deleted_by,
+            )
+            if result:
+                count += 1
+
+    if count:
+        logger.info(
+            "cascade_delete_completed",
+            parent_type=parent_type,
+            parent_id=parent_object.object_id,
+            children_deleted=count,
+        )
+
+    return count
 
 
 async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> None:
@@ -484,24 +630,10 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
     """
     backup_job = None
     try:
-        from app.models.system import SystemConfig
-        from app.core.security import decrypt_sensitive_data
-        from app.modules.backup.object_registry import ORG_OBJECTS, SITE_OBJECTS
+        from app.modules.backup.object_registry import SITE_OBJECTS
+        from app.services.mist_service_factory import create_mist_service
 
-        config = await SystemConfig.get_config()
-        api_token = settings.mist_api_token
-        if config and config.mist_api_token:
-            try:
-                api_token = decrypt_sensitive_data(config.mist_api_token)
-            except Exception:
-                pass
-        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
-
-        mist_service = MistService(
-            api_token=api_token,
-            org_id=org_id or settings.mist_org_id,
-            cloud_region=cloud_region,
-        )
+        mist_service = await create_mist_service(org_id=org_id)
 
         # Create a BackupJob record for this incremental backup
         backup_job = BackupJob(
@@ -548,7 +680,11 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
                         # Mist sent "None" as the ID — resolve by name from
                         # the message, e.g. 'Delete PSK "fdsqfdqsf"'
                         result = await _resolve_and_delete_by_name(
-                            backup_service, event, obj_type, site_id, deleted_by,
+                            backup_service,
+                            event,
+                            obj_type,
+                            site_id,
+                            deleted_by,
                         )
 
                     if result:
@@ -568,6 +704,16 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
                             object_name=result.object_name,
                             site_id=site_id,
                         )
+
+                        # Cascade-mark children as deleted
+                        cascade_count = await _cascade_mark_children_deleted(
+                            backup_service,
+                            mist_service,
+                            result,
+                            deleted_by,
+                            backup_logger,
+                        )
+                        backed_up += cascade_count
                     else:
                         logger.warning(
                             "incremental_backup_delete_not_found",
@@ -629,14 +775,14 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
         if backed_up == 0:
             # No objects were actually backed up — discard the job and its logs
             # to avoid cluttering the database with empty webhook jobs.
-            await BackupLogEntry.find(
-                BackupLogEntry.backup_job_id == backup_job.id
-            ).delete()
+            await BackupLogEntry.find(BackupLogEntry.backup_job_id == backup_job.id).delete()
             await backup_job.delete()
             logger.info("incremental_backup_discarded", org_id=org_id, reason="no objects backed up")
             return
 
-        await backup_logger.info("complete", f"Incremental backup completed: {backed_up}/{len(audit_events)} events processed")
+        await backup_logger.info(
+            "complete", f"Incremental backup completed: {backed_up}/{len(audit_events)} events processed"
+        )
         backup_job.status = BackupStatus.COMPLETED
         backup_job.completed_at = datetime.now(timezone.utc)
         backup_job.object_count = backed_up
@@ -652,6 +798,8 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
                 backup_job.error = str(exc)
                 await backup_job.save()
                 backup_logger = BackupLogger(str(backup_job.id))
-                await backup_logger.error("complete", f"Incremental backup failed: {str(exc)}", details={"error": str(exc)})
+                await backup_logger.error(
+                    "complete", f"Incremental backup failed: {str(exc)}", details={"error": str(exc)}
+                )
         except Exception:
             pass

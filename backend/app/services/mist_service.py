@@ -434,11 +434,16 @@ class MistService:
             )
 
             if result.status_code != 200:
-                raise MistAPIError(f"GET {endpoint} failed: {result.status_code}")
+                raise MistAPIError(
+                    f"GET {endpoint} failed: {result.status_code}",
+                    api_status_code=result.status_code,
+                )
 
             logger.debug("api_get_success", endpoint=endpoint)
             return result.data
 
+        except MistAPIError:
+            raise
         except Exception as e:
             logger.error("api_get_failed", endpoint=endpoint, error=str(e))
             raise MistAPIError(f"GET request failed: {str(e)}")
@@ -472,11 +477,16 @@ class MistService:
             )
 
             if result.status_code not in (200, 201):
-                raise MistAPIError(f"POST {endpoint} failed: {result.status_code}")
+                raise MistAPIError(
+                    f"POST {endpoint} failed: {result.status_code}",
+                    api_status_code=result.status_code,
+                )
 
             logger.info("api_post_success", endpoint=endpoint)
             return result.data
 
+        except MistAPIError:
+            raise
         except Exception as e:
             logger.error("api_post_failed", endpoint=endpoint, error=str(e))
             raise MistAPIError(f"POST request failed: {str(e)}")
@@ -510,11 +520,16 @@ class MistService:
             )
 
             if result.status_code != 200:
-                raise MistAPIError(f"PUT {endpoint} failed: {result.status_code}")
+                raise MistAPIError(
+                    f"PUT {endpoint} failed: {result.status_code}",
+                    api_status_code=result.status_code,
+                )
 
             logger.info("api_put_success", endpoint=endpoint)
             return result.data
 
+        except MistAPIError:
+            raise
         except Exception as e:
             logger.error("api_put_failed", endpoint=endpoint, error=str(e))
             raise MistAPIError(f"PUT request failed: {str(e)}")

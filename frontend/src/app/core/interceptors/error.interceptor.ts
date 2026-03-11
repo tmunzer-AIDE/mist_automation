@@ -15,13 +15,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         router.navigate(['/login']);
       }
 
-      const message =
-        error.error?.detail ||
-        error.error?.message ||
-        error.statusText ||
-        'An unexpected error occurred';
-
-      return throwError(() => ({ status: error.status, message }));
-    })
+      return throwError(() => error);
+    }),
   );
 };

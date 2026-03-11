@@ -1,14 +1,13 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { SystemStats, WorkerStatus } from '../../../core/models/admin.model';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { LoadingSpinnerComponent } from '../../../shared/components/loading-spinner/loading-spinner.component';
-
 @Component({
   selector: 'app-stats',
   standalone: true,
@@ -19,36 +18,33 @@ import { LoadingSpinnerComponent } from '../../../shared/components/loading-spin
     MatProgressBarModule,
     PageHeaderComponent,
     StatusBadgeComponent,
-    LoadingSpinnerComponent,
   ],
   templateUrl: './stats.component.html',
   styleUrl: './stats.component.scss',
 })
 export class StatsComponent implements OnInit {
   private readonly api = inject(ApiService);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly topbarService = inject(TopbarService);
 
-  stats: SystemStats | null = null;
-  workerStatus: WorkerStatus | null = null;
-  loading = true;
+  stats = signal<SystemStats | null>(null);
+  workerStatus = signal<WorkerStatus | null>(null);
+  loading = signal(true);
 
   ngOnInit(): void {
+    this.topbarService.setTitle('System Stats');
     this.api.get<SystemStats>('/admin/stats').subscribe({
       next: (s) => {
-        this.stats = s;
-        this.loading = false;
-        this.cdr.detectChanges();
+        this.stats.set(s);
+        this.loading.set(false);
       },
       error: () => {
-        this.loading = false;
-        this.cdr.detectChanges();
+        this.loading.set(false);
       },
     });
 
     this.api.get<WorkerStatus>('/admin/workers/status').subscribe({
       next: (w) => {
-        this.workerStatus = w;
-        this.cdr.detectChanges();
+        this.workerStatus.set(w);
       },
       error: () => {},
     });

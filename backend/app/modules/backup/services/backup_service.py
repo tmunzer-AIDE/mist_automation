@@ -487,6 +487,7 @@ class BackupService:
             is_deleted=True,
             deleted_at=datetime.now(timezone.utc),
             backed_up_by=deleted_by or "system",
+            references=existing.references,
         )
         await deletion_backup.insert()
 

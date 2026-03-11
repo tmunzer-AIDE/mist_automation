@@ -25,24 +25,46 @@ export type ExecutionStatus =
   | 'filtered'
   | 'partial';
 
-// ── Trigger ──────────────────────────────────────────────────────────────────
+// ── Graph model ─────────────────────────────────────────────────────────────
 
-export interface WorkflowTrigger {
-  type: TriggerType;
-  webhook_type?: string;
-  webhook_topic?: string;
-  cron_expression?: string;
-  timezone?: string;
-  skip_if_running?: boolean;
-  condition?: string;
+export interface NodePosition {
+  x: number;
+  y: number;
+}
+
+export interface NodePort {
+  id: string;
+  label: string;
+  type: string; // 'default' | 'branch' | 'loop_body' | 'loop_done'
+}
+
+export interface WorkflowNode {
+  id: string;
+  type: string; // 'trigger' or ActionType
+  name: string;
+  position: NodePosition;
+  config: Record<string, unknown>;
+  output_ports: NodePort[];
+  enabled: boolean;
+  continue_on_error: boolean;
+  max_retries: number;
+  retry_delay: number;
   save_as?: VariableBinding[];
 }
 
-// ── Condition branches ───────────────────────────────────────────────────────
+export interface WorkflowEdge {
+  id: string;
+  source_node_id: string;
+  source_port_id: string;
+  target_node_id: string;
+  target_port_id: string;
+  label: string;
+}
 
-export interface ConditionBranch {
-  condition: string;
-  actions: WorkflowAction[];
+export interface WorkflowGraph {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  viewport?: { x: number; y: number; zoom: number } | null;
 }
 
 // ── Variable binding ─────────────────────────────────────────────────────────
@@ -52,48 +74,15 @@ export interface VariableBinding {
   expression: string;
 }
 
-// ── Actions ──────────────────────────────────────────────────────────────────
-
-export interface WorkflowAction {
-  name: string;
-  type: ActionType;
-  enabled?: boolean;
-  api_endpoint?: string;
-  api_method?: string;
-  api_body?: Record<string, unknown>;
-  api_params?: Record<string, unknown>;
-  webhook_url?: string;
-  webhook_headers?: Record<string, string>;
-  webhook_body?: Record<string, unknown>;
-  notification_template?: string;
-  notification_channel?: string;
-  branches?: ConditionBranch[];
-  else_actions?: WorkflowAction[];
-  delay_seconds?: number;
-  // Variable storage — list of bindings extracted from action output
-  save_as?: VariableBinding[];
-  // SET_VARIABLE action
-  variable_name?: string;
-  variable_expression?: string;
-  // FOR_EACH loop
-  loop_over?: string;
-  loop_variable?: string;
-  loop_actions?: WorkflowAction[];
-  max_iterations?: number;
-  // Retry / error handling
-  max_retries?: number;
-  retry_delay?: number;
-  continue_on_error?: boolean;
-}
-
 // ── Workflow CRUD ────────────────────────────────────────────────────────────
 
 export interface WorkflowCreate {
   name: string;
   description?: string;
   timeout_seconds?: number;
-  trigger: Record<string, unknown>;
-  actions: Record<string, unknown>[];
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  viewport?: Record<string, unknown> | null;
 }
 
 export interface WorkflowUpdate {
@@ -101,8 +90,9 @@ export interface WorkflowUpdate {
   description?: string;
   status?: WorkflowStatus;
   timeout_seconds?: number;
-  trigger?: Record<string, unknown>;
-  actions?: Record<string, unknown>[];
+  nodes?: Record<string, unknown>[];
+  edges?: Record<string, unknown>[];
+  viewport?: Record<string, unknown> | null;
 }
 
 export interface WorkflowResponse {
@@ -113,8 +103,9 @@ export interface WorkflowResponse {
   status: WorkflowStatus;
   sharing: string;
   timeout_seconds: number;
-  trigger: WorkflowTrigger;
-  actions: WorkflowAction[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  viewport: { x: number; y: number; zoom: number } | null;
   execution_count: number;
   success_count: number;
   failure_count: number;
@@ -130,15 +121,30 @@ export interface WorkflowListResponse {
 
 // ── Execution ────────────────────────────────────────────────────────────────
 
-export interface ActionExecutionResult {
-  action_name: string;
+export interface NodeExecutionResult {
+  node_id: string;
+  node_name: string;
+  node_type: string;
   status: 'success' | 'failed' | 'skipped';
   started_at: string;
   completed_at: string | null;
   duration_ms: number | null;
   error: string | null;
-  output: Record<string, unknown> | null;
+  output_data: Record<string, unknown> | null;
+  input_snapshot: Record<string, unknown> | null;
   retry_count: number;
+}
+
+export interface NodeSnapshot {
+  node_id: string;
+  node_name: string;
+  step: number;
+  input_variables: Record<string, unknown>;
+  output_data: Record<string, unknown> | null;
+  status: string;
+  duration_ms: number | null;
+  error: string | null;
+  variables_after: Record<string, unknown>;
 }
 
 export interface WorkflowExecution {
@@ -154,10 +160,13 @@ export interface WorkflowExecution {
   duration_ms: number | null;
   trigger_condition_passed: boolean | null;
   trigger_condition: string | null;
-  actions_executed: number;
-  actions_succeeded: number;
-  actions_failed: number;
-  action_results: ActionExecutionResult[];
+  nodes_executed: number;
+  nodes_succeeded: number;
+  nodes_failed: number;
+  node_results: Record<string, NodeExecutionResult>;
+  node_snapshots: NodeSnapshot[];
+  is_simulation: boolean;
+  is_dry_run: boolean;
   error: string | null;
   error_details: string | null;
   variables?: Record<string, unknown>;
@@ -190,13 +199,36 @@ export interface ApiCatalogEntry {
   has_body: boolean;
 }
 
-// ── Pipeline UI types ────────────────────────────────────────────────────────
+// ── Variable autocomplete ────────────────────────────────────────────────────
 
-export interface PipelineBlock {
-  id: string;
-  kind: 'trigger' | 'action';
-  data: WorkflowTrigger | WorkflowAction;
-  label: string;
-  icon: string;
-  color: string;
+export interface VariableTree {
+  trigger: Record<string, unknown>;
+  nodes: Record<string, Record<string, unknown>>;
+  utilities: Record<string, string>;
+}
+
+// ── Simulation ───────────────────────────────────────────────────────────────
+
+export interface SimulateRequest {
+  payload?: Record<string, unknown>;
+  webhook_event_id?: string;
+  dry_run: boolean;
+}
+
+export interface SamplePayload {
+  event_id: string;
+  timestamp: string;
+  topic: string;
+  webhook_type: string;
+  payload_preview: Record<string, unknown>;
+  payload: Record<string, unknown>;
+}
+
+export interface SimulationState {
+  execution: WorkflowExecution | null;
+  currentStep: number;
+  totalSteps: number;
+  isRunning: boolean;
+  nodeStatuses: Record<string, 'pending' | 'success' | 'failed' | 'active'>;
+  activeEdges: Set<string>;
 }

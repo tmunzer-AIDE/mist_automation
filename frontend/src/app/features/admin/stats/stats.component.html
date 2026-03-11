@@ -1,8 +1,8 @@
-<app-page-header title="System Stats" subtitle="System statistics and worker status"></app-page-header>
+<app-page-header subtitle="System statistics and worker status"></app-page-header>
 
-@if (loading) {
-  <app-loading-spinner></app-loading-spinner>
-} @else if (stats) {
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+} @else if (stats(); as stats) {
   <div class="stats-grid">
     <mat-card>
       <mat-card-header>
@@ -10,9 +10,15 @@
         <mat-card-title>Users</mat-card-title>
       </mat-card-header>
       <mat-card-content>
-        <div class="stat-row"><span>Total</span><strong>{{ stats.users.total }}</strong></div>
-        <div class="stat-row"><span>Active</span><strong>{{ stats.users.active }}</strong></div>
-        <div class="stat-row"><span>Admins</span><strong>{{ stats.users.admins }}</strong></div>
+        <div class="stat-row">
+          <span>Total</span><strong>{{ stats.users.total }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Active</span><strong>{{ stats.users.active }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Admins</span><strong>{{ stats.users.admins }}</strong>
+        </div>
       </mat-card-content>
     </mat-card>
 
@@ -22,9 +28,15 @@
         <mat-card-title>Workflows</mat-card-title>
       </mat-card-header>
       <mat-card-content>
-        <div class="stat-row"><span>Total</span><strong>{{ stats.workflows.total }}</strong></div>
-        <div class="stat-row"><span>Enabled</span><strong>{{ stats.workflows.enabled }}</strong></div>
-        <div class="stat-row"><span>Draft</span><strong>{{ stats.workflows.draft }}</strong></div>
+        <div class="stat-row">
+          <span>Total</span><strong>{{ stats.workflows.total }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Enabled</span><strong>{{ stats.workflows.enabled }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Draft</span><strong>{{ stats.workflows.draft }}</strong>
+        </div>
       </mat-card-content>
     </mat-card>
 
@@ -34,10 +46,18 @@
         <mat-card-title>Executions</mat-card-title>
       </mat-card-header>
       <mat-card-content>
-        <div class="stat-row"><span>Total</span><strong>{{ stats.executions.total }}</strong></div>
-        <div class="stat-row"><span>Running</span><strong>{{ stats.executions.running }}</strong></div>
-        <div class="stat-row"><span>Succeeded</span><strong>{{ stats.executions.succeeded }}</strong></div>
-        <div class="stat-row"><span>Failed</span><strong>{{ stats.executions.failed }}</strong></div>
+        <div class="stat-row">
+          <span>Total</span><strong>{{ stats.executions.total }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Running</span><strong>{{ stats.executions.running }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Succeeded</span><strong>{{ stats.executions.succeeded }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Failed</span><strong>{{ stats.executions.failed }}</strong>
+        </div>
       </mat-card-content>
     </mat-card>
 
@@ -47,10 +67,18 @@
         <mat-card-title>Backups</mat-card-title>
       </mat-card-header>
       <mat-card-content>
-        <div class="stat-row"><span>Total</span><strong>{{ stats.backups.total }}</strong></div>
-        <div class="stat-row"><span>Completed</span><strong>{{ stats.backups.completed }}</strong></div>
-        <div class="stat-row"><span>Pending</span><strong>{{ stats.backups.pending }}</strong></div>
-        <div class="stat-row"><span>Failed</span><strong>{{ stats.backups.failed }}</strong></div>
+        <div class="stat-row">
+          <span>Total</span><strong>{{ stats.backups.total }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Completed</span><strong>{{ stats.backups.completed }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Pending</span><strong>{{ stats.backups.pending }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Failed</span><strong>{{ stats.backups.failed }}</strong>
+        </div>
       </mat-card-content>
     </mat-card>
 
@@ -60,13 +88,19 @@
         <mat-card-title>Webhooks</mat-card-title>
       </mat-card-header>
       <mat-card-content>
-        <div class="stat-row"><span>Total</span><strong>{{ stats.webhooks.total }}</strong></div>
-        <div class="stat-row"><span>Processed</span><strong>{{ stats.webhooks.processed }}</strong></div>
-        <div class="stat-row"><span>Pending</span><strong>{{ stats.webhooks.pending }}</strong></div>
+        <div class="stat-row">
+          <span>Total</span><strong>{{ stats.webhooks.total }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Processed</span><strong>{{ stats.webhooks.processed }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Pending</span><strong>{{ stats.webhooks.pending }}</strong>
+        </div>
       </mat-card-content>
     </mat-card>
 
-    @if (workerStatus) {
+    @if (workerStatus(); as workerStatus) {
       <mat-card>
         <mat-card-header>
           <mat-icon mat-card-avatar>engineering</mat-icon>

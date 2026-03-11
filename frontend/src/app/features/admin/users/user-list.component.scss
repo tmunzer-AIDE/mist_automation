@@ -1,17 +1,3 @@
-.table-container {
-  overflow-x: auto;
-  border-radius: var(--app-radius);
-  box-shadow: var(--app-shadow-sm);
-}
-
-table {
-  width: 100%;
-}
-
-tr.mat-mdc-row:hover {
-  background: var(--mat-sys-surface-container-low);
-}
-
 mat-chip {
   font-size: 12px;
   margin: 2px;

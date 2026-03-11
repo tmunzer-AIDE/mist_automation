@@ -1,29 +1,32 @@
-<app-page-header title="Dashboard" subtitle="System overview">
-</app-page-header>
+<app-page-header subtitle="System overview"> </app-page-header>
 
-@if (loading) {
-  <app-loading-spinner></app-loading-spinner>
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 } @else {
   <!-- System Health -->
-  @if (health) {
+  @if (health(); as healthVal) {
     <div class="health-bar">
       <div class="health-indicator">
-        <app-status-badge [status]="health.status"></app-status-badge>
-        <span class="health-meta">{{ health.app }} v{{ health.version }} &middot; {{ health.environment }}</span>
+        <app-status-badge [status]="healthVal.status"></app-status-badge>
+        <span class="health-meta"
+          >{{ healthVal.app }} v{{ healthVal.version }} &middot; {{ healthVal.environment }}</span
+        >
       </div>
     </div>
   }
 
-  @if (stats) {
+  @if (stats(); as statsVal) {
     <div class="stats-grid">
       <div class="stat-card" (click)="navigateTo('/admin/users')">
         <div class="stat-icon users">
           <mat-icon>people</mat-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-number">{{ stats.users.total }}</div>
+          <div class="stat-number">{{ statsVal.users.total }}</div>
           <div class="stat-label">Users</div>
-          <div class="stat-detail">{{ stats.users.active }} active &middot; {{ stats.users.admins }} admins</div>
+          <div class="stat-detail">
+            {{ statsVal.users.active }} active &middot; {{ statsVal.users.admins }} admins
+          </div>
         </div>
       </div>
 
@@ -32,9 +35,11 @@
           <mat-icon>backup</mat-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-number">{{ stats.backups.total }}</div>
+          <div class="stat-number">{{ statsVal.backups.total }}</div>
           <div class="stat-label">Backups</div>
-          <div class="stat-detail">{{ stats.backups.completed }} completed &middot; {{ stats.backups.failed }} failed</div>
+          <div class="stat-detail">
+            {{ statsVal.backups.completed }} completed &middot; {{ statsVal.backups.failed }} failed
+          </div>
         </div>
       </div>
 
@@ -43,31 +48,37 @@
           <mat-icon>account_tree</mat-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-number">{{ stats.workflows.total }}</div>
+          <div class="stat-number">{{ statsVal.workflows.total }}</div>
           <div class="stat-label">Workflows</div>
-          <div class="stat-detail">{{ stats.workflows.enabled }} enabled &middot; {{ stats.workflows.draft }} draft</div>
+          <div class="stat-detail">
+            {{ statsVal.workflows.enabled }} enabled &middot; {{ statsVal.workflows.draft }} draft
+          </div>
         </div>
       </div>
 
-      <div class="stat-card" (click)="navigateTo('/executions')">
+      <div class="stat-card" (click)="navigateTo('/workflows')">
         <div class="stat-icon executions">
           <mat-icon>play_circle</mat-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-number">{{ stats.executions.total }}</div>
+          <div class="stat-number">{{ statsVal.executions.total }}</div>
           <div class="stat-label">Executions</div>
-          <div class="stat-detail">{{ stats.executions.succeeded }} ok &middot; {{ stats.executions.failed }} failed</div>
+          <div class="stat-detail">
+            {{ statsVal.executions.succeeded }} ok &middot; {{ statsVal.executions.failed }} failed
+          </div>
         </div>
       </div>
 
-      <div class="stat-card" (click)="navigateTo('/webhooks')">
+      <div class="stat-card" (click)="navigateTo('/workflows/webhooks')">
         <div class="stat-icon webhooks">
           <mat-icon>webhook</mat-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-number">{{ stats.webhooks.total }}</div>
+          <div class="stat-number">{{ statsVal.webhooks.total }}</div>
           <div class="stat-label">Webhooks</div>
-          <div class="stat-detail">{{ stats.webhooks.processed }} processed &middot; {{ stats.webhooks.pending }} pending</div>
+          <div class="stat-detail">
+            {{ statsVal.webhooks.processed }} processed &middot; {{ statsVal.webhooks.pending }} pending
+          </div>
         </div>
       </div>
     </div>

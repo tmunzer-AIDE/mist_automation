@@ -1,14 +1,14 @@
-<app-page-header title="Webhook Monitor" subtitle="Incoming Mist webhook events">
+<app-page-header subtitle="Incoming Mist webhook events">
   <button mat-stroked-button routerLink="/workflows">
     <mat-icon>arrow_back</mat-icon> Workflows
   </button>
 </app-page-header>
 
 <!-- Filters -->
-<div class="filter-row">
-  <mat-form-field>
+<div class="filter-row" [formGroup]="filterForm">
+  <mat-form-field appearance="outline">
     <mat-label>Webhook Type</mat-label>
-    <mat-select [(ngModel)]="webhookTypeFilter" (selectionChange)="onFilterChange()">
+    <mat-select formControlName="webhookType" (selectionChange)="onFilterChange()">
       <mat-option [value]="undefined">All</mat-option>
       <mat-option value="audits">audits</mat-option>
       <mat-option value="alarms">alarms</mat-option>
@@ -18,9 +18,9 @@
       <mat-option value="nac-events">nac-events</mat-option>
     </mat-select>
   </mat-form-field>
-  <mat-form-field>
+  <mat-form-field appearance="outline">
     <mat-label>Processed</mat-label>
-    <mat-select [(ngModel)]="processedFilter" (selectionChange)="onFilterChange()">
+    <mat-select formControlName="processed" (selectionChange)="onFilterChange()">
       <mat-option [value]="undefined">All</mat-option>
       <mat-option [value]="true">Processed</mat-option>
       <mat-option [value]="false">Pending</mat-option>
@@ -28,24 +28,22 @@
   </mat-form-field>
 </div>
 
-@if (loading) {
-  <div class="loading-bar">
-    <mat-icon>hourglass_empty</mat-icon>
-    Loading webhook events…
-  </div>
-} @else if (events.length === 0) {
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+} @else if (events().length === 0) {
   <app-empty-state
     icon="webhook"
     title="No webhook events"
-    message="Webhook events will appear here once Mist sends them.">
+    message="Webhook events will appear here once Mist sends them."
+  >
   </app-empty-state>
 } @else {
   <div class="table-card">
-    <table mat-table [dataSource]="events">
+    <table mat-table [dataSource]="events()">
       <!-- Received At -->
       <ng-container matColumnDef="received_at">
         <th mat-header-cell *matHeaderCellDef>Received</th>
-        <td mat-cell *matCellDef="let ev">{{ ev.received_at | relativeTime }}</td>
+        <td mat-cell *matCellDef="let ev">{{ ev.received_at | dateTime }}</td>
       </ng-container>
 
       <!-- Webhook Type -->
@@ -92,23 +90,26 @@
       <!-- Matched Workflows -->
       <ng-container matColumnDef="matched_workflows">
         <th mat-header-cell *matHeaderCellDef>Matched</th>
-        <td mat-cell *matCellDef="let ev">
-          {{ ev.matched_workflows.length }} workflow(s)
-        </td>
+        <td mat-cell *matCellDef="let ev">{{ ev.matched_workflows.length }} workflow(s)</td>
       </ng-container>
 
       <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-      <tr mat-row *matRowDef="let ev; columns: displayedColumns;"
-          class="clickable-row" (click)="openEventDetail(ev)"></tr>
+      <tr
+        mat-row
+        *matRowDef="let ev; columns: displayedColumns"
+        class="clickable-row"
+        (click)="openEventDetail(ev)"
+      ></tr>
     </table>
 
     <mat-paginator
-      [length]="total"
-      [pageSize]="pageSize"
-      [pageIndex]="pageIndex"
+      [length]="total()"
+      [pageSize]="pageSize()"
+      [pageIndex]="pageIndex()"
       [pageSizeOptions]="[25, 50, 100]"
       (page)="onPage($event)"
-      showFirstLastButtons>
+      showFirstLastButtons
+    >
     </mat-paginator>
   </div>
 }

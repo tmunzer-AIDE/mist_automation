@@ -4,9 +4,7 @@ const routes: Routes = [
   {
     path: '',
     loadComponent: () =>
-      import('./list/backup-object-list.component').then(
-        (m) => m.BackupObjectListComponent,
-      ),
+      import('./list/backup-object-list.component').then((m) => m.BackupObjectListComponent),
   },
   {
     path: 'jobs',
@@ -26,9 +24,7 @@ const routes: Routes = [
   {
     path: 'object/:objectId',
     loadComponent: () =>
-      import('./detail/backup-object-detail.component').then(
-        (m) => m.BackupObjectDetailComponent,
-      ),
+      import('./detail/backup-object-detail.component').then((m) => m.BackupObjectDetailComponent),
   },
   {
     path: ':id',

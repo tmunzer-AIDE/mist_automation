@@ -70,8 +70,8 @@ export interface MistObjectOption {
 }
 
 export interface MistObjectTypeOption {
-  value: string;   // "org:wlans" or "site:maps"
-  label: string;   // "Org WLANs"
+  value: string; // "org:wlans" or "site:maps"
+  label: string; // "Org WLANs"
   scope: 'org' | 'site';
   is_list: boolean;
 }
@@ -185,6 +185,7 @@ export interface ParentReference {
   target_name: string | null;
   field_path: string;
   exists_in_backup: boolean;
+  is_deleted: boolean;
 }
 
 export interface ChildReference {
@@ -192,6 +193,7 @@ export interface ChildReference {
   source_id: string;
   source_name: string | null;
   field_path: string;
+  is_deleted: boolean;
 }
 
 export interface ObjectDependencyResponse {
@@ -200,4 +202,57 @@ export interface ObjectDependencyResponse {
   object_name: string | null;
   parents: ParentReference[];
   children: ChildReference[];
+}
+
+// ── Cascade restore models ──────────────────────────────────────────────────
+
+export interface DeletedDependencyInfo {
+  object_id: string;
+  object_type: string;
+  object_name: string | null;
+  field_path: string;
+  relationship: string;
+  latest_version_id: string | null;
+}
+
+export interface ActiveChildInfo {
+  object_id: string;
+  object_type: string;
+  object_name: string | null;
+  field_path: string;
+  relationship: string;
+  site_id: string | null;
+}
+
+export interface DryRunRestoreResponse {
+  status: string;
+  object_id: string;
+  object_type: string;
+  object_name: string | null;
+  version: number;
+  warnings: string[];
+  deleted_dependencies: DeletedDependencyInfo[];
+  deleted_children: DeletedDependencyInfo[];
+  active_children?: ActiveChildInfo[];
+  note?: string;
+}
+
+export interface CascadeRestorePlanItem {
+  role: 'parent' | 'target' | 'child' | 'update';
+  object_id: string;
+  object_type: string;
+  object_name: string | null;
+  field_path?: string;
+}
+
+export interface CascadeRestoreResult {
+  status: string;
+  restored_objects: {
+    role: string;
+    original_object_id: string;
+    new_object_id: string;
+    object_type: string;
+    object_name: string | null;
+  }[];
+  id_remap: Record<string, string>;
 }

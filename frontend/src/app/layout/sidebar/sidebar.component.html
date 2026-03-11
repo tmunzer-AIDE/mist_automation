@@ -15,16 +15,25 @@
             <span class="nav-label">{{ item.label }}</span>
           </mat-expansion-panel-header>
           @for (child of item.children; track child.route) {
-            <a mat-list-item [routerLink]="child.route" routerLinkActive="active"
-               [routerLinkActiveOptions]="{ exact: child.route === item.route }">
+            <a
+              mat-list-item
+              [routerLink]="child.route"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{ exact: child.route === item.route }"
+            >
               <mat-icon matListItemIcon>{{ child.icon }}</mat-icon>
               <span matListItemTitle>{{ child.label }}</span>
             </a>
           }
         </mat-expansion-panel>
       } @else {
-        <a mat-list-item [routerLink]="item.route" routerLinkActive="active"
-           [matTooltip]="collapsed ? item.label : ''" matTooltipPosition="right">
+        <a
+          mat-list-item
+          [routerLink]="item.route"
+          routerLinkActive="active"
+          [matTooltip]="collapsed ? item.label : ''"
+          matTooltipPosition="right"
+        >
           <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
           @if (!collapsed) {
             <span matListItemTitle>{{ item.label }}</span>

@@ -4,13 +4,11 @@ const routes: Routes = [
   { path: '', redirectTo: 'users', pathMatch: 'full' },
   {
     path: 'users',
-    loadComponent: () =>
-      import('./users/user-list.component').then((m) => m.UserListComponent),
+    loadComponent: () => import('./users/user-list.component').then((m) => m.UserListComponent),
   },
   {
     path: 'settings',
-    loadComponent: () =>
-      import('./settings/settings.component').then((m) => m.SettingsComponent),
+    loadComponent: () => import('./settings/settings.component').then((m) => m.SettingsComponent),
     children: [
       { path: '', redirectTo: 'mist', pathMatch: 'full' },
       {
@@ -21,39 +19,47 @@ const routes: Routes = [
       {
         path: 'security',
         loadComponent: () =>
-          import('./settings/security/settings-security.component').then((m) => m.SettingsSecurityComponent),
+          import('./settings/security/settings-security.component').then(
+            (m) => m.SettingsSecurityComponent,
+          ),
       },
       {
         path: 'workflows',
         loadComponent: () =>
-          import('./settings/workflows/settings-workflows.component').then((m) => m.SettingsWorkflowsComponent),
+          import('./settings/workflows/settings-workflows.component').then(
+            (m) => m.SettingsWorkflowsComponent,
+          ),
       },
       {
         path: 'backups',
         loadComponent: () =>
-          import('./settings/backups/settings-backups.component').then((m) => m.SettingsBackupsComponent),
+          import('./settings/backups/settings-backups.component').then(
+            (m) => m.SettingsBackupsComponent,
+          ),
       },
       {
         path: 'webhooks',
         loadComponent: () =>
-          import('./settings/webhooks/settings-webhooks.component').then((m) => m.SettingsWebhooksComponent),
+          import('./settings/webhooks/settings-webhooks.component').then(
+            (m) => m.SettingsWebhooksComponent,
+          ),
       },
       {
         path: 'integrations',
         loadComponent: () =>
-          import('./settings/integrations/settings-integrations.component').then((m) => m.SettingsIntegrationsComponent),
+          import('./settings/integrations/settings-integrations.component').then(
+            (m) => m.SettingsIntegrationsComponent,
+          ),
       },
     ],
   },
   {
     path: 'logs',
-    loadComponent: () =>
-      import('./logs/audit-logs.component').then((m) => m.AuditLogsComponent),
+    loadComponent: () => import('./logs/audit-logs.component').then((m) => m.AuditLogsComponent),
   },
   {
     path: 'stats',
-    loadComponent: () =>
-      import('./stats/stats.component').then((m) => m.StatsComponent),
+    loadComponent: () => import('./stats/stats.component').then((m) => m.StatsComponent),
   },
 ];
 

@@ -1,10 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  MAT_DIALOG_DATA,
-  MatDialogModule,
-  MatDialogRef,
-} from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 
@@ -12,19 +8,10 @@ export interface BlockPaletteDialogData {
   actionsOnly?: boolean;
 }
 
-export interface BlockOption {
-  kind: 'action';
-  actionType?: string;
-  label: string;
-  icon: string;
-  color: string;
-  description: string;
-}
+// Re-export for backward compatibility
+export type { BlockOption } from './block-categories';
 
-interface BlockCategory {
-  name: string;
-  options: BlockOption[];
-}
+import { BLOCK_CATEGORIES, BlockCategory } from './block-categories';
 
 @Component({
   selector: 'app-block-palette-dialog',
@@ -35,123 +22,13 @@ interface BlockCategory {
 })
 export class BlockPaletteDialogComponent {
   private readonly dialogRef = inject(MatDialogRef<BlockPaletteDialogComponent>);
-  private readonly dialogData: BlockPaletteDialogData | null = inject(MAT_DIALOG_DATA, { optional: true });
+  private readonly dialogData: BlockPaletteDialogData | null = inject(MAT_DIALOG_DATA, {
+    optional: true,
+  });
 
-  readonly categories: BlockCategory[] = [
-    {
-      name: 'API Actions',
-      options: [
-        {
-          kind: 'action',
-          actionType: 'mist_api_get',
-          label: 'Mist API GET',
-          icon: 'cloud_download',
-          color: '#1976d2',
-          description: 'Fetch data from Mist API',
-        },
-        {
-          kind: 'action',
-          actionType: 'mist_api_post',
-          label: 'Mist API POST',
-          icon: 'cloud_upload',
-          color: '#1976d2',
-          description: 'Create resource via Mist API',
-        },
-        {
-          kind: 'action',
-          actionType: 'mist_api_put',
-          label: 'Mist API PUT',
-          icon: 'edit',
-          color: '#1976d2',
-          description: 'Update resource via Mist API',
-        },
-        {
-          kind: 'action',
-          actionType: 'mist_api_delete',
-          label: 'Mist API DELETE',
-          icon: 'delete',
-          color: '#d32f2f',
-          description: 'Delete resource via Mist API',
-        },
-      ],
-    },
-    {
-      name: 'Notifications',
-      options: [
-        {
-          kind: 'action',
-          actionType: 'webhook',
-          label: 'Webhook',
-          icon: 'send',
-          color: '#7b1fa2',
-          description: 'Send HTTP request to external URL',
-        },
-        {
-          kind: 'action',
-          actionType: 'slack',
-          label: 'Slack',
-          icon: 'chat',
-          color: '#e91e63',
-          description: 'Send Slack notification',
-        },
-        {
-          kind: 'action',
-          actionType: 'servicenow',
-          label: 'ServiceNow',
-          icon: 'confirmation_number',
-          color: '#388e3c',
-          description: 'Create or update ServiceNow record',
-        },
-        {
-          kind: 'action',
-          actionType: 'pagerduty',
-          label: 'PagerDuty',
-          icon: 'notifications_active',
-          color: '#f57c00',
-          description: 'Trigger PagerDuty incident',
-        },
-      ],
-    },
-    {
-      name: 'Flow Control',
-      options: [
-        {
-          kind: 'action',
-          actionType: 'delay',
-          label: 'Delay',
-          icon: 'schedule',
-          color: '#616161',
-          description: 'Wait for a specified duration',
-        },
-        {
-          kind: 'action',
-          actionType: 'condition',
-          label: 'Condition',
-          icon: 'call_split',
-          color: '#0097a7',
-          description: 'Branch based on a condition',
-        },
-        {
-          kind: 'action',
-          actionType: 'set_variable',
-          label: 'Set Variable',
-          icon: 'data_object',
-          color: '#795548',
-          description: 'Compute and store a variable',
-        },
-        {
-          kind: 'action',
-          actionType: 'for_each',
-          label: 'For Each',
-          icon: 'loop',
-          color: '#4527a0',
-          description: 'Iterate over a list with nested actions',
-        },
-      ],
-    },
-  ];
+  readonly categories: BlockCategory[] = BLOCK_CATEGORIES;
 
-  selectOption(option: BlockOption): void {
+  selectOption(option: import('./block-categories').BlockOption): void {
     this.dialogRef.close(option);
   }
 }

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -17,13 +17,21 @@ import { SettingsService } from '../settings.service';
   selector: 'app-settings-backups',
   standalone: true,
   imports: [
-    CommonModule, ReactiveFormsModule,
-    MatCardModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatButtonModule, MatIconModule, MatSnackBarModule,
-    MatProgressBarModule, MatSlideToggleModule, MatDividerModule,
+    CommonModule,
+    ReactiveFormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatSelectModule,
+    MatButtonModule,
+    MatIconModule,
+    MatSnackBarModule,
+    MatProgressBarModule,
+    MatSlideToggleModule,
+    MatDividerModule,
   ],
   template: `
-    @if (loading) {
+    @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
       <form [formGroup]="form" class="tab-form">
@@ -32,7 +40,9 @@ import { SettingsService } from '../settings.service';
             <mat-card-title>Backup Configuration</mat-card-title>
           </mat-card-header>
           <mat-card-content>
-            <mat-slide-toggle formControlName="backup_enabled">Enable automatic backups</mat-slide-toggle>
+            <mat-slide-toggle formControlName="backup_enabled"
+              >Enable automatic backups</mat-slide-toggle
+            >
 
             <h3 class="subsection-title">Schedule</h3>
             <div class="schedule-row">
@@ -80,7 +90,9 @@ import { SettingsService } from '../settings.service';
                 </mat-select>
               </mat-form-field>
             </div>
-            <p class="schedule-preview">Cron: <code>{{ cronPreview }}</code></p>
+            <p class="schedule-preview">
+              Cron: <code>{{ cronPreview }}</code>
+            </p>
 
             <mat-form-field appearance="outline">
               <mat-label>Retention (days)</mat-label>
@@ -90,11 +102,17 @@ import { SettingsService } from '../settings.service';
             <mat-divider></mat-divider>
 
             <h3 class="subsection-title">Git Integration</h3>
-            <mat-slide-toggle formControlName="backup_git_enabled">Enable Git backup</mat-slide-toggle>
+            <mat-slide-toggle formControlName="backup_git_enabled"
+              >Enable Git backup</mat-slide-toggle
+            >
 
             <mat-form-field appearance="outline">
               <mat-label>Repository URL</mat-label>
-              <input matInput formControlName="backup_git_repo_url" placeholder="https://github.com/org/repo.git" />
+              <input
+                matInput
+                formControlName="backup_git_repo_url"
+                placeholder="https://github.com/org/repo.git"
+              />
             </mat-form-field>
 
             <mat-form-field appearance="outline">
@@ -113,46 +131,70 @@ import { SettingsService } from '../settings.service';
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
-            <button mat-flat-button (click)="save()" [disabled]="saving">
-              <mat-icon>save</mat-icon> {{ saving ? 'Saving...' : 'Save' }}
+            <button mat-flat-button (click)="save()" [disabled]="saving()">
+              <mat-icon>save</mat-icon> {{ saving() ? 'Saving...' : 'Save' }}
             </button>
           </mat-card-actions>
         </mat-card>
       </form>
     }
   `,
-  styles: [`
-    .tab-form { display: flex; flex-direction: column; gap: 24px; }
-    mat-card-content { display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
-    mat-form-field { width: 100%; max-width: 500px; }
-    .subsection-title { font-size: 14px; font-weight: 500; margin: 16px 0 8px; color: var(--mat-sys-on-surface-variant); }
-    mat-divider { margin: 16px 0; }
-    .schedule-row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .schedule-row mat-form-field { flex: 1; min-width: 140px; max-width: 200px; }
-    .schedule-preview {
-      margin: -4px 0 8px;
-      font-size: 12px;
-      color: var(--mat-sys-on-surface-variant);
-    }
-    .schedule-preview code {
-      background: var(--mat-sys-surface-container);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-  `],
+  styles: [
+    `
+      .tab-form {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      mat-card-content {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+      }
+      mat-form-field {
+        width: 100%;
+        max-width: 500px;
+      }
+      .subsection-title {
+        font-size: 14px;
+        font-weight: 500;
+        margin: 16px 0 8px;
+        color: var(--mat-sys-on-surface-variant);
+      }
+      mat-divider {
+        margin: 16px 0;
+      }
+      .schedule-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .schedule-row mat-form-field {
+        flex: 1;
+        min-width: 140px;
+        max-width: 200px;
+      }
+      .schedule-preview {
+        margin: -4px 0 8px;
+        font-size: 12px;
+        color: var(--mat-sys-on-surface-variant);
+      }
+      .schedule-preview code {
+        background: var(--mat-sys-surface-container);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+    `,
+  ],
 })
 export class SettingsBackupsComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
   private readonly fb = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
-  loading = true;
-  saving = false;
+  loading = signal(true);
+  saving = signal(false);
 
   hours = Array.from({ length: 24 }, (_, i) => ({
     value: String(i),
@@ -196,15 +238,16 @@ export class SettingsBackupsComponent implements OnInit {
           backup_git_author_name: s.backup_git_author_name,
           backup_git_author_email: s.backup_git_author_email,
         });
-        this.loading = false;
-        this.cdr.detectChanges();
+        this.loading.set(false);
       },
-      error: () => { this.loading = false; this.cdr.detectChanges(); },
+      error: () => {
+        this.loading.set(false);
+      },
     });
   }
 
   save(): void {
-    this.saving = true;
+    this.saving.set(true);
     const values = this.form.getRawValue();
     const updates: Record<string, unknown> = {
       backup_enabled: values.backup_enabled,
@@ -214,19 +257,19 @@ export class SettingsBackupsComponent implements OnInit {
       backup_git_branch: values.backup_git_branch,
     };
     if (values.backup_git_repo_url) updates['backup_git_repo_url'] = values.backup_git_repo_url;
-    if (values.backup_git_author_name) updates['backup_git_author_name'] = values.backup_git_author_name;
-    if (values.backup_git_author_email) updates['backup_git_author_email'] = values.backup_git_author_email;
+    if (values.backup_git_author_name)
+      updates['backup_git_author_name'] = values.backup_git_author_name;
+    if (values.backup_git_author_email)
+      updates['backup_git_author_email'] = values.backup_git_author_email;
 
     this.settingsService.save(updates).subscribe({
       next: () => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open('Backup settings saved', 'OK', { duration: 3000 });
-        this.cdr.detectChanges();
       },
       error: (err) => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open(err.message, 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }
@@ -246,7 +289,10 @@ export class SettingsBackupsComponent implements OnInit {
   }
 
   private parseCron(cron: string): {
-    frequency: string; hour: string; dayOfWeek: string; dayOfMonth: string;
+    frequency: string;
+    hour: string;
+    dayOfWeek: string;
+    dayOfMonth: string;
   } {
     const parts = cron.split(' ');
     if (parts.length !== 5) {

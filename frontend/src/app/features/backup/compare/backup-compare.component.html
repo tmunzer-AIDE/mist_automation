@@ -1,4 +1,4 @@
-<app-page-header title="Compare Backups" subtitle="View differences between two backups"></app-page-header>
+<app-page-header subtitle="View differences between two backups"></app-page-header>
 
 <div class="compare-inputs" [formGroup]="form">
   <mat-form-field appearance="outline">
@@ -10,16 +10,14 @@
     <mat-label>Backup ID 2</mat-label>
     <input matInput formControlName="backup_id_2" />
   </mat-form-field>
-  <button mat-flat-button (click)="compare()" [disabled]="form.invalid || loading">
-    Compare
-  </button>
+  <button mat-flat-button (click)="compare()" [disabled]="form.invalid || loading()">Compare</button>
 </div>
 
-@if (loading) {
+@if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
-@if (diff) {
+@if (diff(); as diff) {
   <div class="summary-cards">
     <mat-card>
       <mat-card-content>
@@ -42,7 +40,11 @@
   </div>
 
   @if (diff.differences.length === 0) {
-    <app-empty-state icon="check_circle" title="No differences" message="These backups are identical.">
+    <app-empty-state
+      icon="check_circle"
+      title="No differences"
+      message="These backups are identical."
+    >
     </app-empty-state>
   } @else {
     <div class="table-container">

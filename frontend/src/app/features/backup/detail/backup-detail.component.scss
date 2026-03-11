@@ -65,7 +65,9 @@
   padding: 2px;
   display: flex;
 
-  &:hover { color: var(--mat-sys-primary); }
+  &:hover {
+    color: var(--mat-sys-primary);
+  }
 }
 
 // ── Webhook Summary ─────────────────────────────────────────────────────────
@@ -214,10 +216,16 @@
   line-height: 1.6;
   border-bottom: 1px solid var(--mat-sys-outline-variant);
 
-  &:last-child { border-bottom: none; }
+  &:last-child {
+    border-bottom: none;
+  }
 
-  &.log-w { background: rgba(245, 158, 11, 0.05); }
-  &.log-e { background: rgba(239, 68, 68, 0.05); }
+  &.log-w {
+    background: rgba(245, 158, 11, 0.05);
+  }
+  &.log-e {
+    background: rgba(239, 68, 68, 0.05);
+  }
 }
 
 .log-ts {

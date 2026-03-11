@@ -29,15 +29,4 @@ export class TokenService {
   hasValidToken(): boolean {
     return !!this.getToken() && !this.isTokenExpired();
   }
-
-  decodeToken(): Record<string, unknown> | null {
-    const token = this.getToken();
-    if (!token) return null;
-    try {
-      const payload = token.split('.')[1];
-      return JSON.parse(atob(payload));
-    } catch {
-      return null;
-    }
-  }
 }

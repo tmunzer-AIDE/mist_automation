@@ -14,25 +14,25 @@ import { MatIconModule } from '@angular/material/icon';
       <pre class="json-content">{{ data.json | json }}</pre>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      <button mat-button (click)="copyJson()">
-        <mat-icon>content_copy</mat-icon> Copy
-      </button>
+      <button mat-button (click)="copyJson()"><mat-icon>content_copy</mat-icon> Copy</button>
       <button mat-button mat-dialog-close>Close</button>
     </mat-dialog-actions>
   `,
-  styles: [`
-    .json-content {
-      font-size: 12px;
-      white-space: pre-wrap;
-      word-break: break-all;
-      background: var(--mat-sys-surface-variant);
-      border-radius: 8px;
-      padding: 16px;
-      margin: 0;
-      max-height: 60vh;
-      overflow: auto;
-    }
-  `],
+  styles: [
+    `
+      .json-content {
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: var(--mat-sys-surface-variant);
+        border-radius: 8px;
+        padding: 16px;
+        margin: 0;
+        max-height: 60vh;
+        overflow: auto;
+      }
+    `,
+  ],
 })
 export class JsonViewDialogComponent {
   readonly data = inject<{ title: string; json: Record<string, unknown> }>(MAT_DIALOG_DATA);

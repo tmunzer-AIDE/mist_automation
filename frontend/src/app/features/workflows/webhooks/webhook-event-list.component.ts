@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
@@ -9,13 +9,15 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { FormsModule } from '@angular/forms';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
 import { WebhookEventSummary } from '../../../core/models/webhook-event.model';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { WebhookEventDetailDialogComponent } from './webhook-event-detail-dialog.component';
 
 @Component({
@@ -24,7 +26,7 @@ import { WebhookEventDetailDialogComponent } from './webhook-event-detail-dialog
   imports: [
     CommonModule,
     RouterModule,
-    FormsModule,
+    ReactiveFormsModule,
     MatTableModule,
     MatPaginatorModule,
     MatButtonModule,
@@ -33,10 +35,11 @@ import { WebhookEventDetailDialogComponent } from './webhook-event-detail-dialog
     MatFormFieldModule,
     MatChipsModule,
     MatDialogModule,
+    MatProgressBarModule,
     PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
-    RelativeTimePipe,
+    DateTimePipe,
   ],
   templateUrl: './webhook-event-list.component.html',
   styleUrl: './webhook-event-list.component.scss',
@@ -44,17 +47,20 @@ import { WebhookEventDetailDialogComponent } from './webhook-event-detail-dialog
 export class WebhookEventListComponent implements OnInit {
   private readonly webhookEventService = inject(WebhookEventService);
   private readonly dialog = inject(MatDialog);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly fb = inject(FormBuilder);
+  private readonly topbarService = inject(TopbarService);
 
-  events: WebhookEventSummary[] = [];
-  total = 0;
-  pageSize = 25;
-  pageIndex = 0;
-  loading = true;
+  events = signal<WebhookEventSummary[]>([]);
+  total = signal(0);
+  pageSize = signal(25);
+  pageIndex = signal(0);
+  loading = signal(true);
 
   // Filters
-  webhookTypeFilter: string | undefined;
-  processedFilter: boolean | undefined;
+  filterForm = this.fb.group({
+    webhookType: [undefined as string | undefined],
+    processed: [undefined as boolean | undefined],
+  });
 
   displayedColumns = [
     'received_at',
@@ -66,40 +72,40 @@ export class WebhookEventListComponent implements OnInit {
   ];
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Webhook Monitor');
     this.loadEvents();
   }
 
   loadEvents(): void {
-    this.loading = true;
+    this.loading.set(true);
+    const filters = this.filterForm.getRawValue();
     this.webhookEventService
       .listEvents(
-        this.pageIndex * this.pageSize,
-        this.pageSize,
-        this.webhookTypeFilter,
-        this.processedFilter
+        this.pageIndex() * this.pageSize(),
+        this.pageSize(),
+        filters.webhookType || undefined,
+        filters.processed ?? undefined,
       )
       .subscribe({
         next: (res) => {
-          this.events = res.events;
-          this.total = res.total;
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.events.set(res.events);
+          this.total.set(res.total);
+          this.loading.set(false);
         },
         error: () => {
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.loading.set(false);
         },
       });
   }
 
   onPage(event: PageEvent): void {
-    this.pageIndex = event.pageIndex;
-    this.pageSize = event.pageSize;
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
     this.loadEvents();
   }
 
   onFilterChange(): void {
-    this.pageIndex = 0;
+    this.pageIndex.set(0);
     this.loadEvents();
   }
 

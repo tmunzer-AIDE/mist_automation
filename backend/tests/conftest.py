@@ -92,14 +92,42 @@ async def auth_token(test_user):
 
 @pytest_asyncio.fixture
 async def test_workflow(test_db, test_user):
-    from app.models.workflow import (Workflow, WorkflowStatus, WorkflowTrigger,
-        TriggerType, WorkflowAction, ActionType)
+    """Create a test workflow using the graph model."""
+    from app.modules.automation.models.workflow import (
+        Workflow, WorkflowStatus, WorkflowNode, WorkflowEdge,
+        NodePosition, NodePort,
+    )
     wf = Workflow(
-        name="Test Workflow", created_by=test_user.id,
+        name="Test Workflow",
+        created_by=test_user.id,
         status=WorkflowStatus.DRAFT,
-        trigger=WorkflowTrigger(type=TriggerType.WEBHOOK, webhook_type="device-updowns"),
-        actions=[WorkflowAction(name="notify", type=ActionType.WEBHOOK,
-                                webhook_url="http://example.com")],
+        nodes=[
+            WorkflowNode(
+                id="trigger-1",
+                type="trigger",
+                name="Webhook Trigger",
+                position=NodePosition(x=400, y=80),
+                config={"trigger_type": "webhook", "webhook_type": "device-updowns"},
+                output_ports=[NodePort(id="default")],
+            ),
+            WorkflowNode(
+                id="action-1",
+                type="webhook",
+                name="notify",
+                position=NodePosition(x=400, y=240),
+                config={"webhook_url": "http://example.com"},
+                output_ports=[NodePort(id="default")],
+            ),
+        ],
+        edges=[
+            WorkflowEdge(
+                id="edge-1",
+                source_node_id="trigger-1",
+                source_port_id="default",
+                target_node_id="action-1",
+                target_port_id="input",
+            ),
+        ],
     )
     await wf.insert()
     return wf

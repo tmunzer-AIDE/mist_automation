@@ -1,5 +1,5 @@
 """
-Workflow schemas.
+Workflow schemas for graph-based workflow API.
 """
 
 from datetime import datetime
@@ -9,28 +9,30 @@ from pydantic import BaseModel, Field
 
 
 class WorkflowCreate(BaseModel):
-    """Workflow creation schema."""
+    """Workflow creation schema — graph model."""
 
     name: str = Field(..., description="Workflow name", min_length=1, max_length=200)
     description: str | None = Field(None, description="Workflow description")
     timeout_seconds: int = Field(default=300, description="Workflow execution timeout", ge=10, le=3600)
-    trigger: dict[str, Any] = Field(..., description="Trigger configuration")
-    actions: list[dict[str, Any]] = Field(..., description="Actions to execute", min_length=1)
+    nodes: list[dict[str, Any]] = Field(..., description="Graph nodes", min_length=1)
+    edges: list[dict[str, Any]] = Field(default_factory=list, description="Graph edges")
+    viewport: dict | None = Field(None, description="Canvas viewport state")
 
 
 class WorkflowUpdate(BaseModel):
-    """Workflow update schema."""
+    """Workflow update schema — graph model."""
 
     name: str | None = Field(None, description="Workflow name", min_length=1, max_length=200)
     description: str | None = Field(None, description="Workflow description")
     status: str | None = Field(None, description="Workflow status")
     timeout_seconds: int | None = Field(None, description="Workflow execution timeout", ge=10, le=3600)
-    trigger: dict[str, Any] | None = Field(None, description="Trigger configuration")
-    actions: list[dict[str, Any]] | None = Field(None, description="Actions to execute")
+    nodes: list[dict[str, Any]] | None = Field(None, description="Graph nodes")
+    edges: list[dict[str, Any]] | None = Field(None, description="Graph edges")
+    viewport: dict | None = Field(None, description="Canvas viewport state")
 
 
 class WorkflowResponse(BaseModel):
-    """Workflow response schema."""
+    """Workflow response schema — graph model."""
 
     id: str = Field(..., description="Workflow ID")
     name: str = Field(..., description="Workflow name")
@@ -39,8 +41,9 @@ class WorkflowResponse(BaseModel):
     status: str = Field(..., description="Workflow status")
     sharing: str = Field(..., description="Sharing permission")
     timeout_seconds: int = Field(..., description="Execution timeout")
-    trigger: dict[str, Any] = Field(..., description="Trigger configuration")
-    actions: list[dict[str, Any]] = Field(..., description="Actions")
+    nodes: list[dict[str, Any]] = Field(..., description="Graph nodes")
+    edges: list[dict[str, Any]] = Field(..., description="Graph edges")
+    viewport: dict | None = Field(None, description="Canvas viewport state")
     execution_count: int = Field(..., description="Total executions")
     success_count: int = Field(..., description="Successful executions")
     failure_count: int = Field(..., description="Failed executions")
@@ -56,3 +59,11 @@ class WorkflowListResponse(BaseModel):
 
     workflows: list[WorkflowResponse] = Field(..., description="List of workflows")
     total: int = Field(..., description="Total number of workflows")
+
+
+class SimulateRequest(BaseModel):
+    """Simulation request schema."""
+
+    payload: dict[str, Any] | None = Field(None, description="Custom trigger payload")
+    webhook_event_id: str | None = Field(None, description="Use payload from an existing webhook event")
+    dry_run: bool = Field(default=True, description="Mock external API/webhook calls")

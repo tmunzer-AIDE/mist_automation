@@ -32,9 +32,7 @@ export class SidebarComponent {
 
   filteredNavItems$: Observable<NavItem[]> = this.roles$.pipe(
     map((roles) =>
-      NAV_ITEMS.filter(
-        (item) => !item.roles || item.roles.some((r) => roles.includes(r))
-      )
-    )
+      NAV_ITEMS.filter((item) => !item.roles || item.roles.some((r) => roles.includes(r))),
+    ),
   );
 }

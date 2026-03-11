@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -33,13 +33,20 @@ const CLOUD_REGIONS = [
   selector: 'app-settings-mist',
   standalone: true,
   imports: [
-    CommonModule, ReactiveFormsModule,
-    MatCardModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatButtonModule, MatIconModule, MatSnackBarModule, MatProgressBarModule,
+    CommonModule,
+    ReactiveFormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatSelectModule,
+    MatButtonModule,
+    MatIconModule,
+    MatSnackBarModule,
+    MatProgressBarModule,
     StatusBadgeComponent,
   ],
   template: `
-    @if (loading) {
+    @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
       <form [formGroup]="form" class="tab-form">
@@ -50,7 +57,11 @@ const CLOUD_REGIONS = [
           <mat-card-content>
             <mat-form-field appearance="outline">
               <mat-label>Organization ID</mat-label>
-              <input matInput formControlName="mist_org_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+              <input
+                matInput
+                formControlName="mist_org_id"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              />
             </mat-form-field>
 
             <mat-form-field appearance="outline">
@@ -64,53 +75,78 @@ const CLOUD_REGIONS = [
 
             <mat-form-field appearance="outline">
               <mat-label>API Token</mat-label>
-              <input matInput type="password" formControlName="mist_api_token"
-                     placeholder="Leave empty to keep current" />
+              <input
+                matInput
+                type="password"
+                formControlName="mist_api_token"
+                placeholder="Leave empty to keep current"
+              />
               <mat-hint>Leave empty to keep the existing token</mat-hint>
             </mat-form-field>
 
             <div class="action-row">
-              <button mat-stroked-button (click)="testConnection()" [disabled]="testingConnection">
+              <button mat-stroked-button (click)="testConnection()" [disabled]="testingConnection()">
                 <mat-icon>wifi_tethering</mat-icon>
-                {{ testingConnection ? 'Testing...' : 'Test Connection' }}
+                {{ testingConnection() ? 'Testing...' : 'Test Connection' }}
               </button>
-              @if (connectionResult) {
-                <app-status-badge [status]="connectionResult.status"></app-status-badge>
-                @if (connectionResult.error) {
-                  <span class="error-text">{{ connectionResult.error }}</span>
+              @if (connectionResult()) {
+                <app-status-badge [status]="connectionResult()!.status"></app-status-badge>
+                @if (connectionResult()!.error) {
+                  <span class="error-text">{{ connectionResult()!.error }}</span>
                 }
               }
             </div>
           </mat-card-content>
           <mat-card-actions align="end">
-            <button mat-flat-button (click)="save()" [disabled]="saving">
-              <mat-icon>save</mat-icon> {{ saving ? 'Saving...' : 'Save' }}
+            <button mat-flat-button (click)="save()" [disabled]="saving()">
+              <mat-icon>save</mat-icon> {{ saving() ? 'Saving...' : 'Save' }}
             </button>
           </mat-card-actions>
         </mat-card>
       </form>
     }
   `,
-  styles: [`
-    .tab-form { display: flex; flex-direction: column; gap: 24px; }
-    mat-card-content { display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
-    mat-form-field { width: 100%; max-width: 500px; }
-    .action-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .error-text { color: var(--mat-sys-error); font-size: 13px; }
-  `],
+  styles: [
+    `
+      .tab-form {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      mat-card-content {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+      }
+      mat-form-field {
+        width: 100%;
+        max-width: 500px;
+      }
+      .action-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .error-text {
+        color: var(--mat-sys-error);
+        font-size: 13px;
+      }
+    `,
+  ],
 })
 export class SettingsMistComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly settingsService = inject(SettingsService);
   private readonly fb = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
   cloudRegions = CLOUD_REGIONS;
-  loading = true;
-  saving = false;
-  testingConnection = false;
-  connectionResult: MistConnectionResult | null = null;
+  loading = signal(true);
+  saving = signal(false);
+  testingConnection = signal(false);
+  connectionResult = signal<MistConnectionResult | null>(null);
 
   form = this.fb.group({
     mist_org_id: [''],
@@ -125,15 +161,16 @@ export class SettingsMistComponent implements OnInit {
           mist_org_id: s.mist_org_id || '',
           mist_cloud_region: s.mist_cloud_region,
         });
-        this.loading = false;
-        this.cdr.detectChanges();
+        this.loading.set(false);
       },
-      error: () => { this.loading = false; this.cdr.detectChanges(); },
+      error: () => {
+        this.loading.set(false);
+      },
     });
   }
 
   save(): void {
-    this.saving = true;
+    this.saving.set(true);
     const v = this.form.getRawValue();
     const updates: Record<string, unknown> = {};
     if (v.mist_org_id) updates['mist_org_id'] = v.mist_org_id;
@@ -142,21 +179,19 @@ export class SettingsMistComponent implements OnInit {
 
     this.settingsService.save(updates).subscribe({
       next: () => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open('Mist settings saved', 'OK', { duration: 3000 });
-        this.cdr.detectChanges();
       },
       error: (err) => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open(err.message, 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }
 
   testConnection(): void {
-    this.testingConnection = true;
-    this.connectionResult = null;
+    this.testingConnection.set(true);
+    this.connectionResult.set(null);
 
     // Send current form values so the user can test before saving
     const v = this.form.getRawValue();
@@ -167,14 +202,12 @@ export class SettingsMistComponent implements OnInit {
 
     this.api.post<MistConnectionResult>('/admin/mist/test-connection', body).subscribe({
       next: (result) => {
-        this.connectionResult = result;
-        this.testingConnection = false;
-        this.cdr.detectChanges();
+        this.connectionResult.set(result);
+        this.testingConnection.set(false);
       },
       error: (err) => {
-        this.connectionResult = { status: 'failed', error: err.message };
-        this.testingConnection = false;
-        this.cdr.detectChanges();
+        this.connectionResult.set({ status: 'failed', error: err.message });
+        this.testingConnection.set(false);
       },
     });
   }

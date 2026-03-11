@@ -4,7 +4,6 @@ import { AuthActions } from './auth.actions';
 
 export interface AuthState {
   user: UserResponse | null;
-  token: string | null;
   loading: boolean;
   error: string | null;
   isAuthenticated: boolean;
@@ -13,7 +12,6 @@ export interface AuthState {
 
 export const initialState: AuthState = {
   user: null,
-  token: null,
   loading: false,
   error: null,
   isAuthenticated: false,
@@ -27,9 +25,8 @@ export const authReducer = createReducer(
     loading: true,
     error: null,
   })),
-  on(AuthActions.loginSuccess, (state, { token }) => ({
+  on(AuthActions.loginSuccess, (state) => ({
     ...state,
-    token,
     loading: false,
     isAuthenticated: true,
     error: null,
@@ -52,5 +49,5 @@ export const authReducer = createReducer(
   })),
   on(AuthActions.logoutComplete, AuthActions.sessionExpired, () => ({
     ...initialState,
-  }))
+  })),
 );

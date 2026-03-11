@@ -11,7 +11,10 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { UserResponse } from '../../../core/models/user.model';
-import { passwordValidator, matchPasswordValidator } from '../../../shared/validators/password.validator';
+import {
+  passwordValidator,
+  matchPasswordValidator,
+} from '../../../shared/validators/password.validator';
 
 interface DialogData {
   mode: 'create' | 'edit';
@@ -20,9 +23,17 @@ interface DialogData {
 
 const AVAILABLE_ROLES = ['admin', 'automation', 'backup'];
 const TIMEZONES = [
-  'UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
-  'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Europe/Berlin',
-  'Asia/Tokyo', 'Asia/Shanghai', 'Australia/Sydney',
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Asia/Shanghai',
+  'Australia/Sydney',
 ];
 
 @Component({
@@ -88,15 +99,19 @@ const TIMEZONES = [
       </button>
     </mat-dialog-actions>
   `,
-  styles: [`
-    .dialog-form {
-      display: flex;
-      flex-direction: column;
-      min-width: 380px;
-      gap: 4px;
-    }
-    mat-form-field { width: 100%; }
-  `],
+  styles: [
+    `
+      .dialog-form {
+        display: flex;
+        flex-direction: column;
+        min-width: 380px;
+        gap: 4px;
+      }
+      mat-form-field {
+        width: 100%;
+      }
+    `,
+  ],
 })
 export class UserDialogComponent implements OnInit {
   readonly data = inject<DialogData>(MAT_DIALOG_DATA);
@@ -121,7 +136,9 @@ export class UserDialogComponent implements OnInit {
   constructor() {
     if (this.data.mode === 'create') {
       this.form.get('password')!.setValidators([Validators.required, passwordValidator()]);
-      this.form.get('confirmPassword')!.setValidators([Validators.required, matchPasswordValidator('password')]);
+      this.form
+        .get('confirmPassword')!
+        .setValidators([Validators.required, matchPasswordValidator('password')]);
     }
   }
 

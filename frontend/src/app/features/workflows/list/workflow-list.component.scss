@@ -6,13 +6,6 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.table-card {
-  background: var(--mat-sys-surface);
-  border-radius: var(--app-radius);
-  box-shadow: var(--app-shadow-sm);
-  overflow: hidden;
-}
-
 .name-cell {
   display: flex;
   flex-direction: column;
@@ -36,22 +29,4 @@
 
 .clickable {
   cursor: pointer;
-}
-
-.clickable-row {
-  cursor: pointer;
-  transition: background 0.15s;
-
-  &:hover {
-    background: var(--mat-sys-surface-variant);
-  }
-}
-
-.actions-cell {
-  text-align: right;
-  width: 48px;
-}
-
-.danger {
-  color: var(--mat-sys-error);
 }

@@ -4,7 +4,7 @@ Unit tests for variable substitution engine.
 
 import os
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from app.utils.variables import (
     VariableSubstitutionError,
     get_nested_value,
@@ -67,10 +67,17 @@ class TestBuildContext:
         assert context["workflow"]["name"] == "Test"
 
     def test_environment_variables(self):
-        os.environ["TEST_VAR"] = "test_value"
         context = build_context(include_env=True)
-        assert context["env"]["TEST_VAR"] == "test_value"
-        del os.environ["TEST_VAR"]
+        assert "APP_NAME" in context["env"]
+        assert "ENVIRONMENT" in context["env"]
+        # Must NOT expose secrets
+        assert "SECRET_KEY" not in context["env"]
+
+    def test_env_does_not_expose_secret_key(self):
+        context = build_context(include_env=True)
+        env = context.get("env", {})
+        for key in ("SECRET_KEY", "MIST_API_TOKEN", "MONGODB_PASSWORD"):
+            assert key not in env
 
     def test_utility_values(self):
         context = build_context(include_env=False)
@@ -111,11 +118,18 @@ class TestSubstituteVariables:
         assert result == "Workflow: Test Workflow"
 
     def test_environment_variable_substitution(self):
-        os.environ["TEST_VAR"] = "test_value"
-        template = "Value: {{env.TEST_VAR}}"
+        template = "App: {{env.APP_NAME}}"
         result = substitute_variables(template, include_env=True)
-        assert result == "Value: test_value"
-        del os.environ["TEST_VAR"]
+        assert "Mist" in result
+
+    def test_secret_key_not_accessible_via_template(self):
+        template = "Secret: {{env.SECRET_KEY}}"
+        result = substitute_variables(template, include_env=True)
+        # SECRET_KEY should not be in the env dict, so ChainableUndefined renders empty
+        assert "Secret:" in result
+        # Must not contain the actual secret key value
+        from app.config import settings
+        assert settings.secret_key not in result
 
     def test_empty_template(self):
         result = substitute_variables("", webhook_data={})

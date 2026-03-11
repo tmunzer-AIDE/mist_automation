@@ -113,6 +113,7 @@ class ParentReference(BaseModel):
     target_name: str | None = None
     field_path: str
     exists_in_backup: bool
+    is_deleted: bool = False
 
 
 class ChildReference(BaseModel):
@@ -121,6 +122,7 @@ class ChildReference(BaseModel):
     source_id: str
     source_name: str | None = None
     field_path: str
+    is_deleted: bool = False
 
 
 class ObjectDependencyResponse(BaseModel):
@@ -179,3 +181,23 @@ class BackupObjectStatsResponse(BaseModel):
 
 class BackupJobStatsResponse(BaseModel):
     days: list[DailyJobStats]
+
+
+# ── Cascade restore schemas ─────────────────────────────────────────────────
+
+
+class DeletedDependencyInfo(BaseModel):
+    """A deleted parent or child relevant to cascade restore."""
+    object_id: str
+    object_type: str
+    object_name: str | None = None
+    field_path: str
+    relationship: str  # "parent" or "child"
+    latest_version_id: str | None = None
+
+
+class CascadeRestoreResult(BaseModel):
+    """Result of a cascade restore operation."""
+    status: str
+    restored_objects: list[dict] = Field(default_factory=list)
+    id_remap: dict[str, str] = Field(default_factory=dict)

@@ -12,6 +12,6 @@ export const onboardGuard: CanActivateFn = () => {
       if (!health.is_initialized) return true;
       return router.createUrlTree(['/login']);
     }),
-    catchError(() => of(router.createUrlTree(['/login'])))
+    catchError(() => of(router.createUrlTree(['/login']))),
   );
 };

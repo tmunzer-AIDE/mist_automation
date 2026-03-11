@@ -1,0 +1,235 @@
+<!-- Zoom controls toolbar -->
+<div class="canvas-toolbar">
+  <button mat-icon-button (click)="zoomOut()" matTooltip="Zoom out">
+    <mat-icon>remove</mat-icon>
+  </button>
+  <span class="zoom-label">{{ getZoomPercent() }}%</span>
+  <button mat-icon-button (click)="zoomIn()" matTooltip="Zoom in">
+    <mat-icon>add</mat-icon>
+  </button>
+  <button mat-icon-button (click)="fitToView()" matTooltip="Fit to view">
+    <mat-icon>fit_screen</mat-icon>
+  </button>
+</div>
+
+<!-- SVG Canvas -->
+<svg
+  #svgCanvas
+  class="graph-canvas"
+  tabindex="0"
+  (wheel)="onWheel($event)"
+  (pointerdown)="onCanvasPointerDown($event)"
+  (pointermove)="onCanvasPointerMove($event)"
+  (pointerup)="onCanvasPointerUp($event)"
+  (keydown)="onKeyDown($event)"
+  (dragover)="onDragOver($event)"
+  (drop)="onDrop($event)"
+>
+  <defs>
+    <!-- Grid pattern -->
+    <pattern
+      id="grid"
+      [attr.width]="GRID_SIZE"
+      [attr.height]="GRID_SIZE"
+      patternUnits="userSpaceOnUse"
+    >
+      <path
+        [attr.d]="'M ' + GRID_SIZE + ' 0 L 0 0 0 ' + GRID_SIZE"
+        fill="none"
+        stroke="var(--grid-color, #e0e0e0)"
+        stroke-width="0.5"
+      />
+    </pattern>
+
+    <!-- Arrowhead marker -->
+    <marker
+      id="arrowhead"
+      markerWidth="10"
+      markerHeight="7"
+      refX="10"
+      refY="3.5"
+      orient="auto"
+    >
+      <polygon
+        points="0 0, 10 3.5, 0 7"
+        fill="var(--edge-color, #9e9e9e)"
+      />
+    </marker>
+    <marker
+      id="arrowhead-active"
+      markerWidth="10"
+      markerHeight="7"
+      refX="10"
+      refY="3.5"
+      orient="auto"
+    >
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4caf50" />
+    </marker>
+  </defs>
+
+  <!-- Grid background -->
+  <rect
+    width="100%"
+    height="100%"
+    fill="url(#grid)"
+    [attr.transform]="viewTransform"
+  />
+
+  <!-- Main graph group with pan/zoom transform -->
+  <g [attr.transform]="viewTransform">
+    <!-- Edges -->
+    @for (ep of edgePaths; track ep.edge.id) {
+      <g class="edge-group" [class.selected]="selectedEdgeId === ep.edge.id"
+         [class.active]="isEdgeActive(ep.edge.id)">
+        <!-- Invisible wider path for easier click targeting -->
+        <path
+          [attr.d]="ep.path"
+          fill="none"
+          stroke="transparent"
+          stroke-width="12"
+          class="edge-hitarea"
+          (click)="onEdgeClick($event, ep.edge.id)"
+        />
+        <!-- Visible edge path -->
+        <path
+          [attr.d]="ep.path"
+          fill="none"
+          [attr.stroke]="isEdgeActive(ep.edge.id) ? '#4caf50' : (selectedEdgeId === ep.edge.id ? '#1976d2' : '#9e9e9e')"
+          stroke-width="2"
+          [attr.marker-end]="isEdgeActive(ep.edge.id) ? 'url(#arrowhead-active)' : 'url(#arrowhead)'"
+          class="edge-path"
+          (click)="onEdgeClick($event, ep.edge.id)"
+        />
+        <!-- Edge label -->
+        @if (ep.edge.label) {
+          <text
+            [attr.x]="ep.midX"
+            [attr.y]="ep.midY - 6"
+            text-anchor="middle"
+            class="edge-label"
+          >
+            {{ ep.edge.label }}
+          </text>
+        }
+      </g>
+    }
+
+    <!-- Pending edge (being dragged) -->
+    @if (pendingEdgePath) {
+      <path
+        [attr.d]="pendingEdgePath"
+        fill="none"
+        stroke="#1976d2"
+        stroke-width="2"
+        stroke-dasharray="6 3"
+        class="pending-edge"
+      />
+    }
+
+    <!-- Nodes -->
+    @for (node of nodes; track node.id) {
+      <g
+        class="node-group"
+        [class.selected]="selectedNodeId === node.id"
+        [class.disabled]="!node.enabled"
+        [attr.transform]="'translate(' + node.position.x + ',' + node.position.y + ')'"
+        (pointerdown)="onNodePointerDown($event, node)"
+      >
+        <!-- Node card background -->
+        <rect
+          [attr.width]="NODE_WIDTH"
+          [attr.height]="NODE_HEIGHT"
+          rx="8"
+          ry="8"
+          class="node-card"
+          [style.stroke]="selectedNodeId === node.id ? '#1976d2' : 'transparent'"
+        />
+
+        <!-- Simulation status indicator -->
+        @if (getSimulationStatus(node.id); as simStatus) {
+          <circle
+            [attr.cx]="NODE_WIDTH - 12"
+            cy="12"
+            r="6"
+            [attr.fill]="simStatus === 'success' ? '#4caf50' : simStatus === 'failed' ? '#f44336' : simStatus === 'active' ? '#ff9800' : '#9e9e9e'"
+            class="sim-indicator"
+          />
+          @if (simStatus === 'active') {
+            <circle
+              [attr.cx]="NODE_WIDTH - 12"
+              cy="12"
+              r="6"
+              fill="none"
+              stroke="#ff9800"
+              stroke-width="2"
+              class="sim-pulse"
+            />
+          }
+        }
+
+        <!-- Color accent bar -->
+        <rect
+          width="4"
+          [attr.height]="NODE_HEIGHT"
+          rx="2"
+          [attr.fill]="getNodeColor(node)"
+          class="node-accent"
+        />
+
+        <!-- Node icon -->
+        <foreignObject x="12" y="16" width="32" height="32">
+          <div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="node-icon"
+            [style.background]="getNodeColor(node)"
+          >
+            <mat-icon>{{ getNodeIcon(node) }}</mat-icon>
+          </div>
+        </foreignObject>
+
+        <!-- Node label -->
+        <text x="52" y="32" class="node-label">
+          {{ getNodeLabel(node) }}
+        </text>
+
+        <!-- Node type subtitle -->
+        <text x="52" y="50" class="node-type">
+          {{ node.type === 'trigger' ? (node.config['trigger_type'] || 'webhook') : node.type.replace('_', ' ') }}
+        </text>
+
+        <!-- Input port (top center) — not on trigger -->
+        @if (node.type !== 'trigger') {
+          <circle
+            [attr.cx]="getInputPortX()"
+            [attr.cy]="getInputPortY()"
+            [attr.r]="PORT_RADIUS"
+            class="port input-port"
+          />
+        }
+
+        <!-- Output ports (bottom) -->
+        @for (port of node.output_ports; track port.id; let i = $index) {
+          <g class="output-port-group">
+            <circle
+              [attr.cx]="getOutputPortX(node, i)"
+              [attr.cy]="getOutputPortY()"
+              [attr.r]="PORT_RADIUS"
+              class="port output-port"
+              (pointerdown)="onOutputPortPointerDown($event, node, port)"
+            />
+            @if (port.label) {
+              <text
+                [attr.x]="getOutputPortX(node, i)"
+                [attr.y]="getOutputPortY() + 16"
+                text-anchor="middle"
+                class="port-label"
+              >
+                {{ port.label }}
+              </text>
+            }
+          </g>
+        }
+      </g>
+    }
+  </g>
+</svg>

@@ -1,10 +1,8 @@
-@if (loading) {
-  <app-loading-spinner></app-loading-spinner>
-} @else if (backup) {
-  <app-page-header [title]="'Backup Job'" [subtitle]="backup.backup_type + ' — ' + backup.id">
-    <a mat-stroked-button routerLink="/backup">
-      <mat-icon>arrow_back</mat-icon> Back
-    </a>
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+} @else if (backup(); as backup) {
+  <app-page-header [subtitle]="backup.backup_type + ' — ' + backup.id">
+    <a mat-stroked-button routerLink="/backup"> <mat-icon>arrow_back</mat-icon> Back </a>
     <button mat-flat-button (click)="openRestore()" [disabled]="backup.status !== 'completed'">
       <mat-icon>restore</mat-icon> Restore
     </button>
@@ -38,7 +36,7 @@
       </div>
     }
     <div class="overview-item">
-      <span class="ov-value">{{ backup.created_at | relativeTime }}</span>
+      <span class="ov-value">{{ backup.created_at | dateTime }}</span>
       <span class="ov-label">Created</span>
     </div>
     @if (backup.error) {
@@ -58,14 +56,20 @@
         </button>
       </div>
       <div class="webhook-summary">
-        <span class="webhook-count">{{ backup.webhook_event.length }} event{{ backup.webhook_event.length > 1 ? 's' : '' }}</span>
+        <span class="webhook-count"
+          >{{ backup.webhook_event.length }} event{{
+            backup.webhook_event.length > 1 ? 's' : ''
+          }}</span
+        >
         @for (evt of backup.webhook_event; track $index) {
           @if (evt['message']) {
             <span class="webhook-message">{{ evt['message'] }}</span>
           }
         }
       </div>
-      <pre class="json-block" [class.expanded]="webhookExpanded">{{ formatJson(backup.webhook_event) }}</pre>
+      <pre class="json-block" [class.expanded]="webhookExpanded">{{
+        formatJson(backup.webhook_event)
+      }}</pre>
     </section>
   }
 
@@ -86,33 +90,55 @@
     <div class="section-head">
       <h3 class="section-label">Execution Log</h3>
       <div class="log-meta">
-        <span class="log-count">{{ logsTotal }} entries</span>
-        @if (logWarningCount > 0) {
-          <span class="log-warn-count">{{ logWarningCount }} warn</span>
+        <span class="log-count">{{ logsTotal() }} entries</span>
+        @if (logWarningCount() > 0) {
+          <span class="log-warn-count">{{ logWarningCount() }} warn</span>
         }
-        @if (logErrorCount > 0) {
-          <span class="log-error-count">{{ logErrorCount }} err</span>
+        @if (logErrorCount() > 0) {
+          <span class="log-error-count">{{ logErrorCount() }} err</span>
         }
       </div>
     </div>
 
     <div class="log-filters">
-      <button class="pill" [class.active]="logLevelFilter === null" (click)="filterLogs(null)">All</button>
-      <button class="pill" [class.active]="logLevelFilter === 'info'" (click)="filterLogs('info')">Info</button>
-      <button class="pill pill-warn" [class.active]="logLevelFilter === 'warning'" (click)="filterLogs('warning')">Warning</button>
-      <button class="pill pill-err" [class.active]="logLevelFilter === 'error'" (click)="filterLogs('error')">Error</button>
+      <button class="pill" [class.active]="logLevelFilter === null" (click)="filterLogs(null)">
+        All
+      </button>
+      <button class="pill" [class.active]="logLevelFilter === 'info'" (click)="filterLogs('info')">
+        Info
+      </button>
+      <button
+        class="pill pill-warn"
+        [class.active]="logLevelFilter === 'warning'"
+        (click)="filterLogs('warning')"
+      >
+        Warning
+      </button>
+      <button
+        class="pill pill-err"
+        [class.active]="logLevelFilter === 'error'"
+        (click)="filterLogs('error')"
+      >
+        Error
+      </button>
     </div>
 
-    @if (logsLoading) {
+    @if (logsLoading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-    } @else if (logs.length === 0) {
+    } @else if (logs().length === 0) {
       <p class="log-empty">No log entries found.</p>
     } @else {
       <div class="log-stream">
-        @for (log of logs; track log.id) {
-          <div class="log-line" [class.log-w]="log.level === 'warning'" [class.log-e]="log.level === 'error'">
-            <span class="log-ts">{{ log.timestamp | date:'HH:mm:ss.SSS' }}</span>
-            <span class="log-lvl" [class]="'lvl-' + log.level">{{ log.level.charAt(0).toUpperCase() }}</span>
+        @for (log of logs(); track log.id) {
+          <div
+            class="log-line"
+            [class.log-w]="log.level === 'warning'"
+            [class.log-e]="log.level === 'error'"
+          >
+            <span class="log-ts">{{ log.timestamp | date: 'HH:mm:ss.SSS' }}</span>
+            <span class="log-lvl" [class]="'lvl-' + log.level">{{
+              log.level.charAt(0).toUpperCase()
+            }}</span>
             <span class="log-ph">{{ log.phase }}</span>
             <span class="log-msg">{{ log.message }}</span>
           </div>

@@ -3,15 +3,14 @@ Cron workflow executor - handles scheduled workflow execution.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
+
 import structlog
 from beanie import PydanticObjectId
 
+from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
 from app.modules.automation.models.workflow import Workflow, WorkflowStatus
-from app.modules.automation.models.execution import WorkflowExecution, ExecutionStatus
 from app.modules.automation.services.executor_service import WorkflowExecutor
-from app.services.mist_service import MistService
-from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -38,11 +37,7 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
         if workflow.status != WorkflowStatus.ENABLED:
             raise ValueError(f"Workflow {workflow_id} is disabled")
 
-        logger.info(
-            "cron_workflow_execution_started",
-            workflow_id=workflow_id,
-            workflow_name=workflow.name
-        )
+        logger.info("cron_workflow_execution_started", workflow_id=workflow_id, workflow_name=workflow.name)
 
         # Create execution record
         execution = WorkflowExecution(
@@ -55,23 +50,9 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
         execution.add_log("Triggered by cron schedule")
         await execution.save()
 
-        # Initialize executor — get credentials from system config (DB), fall back to env settings
-        from app.models.system import SystemConfig
-        from app.core.security import decrypt_sensitive_data
-        config = await SystemConfig.get_config()
-        api_token = settings.mist_api_token
-        if config and config.mist_api_token:
-            try:
-                api_token = decrypt_sensitive_data(config.mist_api_token)
-            except Exception:
-                pass  # Fall back to settings
-        cloud_region = (config.mist_cloud_region if config else None) or "global_01"
+        from app.services.mist_service_factory import create_mist_service
 
-        mist_service = MistService(
-            api_token=api_token,
-            org_id=(config.mist_org_id if config else None) or settings.mist_org_id,
-            cloud_region=cloud_region,
-        )
+        mist_service = await create_mist_service()
         executor = WorkflowExecutor(mist_service=mist_service)
 
         try:
@@ -92,7 +73,7 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
                 workflow_id=workflow_id,
                 execution_id=str(result.id),
                 status=result.status,
-                duration_ms=result.duration_ms
+                duration_ms=result.duration_ms,
             )
 
             return {
@@ -101,7 +82,7 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
                 "status": result.status,
                 "duration_ms": result.duration_ms,
                 "trigger_condition_passed": result.trigger_condition_passed,
-                "actions_executed": result.actions_executed,
+                "nodes_executed": result.nodes_executed,
             }
 
         except Exception as e:
@@ -113,19 +94,12 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
                 await execution.save()
 
             logger.error(
-                "cron_workflow_execution_error",
-                workflow_id=workflow_id,
-                execution_id=str(execution.id),
-                error=str(e)
+                "cron_workflow_execution_error", workflow_id=workflow_id, execution_id=str(execution.id), error=str(e)
             )
             raise
 
     except Exception as e:
-        logger.error(
-            "cron_workflow_execution_failed",
-            workflow_id=workflow_id,
-            error=str(e)
-        )
+        logger.error("cron_workflow_execution_failed", workflow_id=workflow_id, error=str(e))
         raise
 
 
@@ -145,17 +119,18 @@ async def get_cron_workflow_status(workflow_id: str) -> dict[str, Any]:
             raise ValueError(f"Workflow {workflow_id} not found")
 
         # Get recent executions
-        recent_executions = await WorkflowExecution.find(
-            WorkflowExecution.workflow_id == workflow.id,
-            WorkflowExecution.trigger_type == "cron"
-        ).sort("-started_at").limit(10).to_list()
+        recent_executions = (
+            await WorkflowExecution.find(
+                WorkflowExecution.workflow_id == workflow.id, WorkflowExecution.trigger_type == "cron"
+            )
+            .sort("-started_at")
+            .limit(10)
+            .to_list()
+        )
 
         # Calculate success rate
         total_executions = len(recent_executions)
-        successful_executions = sum(
-            1 for e in recent_executions 
-            if e.status == ExecutionStatus.SUCCESS
-        )
+        successful_executions = sum(1 for e in recent_executions if e.status == ExecutionStatus.SUCCESS)
         success_rate = (successful_executions / total_executions * 100) if total_executions > 0 else 0
 
         # Get last execution info
@@ -165,15 +140,19 @@ async def get_cron_workflow_status(workflow_id: str) -> dict[str, Any]:
             "workflow_id": workflow_id,
             "workflow_name": workflow.name,
             "enabled": workflow.status == WorkflowStatus.ENABLED,
-            "cron_expression": workflow.trigger.cron_expression if workflow.trigger else None,
+            "cron_expression": _get_cron_expression(workflow),
             "total_executions": total_executions,
             "success_rate": round(success_rate, 2),
-            "last_execution": {
-                "execution_id": str(last_execution.id),
-                "status": last_execution.status,
-                "started_at": last_execution.started_at.isoformat(),
-                "duration_ms": last_execution.duration_ms,
-            } if last_execution else None,
+            "last_execution": (
+                {
+                    "execution_id": str(last_execution.id),
+                    "status": last_execution.status,
+                    "started_at": last_execution.started_at.isoformat(),
+                    "duration_ms": last_execution.duration_ms,
+                }
+                if last_execution
+                else None
+            ),
             "recent_executions": [
                 {
                     "execution_id": str(e.id),
@@ -182,13 +161,17 @@ async def get_cron_workflow_status(workflow_id: str) -> dict[str, Any]:
                     "duration_ms": e.duration_ms,
                 }
                 for e in recent_executions
-            ]
+            ],
         }
 
     except Exception as e:
-        logger.error(
-            "failed_to_get_cron_workflow_status",
-            workflow_id=workflow_id,
-            error=str(e)
-        )
+        logger.error("failed_to_get_cron_workflow_status", workflow_id=workflow_id, error=str(e))
         raise
+
+
+def _get_cron_expression(workflow: Workflow) -> str | None:
+    """Extract cron expression from the trigger node config."""
+    trigger_node = workflow.get_trigger_node()
+    if trigger_node:
+        return trigger_node.config.get("cron_expression")
+    return None

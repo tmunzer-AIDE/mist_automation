@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -14,12 +14,18 @@ import { SettingsService } from '../settings.service';
   selector: 'app-settings-workflows',
   standalone: true,
   imports: [
-    CommonModule, ReactiveFormsModule,
-    MatCardModule, MatFormFieldModule, MatInputModule,
-    MatButtonModule, MatIconModule, MatSnackBarModule, MatProgressBarModule,
+    CommonModule,
+    ReactiveFormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatIconModule,
+    MatSnackBarModule,
+    MatProgressBarModule,
   ],
   template: `
-    @if (loading) {
+    @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
       <form [formGroup]="form" class="tab-form">
@@ -39,28 +45,41 @@ import { SettingsService } from '../settings.service';
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
-            <button mat-flat-button (click)="save()" [disabled]="saving">
-              <mat-icon>save</mat-icon> {{ saving ? 'Saving...' : 'Save' }}
+            <button mat-flat-button (click)="save()" [disabled]="saving()">
+              <mat-icon>save</mat-icon> {{ saving() ? 'Saving...' : 'Save' }}
             </button>
           </mat-card-actions>
         </mat-card>
       </form>
     }
   `,
-  styles: [`
-    .tab-form { display: flex; flex-direction: column; gap: 24px; }
-    mat-card-content { display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
-    mat-form-field { width: 100%; max-width: 500px; }
-  `],
+  styles: [
+    `
+      .tab-form {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      mat-card-content {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+      }
+      mat-form-field {
+        width: 100%;
+        max-width: 500px;
+      }
+    `,
+  ],
 })
 export class SettingsWorkflowsComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
   private readonly fb = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
-  loading = true;
-  saving = false;
+  loading = signal(true);
+  saving = signal(false);
 
   form = this.fb.group({
     max_concurrent_workflows: [10],
@@ -74,25 +93,24 @@ export class SettingsWorkflowsComponent implements OnInit {
           max_concurrent_workflows: s.max_concurrent_workflows,
           workflow_default_timeout: s.workflow_default_timeout,
         });
-        this.loading = false;
-        this.cdr.detectChanges();
+        this.loading.set(false);
       },
-      error: () => { this.loading = false; this.cdr.detectChanges(); },
+      error: () => {
+        this.loading.set(false);
+      },
     });
   }
 
   save(): void {
-    this.saving = true;
+    this.saving.set(true);
     this.settingsService.save(this.form.getRawValue()).subscribe({
       next: () => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open('Workflow settings saved', 'OK', { duration: 3000 });
-        this.cdr.detectChanges();
       },
       error: (err) => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open(err.message, 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }

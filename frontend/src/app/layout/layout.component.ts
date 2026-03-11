@@ -1,41 +1,59 @@
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router, RouterOutlet, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
 import { CommonModule } from '@angular/common';
+import { filter, map } from 'rxjs';
 
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [
-    CommonModule,
-    RouterOutlet,
-    MatSidenavModule,
-    SidebarComponent,
-    TopbarComponent,
-  ],
+  imports: [CommonModule, RouterOutlet, MatSidenavModule, SidebarComponent, TopbarComponent],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss',
 })
 export class LayoutComponent {
-  isMobile = false;
-  sidebarOpen = true;
-  sidebarCollapsed = false;
+  private readonly router = inject(Router);
+  private readonly activatedRoute = inject(ActivatedRoute);
+  private readonly breakpointObserver = inject(BreakpointObserver);
 
-  constructor(private breakpointObserver: BreakpointObserver) {
-    this.breakpointObserver.observe([Breakpoints.Handset]).subscribe((result) => {
-      this.isMobile = result.matches;
-      this.sidebarOpen = !result.matches;
-    });
+  isMobile = signal(false);
+  sidebarOpen = signal(true);
+  sidebarCollapsed = signal(false);
+  isFullWidth = signal(false);
+
+  constructor() {
+    this.breakpointObserver
+      .observe([Breakpoints.Handset])
+      .pipe(takeUntilDestroyed())
+      .subscribe((result) => {
+        this.isMobile.set(result.matches);
+        this.sidebarOpen.set(!result.matches);
+      });
+
+    this.router.events
+      .pipe(
+        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+        map(() => {
+          let route = this.activatedRoute;
+          while (route.firstChild) route = route.firstChild;
+          return route.snapshot.data;
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe((data) => {
+        this.isFullWidth.set(!!data['fullWidth']);
+      });
   }
 
   toggleSidebar(): void {
-    if (this.isMobile) {
-      this.sidebarOpen = !this.sidebarOpen;
+    if (this.isMobile()) {
+      this.sidebarOpen.update((v) => !v);
     } else {
-      this.sidebarCollapsed = !this.sidebarCollapsed;
+      this.sidebarCollapsed.update((v) => !v);
     }
   }
 }

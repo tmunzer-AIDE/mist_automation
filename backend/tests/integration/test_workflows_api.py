@@ -24,8 +24,33 @@ class TestCreateWorkflow:
     async def test_create_workflow(self, client):
         payload = {
             "name": "API Test Workflow",
-            "trigger": {"type": "webhook", "webhook_type": "device-updowns"},
-            "actions": [{"name": "notify", "type": "webhook", "webhook_url": "http://example.com"}],
+            "nodes": [
+                {
+                    "id": "trigger-1",
+                    "type": "trigger",
+                    "name": "Webhook Trigger",
+                    "position": {"x": 400, "y": 80},
+                    "config": {"trigger_type": "webhook", "webhook_type": "device-updowns"},
+                    "output_ports": [{"id": "default", "label": "", "type": "default"}],
+                },
+                {
+                    "id": "action-1",
+                    "type": "webhook",
+                    "name": "notify",
+                    "position": {"x": 400, "y": 240},
+                    "config": {"webhook_url": "http://example.com"},
+                    "output_ports": [{"id": "default", "label": "", "type": "default"}],
+                },
+            ],
+            "edges": [
+                {
+                    "id": "edge-1",
+                    "source_node_id": "trigger-1",
+                    "source_port_id": "default",
+                    "target_node_id": "action-1",
+                    "target_port_id": "input",
+                },
+            ],
         }
         response = await client.post("/api/v1/workflows", json=payload)
         assert response.status_code in (200, 201)

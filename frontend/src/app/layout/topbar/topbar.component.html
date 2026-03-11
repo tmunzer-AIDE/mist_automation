@@ -3,6 +3,14 @@
     <mat-icon>menu</mat-icon>
   </button>
 
+  @if (topbarService.title$ | async; as title) {
+    <span class="page-title">{{ title }}</span>
+  }
+
+  @if (topbarService.actionsTemplate$ | async; as actionsTpl) {
+    <ng-container *ngTemplateOutlet="actionsTpl"></ng-container>
+  }
+
   <span class="spacer"></span>
 
   @if (user$ | async; as user) {

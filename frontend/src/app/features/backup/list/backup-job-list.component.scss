@@ -20,25 +20,6 @@
 
 // ── Table Card ─────────────────────────────────────────────────────────────
 
-.table-card {
-  border-radius: var(--app-radius);
-  box-shadow: var(--app-shadow-sm);
-  overflow: hidden;
-
-  table {
-    width: 100%;
-  }
-}
-
-.clickable-row {
-  cursor: pointer;
-  transition: background 0.12s;
-
-  &:hover {
-    background: var(--mat-sys-surface-container-low);
-  }
-}
-
 .type-cell {
   font-family: var(--app-font-mono);
   font-size: 13px;

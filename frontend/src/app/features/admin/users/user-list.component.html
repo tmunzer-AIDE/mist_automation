@@ -1,20 +1,20 @@
-<app-page-header title="Users" subtitle="Manage user accounts">
+<app-page-header subtitle="Manage user accounts">
   <button mat-flat-button (click)="openCreateDialog()">
     <mat-icon>person_add</mat-icon> Add User
   </button>
 </app-page-header>
 
-@if (loading) {
+@if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
-@if (!loading && users.length === 0) {
+@if (!loading() && users().length === 0) {
   <app-empty-state icon="people" title="No users" message="Create your first user to get started.">
     <button mat-flat-button (click)="openCreateDialog()">Add User</button>
   </app-empty-state>
 } @else {
-  <div class="table-container">
-    <table mat-table [dataSource]="users">
+  <div class="table-card">
+    <table mat-table [dataSource]="users()">
       <ng-container matColumnDef="email">
         <th mat-header-cell *matHeaderCellDef>Email</th>
         <td mat-cell *matCellDef="let user">{{ user.email }}</td>
@@ -36,20 +36,21 @@
             [checked]="user.is_active"
             [disabled]="isSelf(user)"
             [matTooltip]="isSelf(user) ? 'Cannot disable your own account' : ''"
-            (change)="toggleActive(user)">
+            (change)="toggleActive(user)"
+          >
           </mat-slide-toggle>
         </td>
       </ng-container>
 
       <ng-container matColumnDef="created_at">
         <th mat-header-cell *matHeaderCellDef>Created</th>
-        <td mat-cell *matCellDef="let user">{{ user.created_at | relativeTime }}</td>
+        <td mat-cell *matCellDef="let user">{{ user.created_at | dateTime }}</td>
       </ng-container>
 
       <ng-container matColumnDef="last_login">
         <th mat-header-cell *matHeaderCellDef>Last Login</th>
         <td mat-cell *matCellDef="let user">
-          {{ user.last_login ? (user.last_login | relativeTime) : 'Never' }}
+          {{ user.last_login ? (user.last_login | dateTime) : 'Never' }}
         </td>
       </ng-container>
 
@@ -59,7 +60,13 @@
           <button mat-icon-button (click)="openEditDialog(user)" matTooltip="Edit">
             <mat-icon>edit</mat-icon>
           </button>
-          <button mat-icon-button color="warn" (click)="deleteUser(user)" [disabled]="isSelf(user)" [matTooltip]="isSelf(user) ? 'Cannot delete your own account' : 'Delete'">
+          <button
+            mat-icon-button
+            color="warn"
+            (click)="deleteUser(user)"
+            [disabled]="isSelf(user)"
+            [matTooltip]="isSelf(user) ? 'Cannot delete your own account' : 'Delete'"
+          >
             <mat-icon>delete</mat-icon>
           </button>
         </td>
@@ -74,8 +81,9 @@
     [length]="total"
     [pageSize]="pageSize"
     [pageIndex]="pageIndex"
-    [pageSizeOptions]="[10, 25, 50]"
+    [pageSizeOptions]="[25, 50, 100]"
     (page)="onPage($event)"
-    showFirstLastButtons>
+    showFirstLastButtons
+  >
   </mat-paginator>
 }

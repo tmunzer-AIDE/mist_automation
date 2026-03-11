@@ -662,16 +662,21 @@ async def get_object_dependencies(
     Children: objects that reference this object.
     Implicit site parent is included when the object has a ``site_id``.
     """
-    # Find latest non-deleted version
+    # Find latest version — prefer non-deleted, fall back to any
     obj = await BackupObject.find(
         BackupObject.object_id == object_id,
         BackupObject.is_deleted == False,
     ).sort([("version", -1)]).first_or_none()
 
     if not obj:
+        obj = await BackupObject.find(
+            BackupObject.object_id == object_id,
+        ).sort([("version", -1)]).first_or_none()
+
+    if not obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active backup found for this object",
+            detail="No backup found for this object",
         )
 
     # --- Parents ---
@@ -679,10 +684,19 @@ async def get_object_dependencies(
 
     # Explicit references stored on the document
     for ref in obj.references:
+        # Try active first, then fall back to any version
         target = await BackupObject.find(
             BackupObject.object_id == ref.target_id,
             BackupObject.is_deleted == False,
         ).sort([("version", -1)]).first_or_none()
+
+        target_deleted = False
+        if not target:
+            target = await BackupObject.find(
+                BackupObject.object_id == ref.target_id,
+            ).sort([("version", -1)]).first_or_none()
+            if target:
+                target_deleted = True
 
         parents.append(ParentReference(
             target_type=ref.target_type,
@@ -690,6 +704,7 @@ async def get_object_dependencies(
             target_name=target.object_name if target else None,
             field_path=ref.field_path,
             exists_in_backup=target is not None,
+            is_deleted=target_deleted,
         ))
 
     # Implicit site parent
@@ -700,19 +715,28 @@ async def get_object_dependencies(
             BackupObject.is_deleted == False,
         ).sort([("version", -1)]).first_or_none()
 
+        site_deleted = False
+        if not site:
+            site = await BackupObject.find(
+                BackupObject.object_id == obj.site_id,
+                BackupObject.object_type == "sites",
+            ).sort([("version", -1)]).first_or_none()
+            if site:
+                site_deleted = True
+
         parents.append(ParentReference(
             target_type="sites",
             target_id=obj.site_id,
             target_name=site.object_name if site else None,
             field_path="site_id",
             exists_in_backup=site is not None,
+            is_deleted=site_deleted,
         ))
 
     # --- Children ---
-    # Find objects whose references.target_id matches this object_id
+    # Find objects whose references.target_id matches this object_id (including deleted)
     child_docs = await BackupObject.find(
         {"references.target_id": object_id},
-        BackupObject.is_deleted == False,
     ).sort([("version", -1)]).to_list()
 
     # Deduplicate by object_id (keep latest version)
@@ -730,6 +754,7 @@ async def get_object_dependencies(
                     source_id=doc.object_id,
                     source_name=doc.object_name,
                     field_path=ref.field_path,
+                    is_deleted=doc.is_deleted,
                 ))
 
     return ObjectDependencyResponse(
@@ -786,9 +811,14 @@ async def get_object_versions(
 async def restore_object_version(
     version_id: str,
     dry_run: bool = Query(False, description="Preview restore without applying"),
+    cascade: bool = Query(False, description="Cascade restore parents and children"),
     current_user: User = Depends(get_current_user_from_token),
 ):
-    """Restore a backed-up object to a specific version in Mist."""
+    """Restore a backed-up object to a specific version in Mist.
+
+    When ``cascade=True``, deleted parents are restored first (with new UUIDs),
+    then the target object, then deleted children — all with ID remapping.
+    """
     try:
         doc_id = PydanticObjectId(version_id)
     except Exception as exc:
@@ -810,6 +840,7 @@ async def restore_object_version(
         object_id=backup.object_id,
         version=backup.version,
         dry_run=dry_run,
+        cascade=cascade,
         user_id=str(current_user.id),
     )
 
@@ -833,7 +864,15 @@ async def restore_object_version(
     restore_service = RestoreService(mist_service=mist_service)
 
     try:
-        if backup.is_deleted:
+        if cascade:
+            result = await restore_service.cascade_restore(
+                version_id=doc_id,
+                include_parents=True,
+                include_children=True,
+                dry_run=dry_run,
+                restored_by=str(current_user.id),
+            )
+        elif backup.is_deleted:
             result = await restore_service.restore_deleted_object(
                 object_id=backup.object_id,
                 version=backup.version,

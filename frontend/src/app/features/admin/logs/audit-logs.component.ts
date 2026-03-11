@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -10,14 +10,23 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { AuditLogEntry, AuditLogListResponse } from '../../../core/models/admin.model';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 
 const EVENT_TYPES = [
-  'user_login', 'user_logout', 'user_created', 'user_updated', 'user_deleted',
-  'settings_updated', 'workflow_created', 'workflow_updated', 'workflow_deleted',
-  'backup_created', 'backup_restored',
+  'user_login',
+  'user_logout',
+  'user_created',
+  'user_updated',
+  'user_deleted',
+  'settings_updated',
+  'workflow_created',
+  'workflow_updated',
+  'workflow_deleted',
+  'backup_created',
+  'backup_restored',
 ];
 
 @Component({
@@ -35,7 +44,7 @@ const EVENT_TYPES = [
     MatIconModule,
     MatProgressBarModule,
     PageHeaderComponent,
-    RelativeTimePipe,
+    DateTimePipe,
   ],
   templateUrl: './audit-logs.component.html',
   styleUrl: './audit-logs.component.scss',
@@ -43,13 +52,13 @@ const EVENT_TYPES = [
 export class AuditLogsComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly fb = inject(FormBuilder);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly topbarService = inject(TopbarService);
 
-  logs: AuditLogEntry[] = [];
-  total = 0;
-  pageSize = 50;
+  logs = signal<AuditLogEntry[]>([]);
+  total = signal(0);
+  pageSize = 25;
   pageIndex = 0;
-  loading = true;
+  loading = signal(true);
   eventTypes = EVENT_TYPES;
   displayedColumns = ['timestamp', 'event_type', 'user_email', 'source_ip', 'details'];
 
@@ -59,11 +68,12 @@ export class AuditLogsComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Audit Logs');
     this.loadLogs();
   }
 
   loadLogs(): void {
-    this.loading = true;
+    this.loading.set(true);
     const filters = this.filterForm.getRawValue();
     this.api
       .get<AuditLogListResponse>('/admin/logs', {
@@ -74,14 +84,12 @@ export class AuditLogsComponent implements OnInit {
       })
       .subscribe({
         next: (res) => {
-          this.logs = res.logs;
-          this.total = res.total;
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.logs.set(res.logs);
+          this.total.set(res.total);
+          this.loading.set(false);
         },
         error: () => {
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.loading.set(false);
         },
       });
   }

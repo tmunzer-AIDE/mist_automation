@@ -29,10 +29,13 @@
 
         <mat-form-field appearance="outline">
           <mat-label>Password</mat-label>
-          <input matInput [type]="hidePassword ? 'password' : 'text'"
-                 formControlName="password" autocomplete="current-password" />
-          <button mat-icon-button matSuffix type="button"
-                  (click)="hidePassword = !hidePassword">
+          <input
+            matInput
+            [type]="hidePassword ? 'password' : 'text'"
+            formControlName="password"
+            autocomplete="current-password"
+          />
+          <button mat-icon-button matSuffix type="button" (click)="hidePassword = !hidePassword">
             <mat-icon>{{ hidePassword ? 'visibility_off' : 'visibility' }}</mat-icon>
           </button>
           @if (loginForm.get('password')?.hasError('required')) {
@@ -42,8 +45,12 @@
 
         <mat-checkbox formControlName="remember_me">Remember me</mat-checkbox>
 
-        <button mat-flat-button type="submit" class="login-button"
-                [disabled]="loginForm.invalid || (loading$ | async)">
+        <button
+          mat-flat-button
+          type="submit"
+          class="login-button"
+          [disabled]="loginForm.invalid || (loading$ | async)"
+        >
           Sign In
         </button>
       </form>
@@ -51,9 +58,7 @@
 
     @if (showOnboardLink) {
       <mat-card-footer>
-        <p class="onboard-link">
-          First time? <a routerLink="/onboard">Set up your account</a>
-        </p>
+        <p class="onboard-link">First time? <a routerLink="/onboard">Set up your account</a></p>
       </mat-card-footer>
     }
   </mat-card>

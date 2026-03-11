@@ -16,13 +16,6 @@
   }
 }
 
-.table-card {
-  background: var(--mat-sys-surface);
-  border-radius: var(--app-radius);
-  box-shadow: var(--app-shadow-sm);
-  overflow: hidden;
-}
-
 .wh-type {
   font-weight: 500;
 }
@@ -78,15 +71,6 @@
 .status-server-error {
   background: #fef2f2;
   color: #991b1b;
-}
-
-.clickable-row {
-  cursor: pointer;
-  transition: background 0.15s;
-
-  &:hover {
-    background: var(--mat-sys-surface-variant);
-  }
 }
 
 @media (max-width: 768px) {

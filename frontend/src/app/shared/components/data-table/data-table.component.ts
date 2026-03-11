@@ -1,12 +1,4 @@
-import {
-  Component,
-  Input,
-  Output,
-  EventEmitter,
-  ViewChild,
-  input,
-  output,
-} from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatTableModule, MatTableDataSource } from '@angular/material/table';
 import { MatPaginatorModule, MatPaginator, PageEvent } from '@angular/material/paginator';
@@ -22,13 +14,7 @@ export interface TableColumn {
 @Component({
   selector: 'app-data-table',
   standalone: true,
-  imports: [
-    CommonModule,
-    MatTableModule,
-    MatPaginatorModule,
-    MatSortModule,
-    MatProgressBarModule,
-  ],
+  imports: [CommonModule, MatTableModule, MatPaginatorModule, MatSortModule, MatProgressBarModule],
   template: `
     @if (loading) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
@@ -37,11 +23,14 @@ export interface TableColumn {
       <table mat-table [dataSource]="dataSource" matSort (matSortChange)="onSort($event)">
         @for (col of columns; track col.key) {
           <ng-container [matColumnDef]="col.key">
-            <th mat-header-cell *matHeaderCellDef [mat-sort-header]="col.sortable !== false ? col.key : ''">
+            <th
+              mat-header-cell
+              *matHeaderCellDef
+              [mat-sort-header]="col.sortable !== false ? col.key : ''"
+            >
               {{ col.label }}
             </th>
             <td mat-cell *matCellDef="let row">
-              <ng-content *ngTemplateOutlet="null"></ng-content>
               {{ row[col.key] }}
             </td>
           </ng-container>
@@ -57,9 +46,12 @@ export interface TableColumn {
         }
 
         <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: displayedColumns"
-            [class.clickable]="rowClickable"
-            (click)="rowClick.emit(row)"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: displayedColumns"
+          [class.clickable]="rowClickable"
+          (click)="rowClick.emit(row)"
+        ></tr>
       </table>
     </div>
     <mat-paginator
@@ -67,17 +59,26 @@ export interface TableColumn {
       [pageSize]="pageSize"
       [pageSizeOptions]="[10, 25, 50, 100]"
       (page)="pageChange.emit($event)"
-      showFirstLastButtons>
+      showFirstLastButtons
+    >
     </mat-paginator>
   `,
-  styles: [`
-    .table-container {
-      overflow-x: auto;
-    }
-    table { width: 100%; }
-    tr.clickable { cursor: pointer; }
-    tr.clickable:hover { background: var(--mat-sys-surface-variant); }
-  `],
+  styles: [
+    `
+      .table-container {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+      }
+      tr.clickable {
+        cursor: pointer;
+      }
+      tr.clickable:hover {
+        background: var(--mat-sys-surface-variant);
+      }
+    `,
+  ],
 })
 export class DataTableComponent {
   @Input() columns: TableColumn[] = [];

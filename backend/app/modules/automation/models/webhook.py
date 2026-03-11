@@ -3,11 +3,10 @@ Webhook event model for tracking incoming webhooks.
 """
 
 from datetime import datetime, timezone
-from enum import Enum
-from typing import Any
 
 from beanie import Document, PydanticObjectId
 from pydantic import Field
+from pymongo import ASCENDING, IndexModel
 
 
 class WebhookEvent(Document):
@@ -29,8 +28,12 @@ class WebhookEvent(Document):
 
     # Processing status
     processed: bool = Field(default=False, description="Whether webhook has been processed")
-    matched_workflows: list[PydanticObjectId] = Field(default_factory=list, description="List of workflow IDs that matched")
-    executions_triggered: list[PydanticObjectId] = Field(default_factory=list, description="List of execution IDs triggered")
+    matched_workflows: list[PydanticObjectId] = Field(
+        default_factory=list, description="List of workflow IDs that matched"
+    )
+    executions_triggered: list[PydanticObjectId] = Field(
+        default_factory=list, description="List of execution IDs triggered"
+    )
 
     # Validation
     signature_valid: bool = Field(default=True, description="Whether webhook signature was valid")
@@ -45,36 +48,40 @@ class WebhookEvent(Document):
     # Timestamps
     received_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     processed_at: datetime | None = Field(default=None, description="When webhook was processed")
-    
+
     class Settings:
         name = "webhook_events"
         indexes = [
-            "webhook_id",
+            IndexModel([("webhook_id", ASCENDING)], unique=True),
             "webhook_type",
             [("received_at", -1)],  # Descending order for recent events
             "site_id",
             "org_id",
             "processed",
         ]
-    
-    def mark_processed(self, matched_workflow_ids: list[PydanticObjectId] | None = None, execution_ids: list[PydanticObjectId] | None = None):
+
+    def mark_processed(
+        self,
+        matched_workflow_ids: list[PydanticObjectId] | None = None,
+        execution_ids: list[PydanticObjectId] | None = None,
+    ):
         """Mark webhook as processed."""
         self.processed = True
         self.processed_at = datetime.now(timezone.utc)
 
         if matched_workflow_ids:
             self.matched_workflows = matched_workflow_ids
-        
+
         if execution_ids:
             self.executions_triggered = execution_ids
-    
+
     def extract_event_data(self) -> list[dict]:
         """Extract events from webhook payload."""
         # Mist webhooks typically have an 'events' array
         if isinstance(self.payload, dict):
             return self.payload.get("events", [])
         return []
-    
+
     class Config:
         json_schema_extra = {
             "example": {

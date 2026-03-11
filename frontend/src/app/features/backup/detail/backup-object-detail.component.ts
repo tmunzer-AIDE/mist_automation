@@ -1,6 +1,6 @@
-import { Component, ChangeDetectorRef, inject, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -14,12 +14,14 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { ObjectDependencyResponse } from '../../../core/models/backup.model';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { JsonViewDialogComponent } from './json-view-dialog.component';
+import { CascadeRestoreDialogComponent } from './cascade-restore-dialog.component';
 
 interface ObjectVersion {
   id: string;
@@ -57,7 +59,7 @@ interface ObjectVersion {
     PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
-    RelativeTimePipe,
+    DateTimePipe,
   ],
   templateUrl: './backup-object-detail.component.html',
   styleUrl: './backup-object-detail.component.scss',
@@ -65,17 +67,18 @@ interface ObjectVersion {
 export class BackupObjectDetailComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly topbarService = inject(TopbarService);
   private routeSub!: Subscription;
 
   objectId = '';
-  versions: ObjectVersion[] = [];
-  loading = true;
+  versions = signal<ObjectVersion[]>([]);
+  loading = signal(true);
   selectedVersionId: string | null = null;
-  dependencies: ObjectDependencyResponse | null = null;
-  depsLoading = true;
+  dependencies = signal<ObjectDependencyResponse | null>(null);
+  depsLoading = signal(true);
 
   // Compare mode
   compareMode = false;
@@ -84,15 +87,18 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
 
   versionColumns = ['version', 'date', 'admin', 'event_type', 'changed_fields', 'actions'];
 
-  get latestVersion(): ObjectVersion | null {
-    return this.versions.length > 0 ? this.versions[0] : null;
-  }
+  latestVersion = computed(() => {
+    const v = this.versions();
+    return v.length > 0 ? v[0] : null;
+  });
 
-  get oldestVersion(): ObjectVersion | null {
-    return this.versions.length > 0 ? this.versions[this.versions.length - 1] : null;
-  }
+  oldestVersion = computed(() => {
+    const v = this.versions();
+    return v.length > 0 ? v[v.length - 1] : null;
+  });
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Object Detail');
     this.routeSub = this.route.paramMap.subscribe((params) => {
       const id = params.get('objectId') || '';
       if (id !== this.objectId) {
@@ -109,11 +115,11 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
   }
 
   private resetState(): void {
-    this.versions = [];
-    this.loading = true;
+    this.versions.set([]);
+    this.loading.set(true);
     this.selectedVersionId = null;
-    this.dependencies = null;
-    this.depsLoading = true;
+    this.dependencies.set(null);
+    this.depsLoading.set(true);
     this.compareMode = false;
     this.compareVersions = [null, null];
     this.diffEntries = [];
@@ -148,43 +154,27 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
     });
   }
 
-  restoring = false;
-
   restoreVersion(v: ObjectVersion): void {
-    const name = v.object_name || v.object_id;
-    const action = v.is_deleted ? 'Re-create' : 'Restore';
-    const ref = this.snackBar.open(
-      `${action} "${name}" to v${v.version}?`,
-      'Confirm',
-      { duration: 8000 },
-    );
-    ref.onAction().subscribe(() => this.executeRestore(v));
-  }
-
-  private executeRestore(v: ObjectVersion): void {
-    this.restoring = true;
-    this.cdr.detectChanges();
-
-    this.api
-      .post<{ status: string; object_name?: string; note?: string }>(
-        `/backups/objects/versions/${v.id}/restore`,
-      )
-      .subscribe({
-        next: (res) => {
-          this.restoring = false;
-          const msg = res.note
-            ? `Restored — ${res.note}`
-            : `Restored "${v.object_name || v.object_id}" to v${v.version}`;
-          this.snackBar.open(msg, 'OK', { duration: 5000 });
+    const ref = this.dialog.open(CascadeRestoreDialogComponent, {
+      width: '600px',
+      maxHeight: '80vh',
+      data: {
+        versionId: v.id,
+        objectName: v.object_name || v.object_id,
+        objectType: v.object_type,
+        isDeleted: v.is_deleted,
+      },
+    });
+    ref.afterClosed().subscribe((result) => {
+      if (result?.restored) {
+        if (result.newObjectId && result.newObjectId !== this.objectId) {
+          this.router.navigate(['/backup/object', result.newObjectId]);
+        } else {
           this.loadVersions();
-        },
-        error: (err) => {
-          this.restoring = false;
-          const detail = err?.error?.detail || 'Restore failed';
-          this.snackBar.open(detail, 'OK', { duration: 6000 });
-          this.cdr.detectChanges();
-        },
-      });
+          this.loadDependencies();
+        }
+      }
+    });
   }
 
   toggleCompareMode(): void {
@@ -242,7 +232,7 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
   private deepDiff(
     a: Record<string, unknown>,
     b: Record<string, unknown>,
-    path = ''
+    path = '',
   ): { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] {
     const result: { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] = [];
     const allKeys = new Set([...Object.keys(a), ...Object.keys(b)]);
@@ -254,15 +244,15 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
       } else if (!(key in b)) {
         result.push({ path: p, type: 'removed', oldValue: a[key] });
       } else if (
-        typeof a[key] === 'object' && a[key] !== null && !Array.isArray(a[key]) &&
-        typeof b[key] === 'object' && b[key] !== null && !Array.isArray(b[key])
+        typeof a[key] === 'object' &&
+        a[key] !== null &&
+        !Array.isArray(a[key]) &&
+        typeof b[key] === 'object' &&
+        b[key] !== null &&
+        !Array.isArray(b[key])
       ) {
         result.push(
-          ...this.deepDiff(
-            a[key] as Record<string, unknown>,
-            b[key] as Record<string, unknown>,
-            p
-          )
+          ...this.deepDiff(a[key] as Record<string, unknown>, b[key] as Record<string, unknown>, p),
         );
       } else if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) {
         result.push({ path: p, type: 'modified', oldValue: a[key], newValue: b[key] });
@@ -278,41 +268,35 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
   }
 
   private loadDependencies(): void {
-    this.depsLoading = true;
+    this.depsLoading.set(true);
     this.api
-      .get<ObjectDependencyResponse>(
-        `/backups/objects/${this.objectId}/dependencies`
-      )
+      .get<ObjectDependencyResponse>(`/backups/objects/${this.objectId}/dependencies`)
       .subscribe({
         next: (res) => {
-          this.dependencies = res;
-          this.depsLoading = false;
-          this.cdr.detectChanges();
+          this.dependencies.set(res);
+          this.depsLoading.set(false);
         },
         error: () => {
-          this.depsLoading = false;
-          this.cdr.detectChanges();
+          this.depsLoading.set(false);
         },
       });
   }
 
   private loadVersions(): void {
-    this.loading = true;
+    this.loading.set(true);
     this.api
-      .get<{ versions: ObjectVersion[]; total: number }>(
-        `/backups/objects/${this.objectId}/versions`
-      )
+      .get<{
+        versions: ObjectVersion[];
+        total: number;
+      }>(`/backups/objects/${this.objectId}/versions`)
       .subscribe({
         next: (res) => {
-          this.versions = res.versions;
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.versions.set(res.versions);
+          this.loading.set(false);
         },
         error: () => {
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.loading.set(false);
         },
       });
   }
-
 }

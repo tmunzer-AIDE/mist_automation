@@ -1,19 +1,22 @@
 """
-Unified webhook gateway and event management API endpoints.
+Unified webhook gateway, event management, and Smee.io management endpoints.
 
 Single POST endpoint receives all Mist webhooks and routes internally
 to the automation and/or backup modules.
 """
 
-import asyncio
 import hashlib
 import hmac
 
 import structlog
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from pymongo.errors import DuplicateKeyError
 
-from app.dependencies import get_current_user_from_token
+from app.config import settings
+from app.core.tasks import create_background_task
+from app.dependencies import get_current_user_from_token, require_admin
+from app.models.system import SystemConfig
 from app.models.user import User
 from app.modules.automation.models.webhook import WebhookEvent
 from app.modules.automation.schemas.webhook import (
@@ -34,7 +37,35 @@ def _verify_mist_signature(payload: bytes, signature: str, secret: str) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
+def _event_to_response(
+    event: WebhookEvent, *, include_payload: bool = False
+) -> WebhookEventResponse | WebhookEventDetailResponse:
+    """Convert a WebhookEvent document to a response schema."""
+    kwargs = {
+        "id": str(event.id),
+        "webhook_type": event.webhook_type,
+        "webhook_topic": event.webhook_topic,
+        "webhook_id": event.webhook_id,
+        "source_ip": event.source_ip,
+        "site_id": event.site_id,
+        "org_id": event.org_id,
+        "processed": event.processed,
+        "matched_workflows": [str(wid) for wid in event.matched_workflows],
+        "executions_triggered": [str(eid) for eid in event.executions_triggered],
+        "signature_valid": event.signature_valid,
+        "routed_to": event.routed_to,
+        "response_status": event.response_status,
+        "response_body": event.response_body,
+        "received_at": event.received_at,
+        "processed_at": event.processed_at,
+    }
+    if include_payload:
+        return WebhookEventDetailResponse(**kwargs, payload=event.payload, headers=event.headers)
+    return WebhookEventResponse(**kwargs)
+
+
 # ── Unified webhook gateway ──────────────────────────────────────────────────
+
 
 @router.post("/webhooks/mist", tags=["Webhooks"])
 async def receive_mist_webhook(
@@ -54,23 +85,14 @@ async def receive_mist_webhook(
     # Extract event details
     topic = payload.get("topic", "unknown")
     webhook_type = topic
-    webhook_id = payload.get("id", f"mist_{topic}_{hash(str(body))}")
+    webhook_id = payload.get("id", f"mist_{topic}_{hashlib.sha256(body).hexdigest()[:16]}")
 
-    # Check for duplicate events
-    existing = await WebhookEvent.find_one(WebhookEvent.webhook_id == webhook_id)
-    if existing:
-        logger.info("webhook_duplicate_ignored", webhook_id=webhook_id, webhook_type=webhook_type)
-        return {"status": "duplicate", "message": "Event already processed"}
-
-    # Smee localhost bypass: trust requests forwarded by the local Smee client
+    # Smee localhost bypass: trust requests forwarded by the local Smee client (dev only)
     smee_forwarded = (
-        x_forwarded_by == "smee"
-        and request.client
-        and request.client.host in ("127.0.0.1", "::1")
+        settings.debug and x_forwarded_by == "smee" and request.client and request.client.host in ("127.0.0.1", "::1")
     )
 
     # Verify signature with stored webhook secret from SystemConfig
-    from app.models.system import SystemConfig
     config = await SystemConfig.get_config()
 
     signature_valid = True
@@ -98,7 +120,7 @@ async def receive_mist_webhook(
     if topic == "audits":
         routed_to.append("backup")
 
-    # Store the webhook event
+    # Store the webhook event (unique index on webhook_id handles dedup atomically)
     webhook_event = WebhookEvent(
         webhook_type=webhook_type,
         webhook_topic=payload.get("topic"),
@@ -111,7 +133,11 @@ async def receive_mist_webhook(
         signature_valid=signature_valid,
         routed_to=routed_to,
     )
-    await webhook_event.insert()
+    try:
+        await webhook_event.insert()
+    except DuplicateKeyError:
+        logger.info("webhook_duplicate_ignored", webhook_id=webhook_id, webhook_type=webhook_type)
+        return {"status": "duplicate", "message": "Event already processed"}
 
     logger.info(
         "webhook_received",
@@ -122,12 +148,17 @@ async def receive_mist_webhook(
 
     # Dispatch to automation module
     from app.modules.automation.workers.webhook_worker import process_webhook
-    asyncio.create_task(process_webhook(str(webhook_event.id), webhook_type, payload))
+
+    create_background_task(
+        process_webhook(str(webhook_event.id), webhook_type, payload),
+        name=f"webhook-automation-{webhook_event.webhook_id}",
+    )
 
     # Dispatch to backup module if applicable
     backup_result = None
     if "backup" in routed_to:
-        from app.modules.backup.webhook_router import process_backup_webhook
+        from app.modules.backup.webhook_handler import process_backup_webhook
+
         backup_result = await process_backup_webhook(payload, config)
 
     # Build response
@@ -150,51 +181,6 @@ async def receive_mist_webhook(
 
 # ── Event listing & detail ───────────────────────────────────────────────────
 
-def _event_to_summary(event: WebhookEvent) -> WebhookEventResponse:
-    """Convert a WebhookEvent document to a summary response."""
-    return WebhookEventResponse(
-        id=str(event.id),
-        webhook_type=event.webhook_type,
-        webhook_topic=event.webhook_topic,
-        webhook_id=event.webhook_id,
-        source_ip=event.source_ip,
-        site_id=event.site_id,
-        org_id=event.org_id,
-        processed=event.processed,
-        matched_workflows=[str(wid) for wid in event.matched_workflows],
-        executions_triggered=[str(eid) for eid in event.executions_triggered],
-        signature_valid=event.signature_valid,
-        routed_to=event.routed_to,
-        response_status=event.response_status,
-        response_body=event.response_body,
-        received_at=event.received_at,
-        processed_at=event.processed_at,
-    )
-
-
-def _event_to_detail(event: WebhookEvent) -> WebhookEventDetailResponse:
-    """Convert a WebhookEvent document to a detail response."""
-    return WebhookEventDetailResponse(
-        id=str(event.id),
-        webhook_type=event.webhook_type,
-        webhook_topic=event.webhook_topic,
-        webhook_id=event.webhook_id,
-        source_ip=event.source_ip,
-        site_id=event.site_id,
-        org_id=event.org_id,
-        processed=event.processed,
-        matched_workflows=[str(wid) for wid in event.matched_workflows],
-        executions_triggered=[str(eid) for eid in event.executions_triggered],
-        signature_valid=event.signature_valid,
-        routed_to=event.routed_to,
-        response_status=event.response_status,
-        response_body=event.response_body,
-        received_at=event.received_at,
-        processed_at=event.processed_at,
-        payload=event.payload,
-        headers=event.headers,
-    )
-
 
 @router.get("/webhooks/events", response_model=WebhookListResponse, tags=["Webhooks"])
 async def list_webhook_events(
@@ -215,7 +201,7 @@ async def list_webhook_events(
     events = await WebhookEvent.find(query).sort("-received_at").skip(skip).limit(limit).to_list()
 
     return WebhookListResponse(
-        events=[_event_to_summary(event) for event in events],
+        events=[_event_to_response(event) for event in events],
         total=total,
     )
 
@@ -240,7 +226,7 @@ async def get_webhook_event(
             detail="Webhook event not found",
         )
 
-    return _event_to_detail(event)
+    return _event_to_response(event, include_payload=True)
 
 
 @router.post("/webhooks/events/{event_id}/replay", tags=["Webhooks"])
@@ -271,9 +257,90 @@ async def replay_webhook_event(
     logger.info("webhook_replay_triggered", event_id=str(event.id), user_id=str(current_user.id))
 
     from app.modules.automation.workers.webhook_worker import process_webhook
-    asyncio.create_task(process_webhook(str(event.id), event.webhook_type, event.payload))
+
+    create_background_task(
+        process_webhook(str(event.id), event.webhook_type, event.payload),
+        name=f"webhook-replay-{event.webhook_id}",
+    )
 
     return {
         "status": "queued",
         "message": "Webhook event queued for replay",
     }
+
+
+# ── Smee.io management ───────────────────────────────────────────────────────
+
+
+@router.get("/webhooks/smee/status", tags=["Webhooks"])
+async def get_smee_status(
+    _current_user: User = Depends(require_admin),
+):
+    """Get Smee.io client status."""
+    from app.core.smee_service import get_smee_client
+
+    client = get_smee_client()
+    return {
+        "running": client.is_running if client else False,
+        "channel_url": client.channel_url if client else None,
+    }
+
+
+@router.post("/webhooks/smee/start", tags=["Webhooks"])
+async def start_smee_client(
+    request: Request,
+    current_user: User = Depends(require_admin),
+):
+    """Start the Smee.io webhook forwarder.
+
+    Accepts an optional ``smee_channel_url`` in the request body so the
+    user can start the client with a new URL without saving first.  The
+    provided URL is persisted automatically.
+    """
+    # Parse optional JSON body
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    config = await SystemConfig.get_config()
+
+    # Prefer URL from request body, fall back to saved config
+    channel_url = body.get("smee_channel_url") or config.smee_channel_url
+    if not channel_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Smee.io channel URL not configured",
+        )
+
+    from app.core.smee_service import start_smee
+
+    target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
+    await start_smee(channel_url, target)
+
+    # Persist the URL and enabled state
+    config.smee_channel_url = channel_url
+    config.smee_enabled = True
+    config.update_timestamp()
+    await config.save()
+
+    logger.info("smee_started_via_api", user_id=str(current_user.id))
+    return {"status": "started", "channel_url": channel_url}
+
+
+@router.post("/webhooks/smee/stop", tags=["Webhooks"])
+async def stop_smee_client(
+    current_user: User = Depends(require_admin),
+):
+    """Stop the Smee.io webhook forwarder."""
+    from app.core.smee_service import stop_smee
+
+    await stop_smee()
+
+    config = await SystemConfig.get_config()
+    config.smee_enabled = False
+    config.update_timestamp()
+    await config.save()
+
+    logger.info("smee_stopped_via_api", user_id=str(current_user.id))
+    return {"status": "stopped"}

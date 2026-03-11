@@ -1,10 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import {
-  MAT_DIALOG_DATA,
-  MatDialogModule,
-  MatDialogRef,
-} from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 
 export interface ConfirmDialogData {
   title: string;
@@ -30,7 +26,8 @@ export interface ConfirmDialogData {
       <button
         mat-flat-button
         [color]="data.warn ? 'warn' : 'primary'"
-        (click)="dialogRef.close(true)">
+        (click)="dialogRef.close(true)"
+      >
         {{ data.confirmText || 'Confirm' }}
       </button>
     </mat-dialog-actions>

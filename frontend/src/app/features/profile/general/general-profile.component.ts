@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -36,32 +36,36 @@ import { AuthService } from '../../../core/services/auth.service';
             </mat-select>
           </mat-form-field>
 
-          <button mat-flat-button type="submit"
-                  [disabled]="!form.dirty || saving">
-            {{ saving ? 'Saving...' : 'Save' }}
+          <button mat-flat-button type="submit" [disabled]="!form.dirty || saving()">
+            {{ saving() ? 'Saving...' : 'Save' }}
           </button>
         </form>
       </mat-card-content>
     </mat-card>
   `,
-  styles: [`
-    mat-card { max-width: 500px; }
-    .general-form {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding-top: 16px;
-    }
-    mat-form-field { width: 100%; }
-  `],
+  styles: [
+    `
+      mat-card {
+        max-width: 500px;
+      }
+      .general-form {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+      }
+      mat-form-field {
+        width: 100%;
+      }
+    `,
+  ],
 })
 export class GeneralProfileComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
-  saving = false;
+  saving = signal(false);
 
   timezones = [
     'UTC',
@@ -92,29 +96,24 @@ export class GeneralProfileComponent implements OnInit {
       next: (user) => {
         this.form.patchValue({ timezone: user.timezone });
         this.form.markAsPristine();
-        this.cdr.detectChanges();
       },
     });
   }
 
   onSubmit(): void {
     if (!this.form.dirty) return;
-    this.saving = true;
+    this.saving.set(true);
 
-    this.authService
-      .updateProfile({ timezone: this.form.value.timezone! })
-      .subscribe({
-        next: () => {
-          this.saving = false;
-          this.form.markAsPristine();
-          this.snackBar.open('Profile updated', 'OK', { duration: 3000 });
-          this.cdr.detectChanges();
-        },
-        error: (err) => {
-          this.saving = false;
-          this.snackBar.open(err.message || 'Update failed', 'OK', { duration: 5000 });
-          this.cdr.detectChanges();
-        },
-      });
+    this.authService.updateProfile({ timezone: this.form.value.timezone! }).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.form.markAsPristine();
+        this.snackBar.open('Profile updated', 'OK', { duration: 3000 });
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.snackBar.open(err.message || 'Update failed', 'OK', { duration: 5000 });
+      },
+    });
   }
 }

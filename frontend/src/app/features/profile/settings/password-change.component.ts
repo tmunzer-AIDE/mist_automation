@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -43,7 +43,14 @@ import {
             <input matInput type="password" formControlName="new_password" />
             @if (form.get('new_password')?.errors; as errors) {
               <mat-error>
-                {{ errors['minLength'] || errors['uppercase'] || errors['lowercase'] || errors['digit'] || errors['special'] || 'Invalid' }}
+                {{
+                  errors['minLength'] ||
+                    errors['uppercase'] ||
+                    errors['lowercase'] ||
+                    errors['digit'] ||
+                    errors['special'] ||
+                    'Invalid'
+                }}
               </mat-error>
             }
           </mat-form-field>
@@ -56,32 +63,36 @@ import {
             }
           </mat-form-field>
 
-          <button mat-flat-button type="submit"
-                  [disabled]="form.invalid || saving">
-            {{ saving ? 'Changing...' : 'Change Password' }}
+          <button mat-flat-button type="submit" [disabled]="form.invalid || saving()">
+            {{ saving() ? 'Changing...' : 'Change Password' }}
           </button>
         </form>
       </mat-card-content>
     </mat-card>
   `,
-  styles: [`
-    mat-card { max-width: 500px; }
-    .password-form {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding-top: 16px;
-    }
-    mat-form-field { width: 100%; }
-  `],
+  styles: [
+    `
+      mat-card {
+        max-width: 500px;
+      }
+      .password-form {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+      }
+      mat-form-field {
+        width: 100%;
+      }
+    `,
+  ],
 })
 export class PasswordChangeComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
-  saving = false;
+  saving = signal(false);
 
   form = this.fb.group({
     current_password: ['', Validators.required],
@@ -103,7 +114,7 @@ export class PasswordChangeComponent implements OnInit {
 
   onSubmit(): void {
     if (this.form.invalid) return;
-    this.saving = true;
+    this.saving.set(true);
 
     const { current_password, new_password } = this.form.getRawValue();
     this.authService
@@ -113,15 +124,13 @@ export class PasswordChangeComponent implements OnInit {
       })
       .subscribe({
         next: () => {
-          this.saving = false;
+          this.saving.set(false);
           this.form.reset();
           this.snackBar.open('Password changed successfully', 'OK', { duration: 3000 });
-          this.cdr.detectChanges();
         },
         error: (err) => {
-          this.saving = false;
+          this.saving.set(false);
           this.snackBar.open(err.message, 'OK', { duration: 5000 });
-          this.cdr.detectChanges();
         },
       });
   }

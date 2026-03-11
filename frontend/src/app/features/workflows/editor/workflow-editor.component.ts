@@ -1,33 +1,45 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import {
+  Component,
+  computed,
+  inject,
+  OnInit,
+  OnDestroy,
+  signal,
+  TemplateRef,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatTableModule } from '@angular/material/table';
-import { MatExpansionModule } from '@angular/material/expansion';
-import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
-import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import {
-  PipelineBlock,
+  WorkflowNode,
+  WorkflowEdge,
+  WorkflowGraph,
   WorkflowResponse,
   WorkflowExecution,
-  WorkflowAction,
+  WorkflowStatus,
   ActionType,
+  SimulationState,
+  VariableTree,
 } from '../../../core/models/workflow.model';
-import { PipelineCanvasComponent, BranchBlockRef } from './pipeline/pipeline-canvas.component';
-import { BlockConfigPanelComponent } from './config/block-config-panel.component';
-import {
-  BlockPaletteDialogComponent,
-  BlockOption,
-} from './palette/block-palette-dialog.component';
-import { ExecutionDetailDialogComponent } from './execution-detail-dialog.component';
+import { ACTION_META, DEFAULT_ACTION_META } from '../../../core/models/workflow-meta';
+import { GraphCanvasComponent } from './canvas/graph-canvas.component';
+import { NodeConfigPanelComponent } from './config/node-config-panel.component';
+import { BlockPaletteSidebarComponent } from './palette/block-palette-sidebar.component';
+import { SimulationPanelComponent } from './simulation/simulation-panel.component';
+import { DescriptionDialogComponent } from './description-dialog.component';
+import { ExecutionsListDialogComponent } from './executions-list-dialog.component';
+import { CanvasViewport } from './canvas/canvas-state';
+import { Subject, takeUntil } from 'rxjs';
 
 @Component({
   selector: 'app-workflow-editor',
@@ -38,355 +50,445 @@ import { ExecutionDetailDialogComponent } from './execution-detail-dialog.compon
     RouterModule,
     MatButtonModule,
     MatIconModule,
-    MatFormFieldModule,
-    MatInputModule,
     MatSnackBarModule,
     MatDialogModule,
-    MatTableModule,
-    MatExpansionModule,
-    PageHeaderComponent,
-    StatusBadgeComponent,
-    RelativeTimePipe,
-    PipelineCanvasComponent,
-    BlockConfigPanelComponent,
+    MatMenuModule,
+    MatTooltipModule,
+    MatProgressBarModule,
+    GraphCanvasComponent,
+    NodeConfigPanelComponent,
+    BlockPaletteSidebarComponent,
+    SimulationPanelComponent,
   ],
   templateUrl: './workflow-editor.component.html',
   styleUrl: './workflow-editor.component.scss',
 })
-export class WorkflowEditorComponent implements OnInit {
+export class WorkflowEditorComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly workflowService = inject(WorkflowService);
-  private readonly dialog = inject(MatDialog);
+  private readonly topbarService = inject(TopbarService);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly dialog = inject(MatDialog);
+  private readonly destroy$ = new Subject<void>();
 
-  workflowId: string | null = null;
-  workflowName = '';
-  workflowDescription = '';
-  blocks: PipelineBlock[] = [];
-  selectedBlockIndex = -1;
-  selectedBranch: BranchBlockRef | null = null;
-  loading = true;
-  saving = false;
+  @ViewChild('topbarActions', { static: true }) topbarActions!: TemplateRef<unknown>;
+
+  // Workflow state
+  workflowId = signal<string | null>(null);
+  workflowName = signal('New Workflow');
+  workflowDescription = signal<string | null>(null);
+  workflowStatus = signal<WorkflowStatus>('draft');
+  timeoutSeconds = signal(300);
+
+  // Graph state
+  graph = signal<WorkflowGraph>({ nodes: [], edges: [], viewport: null });
+  selectedNodeId = signal<string | null>(null);
+  selectedEdgeId = signal<string | null>(null);
+  simulationState = signal<SimulationState | null>(null);
+  variableTree = signal<VariableTree | null>(null);
+
+  // UI state
+  loading = signal(true);
+  saving = signal(false);
+  configPanelWidth = signal(320);
+  isResizingPanel = signal(false);
 
   // Execution history
-  executions: WorkflowExecution[] = [];
-  executionsTotal = 0;
-  executionColumns = ['status', 'trigger_type', 'started_at', 'duration', 'actions_executed'];
+  lastExecution = signal<WorkflowExecution | null>(null);
 
-  get isEditMode(): boolean {
-    return !!this.workflowId;
-  }
+  selectedNode = computed(() => {
+    const id = this.selectedNodeId();
+    if (!id) return null;
+    return this.graph().nodes.find((n) => n.id === id) || null;
+  });
 
-  get selectedBlock(): PipelineBlock | null {
-    if (this.selectedBranch) {
-      return this.getSelectedBranchBlock();
+  statusChipClass = computed(() => {
+    switch (this.workflowStatus()) {
+      case 'enabled': return 'status-enabled';
+      case 'disabled': return 'status-disabled';
+      default: return 'status-draft';
     }
-    return this.selectedBlockIndex >= 0 ? this.blocks[this.selectedBlockIndex] : null;
-  }
-
-  get canSave(): boolean {
-    return this.workflowName.trim().length > 0 && this.blocks.length > 0 && !this.saving;
-  }
-
-  get pageTitle(): string {
-    return this.isEditMode ? 'Edit Workflow' : 'New Workflow';
-  }
+  });
 
   ngOnInit(): void {
-    this.workflowId = this.route.snapshot.paramMap.get('id');
-    if (this.workflowId) {
-      this.loadWorkflow(this.workflowId);
+    this.topbarService.setActions(this.topbarActions);
+
+    const id = this.route.snapshot.paramMap.get('id');
+    if (id) {
+      this.workflowId.set(id);
+      this.loadWorkflow(id);
     } else {
-      this.blocks = [this.workflowService.createDefaultTriggerBlock()];
-      this.loading = false;
+      this.createNewWorkflow();
+      this.loading.set(false);
     }
   }
+
+  ngOnDestroy(): void {
+    this.topbarService.clearActions();
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  // ── Load / Create ─────────────────────────────────────────────────
 
   private loadWorkflow(id: string): void {
-    this.loading = true;
-    this.workflowService.get(id).subscribe({
-      next: (wf: WorkflowResponse) => {
-        this.workflowName = wf.name;
-        this.workflowDescription = wf.description || '';
-        this.blocks = this.workflowService.toPipelineBlocks(wf);
-        this.loading = false;
-        this.cdr.detectChanges();
-        this.loadExecutions();
-      },
-      error: () => {
-        this.snackBar.open('Failed to load workflow', 'OK', { duration: 5000 });
-        this.loading = false;
-        this.cdr.detectChanges();
-      },
+    this.workflowService
+      .get(id)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (response) => {
+          this.workflowName.set(response.name);
+          this.workflowDescription.set(response.description);
+          this.workflowStatus.set(response.status);
+          this.timeoutSeconds.set(response.timeout_seconds);
+          this.graph.set(this.workflowService.toGraph(response));
+          this.loading.set(false);
+          this.loadLastExecution(id);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.snackBar.open('Failed to load workflow', 'OK', { duration: 3000 });
+          this.router.navigate(['/workflows']);
+        },
+      });
+  }
+
+  private createNewWorkflow(): void {
+    const triggerNode = this.workflowService.createNode('trigger', { x: 400, y: 80 });
+    this.graph.set({
+      nodes: [triggerNode],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
     });
   }
 
-  private loadExecutions(): void {
-    if (!this.workflowId) return;
-    this.workflowService.getExecutions(this.workflowId, 0, 10).subscribe({
-      next: (res) => {
-        this.executions = res.executions;
-        this.executionsTotal = res.total;
-        this.cdr.detectChanges();
-      },
-    });
+  private loadLastExecution(id: string): void {
+    this.workflowService
+      .getExecutions(id, 0, 1)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (res) => {
+          this.lastExecution.set(res.executions[0] || null);
+        },
+      });
   }
 
-  // ── Main pipeline block operations ──────────────────────────
-
-  selectBlock(index: number): void {
-    this.selectedBlockIndex = index;
-    this.selectedBranch = null;
-  }
-
-  removeBlock(index: number): void {
-    this.blocks.splice(index, 1);
-    if (this.selectedBlockIndex === index) {
-      this.selectedBlockIndex = -1;
-      this.selectedBranch = null;
-    } else if (this.selectedBlockIndex > index) {
-      this.selectedBlockIndex--;
-    }
-    this.blocks = [...this.blocks];
-  }
-
-  addBlock(atIndex: number): void {
-    this.openPaletteDialog((block) => {
-      this.blocks.splice(atIndex, 0, block);
-      this.blocks = [...this.blocks];
-      this.selectedBlockIndex = atIndex;
-      this.selectedBranch = null;
-      this.cdr.detectChanges();
-    });
-  }
-
-  onConfigChanged(updated: PipelineBlock): void {
-    if (this.selectedBranch) {
-      this.updateBranchAction(updated);
-    } else if (this.selectedBlockIndex >= 0) {
-      this.blocks[this.selectedBlockIndex] = updated;
-      this.blocks = [...this.blocks];
-    }
-  }
-
-  // ── Branch / loop block operations ────────────────────────────
-
-  selectBranchBlock(ref: BranchBlockRef): void {
-    this.selectedBranch = ref;
-    this.selectedBlockIndex = ref.blockIndex;
-  }
-
-  removeBranchBlock(ref: BranchBlockRef): void {
-    const parentBlock = this.blocks[ref.blockIndex];
-    const parentAction = parentBlock.data as WorkflowAction;
-
-    if (parentAction.type === 'for_each') {
-      // For-each: loop body actions
-      parentAction.loop_actions?.splice(ref.actionIndex, 1);
-    } else if (ref.branchIndex === -1) {
-      // Condition: else branch
-      parentAction.else_actions?.splice(ref.actionIndex, 1);
-    } else {
-      // Condition: if/else-if branch
-      parentAction.branches?.[ref.branchIndex]?.actions.splice(ref.actionIndex, 1);
-    }
-
-    // Clear selection if this was selected
-    if (
-      this.selectedBranch &&
-      this.selectedBranch.blockIndex === ref.blockIndex &&
-      this.selectedBranch.branchIndex === ref.branchIndex &&
-      this.selectedBranch.actionIndex === ref.actionIndex
-    ) {
-      this.selectedBranch = null;
-    }
-
-    this.blocks = [...this.blocks];
-  }
-
-  addBranchBlock(ref: BranchBlockRef): void {
-    this.openPaletteDialog((block) => {
-      const parentBlock = this.blocks[ref.blockIndex];
-      const parentAction = parentBlock.data as WorkflowAction;
-      const newAction = block.data as WorkflowAction;
-
-      if (parentAction.type === 'for_each') {
-        // For-each: loop body
-        if (!parentAction.loop_actions) parentAction.loop_actions = [];
-        parentAction.loop_actions.splice(ref.actionIndex, 0, newAction);
-      } else if (ref.branchIndex === -1) {
-        // Condition: else branch
-        if (!parentAction.else_actions) parentAction.else_actions = [];
-        parentAction.else_actions.splice(ref.actionIndex, 0, newAction);
-      } else {
-        // Condition: if/else-if branch
-        const branch = parentAction.branches?.[ref.branchIndex];
-        if (branch) {
-          branch.actions.splice(ref.actionIndex, 0, newAction);
-        }
-      }
-
-      this.selectedBranch = ref;
-      this.selectedBlockIndex = ref.blockIndex;
-      this.blocks = [...this.blocks];
-      this.cdr.detectChanges();
-    }, true);
-  }
-
-  // ── Helpers ─────────────────────────────────────────────────
-
-  private getSelectedBranchBlock(): PipelineBlock | null {
-    if (!this.selectedBranch) return null;
-
-    const parentBlock = this.blocks[this.selectedBranch.blockIndex];
-    const parentAction = parentBlock.data as WorkflowAction;
-    let action: WorkflowAction | undefined;
-
-    if (parentAction.type === 'for_each') {
-      // For-each: loop body actions
-      action = parentAction.loop_actions?.[this.selectedBranch.actionIndex];
-    } else if (this.selectedBranch.branchIndex === -1) {
-      action = parentAction.else_actions?.[this.selectedBranch.actionIndex];
-    } else {
-      action = parentAction.branches?.[this.selectedBranch.branchIndex]?.actions[this.selectedBranch.actionIndex];
-    }
-
-    if (!action) return null;
-
-    const META: Record<string, { label: string; icon: string; color: string }> = {
-      mist_api_get: { label: 'Mist API GET', icon: 'cloud_download', color: '#1976d2' },
-      mist_api_post: { label: 'Mist API POST', icon: 'cloud_upload', color: '#1976d2' },
-      mist_api_put: { label: 'Mist API PUT', icon: 'edit', color: '#1976d2' },
-      mist_api_delete: { label: 'Mist API DELETE', icon: 'delete', color: '#d32f2f' },
-      webhook: { label: 'Webhook', icon: 'send', color: '#7b1fa2' },
-      slack: { label: 'Slack', icon: 'chat', color: '#e91e63' },
-      servicenow: { label: 'ServiceNow', icon: 'confirmation_number', color: '#388e3c' },
-      pagerduty: { label: 'PagerDuty', icon: 'notifications_active', color: '#f57c00' },
-      delay: { label: 'Delay', icon: 'schedule', color: '#616161' },
-      condition: { label: 'Condition', icon: 'call_split', color: '#0097a7' },
-      set_variable: { label: 'Set Variable', icon: 'data_object', color: '#795548' },
-      for_each: { label: 'For Each', icon: 'loop', color: '#4527a0' },
-    };
-    const meta = META[action.type] || { label: action.type, icon: 'play_arrow', color: '#455a64' };
-
-    return {
-      id: `branch_${this.selectedBranch.blockIndex}_${this.selectedBranch.branchIndex}_${this.selectedBranch.actionIndex}`,
-      kind: 'action',
-      data: action,
-      label: action.name || meta.label,
-      icon: meta.icon,
-      color: meta.color,
-    };
-  }
-
-  private updateBranchAction(updated: PipelineBlock): void {
-    if (!this.selectedBranch) return;
-
-    const parentBlock = this.blocks[this.selectedBranch.blockIndex];
-    const parentAction = parentBlock.data as WorkflowAction;
-    const updatedAction = updated.data as WorkflowAction;
-
-    if (parentAction.type === 'for_each') {
-      if (parentAction.loop_actions) {
-        parentAction.loop_actions[this.selectedBranch.actionIndex] = updatedAction;
-      }
-    } else if (this.selectedBranch.branchIndex === -1) {
-      if (parentAction.else_actions) {
-        parentAction.else_actions[this.selectedBranch.actionIndex] = updatedAction;
-      }
-    } else {
-      const branch = parentAction.branches?.[this.selectedBranch.branchIndex];
-      if (branch) {
-        branch.actions[this.selectedBranch.actionIndex] = updatedAction;
-      }
-    }
-
-    this.blocks = [...this.blocks];
-  }
-
-  private openPaletteDialog(onSelect: (block: PipelineBlock) => void, actionsOnly = false): void {
-    const ref = this.dialog.open(BlockPaletteDialogComponent, {
-      width: '480px',
-      maxHeight: '80vh',
-      data: { actionsOnly },
-    });
-    ref.afterClosed().subscribe((option: BlockOption | undefined) => {
-      if (!option) return;
-      const block = this.workflowService.createBlockForType(
-        option.kind,
-        option.actionType as ActionType | undefined
-      );
-      onSelect(block);
-    });
-  }
-
-  // ── Save / Run / Cancel ─────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────
 
   save(): void {
-    this.saving = true;
-    const pipelineData = this.workflowService.fromPipelineBlocks(this.blocks);
-    const payload = {
-      name: this.workflowName,
-      description: this.workflowDescription || undefined,
-      ...pipelineData,
-    };
+    this.saving.set(true);
+    const graphData = this.workflowService.fromGraph(this.graph());
 
-    const obs = this.workflowId
-      ? this.workflowService.update(this.workflowId, payload)
-      : this.workflowService.create({
-          ...payload,
-          actions: pipelineData.actions.length > 0 ? pipelineData.actions : [{ name: 'placeholder', type: 'webhook' }],
+    if (this.workflowId()) {
+      this.workflowService
+        .update(this.workflowId()!, {
+          name: this.workflowName(),
+          description: this.workflowDescription() || undefined,
+          timeout_seconds: this.timeoutSeconds(),
+          ...graphData,
+        })
+        .pipe(takeUntil(this.destroy$))
+        .subscribe({
+          next: () => {
+            this.saving.set(false);
+            this.snackBar.open('Workflow saved', '', { duration: 2000 });
+          },
+          error: (err) => {
+            this.saving.set(false);
+            this.snackBar.open(
+              'Save failed: ' + (err?.error?.detail || 'Unknown error'),
+              'OK',
+              { duration: 5000 }
+            );
+          },
         });
+    } else {
+      this.workflowService
+        .create({
+          name: this.workflowName(),
+          description: this.workflowDescription() || undefined,
+          timeout_seconds: this.timeoutSeconds(),
+          ...graphData,
+        })
+        .pipe(takeUntil(this.destroy$))
+        .subscribe({
+          next: (response) => {
+            this.saving.set(false);
+            this.workflowId.set(response.id);
+            this.workflowStatus.set(response.status);
+            this.snackBar.open('Workflow created', '', { duration: 2000 });
+            this.router.navigate(['/workflows', response.id], { replaceUrl: true });
+          },
+          error: (err) => {
+            this.saving.set(false);
+            this.snackBar.open(
+              'Create failed: ' + (err?.error?.detail || 'Unknown error'),
+              'OK',
+              { duration: 5000 }
+            );
+          },
+        });
+    }
+  }
 
-    obs.subscribe({
-      next: () => {
-        this.saving = false;
-        this.snackBar.open('Workflow saved', 'OK', { duration: 3000 });
-        this.router.navigate(['/workflows']);
-      },
-      error: () => {
-        this.saving = false;
-        this.snackBar.open('Failed to save workflow', 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
-      },
+  // ── Graph event handlers ──────────────────────────────────────────
+
+  onNodeSelected(nodeId: string): void {
+    this.selectedNodeId.set(nodeId);
+    this.selectedEdgeId.set(null);
+    this.loadVariablesForNode(nodeId);
+  }
+
+  onNodeDeselected(): void {
+    this.selectedNodeId.set(null);
+    this.selectedEdgeId.set(null);
+    this.variableTree.set(null);
+  }
+
+  onNodeMoved(event: { nodeId: string; x: number; y: number }): void {
+    const g = this.graph();
+    const node = g.nodes.find((n) => n.id === event.nodeId);
+    if (node) {
+      node.position = { x: event.x, y: event.y };
+    }
+  }
+
+  onNodeRemoved(nodeId: string): void {
+    this.graph.update((g) => ({
+      ...g,
+      nodes: g.nodes.filter((n) => n.id !== nodeId),
+      edges: g.edges.filter(
+        (e) => e.source_node_id !== nodeId && e.target_node_id !== nodeId
+      ),
+    }));
+    if (this.selectedNodeId() === nodeId) {
+      this.selectedNodeId.set(null);
+      this.variableTree.set(null);
+    }
+  }
+
+  onEdgeCreated(event: {
+    sourceNodeId: string;
+    sourcePortId: string;
+    targetNodeId: string;
+  }): void {
+    const g = this.graph();
+    // Prevent duplicate edges
+    const exists = g.edges.some(
+      (e) =>
+        e.source_node_id === event.sourceNodeId &&
+        e.source_port_id === event.sourcePortId &&
+        e.target_node_id === event.targetNodeId
+    );
+    if (exists) return;
+
+    const edge = this.workflowService.createEdge(
+      event.sourceNodeId,
+      event.sourcePortId,
+      event.targetNodeId
+    );
+
+    // Set label for condition branch edges
+    const sourceNode = g.nodes.find((n) => n.id === event.sourceNodeId);
+    if (sourceNode?.type === 'condition') {
+      const port = sourceNode.output_ports.find((p) => p.id === event.sourcePortId);
+      if (port) edge.label = port.label;
+    }
+
+    this.graph.update((g) => ({ ...g, edges: [...g.edges, edge] }));
+  }
+
+  onEdgeSelected(edgeId: string): void {
+    this.selectedEdgeId.set(edgeId);
+    this.selectedNodeId.set(null);
+  }
+
+  onEdgeRemoved(edgeId: string): void {
+    this.graph.update((g) => ({
+      ...g,
+      edges: g.edges.filter((e) => e.id !== edgeId),
+    }));
+    if (this.selectedEdgeId() === edgeId) {
+      this.selectedEdgeId.set(null);
+    }
+  }
+
+  onCanvasDropped(event: { type: string; x: number; y: number }): void {
+    const node = this.workflowService.createNode(event.type, {
+      x: event.x,
+      y: event.y,
+    });
+    node.name = this.getUniqueNodeName(node.name);
+    this.graph.update((g) => ({ ...g, nodes: [...g.nodes, node] }));
+    this.selectedNodeId.set(node.id);
+    this.loadVariablesForNode(node.id);
+  }
+
+  onViewportChanged(viewport: CanvasViewport): void {
+    this.graph.update((g) => ({ ...g, viewport }));
+  }
+
+  // ── Config panel ──────────────────────────────────────────────────
+
+  onNodeConfigChanged(updatedNode: WorkflowNode): void {
+    // Update output ports for condition nodes when branches change
+    if (updatedNode.type === 'condition') {
+      const branches = (updatedNode.config['branches'] as { condition: string }[]) || [];
+      updatedNode.output_ports = [
+        ...branches.map((_, i) => ({
+          id: `branch_${i}`,
+          label: i === 0 ? 'If' : `Else If ${i}`,
+          type: 'branch',
+        })),
+        { id: 'else', label: 'Else', type: 'branch' },
+      ];
+    }
+
+    this.graph.update((g) => {
+      const nodes = [...g.nodes];
+      const index = nodes.findIndex((n) => n.id === updatedNode.id);
+      if (index >= 0) {
+        nodes[index] = updatedNode;
+      }
+      return { ...g, nodes };
     });
   }
 
-  run(): void {
-    if (!this.workflowId) return;
-    this.workflowService.execute(this.workflowId).subscribe({
-      next: () => {
-        this.snackBar.open('Workflow execution queued', 'OK', { duration: 3000 });
-        setTimeout(() => this.loadExecutions(), 2000);
-      },
-      error: (err) => {
-        this.snackBar.open(
-          err.error?.detail || 'Failed to run workflow',
-          'OK',
-          { duration: 5000 }
-        );
-      },
+  // ── Variable autocomplete ─────────────────────────────────────────
+
+  private loadVariablesForNode(nodeId: string): void {
+    if (!this.workflowId()) {
+      this.variableTree.set(null);
+      return;
+    }
+
+    this.workflowService
+      .getAvailableVariables(this.workflowId()!, nodeId)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (tree) => this.variableTree.set(tree),
+        error: () => this.variableTree.set(null),
+      });
+  }
+
+  // ── Simulation ────────────────────────────────────────────────────
+
+  onSimulationStarted(state: SimulationState): void {
+    this.simulationState.set(state);
+  }
+
+  onSimulationStepChanged(state: SimulationState): void {
+    this.simulationState.set({ ...state });
+  }
+
+  // ── Palette ───────────────────────────────────────────────────────
+
+  onPaletteBlockSelected(type: string): void {
+    // Find good position — below the last node
+    let maxY = 80;
+    for (const node of this.graph().nodes) {
+      maxY = Math.max(maxY, node.position.y);
+    }
+
+    const node = this.workflowService.createNode(type, { x: 400, y: maxY + 160 });
+    node.name = this.getUniqueNodeName(node.name);
+    this.graph.update((g) => ({ ...g, nodes: [...g.nodes, node] }));
+    this.selectedNodeId.set(node.id);
+    this.loadVariablesForNode(node.id);
+  }
+
+  private getUniqueNodeName(baseName: string): string {
+    const existingNames = new Set(this.graph().nodes.map((n) => n.name));
+    if (!existingNames.has(baseName)) return baseName;
+    let i = 2;
+    while (existingNames.has(`${baseName} ${i}`)) i++;
+    return `${baseName} ${i}`;
+  }
+
+  // ── Resize ────────────────────────────────────────────────────────
+
+  onResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    this.isResizingPanel.set(true);
+
+    const startX = event.clientX;
+    const startWidth = this.configPanelWidth();
+
+    const onMove = (e: MouseEvent) => {
+      const delta = startX - e.clientX;
+      this.configPanelWidth.set(Math.max(280, Math.min(800, startWidth + delta)));
+    };
+
+    const onUp = () => {
+      this.isResizingPanel.set(false);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // ── Topbar actions ────────────────────────────────────────────────
+
+  openDescription(): void {
+    const ref = this.dialog.open(DescriptionDialogComponent, {
+      width: '500px',
+      data: this.workflowDescription() || '',
+    });
+    ref.afterClosed().subscribe((result) => {
+      if (result !== undefined) {
+        this.workflowDescription.set(result);
+      }
+    });
+  }
+
+  toggleStatus(): void {
+    if (!this.workflowId()) return;
+    const newStatus: WorkflowStatus =
+      this.workflowStatus() === 'enabled' ? 'disabled' : 'enabled';
+    this.workflowService
+      .update(this.workflowId()!, { status: newStatus })
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: () => {
+          this.workflowStatus.set(newStatus);
+          this.snackBar.open(
+            `Workflow ${newStatus}`,
+            '',
+            { duration: 2000 }
+          );
+        },
+      });
+  }
+
+  runWorkflow(): void {
+    if (!this.workflowId()) return;
+    this.workflowService
+      .execute(this.workflowId()!)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: () => this.snackBar.open('Execution started', '', { duration: 2000 }),
+        error: (err) =>
+          this.snackBar.open(
+            err?.error?.detail || 'Failed to start',
+            'OK',
+            { duration: 3000 }
+          ),
+      });
+  }
+
+  openExecutions(): void {
+    if (!this.workflowId()) return;
+    this.dialog.open(ExecutionsListDialogComponent, {
+      width: '800px',
+      maxHeight: '80vh',
+      data: this.workflowId(),
     });
   }
 
   cancel(): void {
     this.router.navigate(['/workflows']);
-  }
-
-  viewExecution(ex: WorkflowExecution): void {
-    if (!this.workflowId) return;
-    this.dialog.open(ExecutionDetailDialogComponent, {
-      width: '900px',
-      maxHeight: '90vh',
-      data: { workflowId: this.workflowId, execution: ex },
-    });
-  }
-
-  formatDuration(ms: number | null): string {
-    if (!ms) return '—';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
   }
 }

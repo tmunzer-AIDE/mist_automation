@@ -1,26 +1,23 @@
 <app-page-header
-  [title]="latestVersion?.object_name || objectId"
-  [subtitle]="latestVersion ? latestVersion.object_type + ' — ' + versions.length + ' version(s)' : 'Loading...'"
+  [subtitle]="
+    latestVersion()
+      ? latestVersion()!.object_type + ' — ' + versions().length + ' version(s)'
+      : 'Loading...'
+  "
 >
-  <a mat-stroked-button routerLink="/backup">
-    <mat-icon>arrow_back</mat-icon> Back
-  </a>
-  @if (versions.length > 1) {
-    <button
-      mat-stroked-button
-      (click)="toggleCompareMode()"
-      [class.active-compare]="compareMode"
-    >
+  <a mat-stroked-button routerLink="/backup"> <mat-icon>arrow_back</mat-icon> Back </a>
+  @if (versions().length > 1) {
+    <button mat-stroked-button (click)="toggleCompareMode()" [class.active-compare]="compareMode">
       <mat-icon>compare</mat-icon> {{ compareMode ? 'Exit Compare' : 'Compare Versions' }}
     </button>
   }
 </app-page-header>
 
-@if (loading || restoring) {
+@if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
-@if (!loading && latestVersion) {
+@if (!loading() && latestVersion(); as latestVersion) {
   <!-- ── Compare Mode ───────────────────────────────────────────────── -->
   @if (compareMode) {
     <section class="compare-section">
@@ -90,7 +87,9 @@
         </div>
         <div class="info-item">
           <span class="info-label">Status</span>
-          <app-status-badge [status]="latestVersion.is_deleted ? 'deleted' : 'active'"></app-status-badge>
+          <app-status-badge
+            [status]="latestVersion.is_deleted ? 'deleted' : 'active'"
+          ></app-status-badge>
         </div>
         <div class="info-item">
           <span class="info-label">Scope</span>
@@ -98,21 +97,21 @@
         </div>
         <div class="info-item">
           <span class="info-label">Total Versions</span>
-          <span class="info-value">{{ versions.length }}</span>
+          <span class="info-value">{{ versions().length }}</span>
         </div>
         <div class="info-item">
           <span class="info-label">First Created</span>
           <span class="info-value">
-            {{ oldestVersion?.backed_up_at | relativeTime }}
-            @if (oldestVersion && oldestVersion.backed_up_by) {
-              <span class="info-meta">by {{ oldestVersion.backed_up_by }}</span>
+            {{ oldestVersion()?.backed_up_at | dateTime }}
+            @if (oldestVersion() && oldestVersion()!.backed_up_by) {
+              <span class="info-meta">by {{ oldestVersion()!.backed_up_by }}</span>
             }
           </span>
         </div>
         <div class="info-item">
           <span class="info-label">Last Modified</span>
           <span class="info-value">
-            {{ latestVersion.backed_up_at | relativeTime }}
+            {{ latestVersion.backed_up_at | dateTime }}
             @if (latestVersion.backed_up_by) {
               <span class="info-meta">by {{ latestVersion.backed_up_by }}</span>
             }
@@ -123,7 +122,8 @@
   </mat-card>
 
   <!-- ── References ─────────────────────────────────────────────────── -->
-  @if (dependencies && (dependencies.parents.length > 0 || dependencies.children.length > 0)) {
+  @if (dependencies(); as dependencies) {
+    @if (dependencies.parents.length > 0 || dependencies.children.length > 0) {
     <mat-accordion class="ref-accordion" multi>
       @if (dependencies.parents.length > 0) {
         <mat-expansion-panel>
@@ -133,22 +133,30 @@
               References
               <span class="ref-count">{{ dependencies.parents.length }}</span>
             </mat-panel-title>
-            <mat-panel-description>Objects this {{ latestVersion!.object_type }} depends on</mat-panel-description>
+            <mat-panel-description
+              >Objects this {{ latestVersion!.object_type }} depends on</mat-panel-description
+            >
           </mat-expansion-panel-header>
           <div class="ref-list">
             @for (p of dependencies.parents; track p.target_id + p.field_path) {
               <div class="ref-row">
                 <span class="ref-type-badge">{{ p.target_type }}</span>
                 @if (p.exists_in_backup) {
-                  <a class="ref-name ref-link" [routerLink]="'/backup/object/' + p.target_id">
+                  <a
+                    class="ref-name ref-link"
+                    [class.ref-deleted]="p.is_deleted"
+                    [routerLink]="'/backup/object/' + p.target_id"
+                  >
                     {{ p.target_name || p.target_id.slice(0, 8) }}
                   </a>
                 } @else {
-                  <span class="ref-name ref-missing">{{ p.target_name || p.target_id.slice(0, 8) }}</span>
+                  <span class="ref-name ref-missing">{{
+                    p.target_name || p.target_id.slice(0, 8)
+                  }}</span>
                 }
                 <code class="ref-field">{{ p.field_path }}</code>
                 <app-status-badge
-                  [status]="p.exists_in_backup ? 'active' : 'missing'"
+                  [status]="p.is_deleted ? 'deleted' : p.exists_in_backup ? 'active' : 'missing'"
                 ></app-status-badge>
               </div>
             }
@@ -163,29 +171,39 @@
               Referenced by
               <span class="ref-count">{{ dependencies.children.length }}</span>
             </mat-panel-title>
-            <mat-panel-description>Objects that depend on this {{ latestVersion!.object_type }}</mat-panel-description>
+            <mat-panel-description
+              >Objects that depend on this {{ latestVersion!.object_type }}</mat-panel-description
+            >
           </mat-expansion-panel-header>
           <div class="ref-list">
             @for (c of dependencies.children; track c.source_id + c.field_path) {
               <div class="ref-row">
                 <span class="ref-type-badge">{{ c.source_type }}</span>
-                <a class="ref-name ref-link" [routerLink]="'/backup/object/' + c.source_id">
+                <a
+                  class="ref-name ref-link"
+                  [class.ref-deleted]="c.is_deleted"
+                  [routerLink]="'/backup/object/' + c.source_id"
+                >
                   {{ c.source_name || c.source_id.slice(0, 8) }}
                 </a>
                 <code class="ref-field">{{ c.field_path }}</code>
+                @if (c.is_deleted) {
+                  <app-status-badge status="deleted"></app-status-badge>
+                }
               </div>
             }
           </div>
         </mat-expansion-panel>
       }
     </mat-accordion>
+    }
   }
 
   <!-- ── Version History Table ────────────────────────────────────────── -->
   <section class="version-history-section">
     <h2 class="section-title">Version History</h2>
     <div class="table-container">
-      <table mat-table [dataSource]="versions">
+      <table mat-table [dataSource]="versions()">
         <!-- Version Number -->
         <ng-container matColumnDef="version">
           <th mat-header-cell *matHeaderCellDef>Version</th>
@@ -197,7 +215,7 @@
         <!-- Date & Time -->
         <ng-container matColumnDef="date">
           <th mat-header-cell *matHeaderCellDef>Date & Time</th>
-          <td mat-cell *matCellDef="let v">{{ v.backed_up_at | relativeTime }}</td>
+          <td mat-cell *matCellDef="let v">{{ v.backed_up_at | dateTime }}</td>
         </ng-container>
 
         <!-- Admin -->
@@ -221,7 +239,7 @@
           <th mat-header-cell *matHeaderCellDef>Changed Fields</th>
           <td mat-cell *matCellDef="let v">
             <div class="field-chips">
-              @for (f of v.changed_fields | slice:0:4; track f) {
+              @for (f of v.changed_fields | slice: 0 : 4; track f) {
                 <span class="field-chip">{{ f }}</span>
               }
               @if (v.changed_fields.length > 4) {
@@ -239,12 +257,22 @@
           <th mat-header-cell *matHeaderCellDef></th>
           <td mat-cell *matCellDef="let v">
             <div class="inline-actions">
-              <button mat-icon-button matTooltip="View JSON" (click)="$event.stopPropagation(); viewJson(v)">
-                <mat-icon>code</mat-icon>
-              </button>
-              <button mat-icon-button matTooltip="Restore this version" (click)="$event.stopPropagation(); restoreVersion(v)">
-                <mat-icon>restore</mat-icon>
-              </button>
+              @if (v.event_type && (v.event_type === 'created' || v.event_type === 'updated')) {
+                <button
+                  mat-icon-button
+                  matTooltip="View JSON"
+                  (click)="$event.stopPropagation(); viewJson(v)"
+                >
+                  <mat-icon>code</mat-icon>
+                </button>
+                <button
+                  mat-icon-button
+                  matTooltip="Restore this version"
+                  (click)="$event.stopPropagation(); restoreVersion(v)"
+                >
+                  <mat-icon>restore</mat-icon>
+                </button>
+              }
             </div>
           </td>
         </ng-container>
@@ -262,7 +290,7 @@
   </section>
 }
 
-@if (!loading && versions.length === 0) {
+@if (!loading() && versions().length === 0) {
   <app-empty-state
     icon="history"
     title="No versions found"

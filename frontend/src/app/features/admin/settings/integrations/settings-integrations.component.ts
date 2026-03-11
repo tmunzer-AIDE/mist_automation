@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -15,13 +15,19 @@ import { SettingsService } from '../settings.service';
   selector: 'app-settings-integrations',
   standalone: true,
   imports: [
-    CommonModule, ReactiveFormsModule,
-    MatCardModule, MatFormFieldModule, MatInputModule,
-    MatButtonModule, MatIconModule, MatSnackBarModule,
-    MatProgressBarModule, MatDividerModule,
+    CommonModule,
+    ReactiveFormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatIconModule,
+    MatSnackBarModule,
+    MatProgressBarModule,
+    MatDividerModule,
   ],
   template: `
-    @if (loading) {
+    @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
       <form [formGroup]="form" class="tab-form">
@@ -32,7 +38,11 @@ import { SettingsService } from '../settings.service';
           <mat-card-content>
             <mat-form-field appearance="outline">
               <mat-label>Webhook URL</mat-label>
-              <input matInput formControlName="slack_webhook_url" placeholder="https://hooks.slack.com/services/..." />
+              <input
+                matInput
+                formControlName="slack_webhook_url"
+                placeholder="https://hooks.slack.com/services/..."
+              />
             </mat-form-field>
           </mat-card-content>
         </mat-card>
@@ -44,7 +54,11 @@ import { SettingsService } from '../settings.service';
           <mat-card-content>
             <mat-form-field appearance="outline">
               <mat-label>Instance URL</mat-label>
-              <input matInput formControlName="servicenow_instance_url" placeholder="https://instance.service-now.com" />
+              <input
+                matInput
+                formControlName="servicenow_instance_url"
+                placeholder="https://instance.service-now.com"
+              />
             </mat-form-field>
 
             <mat-form-field appearance="outline">
@@ -54,8 +68,12 @@ import { SettingsService } from '../settings.service';
 
             <mat-form-field appearance="outline">
               <mat-label>Password</mat-label>
-              <input matInput type="password" formControlName="servicenow_password"
-                     placeholder="Leave empty to keep current" />
+              <input
+                matInput
+                type="password"
+                formControlName="servicenow_password"
+                placeholder="Leave empty to keep current"
+              />
             </mat-form-field>
           </mat-card-content>
         </mat-card>
@@ -67,33 +85,50 @@ import { SettingsService } from '../settings.service';
           <mat-card-content>
             <mat-form-field appearance="outline">
               <mat-label>Integration Key</mat-label>
-              <input matInput type="password" formControlName="pagerduty_api_key"
-                     placeholder="Leave empty to keep current" />
+              <input
+                matInput
+                type="password"
+                formControlName="pagerduty_api_key"
+                placeholder="Leave empty to keep current"
+              />
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
-            <button mat-flat-button (click)="save()" [disabled]="saving">
-              <mat-icon>save</mat-icon> {{ saving ? 'Saving...' : 'Save' }}
+            <button mat-flat-button (click)="save()" [disabled]="saving()">
+              <mat-icon>save</mat-icon> {{ saving() ? 'Saving...' : 'Save' }}
             </button>
           </mat-card-actions>
         </mat-card>
       </form>
     }
   `,
-  styles: [`
-    .tab-form { display: flex; flex-direction: column; gap: 24px; }
-    mat-card-content { display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
-    mat-form-field { width: 100%; max-width: 500px; }
-  `],
+  styles: [
+    `
+      .tab-form {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      mat-card-content {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+      }
+      mat-form-field {
+        width: 100%;
+        max-width: 500px;
+      }
+    `,
+  ],
 })
 export class SettingsIntegrationsComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
   private readonly fb = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
-  loading = true;
-  saving = false;
+  loading = signal(true);
+  saving = signal(false);
 
   form = this.fb.group({
     slack_webhook_url: [''],
@@ -111,15 +146,16 @@ export class SettingsIntegrationsComponent implements OnInit {
           servicenow_instance_url: s.servicenow_instance_url || '',
           servicenow_username: s.servicenow_username || '',
         });
-        this.loading = false;
-        this.cdr.detectChanges();
+        this.loading.set(false);
       },
-      error: () => { this.loading = false; this.cdr.detectChanges(); },
+      error: () => {
+        this.loading.set(false);
+      },
     });
   }
 
   save(): void {
-    this.saving = true;
+    this.saving.set(true);
     const values = this.form.getRawValue();
     const updates: Record<string, unknown> = {};
     Object.entries(values).forEach(([k, v]) => {
@@ -128,14 +164,12 @@ export class SettingsIntegrationsComponent implements OnInit {
 
     this.settingsService.save(updates).subscribe({
       next: () => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open('Integration settings saved', 'OK', { duration: 3000 });
-        this.cdr.detectChanges();
       },
       error: (err) => {
-        this.saving = false;
+        this.saving.set(false);
         this.snackBar.open(err.message, 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }

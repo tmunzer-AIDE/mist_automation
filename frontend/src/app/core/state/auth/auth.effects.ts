@@ -22,23 +22,22 @@ export class AuthEffects {
           map((response) => {
             this.tokenService.setToken(response.access_token, response.expires_in);
             return AuthActions.loginSuccess({
-              token: response.access_token,
               expiresIn: response.expires_in,
             });
           }),
           catchError((error) =>
-            of(AuthActions.loginFailure({ error: error.message || 'Login failed' }))
-          )
-        )
-      )
-    )
+            of(AuthActions.loginFailure({ error: error.message || 'Login failed' })),
+          ),
+        ),
+      ),
+    ),
   );
 
   loginSuccess$ = createEffect(() =>
     this.actions$.pipe(
       ofType(AuthActions.loginSuccess),
-      map(() => AuthActions.loadUser())
-    )
+      map(() => AuthActions.loadUser()),
+    ),
   );
 
   loadUser$ = createEffect(() =>
@@ -48,11 +47,11 @@ export class AuthEffects {
         this.authService.me().pipe(
           map((user) => AuthActions.loadUserSuccess({ user })),
           catchError((error) =>
-            of(AuthActions.loadUserFailure({ error: error.message || 'Failed to load user' }))
-          )
-        )
-      )
-    )
+            of(AuthActions.loadUserFailure({ error: error.message || 'Failed to load user' })),
+          ),
+        ),
+      ),
+    ),
   );
 
   loadUserSuccess$ = createEffect(
@@ -63,9 +62,9 @@ export class AuthEffects {
           if (this.router.url === '/login' || this.router.url === '/onboard') {
             this.router.navigate(['/dashboard']);
           }
-        })
+        }),
       ),
-    { dispatch: false }
+    { dispatch: false },
   );
 
   logout$ = createEffect(() =>
@@ -74,10 +73,10 @@ export class AuthEffects {
       exhaustMap(() =>
         this.authService.logout().pipe(
           map(() => AuthActions.logoutComplete()),
-          catchError(() => of(AuthActions.logoutComplete()))
-        )
-      )
-    )
+          catchError(() => of(AuthActions.logoutComplete())),
+        ),
+      ),
+    ),
   );
 
   logoutComplete$ = createEffect(
@@ -87,8 +86,8 @@ export class AuthEffects {
         tap(() => {
           this.tokenService.clearToken();
           this.router.navigate(['/login']);
-        })
+        }),
       ),
-    { dispatch: false }
+    { dispatch: false },
   );
 }

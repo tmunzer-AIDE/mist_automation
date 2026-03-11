@@ -1,37 +1,43 @@
 """
-Workflow executor service for running workflows and executing actions.
+Workflow executor service — graph-based execution engine.
+
+Traverses the workflow graph (nodes + edges) from the trigger node,
+executing each node and following edges based on output ports.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Optional
 import asyncio
-import structlog
-import httpx
+import copy
+import json
+import re
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Any
 
-from app.modules.automation.models.workflow import (
-    Workflow,
-    WorkflowAction,
-    ActionType,
-)
-from app.utils.variables import substitute_variables, substitute_in_dict, build_context, get_nested_value
-from app.modules.automation.models.execution import WorkflowExecution, ExecutionStatus, ActionExecutionResult
-from app.services.mist_service import MistService
+import httpx
+import structlog
+from jinja2 import ChainableUndefined
+from jinja2.sandbox import SandboxedEnvironment
+
 from app.core.exceptions import WorkflowExecutionError, WorkflowTimeoutError
-from app.config import settings
+from app.modules.automation.models.execution import (
+    ExecutionStatus,
+    NodeExecutionResult,
+    NodeSnapshot,
+    WorkflowExecution,
+)
+from app.modules.automation.models.workflow import ActionType, Workflow, WorkflowNode
+from app.services.mist_service import MistService
+from app.utils.variables import get_nested_value
 
 logger = structlog.get_logger(__name__)
 
 
 class WorkflowExecutor:
-    """Service for executing workflows and actions."""
+    """Graph-based workflow executor."""
 
-    def __init__(self, mist_service: Optional[MistService] = None):
-        """
-        Initialize executor.
+    _jinja_env = SandboxedEnvironment(undefined=ChainableUndefined)
 
-        Args:
-            mist_service: Optional MistService instance
-        """
+    def __init__(self, mist_service: MistService | None = None):
         self.mist_service = mist_service or MistService()
         self.variable_context: dict[str, Any] = {}
 
@@ -41,24 +47,22 @@ class WorkflowExecutor:
         trigger_data: dict[str, Any],
         trigger_source: str = "webhook",
         execution: WorkflowExecution | None = None,
+        simulate: bool = False,
+        dry_run: bool = False,
     ) -> WorkflowExecution:
         """
-        Execute a workflow with given trigger data.
+        Execute a workflow graph.
 
         Args:
             workflow: Workflow to execute
-            trigger_data: Trigger payload (webhook data or cron context)
-            trigger_source: Source of trigger (webhook, cron, manual)
-            execution: Optional pre-created execution record (e.g. from webhook/cron worker)
-
-        Returns:
-            WorkflowExecution record
-
-        Raises:
-            WorkflowExecutionError: If execution fails
-            WorkflowTimeoutError: If execution exceeds timeout
+            trigger_data: Trigger payload
+            trigger_source: Source of trigger (webhook, cron, manual, simulation)
+            execution: Optional pre-created execution record
+            simulate: If True, capture snapshots for step-by-step replay
+            dry_run: If True, mock external API calls
         """
         start_time = datetime.now(timezone.utc)
+
         if execution is None:
             execution = WorkflowExecution(
                 workflow_id=workflow.id,
@@ -66,10 +70,14 @@ class WorkflowExecutor:
                 trigger_type=trigger_source or "manual",
                 trigger_data=trigger_data,
                 status=ExecutionStatus.RUNNING,
+                is_simulation=simulate,
+                is_dry_run=dry_run,
             )
             await execution.insert()
         else:
             execution.status = ExecutionStatus.RUNNING
+            execution.is_simulation = simulate
+            execution.is_dry_run = dry_run
             await execution.save()
 
         logger.info(
@@ -77,15 +85,16 @@ class WorkflowExecutor:
             workflow_id=str(workflow.id),
             execution_id=str(execution.id),
             trigger_source=trigger_source,
+            simulate=simulate,
+            dry_run=dry_run,
         )
 
-        # Initialize variable context with trigger data
-        self.variable_context = {"trigger": trigger_data, "results": {}}
+        # Initialize variable context
+        self.variable_context = {"trigger": trigger_data, "results": {}, "nodes": {}}
 
         try:
-            # Execute with timeout
             execution = await asyncio.wait_for(
-                self._execute_workflow_internal(workflow, execution),
+                self._execute_graph(workflow, execution, simulate=simulate, dry_run=dry_run),
                 timeout=workflow.timeout_seconds,
             )
 
@@ -95,19 +104,10 @@ class WorkflowExecutor:
             execution.add_log(f"Workflow timed out after {workflow.timeout_seconds} seconds", "error")
             await execution.save()
 
-            logger.warning(
-                "workflow_execution_timeout",
-                workflow_id=str(workflow.id),
-                execution_id=str(execution.id),
-                timeout=workflow.timeout_seconds,
-            )
-
-            # Update workflow stats
             workflow.failure_count += 1
             workflow.last_execution = start_time
             workflow.last_failure = start_time
             await workflow.save()
-
             raise WorkflowTimeoutError(f"Workflow execution timed out after {workflow.timeout_seconds} seconds")
 
         except Exception as e:
@@ -116,20 +116,11 @@ class WorkflowExecutor:
             execution.add_log(f"Workflow execution failed: {e}", "error")
             await execution.save()
 
-            logger.error(
-                "workflow_execution_failed",
-                workflow_id=str(workflow.id),
-                execution_id=str(execution.id),
-                error=str(e),
-            )
-
-            # Update workflow stats
             workflow.failure_count += 1
             workflow.last_execution = start_time
             workflow.last_failure = start_time
             await workflow.save()
-
-            raise WorkflowExecutionError(f"Workflow execution failed: {str(e)}")
+            raise WorkflowExecutionError(f"Workflow execution failed: {e}")
 
         # Calculate duration
         end_time = datetime.now(timezone.utc)
@@ -154,313 +145,673 @@ class WorkflowExecutor:
             status=execution.status,
             duration_ms=execution.duration_ms,
         )
-
         return execution
 
-    async def _execute_workflow_internal(
+    # ── Graph execution ──────────────────────────────────────────────────────
+
+    async def _execute_graph(
         self,
         workflow: Workflow,
         execution: WorkflowExecution,
+        simulate: bool = False,
+        dry_run: bool = False,
     ) -> WorkflowExecution:
-        """Internal workflow execution logic."""
+        """Execute the workflow graph via BFS from the trigger node."""
+
+        # Build adjacency map: source_node_id -> [(edge, target_node)]
+        node_map = {n.id: n for n in workflow.nodes}
+        adjacency: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+        for edge in workflow.edges:
+            adjacency[edge.source_node_id].append(
+                (edge.source_port_id, edge.target_node_id, edge.target_port_id)
+            )
+
+        # Find trigger node
+        trigger_node = workflow.get_trigger_node()
+        if not trigger_node:
+            raise WorkflowExecutionError("No trigger node found in workflow")
 
         # Step 1: Evaluate trigger condition
-        if workflow.trigger.condition:
-            execution.trigger_condition = workflow.trigger.condition
-            execution.add_log(f"Evaluating trigger condition: {workflow.trigger.condition}")
-            condition_passed = self._evaluate_condition_expression(workflow.trigger.condition)
+        trigger_condition = trigger_node.config.get("condition")
+        if trigger_condition:
+            execution.trigger_condition = trigger_condition
+            execution.add_log(f"Evaluating trigger condition: {trigger_condition}")
+            condition_passed = self._evaluate_condition_expression(trigger_condition)
             execution.trigger_condition_passed = condition_passed
             execution.add_log(f"Trigger condition result: {'passed' if condition_passed else 'not met'}")
             await execution.save()
 
             if not condition_passed:
                 execution.status = ExecutionStatus.FILTERED
-                execution.add_log("Workflow filtered out — trigger condition not met", "info")
+                execution.add_log("Workflow filtered out — trigger condition not met")
                 await execution.save()
-                logger.info(
-                    "workflow_filtered_out",
-                    workflow_id=str(workflow.id),
-                    execution_id=str(execution.id),
-                    condition=workflow.trigger.condition,
-                )
                 return execution
         else:
             execution.trigger_condition_passed = True
             await execution.save()
 
-        # Step 2: Extract trigger variables via save_as bindings
-        if workflow.trigger.save_as:
-            trigger_data = self.variable_context.get("trigger", {})
-            self._store_save_as_variables(workflow.trigger.save_as, trigger_data)
+        # Step 2: Extract trigger variables
+        trigger_save_as = trigger_node.save_as
+        if trigger_save_as:
+            self._store_save_as_variables(trigger_save_as, self.variable_context.get("trigger", {}))
 
-        # Step 3: Execute actions
-        execution.add_log(f"Starting execution of {len(workflow.actions)} action(s)")
+        # Record trigger node snapshot
+        step_counter = [0]
+        if simulate:
+            step_counter[0] += 1
+            execution.node_snapshots.append(
+                NodeSnapshot(
+                    node_id=trigger_node.id,
+                    node_name=trigger_node.name,
+                    step=step_counter[0],
+                    input_variables={},
+                    output_data=self.variable_context.get("trigger", {}),
+                    status="success",
+                    variables_after=copy.deepcopy(self.variable_context),
+                )
+            )
+
+        # Step 3: BFS traverse from trigger
+        execution.add_log(f"Starting graph execution with {len(workflow.nodes)} nodes and {len(workflow.edges)} edges")
         await execution.save()
-        all_success = await self._execute_actions(workflow.actions, execution)
+
+        all_success = await self._traverse_from(
+            trigger_node.id,
+            adjacency,
+            node_map,
+            execution,
+            dry_run=dry_run,
+            simulate=simulate,
+            step_counter=step_counter,
+        )
 
         # Set final status
         if all_success:
             execution.status = ExecutionStatus.SUCCESS
         else:
-            # Check if any actions succeeded
-            has_success = any(ar.status == "success" for ar in execution.action_results)
+            has_success = any(r.status == "success" for r in execution.node_results.values())
             execution.status = ExecutionStatus.PARTIAL if has_success else ExecutionStatus.FAILED
 
-        # Store variable context for audit
         execution.variables = self.variable_context.get("results", {})
         await execution.save()
         return execution
 
-    async def _execute_actions(
+    async def _traverse_from(
         self,
-        actions: list[WorkflowAction],
+        start_node_id: str,
+        adjacency: dict[str, list[tuple[str, str, str]]],
+        node_map: dict[str, WorkflowNode],
         execution: WorkflowExecution,
+        dry_run: bool = False,
+        simulate: bool = False,
+        step_counter: list[int] | None = None,
+        visited: set[str] | None = None,
+        initial_port_filter: str | None = None,
     ) -> bool:
         """
-        Execute all workflow actions.
-
-        Args:
-            actions: List of actions to execute
-            execution: Execution record
-
-        Returns:
-            True if all actions succeeded
+        Traverse and execute nodes starting from a given node, following edges.
+        Returns True if all nodes executed successfully.
         """
+        if visited is None:
+            visited = {start_node_id}  # trigger already "executed"
+        if step_counter is None:
+            step_counter = [0]
+
         all_success = True
 
-        for i, action in enumerate(actions):
-            if not action.enabled:
-                execution.add_log(f"Action [{i}] '{action.name}' skipped (disabled)")
-                logger.debug("action_skipped_disabled", action_index=i, action_name=action.name)
+        # Get downstream nodes from start
+        initial_edges = adjacency.get(start_node_id, [])
+        if initial_port_filter:
+            initial_edges = [e for e in initial_edges if e[0] == initial_port_filter]
+        queue = list(initial_edges)
+
+        while queue:
+            source_port_id, target_node_id, target_port_id = queue.pop(0)
+
+            if target_node_id in visited:
+                continue
+            visited.add(target_node_id)
+
+            node = node_map.get(target_node_id)
+            if not node:
                 continue
 
-            execution.add_log(f"Action [{i}] '{action.name}' started ({action.type})")
+            if not node.enabled:
+                execution.add_log(f"Node '{node.name or node.id}' skipped (disabled)")
+                continue
+
+            execution.add_log(f"Executing node '{node.name or node.id}' ({node.type})")
+
+            # Capture input snapshot for simulation
+            input_snapshot = copy.deepcopy(self.variable_context) if simulate else None
 
             try:
-                result = await self._execute_action(action, i, execution)
-                execution.add_action_result(result)
+                result = await self._execute_node(node, execution, dry_run=dry_run)
+                node_result = NodeExecutionResult(
+                    node_id=node.id,
+                    node_name=node.name,
+                    node_type=node.type,
+                    status="success",
+                    started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
+                    output_data=result,
+                    input_snapshot=input_snapshot,
+                    retry_count=0,
+                )
+                execution.add_node_result(node_result)
+                execution.add_log(f"Node '{node.name or node.id}' succeeded")
 
-                if result.status == "success":
-                    execution.add_log(f"Action [{i}] '{action.name}' succeeded ({result.duration_ms}ms)")
-                else:
-                    execution.add_log(
-                        f"Action [{i}] '{action.name}' failed: {result.error}",
-                        "error",
-                    )
+                # Store output in variable context
+                self.variable_context["nodes"][node.id] = result
+                if node.name:
+                    self.variable_context["nodes"][node.name] = result
 
-                # Store output as named variables if save_as is set
-                if action.save_as and result.status == "success" and result.output:
-                    self._store_save_as_variables(action.save_as, result.output)
+                # Handle save_as bindings
+                if node.save_as and result:
+                    self._store_save_as_variables(node.save_as, result)
 
-                await execution.save()
+                # Special handling for for_each — execute loop body subgraph per item
+                if node.type == "for_each":
+                    loop_body_edges = [e for e in adjacency.get(node.id, []) if e[0] == "loop_body"]
+                    if loop_body_edges:
+                        config = node.config
+                        loop_over_raw = config.get("loop_over", "")
+                        loop_over = loop_over_raw.strip()
+                        if loop_over.startswith("{{") and loop_over.endswith("}}"):
+                            loop_over = loop_over[2:-2].strip()
+                        collection = get_nested_value(self.variable_context, loop_over) or []
+                        max_iterations = config.get("max_iterations", 100)
+                        items = collection[:max_iterations]
+                        loop_variable = config.get("loop_variable", "item")
 
-                if result.status != "success":
-                    all_success = False
-                    if not action.continue_on_error:
-                        execution.add_log(f"Stopping workflow — action '{action.name}' failed and continue_on_error is off", "warning")
-                        logger.warning(
-                            "action_failed_stopping_workflow",
-                            action_index=i,
-                            action_name=action.name,
-                        )
-                        await execution.save()
-                        break
+                        for i, item in enumerate(items):
+                            self.variable_context["loop"] = {loop_variable: item, "index": i}
+                            self.variable_context["item"] = item
+
+                            # Expose the current item as the node's output so downstream
+                            # nodes can access fields via nodes.<for_each_name>.<field>
+                            item_output = item if isinstance(item, dict) else {"value": item}
+                            self.variable_context["nodes"][node.id] = item_output
+                            if node.name:
+                                self.variable_context["nodes"][node.name] = item_output
+
+                            # Traverse loop body with fresh visited set each iteration
+                            body_visited: set[str] = {node.id}
+                            loop_success = await self._traverse_from(
+                                node.id,
+                                adjacency,
+                                node_map,
+                                execution,
+                                dry_run=dry_run,
+                                simulate=simulate,
+                                step_counter=step_counter,
+                                visited=body_visited,
+                                initial_port_filter="loop_body",
+                            )
+                            if not loop_success:
+                                all_success = False
+                                if not node.continue_on_error:
+                                    break
+
+                        # Clean up loop context and restore metadata as node output
+                        self.variable_context.pop("loop", None)
+                        self.variable_context.pop("item", None)
+                        self.variable_context["nodes"][node.id] = result
+                        if node.name:
+                            self.variable_context["nodes"][node.name] = result
+
+                # Determine which edges to follow based on node type
+                next_edges = self._resolve_output_edges(node, result, adjacency)
+                for edge_info in next_edges:
+                    if edge_info[1] not in visited:
+                        queue.append(edge_info)
 
             except Exception as e:
-                logger.error(
-                    "action_execution_error",
-                    action_index=i,
-                    action_name=action.name,
-                    error=str(e),
-                )
-                execution.add_log(f"Action [{i}] '{action.name}' exception: {e}", "error")
-                # Create ActionExecutionResult for error case
-                result = ActionExecutionResult(
-                    action_name=action.name,
+                node_result = NodeExecutionResult(
+                    node_id=node.id,
+                    node_name=node.name,
+                    node_type=node.type,
                     status="failed",
                     started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
                     error=str(e),
+                    input_snapshot=input_snapshot,
                 )
-                execution.add_action_result(result)
-                await execution.save()
+                execution.add_node_result(node_result)
+                execution.add_log(f"Node '{node.name or node.id}' failed: {e}", "error")
+                logger.error("node_execution_failed", node_id=node.id, error=str(e))
 
                 all_success = False
-                if not action.continue_on_error:
+                if not node.continue_on_error:
+                    execution.add_log(
+                        f"Stopping workflow — node '{node.name or node.id}' failed and continue_on_error is off",
+                        "warning",
+                    )
                     break
+
+                # Even on failure with continue_on_error, follow "default" edges
+                for edge_info in adjacency.get(node.id, []):
+                    if edge_info[0] == "default" and edge_info[1] not in visited:
+                        queue.append(edge_info)
+
+            # Record simulation snapshot
+            if simulate:
+                step_counter[0] += 1
+                execution.node_snapshots.append(
+                    NodeSnapshot(
+                        node_id=node.id,
+                        node_name=node.name,
+                        step=step_counter[0],
+                        input_variables=input_snapshot or {},
+                        output_data=result if node_result.status == "success" else None,
+                        status=node_result.status,
+                        duration_ms=node_result.duration_ms,
+                        error=node_result.error,
+                        variables_after=copy.deepcopy(self.variable_context),
+                    )
+                )
+
+            await execution.save()
 
         return all_success
 
-    async def _execute_action(
-        self, action: WorkflowAction, index: int, execution: WorkflowExecution | None = None
-    ) -> ActionExecutionResult:
-        """Execute a single action with retries."""
-        
-        started_at = datetime.now(timezone.utc)
+    def _resolve_output_edges(
+        self,
+        node: WorkflowNode,
+        result: dict[str, Any] | None,
+        adjacency: dict[str, list[tuple[str, str, str]]],
+    ) -> list[tuple[str, str, str]]:
+        """Determine which edges to follow based on node type and execution result."""
+        all_edges = adjacency.get(node.id, [])
+
+        if node.type == "condition" and result:
+            # Follow the matching branch edge
+            matched = result.get("matched_branch")
+            if matched is None:
+                return []
+            if matched == "else":
+                return [e for e in all_edges if e[0] == "else"]
+            return [e for e in all_edges if e[0] == f"branch_{matched}"]
+
+        if node.type == "for_each":
+            # For-each: the loop body is handled internally,
+            # only follow the "done" edge after loop completes
+            return [e for e in all_edges if e[0] == "done"]
+
+        # Default: follow all "default" edges
+        return [e for e in all_edges if e[0] == "default"]
+
+    # ── Node execution ───────────────────────────────────────────────────────
+
+    async def _execute_node(
+        self,
+        node: WorkflowNode,
+        execution: WorkflowExecution,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Execute a single node with retry logic."""
         last_error = None
-        retry_count = 0
-        
-        for attempt in range(action.max_retries + 1):
+
+        for attempt in range(node.max_retries + 1):
             try:
                 if attempt > 0:
-                    logger.info(
-                        "action_retry",
-                        action_name=action.name,
-                        attempt=attempt,
-                        max_retries=action.max_retries,
-                    )
-                    await asyncio.sleep(action.retry_delay)
-                    retry_count = attempt
+                    logger.info("node_retry", node_id=node.id, attempt=attempt)
+                    await asyncio.sleep(node.retry_delay)
 
-                # Execute based on action type
-                if action.type == ActionType.MIST_API_GET:
-                    result = await self._execute_mist_api("GET", action)
-                elif action.type == ActionType.MIST_API_POST:
-                    result = await self._execute_mist_api("POST", action)
-                elif action.type == ActionType.MIST_API_PUT:
-                    result = await self._execute_mist_api("PUT", action)
-                elif action.type == ActionType.MIST_API_DELETE:
-                    result = await self._execute_mist_api("DELETE", action)
-                elif action.type == ActionType.WEBHOOK:
-                    result = await self._execute_webhook(action)
-                elif action.type == ActionType.DELAY:
-                    result = await self._execute_delay(action)
-                elif action.type == ActionType.CONDITION:
-                    result = await self._execute_condition(action, execution)
-                elif action.type == ActionType.SET_VARIABLE:
-                    result = await self._execute_set_variable(action)
-                elif action.type == ActionType.FOR_EACH:
-                    result = await self._execute_for_each(action, execution)
-                else:
-                    raise NotImplementedError(f"Action type {action.type} not implemented")
-
-                completed_at = datetime.now(timezone.utc)
-                duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-                
-                return ActionExecutionResult(
-                    action_name=action.name,
-                    status="success",
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    duration_ms=duration_ms,
-                    output=result,
-                    retry_count=retry_count,
-                )
+                return await self._execute_node_by_type(node, execution, dry_run=dry_run)
 
             except Exception as e:
-                last_error = str(e)
-                logger.warning(
-                    "action_attempt_failed",
-                    action_name=action.name,
-                    attempt=attempt,
-                    error=str(e),
-                )
+                last_error = e
+                logger.warning("node_attempt_failed", node_id=node.id, attempt=attempt, error=str(e))
 
-        # All retries failed
-        completed_at = datetime.now(timezone.utc)
-        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-        
-        return ActionExecutionResult(
-            action_name=action.name,
-            status="failed",
-            started_at=started_at,
-            completed_at=completed_at,
-            duration_ms=duration_ms,
-            error=last_error,
-            retry_count=retry_count,
-        )
+        raise last_error  # type: ignore[misc]
 
-    async def _execute_mist_api(self, method: str, action: WorkflowAction) -> dict[str, Any]:
-        """Execute a Mist API action (GET, POST, PUT, or DELETE)."""
+    async def _execute_node_by_type(
+        self,
+        node: WorkflowNode,
+        execution: WorkflowExecution,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Dispatch node execution based on type."""
+        node_type = node.type
+        config = node.config
+
+        if node_type in ("mist_api_get", "mist_api_post", "mist_api_put", "mist_api_delete"):
+            method = node_type.replace("mist_api_", "").upper()
+            if dry_run:
+                return await self._mock_mist_api(method, config)
+            return await self._execute_mist_api(method, config)
+
+        if node_type == "webhook":
+            if dry_run:
+                return {"status": "mocked", "url": config.get("webhook_url", "")}
+            return await self._execute_webhook(config)
+
+        if node_type == "delay":
+            seconds = config.get("delay_seconds", 1)
+            if not dry_run:
+                await asyncio.sleep(seconds)
+            return {"delayed_seconds": seconds}
+
+        if node_type == "condition":
+            return await self._execute_condition(node, execution, dry_run=dry_run)
+
+        if node_type == "set_variable":
+            return await self._execute_set_variable(config)
+
+        if node_type == "for_each":
+            return await self._execute_for_each(node, execution, dry_run=dry_run)
+
+        if node_type in ("slack", "servicenow", "pagerduty"):
+            if dry_run:
+                return {"status": "mocked", "channel": config.get("notification_channel", "")}
+            return await self._execute_notification(node_type, config)
+
+        raise NotImplementedError(f"Node type '{node_type}' not implemented")
+
+    # ── TLS ────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _resolve_verify() -> str | bool:
+        """Return the TLS verify option, respecting CA_CERT_PATH for proxies like ZScaler.
+
+        Returns CA_CERT_PATH if configured, otherwise uses system CA store (True).
+        Only disable verification explicitly via environment configuration.
+        """
+        import os
+
+        from app.config import settings
+
+        if settings.ca_cert_path and os.path.isfile(settings.ca_cert_path):
+            return settings.ca_cert_path
+        return True
+
+    # ── Template rendering ───────────────────────────────────────────────────
+
+    def _build_render_context(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        Build a Jinja2 rendering context from the full variable context.
+
+        Includes trigger, results, nodes (with sanitized name aliases), loop/item,
+        and utility values (now, now_iso, etc.).
+        """
+        context: dict[str, Any] = {}
+
+        # Add trigger data at root level (for {{ topic }}, {{ events }}) AND under "trigger" key
         trigger_data = self.variable_context.get("trigger")
-        api_results = self.variable_context.get("results")
+        if trigger_data:
+            context.update(trigger_data)
+            context["trigger"] = trigger_data
 
-        endpoint = substitute_variables(action.api_endpoint, webhook_data=trigger_data, api_results=api_results)
-        params = substitute_in_dict(action.api_params or {}, webhook_data=trigger_data, api_results=api_results)
+        # Add saved results
+        results = self.variable_context.get("results")
+        if results:
+            for key, value in results.items():
+                context[key] = value
 
-        if method in ("POST", "PUT"):
-            body = substitute_in_dict(action.api_body or {}, webhook_data=trigger_data, api_results=api_results)
-            result = await getattr(self.mist_service, f"api_{method.lower()}")(endpoint, body)
-        elif method == "DELETE":
-            await self.mist_service.api_delete(endpoint, params)
-            result = {"status": "deleted"}
-        else:  # GET
-            result = await self.mist_service.api_get(endpoint, params)
+        # Add nodes with sanitized name aliases (spaces → underscores)
+        nodes = self.variable_context.get("nodes", {})
+        sanitized_nodes: dict[str, Any] = {}
+        for key, value in nodes.items():
+            sanitized_nodes[key] = value
+            sanitized = key.replace(" ", "_")
+            if sanitized != key:
+                sanitized_nodes[sanitized] = value
+        context["nodes"] = sanitized_nodes
 
-        logger.info(f"mist_api_{method.lower()}_executed", endpoint=endpoint)
+        # Add loop context
+        if "loop" in self.variable_context:
+            context["loop"] = self.variable_context["loop"]
+        if "item" in self.variable_context:
+            context["item"] = self.variable_context["item"]
+
+        # Utility values
+        from datetime import datetime, timezone as tz
+
+        context["now"] = datetime.now(tz.utc)
+        context["now_iso"] = datetime.now(tz.utc).isoformat()
+        context["now_timestamp"] = int(datetime.now(tz.utc).timestamp())
+
+        if extra:
+            context.update(extra)
+
+        return context
+
+    def _normalize_template(self, template: str) -> str:
+        """
+        Pre-process a template to convert node name references with spaces
+        into bracket notation that Jinja2 can parse.
+
+        Converts:  {{ nodes.For Each Events.site_id }}
+        To:        {{ nodes["For Each Events"]["site_id"] }}
+        """
+        if "nodes." not in template:
+            return template
+
+        # Collect node names that contain spaces (sorted longest-first to avoid partial matches)
+        nodes = self.variable_context.get("nodes", {})
+        names_with_spaces = sorted(
+            [name for name in nodes if " " in name],
+            key=len,
+            reverse=True,
+        )
+        if not names_with_spaces:
+            return template
+
+        for name in names_with_spaces:
+            # Match  nodes.<name>  optionally followed by  .<field>.<subfield>...
+            # Use re.escape to handle any special regex chars in node names
+            pattern = re.compile(
+                r"nodes\." + re.escape(name) + r"((?:\.\w+)*)"
+            )
+
+            # Escape quotes in the node name to prevent bracket-notation injection
+            safe_name = name.replace("\\", "\\\\").replace('"', '\\"')
+
+            def _replace(m: re.Match, _safe=safe_name) -> str:
+                suffix = m.group(1)  # e.g. ".site_id" or ".foo.bar" or ""
+                parts = [f'["{seg}"]' for seg in suffix.split(".") if seg]
+                return f'nodes["{_safe}"]' + "".join(parts)
+
+            template = pattern.sub(_replace, template)
+
+        return template
+
+    def _render_template(self, template: str) -> str:
+        """Render a Jinja2 template using the full variable context."""
+        if not template:
+            return template
+
+        template = self._normalize_template(template)
+        context = self._build_render_context()
+
+        try:
+            return self._jinja_env.from_string(template).render(context)
+        except Exception as e:
+            raise ValueError(f"Template syntax error at line 1: {e}") from e
+
+    def _render_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Recursively render Jinja2 templates in a dictionary's string values."""
+        result: dict[str, Any] = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                result[key] = self._render_template(value)
+            elif isinstance(value, dict):
+                result[key] = self._render_dict(value)
+            elif isinstance(value, list):
+                result[key] = self._render_list(value)
+            else:
+                result[key] = value
         return result
 
-    async def _execute_webhook(self, action: WorkflowAction) -> dict[str, Any]:
-        """Execute webhook action."""
-        trigger_data = self.variable_context.get("trigger")
-        api_results = self.variable_context.get("results")
-        url = substitute_variables(action.webhook_url, webhook_data=trigger_data, api_results=api_results)
-        headers = substitute_in_dict(action.webhook_headers or {}, webhook_data=trigger_data, api_results=api_results)
-        body = substitute_in_dict(action.webhook_body or {}, webhook_data=trigger_data, api_results=api_results)
+    def _render_list(self, data: list) -> list:
+        """Recursively render Jinja2 templates in a list's string items."""
+        result: list = []
+        for item in data:
+            if isinstance(item, str):
+                result.append(self._render_template(item))
+            elif isinstance(item, dict):
+                result.append(self._render_dict(item))
+            elif isinstance(item, list):
+                result.append(self._render_list(item))
+            else:
+                result.append(item)
+        return result
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+    # ── Action implementations ───────────────────────────────────────────────
+
+    async def _execute_mist_api(self, method: str, config: dict) -> dict[str, Any]:
+        """Execute a Mist API call.
+
+        Returns a dict with ``status_code`` and ``body`` keys so templates
+        can access the response uniformly via ``{{ nodes.Name.body.field }}``.
+        """
+        endpoint = self._render_template(config.get("api_endpoint", ""))
+        params = self._render_dict(config.get("api_params", {}) or {})
+
+        if method in ("POST", "PUT"):
+            body = self._render_dict(config.get("api_body", {}) or {})
+            data = await getattr(self.mist_service, f"api_{method.lower()}")(endpoint, body)
+        elif method == "DELETE":
+            await self.mist_service.api_delete(endpoint, params)
+            data = {"status": "deleted"}
+        else:
+            data = await self.mist_service.api_get(endpoint, params)
+
+        logger.info(f"mist_api_{method.lower()}_executed", endpoint=endpoint)
+        return {"status_code": 200, "body": data}
+
+    async def _mock_mist_api(self, method: str, config: dict) -> dict[str, Any]:
+        """Generate a mock response for a Mist API call using OAS."""
+        from app.modules.automation.services.oas_service import OASService
+
+        endpoint = self._render_template(config.get("api_endpoint", ""))
+        oas_endpoint = OASService.get_endpoint(method, endpoint)
+
+        if oas_endpoint:
+            return {
+                "status_code": 200,
+                "body": OASService.generate_mock_response(oas_endpoint),
+            }
+
+        return {"status_code": 200, "body": {"mocked": True}}
+
+    async def _execute_webhook(self, config: dict) -> dict[str, Any]:
+        """Execute webhook action."""
+        url = self._render_template(config.get("webhook_url", ""))
+        headers = self._render_dict(config.get("webhook_headers", {}) or {})
+        body = self._render_dict(config.get("webhook_body", {}) or {})
+
+        async with httpx.AsyncClient(timeout=30.0, verify=self._resolve_verify()) as client:
             response = await client.post(url, json=body, headers=headers)
             response.raise_for_status()
 
         logger.info("webhook_executed", url=url, status_code=response.status_code)
-
         return {"status_code": response.status_code, "response": response.text[:1000]}
 
-    async def _execute_delay(self, action: WorkflowAction) -> dict[str, Any]:
-        """Execute delay action."""
-        await asyncio.sleep(action.delay_seconds)
-        logger.info("delay_executed", seconds=action.delay_seconds)
+    async def _execute_notification(self, node_type: str, config: dict) -> dict[str, Any]:
+        """Execute a notification action (slack, servicenow, pagerduty)."""
+        from app.services.notification_service import NotificationService
 
-        return {"delayed_seconds": action.delay_seconds}
+        template = config.get("notification_template", "")
+        message = self._render_template(template)
+        channel = config.get("notification_channel", "")
+
+        async with NotificationService() as ns:
+            if node_type == "slack":
+                return await ns.send_slack_notification(webhook_url=channel, message=message)
+            elif node_type == "servicenow":
+                return await ns.send_servicenow_notification(
+                    instance_url=channel,
+                    username=config.get("servicenow_username"),
+                    password=config.get("servicenow_password"),
+                    short_description=message,
+                )
+            elif node_type == "pagerduty":
+                return await ns.send_pagerduty_alert(
+                    integration_key=channel,
+                    summary=message,
+                    severity=config.get("severity", "warning"),
+                )
+            else:
+                logger.warning(f"Unknown notification type: {node_type}")
+                return {"status": "unsupported", "type": node_type}
+
+    async def _execute_condition(
+        self, node: WorkflowNode, execution: WorkflowExecution, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """Execute a condition node — evaluate branches, return which matched."""
+        branches = node.config.get("branches", [])
+
+        for i, branch in enumerate(branches):
+            condition_expr = branch.get("condition", "")
+            if self._evaluate_condition_expression(condition_expr):
+                logger.info("condition_branch_matched", node_id=node.id, branch_index=i)
+                return {"matched_branch": i, "condition": condition_expr}
+
+        # Check for else
+        if node.config.get("else_actions"):
+            logger.info("condition_else_branch", node_id=node.id)
+            return {"matched_branch": "else"}
+
+        logger.info("condition_no_match", node_id=node.id)
+        return {"matched_branch": None}
+
+    async def _execute_set_variable(self, config: dict) -> dict[str, Any]:
+        """Execute a set_variable node."""
+        expression = config.get("variable_expression", "")
+        rendered = self._render_template(expression).strip()
+
+        try:
+            value = json.loads(rendered)
+        except (json.JSONDecodeError, ValueError):
+            value = rendered
+
+        var_name = config.get("variable_name", "unnamed")
+        self.variable_context["results"][var_name] = value
+        logger.info("set_variable_executed", variable_name=var_name, value=str(value)[:200])
+        return {"variable_name": var_name, "value": value}
+
+    async def _execute_for_each(
+        self, node: WorkflowNode, execution: WorkflowExecution, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """Validate the for_each collection. Actual iteration is handled by _traverse_from."""
+        config = node.config
+        loop_over_raw = config.get("loop_over", "")
+        # Strip Jinja2 template braces if present (e.g. "{{ trigger.events }}" → "trigger.events")
+        loop_over = loop_over_raw.strip()
+        if loop_over.startswith("{{") and loop_over.endswith("}}"):
+            loop_over = loop_over[2:-2].strip()
+        collection = get_nested_value(self.variable_context, loop_over)
+
+        if collection is None:
+            raise ValueError(f"for_each: '{loop_over}' resolved to None")
+        if not isinstance(collection, list):
+            raise ValueError(f"for_each: '{loop_over}' is not a list (got {type(collection).__name__})")
+
+        max_iterations = config.get("max_iterations", 100)
+        iteration_count = min(len(collection), max_iterations)
+
+        logger.info("for_each_executed", node_id=node.id, iterations=iteration_count)
+        return {"iterations": iteration_count, "loop_over": loop_over}
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _evaluate_condition_expression(self, expression: str) -> bool:
-        """
-        Evaluate a condition expression using Jinja2.
-
-        The expression is rendered as a Jinja2 template with the current
-        variable context. The result is interpreted as truthy/falsy.
-
-        Args:
-            expression: Condition expression (e.g. "{{ event.severity == 'critical' }}")
-
-        Returns:
-            True if condition is truthy, False otherwise
-        """
-        from jinja2 import Environment, ChainableUndefined
-
-        trigger_data = self.variable_context.get("trigger")
-        api_results = self.variable_context.get("results")
-        context = build_context(webhook_data=trigger_data, api_results=api_results)
-
-        env = Environment(undefined=ChainableUndefined)
-        rendered = env.from_string(expression).render(context).strip()
-
-        # Interpret rendered result as boolean
+        """Evaluate a Jinja2 condition expression using the full variable context."""
+        context = self._build_render_context()
+        rendered = self._jinja_env.from_string(expression).render(context).strip()
         return rendered.lower() not in ("", "false", "0", "none", "null", "undefined")
 
     def _store_save_as_variables(self, bindings: list, output: dict[str, Any]) -> None:
-        """Store variables extracted from action output via save_as bindings."""
-        from jinja2 import Environment, ChainableUndefined
-        import json
-
+        """Store variables extracted from node output via save_as bindings."""
         for binding in bindings:
             if not binding.expression:
-                # No expression — store full output
                 self.variable_context["results"][binding.name] = output
             else:
-                # Evaluate Jinja2 expression with output available
-                trigger_data = self.variable_context.get("trigger")
-                api_results = self.variable_context.get("results")
-                context = build_context(webhook_data=trigger_data, api_results=api_results)
-                context["output"] = output
-                if "loop" in self.variable_context:
-                    context["loop"] = self.variable_context["loop"]
-                if "item" in self.variable_context:
-                    context["item"] = self.variable_context["item"]
+                context = self._build_render_context(extra={"output": output})
+                rendered = self._jinja_env.from_string(binding.expression).render(context).strip()
 
-                env = Environment(undefined=ChainableUndefined)
-                rendered = env.from_string(binding.expression).render(context).strip()
-
-                # Try to parse as JSON for structured data
                 try:
                     value = json.loads(rendered)
                 except (json.JSONDecodeError, ValueError):
@@ -468,117 +819,3 @@ class WorkflowExecutor:
 
                 self.variable_context["results"][binding.name] = value
                 logger.debug("save_as_variable_stored", name=binding.name, value=str(value)[:200])
-
-    async def _execute_condition(
-        self, action: WorkflowAction, execution: WorkflowExecution
-    ) -> dict[str, Any]:
-        """
-        Execute a condition action with multiple branches.
-
-        Evaluates branches in order; the first matching branch's actions are
-        executed. If no branch matches, else_actions are executed (if defined).
-        """
-        matched_branch = None
-        matched_index = None
-
-        for i, branch in enumerate(action.branches or []):
-            if self._evaluate_condition_expression(branch.condition):
-                matched_branch = branch
-                matched_index = i
-                break
-
-        if matched_branch is not None:
-            logger.info(
-                "condition_branch_matched",
-                action_name=action.name,
-                branch_index=matched_index,
-                condition=matched_branch.condition,
-            )
-            await self._execute_actions(matched_branch.actions, execution)
-            return {
-                "matched_branch": matched_index,
-                "condition": matched_branch.condition,
-            }
-
-        if action.else_actions:
-            logger.info(
-                "condition_else_branch",
-                action_name=action.name,
-            )
-            await self._execute_actions(action.else_actions, execution)
-            return {"matched_branch": "else"}
-
-        logger.info(
-            "condition_no_match",
-            action_name=action.name,
-        )
-        return {"matched_branch": None}
-
-    async def _execute_set_variable(self, action: WorkflowAction) -> dict[str, Any]:
-        """Execute a set_variable action: evaluate a Jinja2 expression and store the result."""
-        trigger_data = self.variable_context.get("trigger")
-        api_results = self.variable_context.get("results")
-        context = build_context(webhook_data=trigger_data, api_results=api_results)
-
-        # Also inject loop context if present
-        if "loop" in self.variable_context:
-            context["loop"] = self.variable_context["loop"]
-        if "item" in self.variable_context:
-            context["item"] = self.variable_context["item"]
-
-        from jinja2 import Environment, ChainableUndefined
-        env = Environment(undefined=ChainableUndefined)
-        rendered = env.from_string(action.variable_expression).render(context).strip()
-
-        # Try to parse as JSON for structured data
-        import json
-        try:
-            value = json.loads(rendered)
-        except (json.JSONDecodeError, ValueError):
-            value = rendered
-
-        self.variable_context["results"][action.variable_name] = value
-        logger.info("set_variable_executed", variable_name=action.variable_name, value=str(value)[:200])
-        return {"variable_name": action.variable_name, "value": value}
-
-    async def _execute_for_each(
-        self, action: WorkflowAction, execution: WorkflowExecution
-    ) -> dict[str, Any]:
-        """
-        Execute a for_each loop action.
-
-        Resolves the loop_over dot-path, iterates over the resulting list,
-        and executes loop_actions for each item.
-        """
-        # Resolve the collection to iterate over
-        collection = get_nested_value(self.variable_context, action.loop_over)
-        if collection is None:
-            raise ValueError(f"for_each: '{action.loop_over}' resolved to None")
-        if not isinstance(collection, list):
-            raise ValueError(f"for_each: '{action.loop_over}' is not a list (got {type(collection).__name__})")
-
-        # Cap at max_iterations
-        items = collection[:action.max_iterations]
-        loop_variable = action.loop_variable or "item"
-        iteration_count = 0
-
-        for i, item in enumerate(items):
-            # Set loop context
-            self.variable_context["loop"] = {loop_variable: item, "index": i}
-            self.variable_context["item"] = item
-
-            await self._execute_actions(action.loop_actions or [], execution)
-            iteration_count += 1
-
-        # Clean up loop context
-        self.variable_context.pop("loop", None)
-        self.variable_context.pop("item", None)
-
-        logger.info(
-            "for_each_executed",
-            action_name=action.name,
-            loop_over=action.loop_over,
-            iterations=iteration_count,
-        )
-        return {"iterations": iteration_count, "loop_over": action.loop_over}
-

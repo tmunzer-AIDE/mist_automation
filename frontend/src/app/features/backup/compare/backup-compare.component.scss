@@ -37,9 +37,15 @@
   margin-top: 4px;
 }
 
-.added { color: #2e7d32; }
-.removed { color: #c62828; }
-.modified { color: #e65100; }
+.added {
+  color: #2e7d32;
+}
+.removed {
+  color: #c62828;
+}
+.modified {
+  color: #e65100;
+}
 
 .change-added {
   --mat-chip-elevated-container-color: #e8f5e9;
@@ -58,7 +64,9 @@
   overflow-x: auto;
 }
 
-table { width: 100%; }
+table {
+  width: 100%;
+}
 
 .value-cell {
   max-width: 250px;

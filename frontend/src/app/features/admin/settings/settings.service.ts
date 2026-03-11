@@ -7,7 +7,6 @@ import { SystemSettings } from '../../../core/models/admin.model';
 export class SettingsService {
   private readonly api = inject(ApiService);
   private readonly _settings$ = new BehaviorSubject<SystemSettings | null>(null);
-  private _loading = false;
 
   readonly settings$ = this._settings$.asObservable();
 
@@ -16,11 +15,9 @@ export class SettingsService {
   }
 
   load(): Observable<SystemSettings> {
-    this._loading = true;
     return this.api.get<SystemSettings>('/admin/settings').pipe(
       tap((s) => {
         this._settings$.next(s);
-        this._loading = false;
       }),
     );
   }

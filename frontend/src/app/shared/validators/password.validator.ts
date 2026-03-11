@@ -24,8 +24,7 @@ export function passwordValidator(policy?: PasswordPolicy): ValidatorFn {
       errors['uppercase'] = 'Must contain an uppercase letter';
     if (p.require_lowercase && !/[a-z]/.test(value))
       errors['lowercase'] = 'Must contain a lowercase letter';
-    if (p.require_digits && !/\d/.test(value))
-      errors['digit'] = 'Must contain a digit';
+    if (p.require_digits && !/\d/.test(value)) errors['digit'] = 'Must contain a digit';
     if (p.require_special_chars && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(value))
       errors['special'] = 'Must contain a special character';
 

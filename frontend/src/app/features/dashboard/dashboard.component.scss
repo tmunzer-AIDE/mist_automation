@@ -35,7 +35,9 @@
   background: var(--mat-sys-surface-container-low);
   box-shadow: var(--app-shadow-sm);
   cursor: pointer;
-  transition: box-shadow 0.15s, transform 0.15s;
+  transition:
+    box-shadow 0.15s,
+    transform 0.15s;
 
   &:hover {
     box-shadow: var(--app-shadow-md);

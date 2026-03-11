@@ -7,7 +7,6 @@ incoming events to the local webhook endpoint.
 
 import asyncio
 import json
-
 import ssl
 
 import httpx
@@ -33,9 +32,9 @@ def _build_verify_options() -> list:
 
     options: list = []
     if settings.ca_cert_path:
-        options.append(settings.ca_cert_path)   # httpx accepts a file path
-    options.append(True)                         # default certifi / OS store
-    options.append(False)                        # no verification
+        options.append(settings.ca_cert_path)  # httpx accepts a file path
+    options.append(True)  # default certifi / OS store
+    options.append(False)  # no verification
     return options
 
 

@@ -11,10 +11,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { Store } from '@ngrx/store';
 import { AuthActions } from '../../../core/state/auth/auth.actions';
-import {
-  selectAuthLoading,
-  selectAuthError,
-} from '../../../core/state/auth/auth.selectors';
+import { selectAuthLoading, selectAuthError } from '../../../core/state/auth/auth.selectors';
 import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
@@ -66,7 +63,7 @@ export class LoginComponent implements OnInit {
     this.store.dispatch(
       AuthActions.login({
         request: { email: email!, password: password!, remember_me: remember_me! },
-      })
+      }),
     );
   }
 }

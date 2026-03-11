@@ -12,9 +12,7 @@ export const routes: Routes = [
   {
     path: 'onboard',
     loadComponent: () =>
-      import('./features/auth/onboard/onboard.component').then(
-        (m) => m.OnboardComponent
-      ),
+      import('./features/auth/onboard/onboard.component').then((m) => m.OnboardComponent),
     canActivate: [onboardGuard],
   },
   {

@@ -76,9 +76,8 @@ export class OnboardComponent implements OnInit {
         this.tokenService.setToken(response.access_token, response.expires_in);
         this.store.dispatch(
           AuthActions.loginSuccess({
-            token: response.access_token,
             expiresIn: response.expires_in,
-          })
+          }),
         );
       },
       error: (err) => {

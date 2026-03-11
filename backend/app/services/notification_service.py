@@ -6,7 +6,7 @@ from typing import Any, Optional
 from datetime import datetime, timezone
 import structlog
 import httpx
-from jinja2 import Template
+from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.exceptions import NotificationError, ConfigurationError
 from app.config import settings
@@ -19,7 +19,35 @@ class NotificationService:
 
     def __init__(self):
         """Initialize notification service."""
-        self.http_client = httpx.AsyncClient(timeout=30.0)
+        self._http_client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily create an httpx client with the right TLS verify option."""
+        if self._http_client is None:
+            verify = await self._resolve_verify()
+            self._http_client = httpx.AsyncClient(timeout=30.0, verify=verify)
+        return self._http_client
+
+    @staticmethod
+    async def _resolve_verify() -> str | bool:
+        """Try TLS options in order: CA_CERT_PATH → default → disabled.
+
+        Same fallback strategy as SmeeClient for ZScaler/TLS-intercepting proxies.
+        """
+        import os
+
+        from app.core.smee_service import _build_verify_options
+
+        options = _build_verify_options()
+        for option in options:
+            try:
+                async with httpx.AsyncClient(verify=option) as client:
+                    await client.head("https://slack.com", timeout=10)
+                return option
+            except Exception:
+                continue
+
+        return False
 
     async def send_slack_notification(
         self,
@@ -77,7 +105,8 @@ class NotificationService:
                 payload["attachments"][0]["fields"] = fields
 
             # Send request
-            response = await self.http_client.post(url, json=payload)
+            client = await self._get_client()
+            response = await client.post(url, json=payload)
             response.raise_for_status()
 
             logger.info("slack_notification_sent", channel=channel, message_length=len(message))
@@ -149,7 +178,8 @@ class NotificationService:
                 }
 
             # Send request with basic auth
-            response = await self.http_client.post(
+            client = await self._get_client()
+            response = await client.post(
                 endpoint,
                 json=payload,
                 auth=(user, pwd),
@@ -233,7 +263,8 @@ class NotificationService:
                 payload["dedup_key"] = dedup_key
 
             # Send request
-            response = await self.http_client.post(url, json=payload)
+            client = await self._get_client()
+            response = await client.post(url, json=payload)
             response.raise_for_status()
 
             result = response.json()
@@ -285,10 +316,11 @@ class NotificationService:
                 request_headers.update(headers)
 
             # Send request
+            client = await self._get_client()
             if method.upper() == "POST":
-                response = await self.http_client.post(url, json=payload, headers=request_headers)
+                response = await client.post(url, json=payload, headers=request_headers)
             elif method.upper() == "PUT":
-                response = await self.http_client.put(url, json=payload, headers=request_headers)
+                response = await client.put(url, json=payload, headers=request_headers)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -379,7 +411,8 @@ class NotificationService:
             NotificationError: If rendering fails
         """
         try:
-            template = Template(template_str)
+            env = SandboxedEnvironment()
+            template = env.from_string(template_str)
             rendered = template.render(**context)
             return rendered
 
@@ -435,7 +468,8 @@ class NotificationService:
         try:
             # Try to query incident table (just to test auth)
             endpoint = f"{url}/api/now/table/incident?sysparm_limit=1"
-            response = await self.http_client.get(
+            client = await self._get_client()
+            response = await client.get(
                 endpoint,
                 auth=(user, pwd),
                 headers={"Accept": "application/json"},
@@ -479,7 +513,8 @@ class NotificationService:
 
     async def close(self):
         """Close HTTP client."""
-        await self.http_client.aclose()
+        if self._http_client:
+            await self._http_client.aclose()
 
     async def __aenter__(self):
         """Async context manager entry."""

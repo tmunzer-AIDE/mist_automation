@@ -10,10 +10,10 @@ from app.core.security import decrypt_sensitive_data, encrypt_sensitive_data
 from app.dependencies import get_current_user_from_token, require_admin
 from app.models.system import AuditLog, SystemConfig
 from app.models.user import User
-from app.modules.automation.models.workflow import Workflow
 from app.modules.automation.models.execution import WorkflowExecution
-from app.modules.backup.models import BackupJob
 from app.modules.automation.models.webhook import WebhookEvent
+from app.modules.automation.models.workflow import Workflow
+from app.modules.backup.models import BackupJob
 from app.modules.backup.object_registry import (
     ORG_OBJECTS,
     SITE_OBJECTS,
@@ -27,9 +27,7 @@ logger = structlog.get_logger(__name__)
 
 
 @router.get("/admin/settings", tags=["Admin"])
-async def get_system_settings(
-    _current_user: User = Depends(require_admin)
-):
+async def get_system_settings(_current_user: User = Depends(require_admin)):
     """
     Get system configuration settings (admin only).
     """
@@ -70,15 +68,12 @@ async def get_system_settings(
         "servicenow_username": config.servicenow_username,
         "servicenow_password_set": bool(config.servicenow_password),
         "pagerduty_api_key_set": bool(config.pagerduty_api_key),
-        "updated_at": config.updated_at
+        "updated_at": config.updated_at,
     }
 
 
 @router.put("/admin/settings", tags=["Admin"])
-async def update_system_settings(
-    settings: dict = Body(...),
-    current_user: User = Depends(require_admin)
-):
+async def update_system_settings(settings: dict = Body(...), current_user: User = Depends(require_admin)):
     """
     Update system configuration settings (admin only).
     """
@@ -101,18 +96,30 @@ async def update_system_settings(
 
     # Password Policy
     plain_fields = [
-        "min_password_length", "require_uppercase", "require_lowercase",
-        "require_digits", "require_special_chars",
+        "min_password_length",
+        "require_uppercase",
+        "require_lowercase",
+        "require_digits",
+        "require_special_chars",
         # Session Management
-        "session_timeout_hours", "max_concurrent_sessions",
+        "session_timeout_hours",
+        "max_concurrent_sessions",
         # Backup Configuration
-        "backup_enabled", "backup_full_schedule_cron", "backup_retention_days",
-        "backup_git_enabled", "backup_git_repo_url", "backup_git_branch",
-        "backup_git_author_name", "backup_git_author_email",
+        "backup_enabled",
+        "backup_full_schedule_cron",
+        "backup_retention_days",
+        "backup_git_enabled",
+        "backup_git_repo_url",
+        "backup_git_branch",
+        "backup_git_author_name",
+        "backup_git_author_email",
         # Smee.io
-        "smee_enabled", "smee_channel_url",
+        "smee_enabled",
+        "smee_channel_url",
         # External Integrations (non-sensitive)
-        "slack_webhook_url", "servicenow_instance_url", "servicenow_username",
+        "slack_webhook_url",
+        "servicenow_instance_url",
+        "servicenow_username",
     ]
     for field in plain_fields:
         if field in settings:
@@ -136,13 +143,14 @@ async def update_system_settings(
         description="System settings updated",
         user_id=current_user.id,
         user_email=current_user.email,
-        details={"updated_fields": list(settings.keys())}
+        details={"updated_fields": list(settings.keys())},
     )
 
     # If backup schedule changed, update the scheduler
     if "backup_enabled" in settings or "backup_full_schedule_cron" in settings:
         try:
             from app.workers import get_scheduler
+
             scheduler = get_scheduler()
             refreshed = await SystemConfig.get_config()
             if refreshed.backup_enabled and refreshed.backup_full_schedule_cron:
@@ -154,7 +162,8 @@ async def update_system_settings(
 
     # If smee settings changed, notify the backup module
     if "smee_enabled" in settings or "smee_channel_url" in settings:
-        from app.modules.backup.services.smee_service import start_smee, stop_smee
+        from app.core.smee_service import start_smee, stop_smee
+
         refreshed = await SystemConfig.get_config()
         if refreshed.smee_enabled and refreshed.smee_channel_url:
             target = f"http://127.0.0.1:8000{settings_module.api_v1_prefix}/webhooks/mist"
@@ -171,7 +180,7 @@ async def get_audit_logs(
     limit: int = Query(100, ge=1, le=1000),
     event_type: str | None = Query(None, description="Filter by event type"),
     user_id: str | None = Query(None, description="Filter by user ID"),
-    _current_user: User = Depends(require_admin)
+    _current_user: User = Depends(require_admin),
 ):
     """
     Get system audit logs (admin only).
@@ -198,18 +207,16 @@ async def get_audit_logs(
                 "user_email": log.user_email,
                 "source_ip": log.source_ip,
                 "timestamp": log.timestamp,
-                "details": log.details
+                "details": log.details,
             }
             for log in logs
         ],
-        "total": total
+        "total": total,
     }
 
 
 @router.get("/admin/stats", tags=["Admin"])
-async def get_system_stats(
-    _current_user: User = Depends(require_admin)
-):
+async def get_system_stats(_current_user: User = Depends(require_admin)):
     """
     Get system statistics and metrics (admin only).
     """
@@ -218,31 +225,31 @@ async def get_system_stats(
         "workflows": {
             "total": await Workflow.find().count(),
             "enabled": await Workflow.find(Workflow.status == "enabled").count(),
-            "draft": await Workflow.find(Workflow.status == "draft").count()
+            "draft": await Workflow.find(Workflow.status == "draft").count(),
         },
         "executions": {
             "total": await WorkflowExecution.find().count(),
             "pending": await WorkflowExecution.find(WorkflowExecution.status == "pending").count(),
             "running": await WorkflowExecution.find(WorkflowExecution.status == "running").count(),
             "succeeded": await WorkflowExecution.find(WorkflowExecution.status == "succeeded").count(),
-            "failed": await WorkflowExecution.find(WorkflowExecution.status == "failed").count()
+            "failed": await WorkflowExecution.find(WorkflowExecution.status == "failed").count(),
         },
         "backups": {
             "total": await BackupJob.find().count(),
             "completed": await BackupJob.find(BackupJob.status == "completed").count(),
             "pending": await BackupJob.find(BackupJob.status == "pending").count(),
-            "failed": await BackupJob.find(BackupJob.status == "failed").count()
+            "failed": await BackupJob.find(BackupJob.status == "failed").count(),
         },
         "webhooks": {
             "total": await WebhookEvent.find().count(),
             "processed": await WebhookEvent.find(WebhookEvent.processed == True).count(),
-            "pending": await WebhookEvent.find(WebhookEvent.processed == False).count()
+            "pending": await WebhookEvent.find(WebhookEvent.processed == False).count(),
         },
         "users": {
             "total": await User.find().count(),
             "active": await User.find(User.is_active == True).count(),
-            "admins": await User.find({"roles": "admin"}).count()
-        }
+            "admins": await User.find({"roles": "admin"}).count(),
+        },
     }
 
     return stats
@@ -286,6 +293,7 @@ async def test_mist_connection(
     logger.info("mist_connection_test", user_id=str(current_user.id))
 
     from app.services.mist_service import MistService
+
     try:
         service = MistService(
             api_token=api_token,
@@ -299,20 +307,16 @@ async def test_mist_connection(
 
 
 @router.get("/admin/mist/sites", tags=["Admin"])
-async def list_mist_sites(
-    _current_user: User = Depends(get_current_user_from_token)
-):
+async def list_mist_sites(_current_user: User = Depends(get_current_user_from_token)):
     """
     List sites from Mist organization.
     """
     config = await SystemConfig.get_config()
     if not config or not config.mist_api_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mist API not configured"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mist API not configured")
 
     from app.services.mist_service import MistService
+
     try:
         api_token = decrypt_sensitive_data(config.mist_api_token)
         service = MistService(
@@ -324,15 +328,12 @@ async def list_mist_sites(
         return {"sites": [{"id": s.get("id"), "name": s.get("name", "")} for s in sites]}
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch sites from Mist: {str(e)}"
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch sites from Mist: {str(e)}"
         )
 
 
 @router.get("/admin/mist/object-types", tags=["Admin"])
-async def list_mist_object_types(
-    _current_user: User = Depends(get_current_user_from_token)
-):
+async def list_mist_object_types(_current_user: User = Depends(get_current_user_from_token)):
     """
     Return all supported Mist object types for frontend dropdowns.
     """
@@ -343,7 +344,7 @@ async def list_mist_object_types(
 async def list_mist_objects(
     object_type: str = Query(..., description="Object type in 'org:key' or 'site:key' format"),
     site_id: str | None = Query(None, description="Site ID for site-level objects"),
-    _current_user: User = Depends(get_current_user_from_token)
+    _current_user: User = Depends(get_current_user_from_token),
 ):
     """
     List objects of a given type from Mist organization.
@@ -351,16 +352,12 @@ async def list_mist_objects(
     """
     config = await SystemConfig.get_config()
     if not config or not config.mist_api_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mist API not configured"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mist API not configured")
 
     # Parse scope and key
     if ":" not in object_type:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="object_type must be in 'org:key' or 'site:key' format"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="object_type must be in 'org:key' or 'site:key' format"
         )
 
     scope, key = object_type.split(":", 1)
@@ -370,23 +367,19 @@ async def list_mist_objects(
         obj_def = SITE_OBJECTS.get(key)
     else:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid scope '{scope}', must be 'org' or 'site'"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid scope '{scope}', must be 'org' or 'site'"
         )
 
     if not obj_def:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown object type: {object_type}"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown object type: {object_type}")
 
     if scope == "site" and not site_id:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="site_id is required for site-level objects"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="site_id is required for site-level objects"
         )
 
     from app.services.mist_service import MistService
+
     try:
         api_token = decrypt_sensitive_data(config.mist_api_token)
         service = MistService(
@@ -416,19 +409,17 @@ async def list_mist_objects(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch objects from Mist: {str(e)}"
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch objects from Mist: {str(e)}"
         )
 
 
 @router.get("/admin/workers/status", tags=["Admin"])
-async def get_worker_status(
-    _current_user: User = Depends(require_admin)
-):
+async def get_worker_status(_current_user: User = Depends(require_admin)):
     """
     Get status of background workers (admin only).
     """
     from app.modules.automation.workers.scheduler import get_scheduler
+
     scheduler = get_scheduler()
     jobs = scheduler.get_scheduled_workflows() if scheduler._initialized else []
     return {

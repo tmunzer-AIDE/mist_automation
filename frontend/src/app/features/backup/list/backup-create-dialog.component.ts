@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
@@ -12,7 +12,11 @@ import { MatListModule, MatSelectionListChange } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
-import { MistSiteOption, MistObjectOption, MistObjectTypeOption } from '../../../core/models/backup.model';
+import {
+  MistSiteOption,
+  MistObjectOption,
+  MistObjectTypeOption,
+} from '../../../core/models/backup.model';
 
 const BACKUP_TYPES = [
   { value: 'full', label: 'Full Backup', description: 'Backup the entire organization' },
@@ -59,16 +63,16 @@ const BACKUP_TYPES = [
           <mat-form-field appearance="outline">
             <mat-label>Object Type</mat-label>
             <mat-select formControlName="object_type" (selectionChange)="onObjectTypeChange()">
-              @if (loadingObjectTypes) {
+              @if (loadingObjectTypes()) {
                 <mat-option disabled>Loading...</mat-option>
               }
               <mat-optgroup label="Organization">
-                @for (otype of orgObjectTypes; track otype.value) {
+                @for (otype of orgObjectTypes(); track otype.value) {
                   <mat-option [value]="otype.value">{{ otype.label }}</mat-option>
                 }
               </mat-optgroup>
               <mat-optgroup label="Site">
-                @for (otype of siteObjectTypes; track otype.value) {
+                @for (otype of siteObjectTypes(); track otype.value) {
                   <mat-option [value]="otype.value">{{ otype.label }}</mat-option>
                 }
               </mat-optgroup>
@@ -80,11 +84,11 @@ const BACKUP_TYPES = [
             <mat-form-field appearance="outline">
               <mat-label>Site</mat-label>
               <mat-select formControlName="site_id" (selectionChange)="onSiteChange()">
-                @for (site of sites; track site.id) {
+                @for (site of sites(); track site.id) {
                   <mat-option [value]="site.id">{{ site.name }}</mat-option>
                 }
               </mat-select>
-              @if (loadingSites) {
+              @if (loadingSites()) {
                 <mat-hint>Loading sites...</mat-hint>
               }
             </mat-form-field>
@@ -92,24 +96,26 @@ const BACKUP_TYPES = [
 
           <!-- Object selection (only for list types) -->
           @if (shouldShowObjectList) {
-            @if (loadingObjects) {
+            @if (loadingObjects()) {
               <mat-progress-bar mode="indeterminate"></mat-progress-bar>
             }
 
-            @if (!loadingObjects && objects.length === 0) {
+            @if (!loadingObjects() && objects().length === 0) {
               <p class="no-objects">No objects found for this type.</p>
             }
 
-            @if (!loadingObjects && objects.length > 0) {
+            @if (!loadingObjects() && objects().length > 0) {
               <div class="object-list-header">
-                <span class="object-count">{{ selectedObjectIds.length }} of {{ objects.length }} selected</span>
+                <span class="object-count"
+                  >{{ selectedObjectIds().length }} of {{ objects().length }} selected</span
+                >
                 <button mat-button type="button" (click)="toggleSelectAll()">
-                  {{ selectedObjectIds.length === objects.length ? 'Deselect All' : 'Select All' }}
+                  {{ selectedObjectIds().length === objects().length ? 'Deselect All' : 'Select All' }}
                 </button>
               </div>
               <mat-selection-list (selectionChange)="onObjectSelectionChange($event)">
-                @for (obj of objects; track obj.id) {
-                  <mat-list-option [value]="obj.id" [selected]="selectedObjectIds.includes(obj.id)">
+                @for (obj of objects(); track obj.id) {
+                  <mat-list-option [value]="obj.id" [selected]="selectedObjectIds().includes(obj.id)">
                     {{ obj.name || obj.id }}
                     @if (obj.type) {
                       <span class="object-type-badge">{{ obj.type }}</span>
@@ -124,69 +130,72 @@ const BACKUP_TYPES = [
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-flat-button (click)="create()" [disabled]="!canCreate() || creating">
-        {{ creating ? 'Creating...' : 'Create Backup' }}
+      <button mat-flat-button (click)="create()" [disabled]="!canCreate() || creating()">
+        {{ creating() ? 'Creating...' : 'Create Backup' }}
       </button>
     </mat-dialog-actions>
   `,
-  styles: [`
-    .dialog-form {
-      display: flex;
-      flex-direction: column;
-      min-width: 420px;
-      gap: 4px;
-    }
-    mat-form-field { width: 100%; }
-    .object-list-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 4px;
-    }
-    .object-count {
-      font-size: 13px;
-      color: var(--mat-sys-on-surface-variant);
-    }
-    mat-selection-list {
-      max-height: 280px;
-      overflow-y: auto;
-      border: 1px solid var(--mat-sys-outline-variant);
-      border-radius: 8px;
-    }
-    .no-objects {
-      text-align: center;
-      color: var(--mat-sys-on-surface-variant);
-      padding: 16px;
-    }
-    .object-type-badge {
-      font-size: 11px;
-      background: var(--mat-sys-surface-variant);
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-left: 8px;
-    }
-  `],
+  styles: [
+    `
+      .dialog-form {
+        display: flex;
+        flex-direction: column;
+        min-width: 420px;
+        gap: 4px;
+      }
+      mat-form-field {
+        width: 100%;
+      }
+      .object-list-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+      }
+      .object-count {
+        font-size: 13px;
+        color: var(--mat-sys-on-surface-variant);
+      }
+      mat-selection-list {
+        max-height: 280px;
+        overflow-y: auto;
+        border: 1px solid var(--mat-sys-outline-variant);
+        border-radius: 8px;
+      }
+      .no-objects {
+        text-align: center;
+        color: var(--mat-sys-on-surface-variant);
+        padding: 16px;
+      }
+      .object-type-badge {
+        font-size: 11px;
+        background: var(--mat-sys-surface-variant);
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 8px;
+      }
+    `,
+  ],
 })
 export class BackupCreateDialogComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
   private readonly dialogRef = inject(MatDialogRef<BackupCreateDialogComponent>);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
 
   backupTypes = BACKUP_TYPES;
-  creating = false;
-  loadingSites = false;
-  loadingObjects = false;
-  loadingObjectTypes = false;
+  creating = signal(false);
+  loadingSites = signal(false);
+  loadingObjects = signal(false);
+  loadingObjectTypes = signal(false);
 
-  sites: MistSiteOption[] = [];
-  objects: MistObjectOption[] = [];
-  selectedObjectIds: string[] = [];
+  sites = signal<MistSiteOption[]>([]);
+  objects = signal<MistObjectOption[]>([]);
+  selectedObjectIds = signal<string[]>([]);
 
-  allObjectTypes: MistObjectTypeOption[] = [];
-  orgObjectTypes: MistObjectTypeOption[] = [];
-  siteObjectTypes: MistObjectTypeOption[] = [];
+  allObjectTypes = signal<MistObjectTypeOption[]>([]);
+  orgObjectTypes = signal<MistObjectTypeOption[]>([]);
+  siteObjectTypes = signal<MistObjectTypeOption[]>([]);
 
   form = this.fb.group({
     backup_type: ['full', Validators.required],
@@ -200,7 +209,7 @@ export class BackupCreateDialogComponent implements OnInit {
   }
 
   get selectedObjectTypeDef(): MistObjectTypeOption | undefined {
-    return this.allObjectTypes.find((t) => t.value === this.form.value.object_type);
+    return this.allObjectTypes().find((t) => t.value === this.form.value.object_type);
   }
 
   get shouldShowObjectList(): boolean {
@@ -218,14 +227,14 @@ export class BackupCreateDialogComponent implements OnInit {
   onTypeChange(): void {
     if (this.form.value.backup_type === 'full') {
       this.form.patchValue({ site_id: '', object_type: '' });
-      this.objects = [];
-      this.selectedObjectIds = [];
+      this.objects.set([]);
+      this.selectedObjectIds.set([]);
     }
   }
 
   onSiteChange(): void {
-    this.objects = [];
-    this.selectedObjectIds = [];
+    this.objects.set([]);
+    this.selectedObjectIds.set([]);
     if (this.selectedObjectTypeDef?.is_list) {
       this.loadObjects();
     }
@@ -233,8 +242,8 @@ export class BackupCreateDialogComponent implements OnInit {
 
   onObjectTypeChange(): void {
     this.form.patchValue({ site_id: '' });
-    this.objects = [];
-    this.selectedObjectIds = [];
+    this.objects.set([]);
+    this.selectedObjectIds.set([]);
 
     const def = this.selectedObjectTypeDef;
     if (def?.is_list && def.scope === 'org') {
@@ -243,24 +252,27 @@ export class BackupCreateDialogComponent implements OnInit {
   }
 
   onObjectSelectionChange(event: MatSelectionListChange): void {
-    for (const option of event.options) {
-      if (option.selected) {
-        if (!this.selectedObjectIds.includes(option.value)) {
-          this.selectedObjectIds.push(option.value);
+    this.selectedObjectIds.update((ids) => {
+      let updated = [...ids];
+      for (const option of event.options) {
+        if (option.selected) {
+          if (!updated.includes(option.value)) {
+            updated.push(option.value);
+          }
+        } else {
+          updated = updated.filter((id) => id !== option.value);
         }
-      } else {
-        this.selectedObjectIds = this.selectedObjectIds.filter((id) => id !== option.value);
       }
-    }
+      return updated;
+    });
   }
 
   toggleSelectAll(): void {
-    if (this.selectedObjectIds.length === this.objects.length) {
-      this.selectedObjectIds = [];
+    if (this.selectedObjectIds().length === this.objects().length) {
+      this.selectedObjectIds.set([]);
     } else {
-      this.selectedObjectIds = this.objects.map((o) => o.id);
+      this.selectedObjectIds.set(this.objects().map((o) => o.id));
     }
-    this.cdr.detectChanges();
   }
 
   canCreate(): boolean {
@@ -275,14 +287,14 @@ export class BackupCreateDialogComponent implements OnInit {
     if (def.scope === 'site' && !this.form.value.site_id) return false;
 
     // List types require at least one selected object
-    if (def.is_list && this.selectedObjectIds.length === 0) return false;
+    if (def.is_list && this.selectedObjectIds().length === 0) return false;
 
     return true;
   }
 
   create(): void {
     if (!this.canCreate()) return;
-    this.creating = true;
+    this.creating.set(true);
 
     const body: Record<string, unknown> = {
       backup_type: this.form.value.backup_type,
@@ -294,50 +306,45 @@ export class BackupCreateDialogComponent implements OnInit {
         body['site_id'] = this.form.value.site_id;
       }
       if (this.selectedObjectTypeDef?.is_list) {
-        body['object_ids'] = this.selectedObjectIds;
+        body['object_ids'] = this.selectedObjectIds();
       }
     }
 
     this.api.post('/backups', body).subscribe({
       next: () => this.dialogRef.close(true),
       error: (err) => {
-        this.creating = false;
+        this.creating.set(false);
         this.snackBar.open(err.message, 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }
 
   private loadSites(): void {
-    this.loadingSites = true;
+    this.loadingSites.set(true);
     this.api.get<{ sites: MistSiteOption[] }>('/admin/mist/sites').subscribe({
       next: (res) => {
-        this.sites = res.sites;
-        this.loadingSites = false;
-        this.cdr.detectChanges();
+        this.sites.set(res.sites);
+        this.loadingSites.set(false);
       },
       error: () => {
-        this.loadingSites = false;
+        this.loadingSites.set(false);
         this.snackBar.open('Failed to load sites from Mist', 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }
 
   private loadObjectTypes(): void {
-    this.loadingObjectTypes = true;
+    this.loadingObjectTypes.set(true);
     this.api.get<{ object_types: MistObjectTypeOption[] }>('/admin/mist/object-types').subscribe({
       next: (res) => {
-        this.allObjectTypes = res.object_types;
-        this.orgObjectTypes = res.object_types.filter((t) => t.scope === 'org');
-        this.siteObjectTypes = res.object_types.filter((t) => t.scope === 'site');
-        this.loadingObjectTypes = false;
-        this.cdr.detectChanges();
+        this.allObjectTypes.set(res.object_types);
+        this.orgObjectTypes.set(res.object_types.filter((t) => t.scope === 'org'));
+        this.siteObjectTypes.set(res.object_types.filter((t) => t.scope === 'site'));
+        this.loadingObjectTypes.set(false);
       },
       error: () => {
-        this.loadingObjectTypes = false;
+        this.loadingObjectTypes.set(false);
         this.snackBar.open('Failed to load object types', 'OK', { duration: 5000 });
-        this.cdr.detectChanges();
       },
     });
   }
@@ -351,20 +358,16 @@ export class BackupCreateDialogComponent implements OnInit {
       params['site_id'] = this.form.value.site_id;
     }
 
-    this.loadingObjects = true;
-    this.api
-      .get<{ objects: MistObjectOption[] }>('/admin/mist/objects', params)
-      .subscribe({
-        next: (res) => {
-          this.objects = res.objects;
-          this.loadingObjects = false;
-          this.cdr.detectChanges();
-        },
-        error: () => {
-          this.loadingObjects = false;
-          this.snackBar.open('Failed to load objects from Mist', 'OK', { duration: 5000 });
-          this.cdr.detectChanges();
-        },
-      });
+    this.loadingObjects.set(true);
+    this.api.get<{ objects: MistObjectOption[] }>('/admin/mist/objects', params).subscribe({
+      next: (res) => {
+        this.objects.set(res.objects);
+        this.loadingObjects.set(false);
+      },
+      error: () => {
+        this.loadingObjects.set(false);
+        this.snackBar.open('Failed to load objects from Mist', 'OK', { duration: 5000 });
+      },
+    });
   }
 }

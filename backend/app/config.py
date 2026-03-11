@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     backup_git_author_name: str = "Mist Automation"
     backup_git_author_email: str = "automation@example.com"
     
+    # Mist OpenAPI Spec
+    mist_oas_url: str = Field(default="https://raw.githubusercontent.com/mistsys/mist_openapi/refs/heads/master/mist.openapi.yaml", description="URL to Mist OpenAPI JSON for variable autocomplete and mock responses")
+
     # TLS / Proxy
     ca_cert_path: str | None = Field(default=None, description="Path to custom CA certificate bundle (PEM) for TLS-intercepting proxies like ZScaler")
 

@@ -1,0 +1,21 @@
+<div class="palette">
+  @for (category of categories; track category.name) {
+    <div class="category">
+      <div class="category-name">{{ category.name }}</div>
+      @for (option of category.options; track option.label) {
+        <div
+          class="palette-item"
+          draggable="true"
+          (dragstart)="onDragStart($event, option.actionType!)"
+          (click)="blockSelected.emit(option.actionType!)"
+          [matTooltip]="option.description"
+        >
+          <div class="palette-icon" [style.background]="option.color">
+            <mat-icon>{{ option.icon }}</mat-icon>
+          </div>
+          <span class="palette-label">{{ option.label }}</span>
+        </div>
+      }
+    </div>
+  }
+</div>

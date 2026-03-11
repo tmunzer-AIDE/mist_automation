@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, of } from 'rxjs';
-import { map, shareReplay } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+import { shareReplay } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import {
   WorkflowCreate,
@@ -9,56 +9,18 @@ import {
   WorkflowListResponse,
   WorkflowExecution,
   WorkflowExecutionListResponse,
-  PipelineBlock,
-  WorkflowTrigger,
-  WorkflowAction,
+  WorkflowNode,
+  WorkflowEdge,
+  WorkflowGraph,
+  NodePosition,
+  NodePort,
   ActionType,
   ApiCatalogEntry,
+  VariableTree,
+  SimulateRequest,
+  SamplePayload,
 } from '../models/workflow.model';
-
-const ACTION_META: Record<
-  ActionType,
-  { label: string; icon: string; color: string }
-> = {
-  mist_api_get: {
-    label: 'Mist API GET',
-    icon: 'cloud_download',
-    color: '#1976d2',
-  },
-  mist_api_post: {
-    label: 'Mist API POST',
-    icon: 'cloud_upload',
-    color: '#1976d2',
-  },
-  mist_api_put: { label: 'Mist API PUT', icon: 'edit', color: '#1976d2' },
-  mist_api_delete: {
-    label: 'Mist API DELETE',
-    icon: 'delete',
-    color: '#d32f2f',
-  },
-  webhook: { label: 'Webhook', icon: 'send', color: '#7b1fa2' },
-  slack: { label: 'Slack', icon: 'chat', color: '#e91e63' },
-  servicenow: {
-    label: 'ServiceNow',
-    icon: 'confirmation_number',
-    color: '#388e3c',
-  },
-  pagerduty: {
-    label: 'PagerDuty',
-    icon: 'notifications_active',
-    color: '#f57c00',
-  },
-  delay: { label: 'Delay', icon: 'schedule', color: '#616161' },
-  condition: { label: 'Condition', icon: 'call_split', color: '#0097a7' },
-  set_variable: { label: 'Set Variable', icon: 'data_object', color: '#795548' },
-  for_each: { label: 'For Each', icon: 'loop', color: '#4527a0' },
-};
-
-let blockIdCounter = 0;
-
-function nextBlockId(): string {
-  return `blk_${++blockIdCounter}`;
-}
+import { ACTION_META, DEFAULT_ACTION_META } from '../models/workflow-meta';
 
 @Injectable({ providedIn: 'root' })
 export class WorkflowService {
@@ -67,11 +29,7 @@ export class WorkflowService {
 
   // ── CRUD ──────────────────────────────────────────────────────────────
 
-  list(
-    skip = 0,
-    limit = 100,
-    statusFilter?: string
-  ): Observable<WorkflowListResponse> {
+  list(skip = 0, limit = 100, statusFilter?: string): Observable<WorkflowListResponse> {
     const params: Record<string, string | number> = { skip, limit };
     if (statusFilter) params['status_filter'] = statusFilter;
     return this.api.get<WorkflowListResponse>('/workflows', params);
@@ -93,30 +51,19 @@ export class WorkflowService {
     return this.api.delete<void>(`/workflows/${id}`);
   }
 
-  execute(
-    id: string
-  ): Observable<{ execution_id: string; status: string; message: string }> {
+  execute(id: string): Observable<{ execution_id: string; status: string; message: string }> {
     return this.api.post(`/workflows/${id}/execute`);
   }
 
-  getExecutions(
-    id: string,
-    skip = 0,
-    limit = 20
-  ): Observable<WorkflowExecutionListResponse> {
-    return this.api.get<WorkflowExecutionListResponse>(
-      `/workflows/${id}/executions`,
-      { skip, limit }
-    );
+  getExecutions(id: string, skip = 0, limit = 20): Observable<WorkflowExecutionListResponse> {
+    return this.api.get<WorkflowExecutionListResponse>(`/workflows/${id}/executions`, {
+      skip,
+      limit,
+    });
   }
 
-  getExecution(
-    workflowId: string,
-    executionId: string
-  ): Observable<WorkflowExecution> {
-    return this.api.get<WorkflowExecution>(
-      `/workflows/${workflowId}/executions/${executionId}`
-    );
+  getExecution(workflowId: string, executionId: string): Observable<WorkflowExecution> {
+    return this.api.get<WorkflowExecution>(`/workflows/${workflowId}/executions/${executionId}`);
   }
 
   // ── API Catalog ───────────────────────────────────────────────────────
@@ -130,101 +77,134 @@ export class WorkflowService {
     return this.catalogCache$;
   }
 
-  // ── Block conversion ──────────────────────────────────────────────────
+  // ── Variable autocomplete ─────────────────────────────────────────────
 
-  toPipelineBlocks(workflow: WorkflowResponse): PipelineBlock[] {
-    const blocks: PipelineBlock[] = [];
+  getAvailableVariables(workflowId: string, nodeId: string): Observable<VariableTree> {
+    return this.api.get<VariableTree>(`/workflows/${workflowId}/available-variables/${nodeId}`);
+  }
 
-    // Trigger
-    const trigger = workflow.trigger;
-    blocks.push({
-      id: nextBlockId(),
-      kind: 'trigger',
-      data: trigger,
-      label:
-        trigger.type === 'webhook'
-          ? `Webhook: ${trigger.webhook_type || 'any'}`
-          : `Cron: ${trigger.cron_expression || ''}`,
-      icon: trigger.type === 'webhook' ? 'webhook' : 'schedule',
-      color: '#6a1b9a',
-    });
+  getEndpointSchema(
+    method: string,
+    path: string
+  ): Observable<{ fields: string[]; schema: Record<string, unknown>; example: unknown }> {
+    return this.api.get(`/workflows/endpoint-schema`, { method, path });
+  }
 
-    // Actions
-    for (const a of workflow.actions) {
-      const meta = ACTION_META[a.type] || {
-        label: a.type,
-        icon: 'play_arrow',
-        color: '#455a64',
+  // ── Simulation ────────────────────────────────────────────────────────
+
+  simulate(workflowId: string, request: SimulateRequest): Observable<WorkflowExecution> {
+    return this.api.post<WorkflowExecution>(`/workflows/${workflowId}/simulate`, request);
+  }
+
+  getSamplePayloads(
+    workflowId: string,
+    limit = 10
+  ): Observable<{ payloads: SamplePayload[] }> {
+    return this.api.get(`/workflows/${workflowId}/sample-payloads`, { limit });
+  }
+
+  // ── Graph conversion ──────────────────────────────────────────────────
+
+  toGraph(response: WorkflowResponse): WorkflowGraph {
+    return {
+      nodes: response.nodes || [],
+      edges: response.edges || [],
+      viewport: response.viewport,
+    };
+  }
+
+  fromGraph(
+    graph: WorkflowGraph
+  ): Pick<WorkflowCreate, 'nodes' | 'edges' | 'viewport'> {
+    return {
+      nodes: graph.nodes as unknown as Record<string, unknown>[],
+      edges: graph.edges as unknown as Record<string, unknown>[],
+      viewport: graph.viewport as Record<string, unknown> | null,
+    };
+  }
+
+  // ── Node factory ──────────────────────────────────────────────────────
+
+  createNode(type: string, position: NodePosition): WorkflowNode {
+    const id = crypto.randomUUID();
+
+    if (type === 'trigger') {
+      return {
+        id,
+        type: 'trigger',
+        name: 'Webhook Trigger',
+        position,
+        config: { trigger_type: 'webhook' },
+        output_ports: [{ id: 'default', label: '', type: 'default' }],
+        enabled: true,
+        continue_on_error: false,
+        max_retries: 0,
+        retry_delay: 0,
       };
-      blocks.push({
-        id: nextBlockId(),
-        kind: 'action',
-        data: a,
-        label: a.name || meta.label,
-        icon: meta.icon,
-        color: meta.color,
-      });
     }
 
-    return blocks;
-  }
+    const meta = ACTION_META[type as ActionType] || DEFAULT_ACTION_META;
+    const ports = this.getDefaultPorts(type);
+    const config = this.getDefaultConfig(type);
 
-  fromPipelineBlocks(
-    blocks: PipelineBlock[]
-  ): Pick<WorkflowCreate, 'trigger' | 'actions'> {
-    let trigger: Record<string, unknown> = { type: 'webhook' };
-    const actions: Record<string, unknown>[] = [];
-
-    for (const block of blocks) {
-      switch (block.kind) {
-        case 'trigger':
-          trigger = { ...(block.data as WorkflowTrigger) };
-          break;
-        case 'action':
-          actions.push({ ...(block.data as WorkflowAction) });
-          break;
-      }
-    }
-
-    return { trigger, actions };
-  }
-
-  createDefaultTriggerBlock(): PipelineBlock {
     return {
-      id: nextBlockId(),
-      kind: 'trigger',
-      data: { type: 'webhook' } as WorkflowTrigger,
-      label: 'Webhook Trigger',
-      icon: 'webhook',
-      color: '#6a1b9a',
+      id,
+      type,
+      name: meta.label,
+      position,
+      config,
+      output_ports: ports,
+      enabled: true,
+      continue_on_error: false,
+      max_retries: 3,
+      retry_delay: 5,
     };
   }
 
-  createBlockForType(
-    kind: 'action',
-    actionType?: ActionType
-  ): PipelineBlock {
-    const type = actionType || 'webhook';
-    const meta = ACTION_META[type];
-    let actionData: WorkflowAction;
+  createEdge(
+    sourceNodeId: string,
+    sourcePortId: string,
+    targetNodeId: string,
+    targetPortId = 'input'
+  ): WorkflowEdge {
+    return {
+      id: crypto.randomUUID(),
+      source_node_id: sourceNodeId,
+      source_port_id: sourcePortId,
+      target_node_id: targetNodeId,
+      target_port_id: targetPortId,
+      label: '',
+    };
+  }
 
+  private getDefaultPorts(type: string): NodePort[] {
     if (type === 'condition') {
-      actionData = { name: '', type, enabled: true, branches: [{ condition: '', actions: [] }] };
-    } else if (type === 'for_each') {
-      actionData = { name: '', type, enabled: true, loop_over: '', loop_variable: 'item', loop_actions: [], max_iterations: 100 };
-    } else if (type === 'set_variable') {
-      actionData = { name: '', type, enabled: true, variable_name: '', variable_expression: '' };
-    } else {
-      actionData = { name: '', type, enabled: true };
+      return [
+        { id: 'branch_0', label: 'If', type: 'branch' },
+        { id: 'else', label: 'Else', type: 'branch' },
+      ];
     }
+    if (type === 'for_each') {
+      return [
+        { id: 'loop_body', label: 'Loop', type: 'loop_body' },
+        { id: 'done', label: 'Done', type: 'loop_done' },
+      ];
+    }
+    return [{ id: 'default', label: '', type: 'default' }];
+  }
 
-    return {
-      id: nextBlockId(),
-      kind: 'action',
-      data: actionData,
-      label: meta.label,
-      icon: meta.icon,
-      color: meta.color,
-    };
+  private getDefaultConfig(type: string): Record<string, unknown> {
+    switch (type) {
+      case 'condition':
+        return { branches: [{ condition: '' }] };
+      case 'for_each':
+        return { loop_over: '', loop_variable: 'item', max_iterations: 100 };
+      case 'set_variable':
+        return { variable_name: '', variable_expression: '' };
+      case 'delay':
+        return { delay_seconds: 5 };
+      default:
+        return {};
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
@@ -9,12 +9,15 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { WorkflowResponse } from '../../../core/models/workflow.model';
+import { TopbarService } from '../../../core/services/topbar.service';
 
 @Component({
   selector: 'app-workflow-list',
@@ -30,10 +33,11 @@ import { WorkflowResponse } from '../../../core/models/workflow.model';
     MatMenuModule,
     MatDialogModule,
     MatTooltipModule,
+    MatProgressBarModule,
     PageHeaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
-    RelativeTimePipe,
+    DateTimePipe,
   ],
   templateUrl: './workflow-list.component.html',
   styleUrl: './workflow-list.component.scss',
@@ -41,49 +45,40 @@ import { WorkflowResponse } from '../../../core/models/workflow.model';
 export class WorkflowListComponent implements OnInit {
   private readonly workflowService = inject(WorkflowService);
   private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly topbarService = inject(TopbarService);
 
-  workflows: WorkflowResponse[] = [];
-  total = 0;
-  pageSize = 25;
-  pageIndex = 0;
-  loading = true;
+  workflows = signal<WorkflowResponse[]>([]);
+  total = signal(0);
+  pageSize = signal(25);
+  pageIndex = signal(0);
+  loading = signal(true);
 
-  displayedColumns = [
-    'name',
-    'trigger',
-    'status',
-    'executions',
-    'last_execution',
-    'actions',
-  ];
+  displayedColumns = ['name', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Workflows');
     this.loadWorkflows();
   }
 
   loadWorkflows(): void {
-    this.loading = true;
-    this.workflowService
-      .list(this.pageIndex * this.pageSize, this.pageSize)
-      .subscribe({
-        next: (res) => {
-          this.workflows = res.workflows;
-          this.total = res.total;
-          this.loading = false;
-          this.cdr.detectChanges();
-        },
-        error: () => {
-          this.loading = false;
-          this.cdr.detectChanges();
-        },
-      });
+    this.loading.set(true);
+    this.workflowService.list(this.pageIndex() * this.pageSize(), this.pageSize()).subscribe({
+      next: (res) => {
+        this.workflows.set(res.workflows);
+        this.total.set(res.total);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+      },
+    });
   }
 
   onPage(event: PageEvent): void {
-    this.pageIndex = event.pageIndex;
-    this.pageSize = event.pageSize;
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
     this.loadWorkflows();
   }
 
@@ -97,28 +92,35 @@ export class WorkflowListComponent implements OnInit {
 
   deleteWorkflow(event: Event, workflow: WorkflowResponse): void {
     event.stopPropagation();
-    if (!confirm(`Delete workflow "${workflow.name}"?`)) return;
-    this.workflowService.remove(workflow.id).subscribe({
-      next: () => {
-        this.snackBar.open('Workflow deleted', 'OK', { duration: 3000 });
-        this.loadWorkflows();
+    const ref = this.dialog.open(ConfirmDialogComponent, {
+      data: {
+        title: 'Delete Workflow',
+        message: `Delete workflow "${workflow.name}"?`,
+        confirmText: 'Delete',
+        warn: true,
       },
-      error: () => {
-        this.snackBar.open('Failed to delete workflow', 'OK', {
-          duration: 5000,
+    });
+    ref.afterClosed().subscribe((confirmed) => {
+      if (confirmed) {
+        this.workflowService.remove(workflow.id).subscribe({
+          next: () => {
+            this.snackBar.open('Workflow deleted', 'OK', { duration: 3000 });
+            this.loadWorkflows();
+          },
+          error: () => {
+            this.snackBar.open('Failed to delete workflow', 'OK', {
+              duration: 5000,
+            });
+          },
         });
-      },
+      }
     });
   }
 
   runWorkflow(event: Event, workflow: WorkflowResponse): void {
     event.stopPropagation();
     if (workflow.status !== 'enabled') {
-      this.snackBar.open(
-        'Workflow must be enabled before running',
-        'OK',
-        { duration: 3000 }
-      );
+      this.snackBar.open('Workflow must be enabled before running', 'OK', { duration: 3000 });
       return;
     }
     this.workflowService.execute(workflow.id).subscribe({
@@ -136,26 +138,27 @@ export class WorkflowListComponent implements OnInit {
   toggleStatus(event: Event, workflow: WorkflowResponse): void {
     event.stopPropagation();
     const newStatus = workflow.status === 'enabled' ? 'disabled' : 'enabled';
-    this.workflowService
-      .update(workflow.id, { status: newStatus })
-      .subscribe({
-        next: () => {
-          workflow.status = newStatus;
-          this.cdr.detectChanges();
-        },
-        error: () => {
-          this.snackBar.open('Failed to update status', 'OK', {
-            duration: 5000,
-          });
-        },
-      });
+    this.workflowService.update(workflow.id, { status: newStatus }).subscribe({
+      next: () => {
+        this.workflows.update((list) =>
+          list.map((w) => (w.id === workflow.id ? { ...w, status: newStatus } : w)),
+        );
+      },
+      error: () => {
+        this.snackBar.open('Failed to update status', 'OK', {
+          duration: 5000,
+        });
+      },
+    });
   }
 
   getTriggerLabel(workflow: WorkflowResponse): string {
-    if (!workflow.trigger) return '—';
-    if (workflow.trigger.type === 'webhook') {
-      return `Webhook: ${workflow.trigger.webhook_topic || workflow.trigger.webhook_type || 'any'}`;
+    const triggerNode = workflow.nodes?.find((n) => n.type === 'trigger');
+    if (!triggerNode) return '\u2014';
+    const config = triggerNode.config || {};
+    if (config['trigger_type'] === 'cron') {
+      return `Cron: ${config['cron_expression'] || ''}`;
     }
-    return `Cron: ${workflow.trigger.cron_expression || ''}`;
+    return `Webhook: ${config['webhook_topic'] || config['webhook_type'] || 'any'}`;
   }
 }

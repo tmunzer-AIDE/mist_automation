@@ -11,7 +11,8 @@ mat-toolbar {
   padding: 0 12px;
 }
 
-::ng-deep .mat-toolbar-row, ::ng-deep .mat-toolbar-single-row {
+::ng-deep .mat-toolbar-row,
+::ng-deep .mat-toolbar-single-row {
   height: 56px;
 }
 
@@ -23,6 +24,16 @@ mat-toolbar {
   width: 36px;
   height: 36px;
   line-height: 36px;
+  padding: 5px;
+}
+
+.page-title {
+  font-size: 16px;
+  font-weight: 500;
+  margin-left: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-btn {

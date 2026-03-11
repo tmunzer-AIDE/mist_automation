@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 
 @Component({
@@ -10,4 +11,10 @@ import { PageHeaderComponent } from '../../../shared/components/page-header/page
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
-export class SettingsComponent {}
+export class SettingsComponent implements OnInit {
+  private readonly topbarService = inject(TopbarService);
+
+  ngOnInit(): void {
+    this.topbarService.setTitle('System Settings');
+  }
+}

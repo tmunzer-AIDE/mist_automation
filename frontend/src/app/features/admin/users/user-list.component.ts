@@ -1,4 +1,5 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -14,9 +15,10 @@ import { Store } from '@ngrx/store';
 import { ApiService } from '../../../core/services/api.service';
 import { UserResponse, UserListResponse } from '../../../core/models/user.model';
 import { selectCurrentUser } from '../../../core/state/auth/auth.selectors';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
-import { RelativeTimePipe } from '../../../shared/pipes/relative-time.pipe';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { UserDialogComponent } from './user-dialog.component';
 
@@ -37,7 +39,7 @@ import { UserDialogComponent } from './user-dialog.component';
     MatTooltipModule,
     PageHeaderComponent,
     EmptyStateComponent,
-    RelativeTimePipe,
+    DateTimePipe,
   ],
   templateUrl: './user-list.component.html',
   styleUrl: './user-list.component.scss',
@@ -46,21 +48,26 @@ export class UserListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
   private readonly store = inject(Store);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly topbarService = inject(TopbarService);
 
   currentUserId: string | null = null;
-  users: UserResponse[] = [];
+  users = signal<UserResponse[]>([]);
   total = 0;
   pageSize = 25;
   pageIndex = 0;
-  loading = true;
+  loading = signal(true);
   displayedColumns = ['email', 'roles', 'is_active', 'created_at', 'last_login', 'actions'];
 
   ngOnInit(): void {
-    this.store.select(selectCurrentUser).subscribe((user) => {
-      this.currentUserId = user?.id ?? null;
-    });
+    this.topbarService.setTitle('Users');
+    this.store
+      .select(selectCurrentUser)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((user) => {
+        this.currentUserId = user?.id ?? null;
+      });
     this.loadUsers();
   }
 
@@ -69,7 +76,7 @@ export class UserListComponent implements OnInit {
   }
 
   loadUsers(): void {
-    this.loading = true;
+    this.loading.set(true);
     this.api
       .get<UserListResponse>('/users', {
         skip: this.pageIndex * this.pageSize,
@@ -77,14 +84,12 @@ export class UserListComponent implements OnInit {
       })
       .subscribe({
         next: (res) => {
-          this.users = res.users;
+          this.users.set(res.users);
           this.total = res.total;
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.loading.set(false);
         },
         error: () => {
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.loading.set(false);
         },
       });
   }
@@ -138,11 +143,9 @@ export class UserListComponent implements OnInit {
   }
 
   toggleActive(user: UserResponse): void {
-    this.api
-      .put(`/users/${user.id}`, { is_active: !user.is_active })
-      .subscribe({
-        next: () => this.loadUsers(),
-        error: (err) => this.snackBar.open(err.message, 'OK', { duration: 5000 }),
-      });
+    this.api.put(`/users/${user.id}`, { is_active: !user.is_active }).subscribe({
+      next: () => this.loadUsers(),
+      error: (err) => this.snackBar.open(err.message, 'OK', { duration: 5000 }),
+    });
   }
 }

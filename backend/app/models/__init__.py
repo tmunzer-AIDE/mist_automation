@@ -9,13 +9,13 @@ from app.modules.automation.models.workflow import (
     SharingPermission,
     TriggerType,
     ActionType,
-    WorkflowTrigger,
-    WorkflowAction,
+    WorkflowNode,
+    WorkflowEdge,
 )
 from app.modules.automation.models.execution import (
     WorkflowExecution,
     ExecutionStatus,
-    ActionExecutionResult,
+    NodeExecutionResult,
 )
 from app.modules.automation.models.webhook import WebhookEvent
 from app.modules.backup.models import (
@@ -37,15 +37,14 @@ __all__ = [
     "SharingPermission",
     "TriggerType",
     "ActionType",
-    "WorkflowTrigger",
-    "WorkflowAction",
+    "WorkflowNode",
+    "WorkflowEdge",
     "WorkflowExecution",
     "ExecutionStatus",
-    "ActionExecutionResult",
+    "NodeExecutionResult",
     "WebhookEvent",
     "BackupObject",
     "BackupConfig",
-
     "BackupEventType",
     "BackupSchedule",
     "GitConfig",

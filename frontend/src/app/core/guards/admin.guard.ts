@@ -8,15 +8,12 @@ export const adminGuard: CanActivateFn = () => {
   const store = inject(Store);
   const router = inject(Router);
 
-  return combineLatest([
-    store.select(selectUserLoaded),
-    store.select(selectIsAdmin),
-  ]).pipe(
+  return combineLatest([store.select(selectUserLoaded), store.select(selectIsAdmin)]).pipe(
     filter(([loaded]) => loaded),
     take(1),
     map(([, isAdmin]) => {
       if (isAdmin) return true;
       return router.createUrlTree(['/dashboard']);
-    })
+    }),
   );
 };

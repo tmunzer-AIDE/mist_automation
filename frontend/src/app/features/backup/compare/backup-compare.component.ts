@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
@@ -11,6 +11,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatChipsModule } from '@angular/material/chips';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { BackupDiffResponse } from '../../../core/models/backup.model';
 import { PageHeaderComponent } from '../../../shared/components/page-header/page-header.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
@@ -39,10 +40,10 @@ export class BackupCompareComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly fb = inject(FormBuilder);
   private readonly route = inject(ActivatedRoute);
-  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly topbarService = inject(TopbarService);
 
-  loading = false;
-  diff: BackupDiffResponse | null = null;
+  loading = signal(false);
+  diff = signal<BackupDiffResponse | null>(null);
   displayedColumns = ['path', 'change_type', 'old_value', 'new_value'];
 
   form = this.fb.group({
@@ -51,6 +52,7 @@ export class BackupCompareComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Compare Backups');
     const id1 = this.route.snapshot.queryParamMap.get('id1');
     if (id1) {
       this.form.patchValue({ backup_id_1: id1 });
@@ -59,8 +61,8 @@ export class BackupCompareComponent implements OnInit {
 
   compare(): void {
     if (this.form.invalid) return;
-    this.loading = true;
-    this.diff = null;
+    this.loading.set(true);
+    this.diff.set(null);
 
     const { backup_id_1, backup_id_2 } = this.form.getRawValue();
     this.api
@@ -70,13 +72,11 @@ export class BackupCompareComponent implements OnInit {
       })
       .subscribe({
         next: (d) => {
-          this.diff = d;
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.diff.set(d);
+          this.loading.set(false);
         },
         error: () => {
-          this.loading = false;
-          this.cdr.detectChanges();
+          this.loading.set(false);
         },
       });
   }

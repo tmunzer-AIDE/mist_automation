@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
@@ -17,6 +17,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import {
   BackupObjectSummary,
   BackupObjectListResponse,
@@ -30,6 +31,12 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
+import {
+  CHART_COLORS,
+  baseChartOptions,
+  barDataset,
+  lineDataset,
+} from '../../../shared/utils/chart-defaults';
 
 @Component({
   selector: 'app-backup-object-list',
@@ -64,15 +71,15 @@ export class BackupObjectListComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
   private readonly fb = inject(FormBuilder);
+  private readonly topbarService = inject(TopbarService);
 
   // ── Object table ─────────────────────────────────────────────────────
-  objects: BackupObjectSummary[] = [];
-  objectsTotal = 0;
+  objects = signal<BackupObjectSummary[]>([]);
+  objectsTotal = signal(0);
   objectsPageSize = 25;
   objectsPageIndex = 0;
-  loadingObjects = true;
+  loadingObjects = signal(true);
   objectColumns = [
     'object_name',
     'object_type',
@@ -88,10 +95,10 @@ export class BackupObjectListComponent implements OnInit {
 
   // ── Filters ──────────────────────────────────────────────────────────
   searchQuery = '';
-  objectTypeOptions: MistObjectTypeOption[] = [];
-  objectType: MistObjectTypeOption[] = [];
+  objectTypeOptions = signal<MistObjectTypeOption[]>([]);
+  objectType = signal<MistObjectTypeOption[]>([]);
 
-  siteOptions: MistSiteOption[] = [];
+  siteOptions = signal<MistSiteOption[]>([]);
 
   filterForm = this.fb.group({
     object_type: [''],
@@ -101,9 +108,10 @@ export class BackupObjectListComponent implements OnInit {
   });
 
   // ── Chart ────────────────────────────────────────────────────────────
-  chartConfig: ChartConfiguration<'bar'> | null = null;
+  chartConfig = signal<ChartConfiguration<'bar'> | null>(null);
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Backups');
     this.loadObjectTypes();
     this.loadSites();
     this.loadObjects();
@@ -113,7 +121,7 @@ export class BackupObjectListComponent implements OnInit {
   // ── Data loading ─────────────────────────────────────────────────────
 
   loadObjects(): void {
-    this.loadingObjects = true;
+    this.loadingObjects.set(true);
     const params: Record<string, string | number> = {
       skip: this.objectsPageIndex * this.objectsPageSize,
       limit: this.objectsPageSize,
@@ -131,117 +139,64 @@ export class BackupObjectListComponent implements OnInit {
 
     this.api.get<BackupObjectListResponse>('/backups/objects', params).subscribe({
       next: (res) => {
-        this.objects = res.objects;
-        this.objectsTotal = res.total;
-        this.loadingObjects = false;
-        this.cdr.detectChanges();
+        this.objects.set(res.objects);
+        this.objectsTotal.set(res.total);
+        this.loadingObjects.set(false);
       },
       error: () => {
-        this.loadingObjects = false;
-        this.cdr.detectChanges();
+        this.loadingObjects.set(false);
       },
     });
   }
 
   private loadCharts(): void {
-    const completed = '#2563eb';   // vivid blue
-    const failed = '#ef4444';      // vivid red
-    const objectsLine = '#10b981'; // vivid emerald
-    const gridColor = '#e2e8f0';
-
     forkJoin({
       objects: this.api.get<BackupObjectStatsResponse>('/backups/stats/objects'),
       jobs: this.api.get<BackupJobStatsResponse>('/backups/stats/jobs'),
     }).subscribe({
       next: ({ objects, jobs }) => {
         const labels = objects.days.map((d) => d.date.slice(5));
-        this.chartConfig = {
+        this.chartConfig.set({
           type: 'bar',
           data: {
             labels,
             datasets: [
-              {
-                label: 'Jobs completed',
-                data: jobs.days.map((d) => d.completed),
-                backgroundColor: completed,
-                borderRadius: 2,
-                stack: 'jobs',
-                order: 1,
-                yAxisID: 'y',
-              },
-              {
-                label: 'Jobs failed',
-                data: jobs.days.map((d) => d.failed),
-                backgroundColor: failed,
-                borderRadius: 2,
-                stack: 'jobs',
-                order: 1,
-                yAxisID: 'y',
-              },
-              {
-                label: 'Objects backed up',
-                data: objects.days.map((d) => d.object_count),
-                type: 'line' as const,
-                borderColor: objectsLine,
-                backgroundColor: 'transparent',
-                fill: false,
-                pointRadius: 2,
-                tension: 0.3,
-                borderWidth: 2,
-                order: 0,
-                yAxisID: 'y1',
-              } as any,
+              barDataset(
+                'Jobs completed',
+                jobs.days.map((d) => d.completed),
+                CHART_COLORS.completed,
+              ),
+              barDataset(
+                'Jobs failed',
+                jobs.days.map((d) => d.failed),
+                CHART_COLORS.failed,
+              ),
+              lineDataset(
+                'Objects backed up',
+                objects.days.map((d) => d.object_count),
+                CHART_COLORS.objectsLine,
+              ),
             ],
           },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: true } },
-            scales: {
-              x: {
-                grid: { display: false },
-                ticks: { maxTicksLimit: 15, font: { size: 10 } },
-              },
-              y: {
-                position: 'left',
-                stacked: true,
-                beginAtZero: true,
-                grid: { color: gridColor },
-                ticks: { precision: 0, font: { size: 10 } },
-                title: { display: true, text: 'Jobs', font: { size: 11 } },
-              },
-              y1: {
-                position: 'right',
-                beginAtZero: true,
-                grid: { drawOnChartArea: false },
-                ticks: { precision: 0, font: { size: 10 } },
-                title: { display: true, text: 'Objects', font: { size: 11 } },
-              },
-            },
-          },
-        };
-        this.cdr.detectChanges();
+          options: baseChartOptions('Jobs', 'Objects'),
+        });
       },
     });
   }
 
   private loadObjectTypes(): void {
-    this.api
-      .get<{ object_types: MistObjectTypeOption[] }>('/admin/mist/object-types')
-      .subscribe({
-        next: (res) => {
-          this.objectType = res.object_types;
-          this.filterScopeObjects();
-          this.cdr.detectChanges();
-        },
-      });
+    this.api.get<{ object_types: MistObjectTypeOption[] }>('/admin/mist/object-types').subscribe({
+      next: (res) => {
+        this.objectType.set(res.object_types);
+        this.filterScopeObjects();
+      },
+    });
   }
 
   private loadSites(): void {
     this.api.get<{ sites: MistSiteOption[] }>('/admin/mist/sites').subscribe({
       next: (res) => {
-        this.siteOptions = res.sites;
-        this.cdr.detectChanges();
+        this.siteOptions.set(res.sites);
       },
     });
   }
@@ -284,13 +239,13 @@ export class BackupObjectListComponent implements OnInit {
   }
 
   filterScopeObjects(): void {
-    let scope = this.filterForm.get("scope")?.value;
+    let scope = this.filterForm.get('scope')?.value;
 
-    this.objectTypeOptions = this.objectType
-        .filter(t => t.scope === scope || scope === '')
-        .sort((a, b) => a.label.localeCompare(b.label));
-      
-    this.cdr.detectChanges();
+    this.objectTypeOptions.set(
+      this.objectType()
+        .filter((t) => t.scope === scope || scope === '')
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    );
   }
 
   // ── Pagination ───────────────────────────────────────────────────────
