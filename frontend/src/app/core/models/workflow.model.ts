@@ -1,7 +1,7 @@
 // ── Enums ────────────────────────────────────────────────────────────────────
 
 export type WorkflowStatus = 'enabled' | 'disabled' | 'draft';
-export type TriggerType = 'webhook' | 'cron';
+export type TriggerType = 'webhook' | 'cron' | 'manual';
 export type ActionType =
   | 'mist_api_get'
   | 'mist_api_post'
@@ -14,7 +14,10 @@ export type ActionType =
   | 'delay'
   | 'condition'
   | 'set_variable'
-  | 'for_each';
+  | 'for_each'
+  | 'data_transform'
+  | 'format_report'
+  | 'email';
 export type ExecutionStatus =
   | 'pending'
   | 'running'

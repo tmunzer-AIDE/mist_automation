@@ -152,12 +152,41 @@ export class WorkflowListComponent implements OnInit {
     });
   }
 
+  exportWorkflow(event: Event, workflow: WorkflowResponse): void {
+    event.stopPropagation();
+    this.workflowService.exportWorkflow(workflow);
+  }
+
+  async importWorkflow(): Promise<void> {
+    const data = await this.workflowService.importWorkflowFromFile();
+    if (!data) {
+      this.snackBar.open('Invalid workflow file or import cancelled', 'OK', { duration: 3000 });
+      return;
+    }
+    this.workflowService.create(data).subscribe({
+      next: (response) => {
+        this.snackBar.open(`Workflow "${response.name}" imported`, 'OK', { duration: 3000 });
+        this.router.navigate(['/workflows', response.id]);
+      },
+      error: (err) => {
+        this.snackBar.open(
+          'Import failed: ' + (err?.error?.detail || 'Unknown error'),
+          'OK',
+          { duration: 5000 }
+        );
+      },
+    });
+  }
+
   getTriggerLabel(workflow: WorkflowResponse): string {
     const triggerNode = workflow.nodes?.find((n) => n.type === 'trigger');
     if (!triggerNode) return '\u2014';
     const config = triggerNode.config || {};
     if (config['trigger_type'] === 'cron') {
       return `Cron: ${config['cron_expression'] || ''}`;
+    }
+    if (config['trigger_type'] === 'manual') {
+      return 'Manual';
     }
     return `Webhook: ${config['webhook_topic'] || config['webhook_type'] || 'any'}`;
   }

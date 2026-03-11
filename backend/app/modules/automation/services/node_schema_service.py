@@ -137,6 +137,19 @@ def get_node_output_schema(node: WorkflowNode) -> dict[str, Any]:
         # using the loop_over path; this is a fallback.
         return {"(current item)": "object"}
 
+    if node_type == "data_transform":
+        return {
+            "rows": [{"(extracted fields)": "value"}],
+            "columns": [{"key": "string", "label": "string"}],
+            "row_count": "integer",
+        }
+
+    if node_type == "format_report":
+        return {"report": "string", "format": "string", "row_count": "integer"}
+
+    if node_type == "email":
+        return {"status": "string", "platform": "string", "to": ["string"], "subject": "string"}
+
     if node_type in ("slack", "servicenow", "pagerduty"):
         return {"status": "string", "response": "string"}
 

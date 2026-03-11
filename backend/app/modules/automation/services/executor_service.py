@@ -502,7 +502,13 @@ class WorkflowExecutor:
         if node_type == "for_each":
             return await self._execute_for_each(node, execution, dry_run=dry_run)
 
-        if node_type in ("slack", "servicenow", "pagerduty"):
+        if node_type == "data_transform":
+            return await self._execute_data_transform(config)
+
+        if node_type == "format_report":
+            return await self._execute_format_report(config)
+
+        if node_type in ("slack", "servicenow", "pagerduty", "email"):
             if dry_run:
                 return {"status": "mocked", "channel": config.get("notification_channel", "")}
             return await self._execute_notification(node_type, config)
@@ -709,6 +715,47 @@ class WorkflowExecutor:
         logger.info("webhook_executed", url=url, status_code=response.status_code)
         return {"status_code": response.status_code, "response": response.text[:1000]}
 
+    def _build_slack_message_blocks(self, config: dict, message: str) -> list[dict[str, Any]] | None:
+        """Assemble Slack Block Kit blocks from node config + upstream data.
+
+        Returns None if no blocks are needed (fall back to legacy attachments).
+        """
+        blocks: list[dict[str, Any]] = []
+
+        # 1. Header block
+        header = self._render_template(config.get("slack_header", ""))
+        if header.strip():
+            blocks.append({"type": "header", "text": {"type": "plain_text", "text": header[:150]}})
+
+        # 2. Section block with message text (skip if message looks like raw JSON blocks)
+        if message.strip() and not message.strip().startswith("[{"):
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": message[:3000]}})
+
+        # 3. Section block with key-value fields
+        fields_config = config.get("slack_fields", [])
+        if fields_config:
+            rendered_fields = []
+            for f in fields_config:
+                label = self._render_template(f.get("label", ""))
+                value = self._render_template(f.get("value", ""))
+                if label.strip():
+                    rendered_fields.append({"type": "mrkdwn", "text": f"*{label}*\n{value}"})
+            if rendered_fields:
+                blocks.append({"type": "section", "fields": rendered_fields[:10]})
+
+        # 4. Auto-detected table blocks from upstream format_report
+        for node_output in self.variable_context.get("nodes", {}).values():
+            if isinstance(node_output, dict) and isinstance(node_output.get("slack_blocks"), list):
+                blocks.extend(node_output["slack_blocks"])
+                break
+
+        # 5. Footer as context block
+        footer = self._render_template(config.get("slack_footer", ""))
+        if footer.strip():
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
+
+        return blocks if blocks else None
+
     async def _execute_notification(self, node_type: str, config: dict) -> dict[str, Any]:
         """Execute a notification action (slack, servicenow, pagerduty)."""
         from app.services.notification_service import NotificationService
@@ -719,7 +766,8 @@ class WorkflowExecutor:
 
         async with NotificationService() as ns:
             if node_type == "slack":
-                return await ns.send_slack_notification(webhook_url=channel, message=message)
+                blocks = self._build_slack_message_blocks(config, message)
+                return await ns.send_slack_notification(webhook_url=channel, message=message, blocks=blocks)
             elif node_type == "servicenow":
                 return await ns.send_servicenow_notification(
                     instance_url=channel,
@@ -733,6 +781,11 @@ class WorkflowExecutor:
                     summary=message,
                     severity=config.get("severity", "warning"),
                 )
+            elif node_type == "email":
+                recipients = [r.strip() for r in channel.split(",")]
+                subject = self._render_template(config.get("email_subject", "Workflow Notification"))
+                html = config.get("email_html", False)
+                return await ns.send_email(to=recipients, subject=subject, body=message, html=html)
             else:
                 logger.warning(f"Unknown notification type: {node_type}")
                 return {"status": "unsupported", "type": node_type}
@@ -794,6 +847,226 @@ class WorkflowExecutor:
 
         logger.info("for_each_executed", node_id=node.id, iterations=iteration_count)
         return {"iterations": iteration_count, "loop_over": loop_over}
+
+    # ── Data processing ────────────────────────────────────────────────────
+
+    async def _execute_data_transform(self, config: dict) -> dict[str, Any]:
+        """Extract and filter fields from a data array."""
+        source_raw = config.get("source", "")
+        source = source_raw.strip()
+        if source.startswith("{{") and source.endswith("}}"):
+            source = source[2:-2].strip()
+        collection = get_nested_value(self.variable_context, source)
+
+        if collection is None:
+            raise ValueError(f"data_transform: '{source}' resolved to None")
+        if not isinstance(collection, list):
+            raise ValueError(f"data_transform: '{source}' is not a list (got {type(collection).__name__})")
+
+        fields = config.get("fields", [])
+        if not fields:
+            raise ValueError("data_transform: no fields specified")
+
+        filter_expr = config.get("filter", "")
+
+        # Build column definitions
+        seen_keys: dict[str, int] = {}
+        columns: list[dict[str, str]] = []
+        for field in fields:
+            path = field.get("path", "")
+            label = field.get("label", "")
+            key = path.split(".")[-1] if path else ""
+            if key in seen_keys:
+                seen_keys[key] += 1
+                key = f"{key}_{seen_keys[key]}"
+            else:
+                seen_keys[key] = 0
+            columns.append({"key": key, "label": label or key})
+
+        rows: list[dict[str, Any]] = []
+        for item in collection:
+            # Apply optional filter
+            if filter_expr:
+                ctx = self._build_render_context(extra={"item": item})
+                rendered = self._jinja_env.from_string(filter_expr).render(ctx).strip()
+                if rendered.lower() in ("", "false", "0", "none", "null", "undefined"):
+                    continue
+
+            # Extract fields
+            row: dict[str, Any] = {}
+            for i, field in enumerate(fields):
+                path = field.get("path", "")
+                col_key = columns[i]["key"]
+                value = self._get_nested_field(item, path)
+                row[col_key] = value
+            rows.append(row)
+
+        logger.info("data_transform_executed", source=source, rows=len(rows), columns=len(columns))
+        return {"rows": rows, "columns": columns, "row_count": len(rows)}
+
+    @staticmethod
+    def _get_nested_field(data: Any, path: str) -> Any:
+        """Traverse a nested dict/object by dot-separated path."""
+        cursor = data
+        for segment in path.split("."):
+            if isinstance(cursor, dict) and segment in cursor:
+                cursor = cursor[segment]
+            else:
+                return None
+        return cursor
+
+    async def _execute_format_report(self, config: dict) -> dict[str, Any]:
+        """Format structured data as a table report."""
+        # Resolve rows
+        data_source_raw = config.get("data_source", "")
+        data_source = data_source_raw.strip()
+        if data_source.startswith("{{") and data_source.endswith("}}"):
+            data_source = data_source[2:-2].strip()
+        rows = get_nested_value(self.variable_context, data_source)
+
+        if rows is None:
+            rows = []
+        if not isinstance(rows, list):
+            raise ValueError(f"format_report: data_source is not a list (got {type(rows).__name__})")
+
+        # Resolve column defs
+        columns: list[dict[str, str]] | None = None
+        columns_source_raw = config.get("columns_source", "")
+        if columns_source_raw:
+            cs = columns_source_raw.strip()
+            if cs.startswith("{{") and cs.endswith("}}"):
+                cs = cs[2:-2].strip()
+            columns = get_nested_value(self.variable_context, cs)
+
+        # Auto-detect from first row
+        if not columns and rows:
+            columns = [{"key": k, "label": k} for k in rows[0].keys()]
+        if not columns:
+            columns = []
+
+        fmt = config.get("format", "markdown")
+
+        # Render title/footer
+        title = self._render_template(config.get("title", "")) if config.get("title") else ""
+        footer = self._render_template(config.get("footer_template", "")) if config.get("footer_template") else ""
+
+        # Format the table
+        report = self._format_table(rows, columns, fmt)
+
+        # Add title/footer
+        if title:
+            if fmt == "markdown":
+                report = f"## {title}\n\n{report}"
+            else:
+                report = f"{title}\n\n{report}"
+        if footer:
+            report = f"{report}\n\n{footer}"
+
+        result: dict[str, Any] = {"report": report, "format": fmt, "row_count": len(rows)}
+
+        # For slack format, also build Block Kit blocks
+        if fmt == "slack":
+            result["slack_blocks"] = self._build_slack_table_blocks(rows, columns, title, footer)
+
+        logger.info("format_report_executed", format=fmt, rows=len(rows))
+        return result
+
+    @staticmethod
+    def _format_table(rows: list[dict], columns: list[dict[str, str]], fmt: str) -> str:
+        """Format rows+columns into the requested table format."""
+        if not columns:
+            return ""
+
+        col_keys = [c["key"] for c in columns]
+        col_labels = [c["label"] for c in columns]
+
+        if fmt == "csv":
+            import csv
+            import io
+
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(col_labels)
+            for row in rows:
+                writer.writerow([str(row.get(k, "")) for k in col_keys])
+            return output.getvalue().strip()
+
+        # Compute column widths for aligned formats
+        widths = [len(label) for label in col_labels]
+        str_rows: list[list[str]] = []
+        for row in rows:
+            str_row = [str(row.get(k, "")) for k in col_keys]
+            for i, cell in enumerate(str_row):
+                widths[i] = max(widths[i], len(cell))
+            str_rows.append(str_row)
+
+        if fmt == "markdown":
+            header = "| " + " | ".join(label.ljust(widths[i]) for i, label in enumerate(col_labels)) + " |"
+            separator = "| " + " | ".join("-" * widths[i] for i in range(len(columns))) + " |"
+            lines = [header, separator]
+            for str_row in str_rows:
+                line = "| " + " | ".join(str_row[i].ljust(widths[i]) for i in range(len(columns))) + " |"
+                lines.append(line)
+            return "\n".join(lines)
+
+        if fmt == "slack":
+            lines = []
+            header = "  ".join(label.ljust(widths[i]) for i, label in enumerate(col_labels))
+            lines.append(header)
+            lines.append("-" * len(header))
+            for str_row in str_rows:
+                line = "  ".join(str_row[i].ljust(widths[i]) for i in range(len(columns)))
+                lines.append(line)
+            return "\n".join(lines)
+
+        # "text" or fallback
+        lines = []
+        header = "  ".join(label.ljust(widths[i]) for i, label in enumerate(col_labels))
+        lines.append(header)
+        lines.append("  ".join("-" * widths[i] for i in range(len(columns))))
+        for str_row in str_rows:
+            line = "  ".join(str_row[i].ljust(widths[i]) for i in range(len(columns)))
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_slack_table_blocks(
+        rows: list[dict],
+        columns: list[dict[str, str]],
+        title: str = "",
+        footer: str = "",
+    ) -> list[dict[str, Any]]:
+        """Build Slack Block Kit blocks with a preformatted table.
+
+        Uses rich_text with rich_text_preformatted (monospace code block)
+        which is supported by incoming webhooks and preserves column alignment.
+        """
+        if not columns:
+            return []
+
+        blocks: list[dict[str, Any]] = []
+
+        if title:
+            blocks.append({"type": "header", "text": {"type": "plain_text", "text": title[:150]}})
+
+        # Build aligned text table and wrap in a rich_text preformatted block
+        table_text = WorkflowExecutor._format_table(rows[:99], columns, "slack")
+        if table_text:
+            blocks.append({
+                "type": "rich_text",
+                "elements": [{
+                    "type": "rich_text_preformatted",
+                    "elements": [{"type": "text", "text": table_text}],
+                }],
+            })
+
+        if footer:
+            blocks.append({
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": footer}],
+            })
+
+        return blocks
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

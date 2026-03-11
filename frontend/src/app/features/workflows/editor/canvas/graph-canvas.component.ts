@@ -125,7 +125,9 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   getNodeIcon(node: WorkflowNode): string {
     if (node.type === 'trigger') {
       const tt = node.config?.['trigger_type'];
-      return tt === 'cron' ? 'schedule' : 'webhook';
+      if (tt === 'cron') return 'schedule';
+      if (tt === 'manual') return 'play_circle';
+      return 'webhook';
     }
     return this.getNodeMeta(node.type).icon;
   }
@@ -183,18 +185,27 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   onWheel(event: WheelEvent): void {
     event.preventDefault();
-    const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
 
-    const oldZoom = this.viewport.zoom;
-    const delta = event.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom + delta));
+    if (event.ctrlKey || event.metaKey) {
+      // Zoom (pinch-to-zoom OR Ctrl+scroll wheel)
+      const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
 
-    // Zoom toward cursor
-    this.viewport.x = mouseX - ((mouseX - this.viewport.x) / oldZoom) * newZoom;
-    this.viewport.y = mouseY - ((mouseY - this.viewport.y) / oldZoom) * newZoom;
-    this.viewport.zoom = newZoom;
+      const oldZoom = this.viewport.zoom;
+      const zoomFactor = 1 - event.deltaY * 0.01;
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom * zoomFactor));
+
+      // Zoom toward cursor
+      this.viewport.x = mouseX - ((mouseX - this.viewport.x) / oldZoom) * newZoom;
+      this.viewport.y = mouseY - ((mouseY - this.viewport.y) / oldZoom) * newZoom;
+      this.viewport.zoom = newZoom;
+    } else {
+      // Pan (two-finger scroll OR mouse wheel without Ctrl)
+      this.viewport.x -= event.deltaX;
+      this.viewport.y -= event.deltaY;
+    }
+
     this.viewportChanged.emit({ ...this.viewport });
   }
 

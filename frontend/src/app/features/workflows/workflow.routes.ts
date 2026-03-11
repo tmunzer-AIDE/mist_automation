@@ -12,6 +12,11 @@ const routes: Routes = [
       import('./webhooks/webhook-event-list.component').then((m) => m.WebhookEventListComponent),
   },
   {
+    path: 'executions',
+    loadComponent: () =>
+      import('./executions/execution-list.component').then((m) => m.ExecutionListComponent),
+  },
+  {
     path: 'new',
     loadComponent: () =>
       import('./editor/workflow-editor.component').then((m) => m.WorkflowEditorComponent),

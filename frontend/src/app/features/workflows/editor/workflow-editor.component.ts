@@ -488,6 +488,15 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     });
   }
 
+  exportWorkflow(): void {
+    this.workflowService.exportWorkflow({
+      ...this.graph(),
+      name: this.workflowName(),
+      description: this.workflowDescription(),
+      timeout_seconds: this.timeoutSeconds(),
+    } as any);
+  }
+
   cancel(): void {
     this.router.navigate(['/workflows']);
   }

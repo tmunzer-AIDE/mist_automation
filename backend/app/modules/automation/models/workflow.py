@@ -30,6 +30,7 @@ class TriggerType(str, Enum):
     """Trigger type enumeration."""
     WEBHOOK = "webhook"
     CRON = "cron"
+    MANUAL = "manual"
 
 
 class ActionType(str, Enum):
@@ -46,6 +47,9 @@ class ActionType(str, Enum):
     CONDITION = "condition"
     SET_VARIABLE = "set_variable"
     FOR_EACH = "for_each"
+    DATA_TRANSFORM = "data_transform"
+    FORMAT_REPORT = "format_report"
+    EMAIL = "email"
 
 
 class VariableBinding(BaseModel):

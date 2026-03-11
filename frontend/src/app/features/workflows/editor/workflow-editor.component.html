@@ -25,6 +25,9 @@
         <mat-icon>history</mat-icon> View Executions
       </button>
     }
+    <button mat-menu-item (click)="exportWorkflow()">
+      <mat-icon>download</mat-icon> Export as JSON
+    </button>
   </mat-menu>
   <button mat-flat-button (click)="save()" [disabled]="saving()">
     {{ saving() ? 'Saving...' : 'Save' }}
@@ -74,6 +77,11 @@
       <div class="config-panel-container" [style.width.px]="configPanelWidth()">
         <div class="resize-handle" (mousedown)="onResizeStart($event)"></div>
         <div class="config-panel-header-actions">
+          @if (selectedNode()?.type !== 'trigger') {
+            <button mat-icon-button matTooltip="Delete node" (click)="onNodeRemoved(selectedNode()!.id)">
+              <mat-icon>delete</mat-icon>
+            </button>
+          }
           <button mat-icon-button matTooltip="Close" (click)="onNodeDeselected()">
             <mat-icon>close</mat-icon>
           </button>

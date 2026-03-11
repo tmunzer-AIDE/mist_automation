@@ -1,0 +1,138 @@
+{
+  "_format": "mist-automation-workflow",
+  "_version": 1,
+  "_exported_at": "2026-03-11T00:00:00.000Z",
+  "name": "Deployment Validation Report",
+  "description": "Daily report: list all device stats at a site, extract key fields (name, MAC, status, eth0 up/speed, IP, LLDP neighbor), generate a Slack Block Kit table, and send it with a header, key-value summary, and footer.",
+  "timeout_seconds": 300,
+  "nodes": [
+    {
+      "id": "trigger-1",
+      "type": "trigger",
+      "name": "Daily 8am Cron",
+      "position": { "x": 400, "y": 60 },
+      "config": {
+        "trigger_type": "cron",
+        "cron_expression": "0 8 * * *",
+        "timezone": "UTC"
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 0,
+      "retry_delay": 0
+    },
+    {
+      "id": "list-devices-1",
+      "type": "mist_api_get",
+      "name": "List Site Device Stats",
+      "position": { "x": 400, "y": 220 },
+      "config": {
+        "api_endpoint": "/api/v1/sites/{site_id}/stats/devices"
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 3,
+      "retry_delay": 5
+    },
+    {
+      "id": "transform-1",
+      "type": "data_transform",
+      "name": "Extract Device Fields",
+      "position": { "x": 400, "y": 380 },
+      "config": {
+        "source": "nodes.List Site Device Stats.body",
+        "fields": [
+          { "path": "name", "label": "Device Name" },
+          { "path": "mac", "label": "MAC Address" },
+          { "path": "status", "label": "Status" },
+          { "path": "port_stat.eth0.up", "label": "Eth0 Up" },
+          { "path": "port_stat.eth0.speed", "label": "Eth0 Speed" },
+          { "path": "ip_stat.ip", "label": "IP Address" },
+          { "path": "lldp_stat.system_name", "label": "LLDP Neighbor" }
+        ],
+        "filter": ""
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 3,
+      "retry_delay": 5
+    },
+    {
+      "id": "report-1",
+      "type": "format_report",
+      "name": "Format Slack Table",
+      "position": { "x": 400, "y": 540 },
+      "config": {
+        "data_source": "nodes.Extract Device Fields.rows",
+        "columns_source": "nodes.Extract Device Fields.columns",
+        "format": "slack",
+        "title": "Deployment Validation Report",
+        "footer_template": "Generated at {{ now_iso }} — {{ nodes.Extract Device Fields.row_count }} devices total"
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 3,
+      "retry_delay": 5
+    },
+    {
+      "id": "slack-1",
+      "type": "slack",
+      "name": "Send to Slack",
+      "position": { "x": 400, "y": 700 },
+      "config": {
+        "notification_channel": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+        "slack_header": "Deployment Validation Report",
+        "notification_template": "Daily device status check completed.",
+        "slack_fields": [
+          { "label": "Site", "value": "{{ trigger.site_name }}" },
+          { "label": "Total Devices", "value": "{{ nodes.Extract Device Fields.row_count }}" }
+        ],
+        "slack_footer": "Mist Automation — {{ now_iso }}"
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 3,
+      "retry_delay": 5
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "source_node_id": "trigger-1",
+      "source_port_id": "default",
+      "target_node_id": "list-devices-1",
+      "target_port_id": "input",
+      "label": ""
+    },
+    {
+      "id": "edge-2",
+      "source_node_id": "list-devices-1",
+      "source_port_id": "default",
+      "target_node_id": "transform-1",
+      "target_port_id": "input",
+      "label": ""
+    },
+    {
+      "id": "edge-3",
+      "source_node_id": "transform-1",
+      "source_port_id": "default",
+      "target_node_id": "report-1",
+      "target_port_id": "input",
+      "label": ""
+    },
+    {
+      "id": "edge-4",
+      "source_node_id": "report-1",
+      "source_port_id": "default",
+      "target_node_id": "slack-1",
+      "target_port_id": "input",
+      "label": ""
+    }
+  ],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 }
+}

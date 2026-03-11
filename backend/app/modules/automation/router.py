@@ -2,10 +2,13 @@
 Workflow automation API endpoints — graph-based workflow model.
 """
 
+from datetime import datetime, timezone
+
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.tasks import create_background_task
 from app.dependencies import get_current_user_from_token
 from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
 from app.models.user import User
@@ -104,6 +107,99 @@ async def create_workflow(
 
     logger.info("workflow_created", workflow_id=str(workflow.id), user_id=str(current_user.id))
     return _workflow_to_response(workflow)
+
+
+@router.get("/executions", tags=["Executions"])
+async def list_all_executions(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    status_filter: str | None = Query(None, description="Filter by execution status"),
+    trigger_type: str | None = Query(None, description="Filter by trigger type"),
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """List all workflow executions across all workflows."""
+    match: dict = {}
+    if status_filter:
+        match["status"] = status_filter
+    if trigger_type:
+        match["trigger_type"] = trigger_type
+
+    total = await WorkflowExecution.find(match).count()
+
+    executions = await WorkflowExecution.aggregate(
+        [
+            {"$match": match},
+            {"$sort": {"started_at": -1}},
+            {"$skip": skip},
+            {"$limit": limit},
+            {
+                "$project": {
+                    "_id": 1,
+                    "workflow_id": 1,
+                    "workflow_name": 1,
+                    "status": 1,
+                    "trigger_type": 1,
+                    "started_at": 1,
+                    "completed_at": 1,
+                    "duration_ms": 1,
+                    "nodes_executed": 1,
+                    "nodes_succeeded": 1,
+                    "nodes_failed": 1,
+                    "is_simulation": 1,
+                }
+            },
+        ]
+    ).to_list()
+
+    return {
+        "executions": [
+            {
+                "id": str(ex["_id"]),
+                "workflow_id": str(ex.get("workflow_id", "")),
+                "workflow_name": ex.get("workflow_name", ""),
+                "status": ex.get("status", "unknown"),
+                "trigger_type": ex.get("trigger_type", ""),
+                "started_at": ex.get("started_at"),
+                "completed_at": ex.get("completed_at"),
+                "duration_ms": ex.get("duration_ms"),
+                "nodes_executed": ex.get("nodes_executed", 0),
+                "nodes_succeeded": ex.get("nodes_succeeded", 0),
+                "nodes_failed": ex.get("nodes_failed", 0),
+                "is_simulation": ex.get("is_simulation", False),
+            }
+            for ex in executions
+        ],
+        "total": total,
+    }
+
+
+@router.post("/executions/{execution_id}/cancel", tags=["Executions"])
+async def cancel_execution(
+    execution_id: str,
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Cancel a pending or running execution."""
+    try:
+        ex_oid = PydanticObjectId(execution_id)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid execution ID format") from exc
+
+    execution = await WorkflowExecution.get(ex_oid)
+    if not execution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
+
+    if execution.status not in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel execution with status '{execution.status.value}'",
+        )
+
+    execution.mark_completed(ExecutionStatus.CANCELLED)
+    execution.add_log("Execution cancelled by user", "info")
+    await execution.save()
+
+    logger.info("execution_cancelled", execution_id=execution_id, user_id=str(_current_user.id))
+    return {"status": execution.status.value, "message": "Execution cancelled"}
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowResponse, tags=["Workflows"])
@@ -232,6 +328,39 @@ async def execute_workflow(
         workflow_id=str(workflow.id),
         execution_id=str(execution.id),
         user_id=str(current_user.id),
+    )
+
+    async def _run_manual_execution(wf_id: str, ex_id: str) -> None:
+        """Background task: actually execute the workflow."""
+        wf = await Workflow.get(PydanticObjectId(wf_id))
+        ex = await WorkflowExecution.get(PydanticObjectId(ex_id))
+        if not wf or not ex:
+            return
+        from app.services.mist_service_factory import create_mist_service
+        from app.modules.automation.services.executor_service import WorkflowExecutor
+
+        try:
+            mist_service = await create_mist_service()
+        except Exception:
+            mist_service = None
+        executor = WorkflowExecutor(mist_service=mist_service)
+        trigger_data = {"trigger_type": "manual", "triggered_at": datetime.now(timezone.utc).isoformat()}
+        try:
+            await executor.execute_workflow(
+                workflow=wf,
+                trigger_data=trigger_data,
+                trigger_source="manual",
+                execution=ex,
+            )
+        except Exception as e:
+            if ex.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+                ex.mark_completed(ExecutionStatus.FAILED, error=str(e))
+                ex.add_log(f"Manual execution error: {e}", "error")
+                await ex.save()
+
+    create_background_task(
+        _run_manual_execution(str(workflow.id), str(execution.id)),
+        name=f"manual-exec-{execution.id}",
     )
 
     return {

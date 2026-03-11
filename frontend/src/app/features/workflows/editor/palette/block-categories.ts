@@ -47,12 +47,20 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
     ],
   },
   {
+    name: 'Data Processing',
+    options: [
+      blockOption('data_transform', 'Extract and filter fields from data'),
+      blockOption('format_report', 'Format data as table report'),
+    ],
+  },
+  {
     name: 'Notification',
     options: [
       blockOption('webhook', 'Send HTTP request to external URL'),
       blockOption('slack', 'Send Slack notification'),
       blockOption('servicenow', 'Create or update ServiceNow record'),
       blockOption('pagerduty', 'Trigger PagerDuty incident'),
+      blockOption('email', 'Send email notification'),
     ],
   },
 ];

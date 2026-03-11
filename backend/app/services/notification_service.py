@@ -58,18 +58,20 @@ class NotificationService:
         icon_emoji: str = ":robot_face:",
         color: str = "good",
         fields: Optional[list[dict[str, Any]]] = None,
+        blocks: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """
         Send notification to Slack.
 
         Args:
             webhook_url: Slack webhook URL
-            message: Message text
+            message: Message text (also used as fallback when blocks are provided)
             channel: Optional channel override
             username: Bot username
             icon_emoji: Bot icon emoji
             color: Message color (good, warning, danger, or hex)
             fields: Optional list of attachment fields
+            blocks: Optional Block Kit blocks (rich_text tables, etc.)
 
         Returns:
             Response data
@@ -82,41 +84,81 @@ class NotificationService:
             raise ConfigurationError("Slack webhook URL not configured")
 
         try:
-            # Build Slack message payload
-            payload = {
-                "username": username,
-                "icon_emoji": icon_emoji,
-                "attachments": [
-                    {
-                        "color": color,
-                        "text": message,
-                        "footer": "Mist Automation",
-                        "ts": int(datetime.now(timezone.utc).timestamp()),
-                    }
-                ],
-            }
+            if blocks:
+                # Block Kit payload — blocks take precedence, message is fallback
+                payload: dict[str, Any] = {
+                    "username": username,
+                    "icon_emoji": icon_emoji,
+                    "text": message,
+                    "blocks": blocks,
+                }
+            else:
+                # Legacy attachments payload
+                payload = {
+                    "username": username,
+                    "icon_emoji": icon_emoji,
+                    "attachments": [
+                        {
+                            "color": color,
+                            "text": message,
+                            "footer": "Mist Automation",
+                            "ts": int(datetime.now(timezone.utc).timestamp()),
+                        }
+                    ],
+                }
+                # Add fields if provided
+                if fields:
+                    payload["attachments"][0]["fields"] = fields
 
             # Add channel override if provided
             if channel:
                 payload["channel"] = channel
 
-            # Add fields if provided
-            if fields:
-                payload["attachments"][0]["fields"] = fields
-
             # Send request
             client = await self._get_client()
             response = await client.post(url, json=payload)
+
+            # If blocks caused a 400, retry without them (text fallback)
+            blocks_fallback = False
+            blocks_error = ""
+            if response.status_code == 400 and blocks:
+                blocks_error = response.text[:200]
+                logger.warning(
+                    "slack_blocks_rejected",
+                    status=response.status_code,
+                    body=response.text[:500],
+                )
+                fallback_payload: dict[str, Any] = {
+                    "username": username,
+                    "icon_emoji": icon_emoji,
+                    "attachments": [
+                        {
+                            "color": color,
+                            "text": message,
+                            "footer": "Mist Automation",
+                            "ts": int(datetime.now(timezone.utc).timestamp()),
+                        }
+                    ],
+                }
+                if channel:
+                    fallback_payload["channel"] = channel
+                response = await client.post(url, json=fallback_payload)
+                blocks_fallback = True
+
             response.raise_for_status()
 
-            logger.info("slack_notification_sent", channel=channel, message_length=len(message))
+            logger.info("slack_notification_sent", channel=channel, message_length=len(message), has_blocks=bool(blocks))
 
-            return {
+            result: dict[str, Any] = {
                 "status": "sent",
                 "platform": "slack",
                 "channel": channel,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+            if blocks_fallback:
+                result["blocks_fallback"] = True
+                result["blocks_error"] = blocks_error
+            return result
 
         except httpx.HTTPError as e:
             logger.error("slack_notification_failed", error=str(e))

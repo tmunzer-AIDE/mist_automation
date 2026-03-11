@@ -19,6 +19,9 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   condition: { label: 'Condition', icon: 'call_split', color: '#0097a7' },
   set_variable: { label: 'Set Variable', icon: 'data_object', color: '#795548' },
   for_each: { label: 'For Each', icon: 'loop', color: '#4527a0' },
+  data_transform: { label: 'Data Transform', icon: 'transform', color: '#ff6f00' },
+  format_report: { label: 'Format Report', icon: 'table_chart', color: '#00838f' },
+  email: { label: 'Email', icon: 'email', color: '#5c6bc0' },
 };
 
 export const DEFAULT_ACTION_META: ActionMeta = {

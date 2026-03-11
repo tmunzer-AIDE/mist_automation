@@ -73,6 +73,7 @@ import { VariablePickerComponent } from './variable-picker.component';
               <mat-select formControlName="trigger_type">
                 <mat-option value="webhook">Webhook</mat-option>
                 <mat-option value="cron">Cron Schedule</mat-option>
+                <mat-option value="manual">Manual</mat-option>
               </mat-select>
             </mat-form-field>
 
@@ -232,6 +233,23 @@ import { VariablePickerComponent } from './variable-picker.component';
                 <mat-label>Channel</mat-label>
                 <input matInput formControlName="notification_channel" />
               </mat-form-field>
+
+              @if (node.type === 'slack') {
+                <mat-form-field appearance="outline">
+                  <mat-label>Header (optional)</mat-label>
+                  <input matInput formControlName="slack_header" />
+                  <button mat-icon-button matSuffix [matMenuTriggerFor]="slackHeaderVarMenu">
+                    <mat-icon>data_object</mat-icon>
+                  </button>
+                  <mat-menu #slackHeaderVarMenu="matMenu">
+                    <app-variable-picker
+                      [variableTree]="variableTree"
+                      (variableSelected)="insertIntoControl(form.get('slack_header')!, $event)"
+                    />
+                  </mat-menu>
+                </mat-form-field>
+              }
+
               <mat-form-field appearance="outline">
                 <mat-label>Message Template</mat-label>
                 <textarea matInput formControlName="notification_template" rows="3"></textarea>
@@ -245,6 +263,48 @@ import { VariablePickerComponent } from './variable-picker.component';
                   />
                 </mat-menu>
               </mat-form-field>
+
+              @if (node.type === 'slack') {
+                <div class="section-title">Key-Value Fields (optional)</div>
+                @for (field of slackFieldsArray.controls; track $index; let i = $index) {
+                  <div class="branch-row" [formGroup]="$any(field)">
+                    <mat-form-field appearance="outline" class="save-as-name">
+                      <mat-label>Label</mat-label>
+                      <input matInput formControlName="label" />
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="save-as-name">
+                      <mat-label>Value</mat-label>
+                      <input matInput formControlName="value" />
+                    </mat-form-field>
+                    <button mat-icon-button (click)="removeSlackField(i)">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  </div>
+                }
+                <button mat-button (click)="addSlackField()">
+                  <mat-icon>add</mat-icon> Add Field
+                </button>
+
+                <mat-form-field appearance="outline">
+                  <mat-label>Footer (optional)</mat-label>
+                  <input matInput formControlName="slack_footer" />
+                  <button mat-icon-button matSuffix [matMenuTriggerFor]="slackFooterVarMenu">
+                    <mat-icon>data_object</mat-icon>
+                  </button>
+                  <mat-menu #slackFooterVarMenu="matMenu">
+                    <app-variable-picker
+                      [variableTree]="variableTree"
+                      (variableSelected)="insertIntoControl(form.get('slack_footer')!, $event)"
+                    />
+                  </mat-menu>
+                </mat-form-field>
+
+                <div class="config-hint">
+                  <mat-icon>info_outline</mat-icon>
+                  If an upstream Format Report uses Slack format, its table is automatically
+                  included below the message.
+                </div>
+              }
             }
 
             <!-- Delay -->
@@ -299,6 +359,152 @@ import { VariablePickerComponent } from './variable-picker.component';
                 <mat-label>Max Iterations</mat-label>
                 <input matInput type="number" formControlName="max_iterations" />
               </mat-form-field>
+            }
+
+            <!-- Data Transform -->
+            @if (node.type === 'data_transform') {
+              <mat-form-field appearance="outline">
+                <mat-label>Source (dot path to array)</mat-label>
+                <input matInput formControlName="dt_source" placeholder="nodes.Get_Devices.body" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #varMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('dt_source')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <div class="section-title">Fields to Extract</div>
+              @for (field of dtFieldsArray.controls; track $index; let i = $index) {
+                <div class="branch-row" [formGroup]="$any(field)">
+                  <mat-form-field appearance="outline" class="save-as-name">
+                    <mat-label>Path</mat-label>
+                    <input matInput formControlName="path" placeholder="port_stat.eth0.up" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline" class="save-as-name">
+                    <mat-label>Label</mat-label>
+                    <input matInput formControlName="label" placeholder="Eth0 Up" />
+                  </mat-form-field>
+                  @if (dtFieldsArray.length > 1) {
+                    <button mat-icon-button (click)="removeDtField(i)">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  }
+                </div>
+              }
+              <button mat-button (click)="addDtField()">
+                <mat-icon>add</mat-icon> Add Field
+              </button>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Filter Condition (optional)</mat-label>
+                <input matInput formControlName="dt_filter"
+                  placeholder="{{ '{{' }} item.type == 'switch' {{ '}}' }}" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="filterVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #filterVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('dt_filter')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+            }
+
+            <!-- Format Report -->
+            @if (node.type === 'format_report') {
+              <mat-form-field appearance="outline">
+                <mat-label>Data Source (dot path to rows)</mat-label>
+                <input matInput formControlName="fr_data_source"
+                  placeholder="nodes.Transform_Data.rows" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #varMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('fr_data_source')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Columns Source (optional, dot path)</mat-label>
+                <input matInput formControlName="fr_columns_source"
+                  placeholder="nodes.Transform_Data.columns" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="colVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #colVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('fr_columns_source')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Format</mat-label>
+                <mat-select formControlName="fr_format">
+                  <mat-option value="markdown">Markdown</mat-option>
+                  <mat-option value="slack">Slack</mat-option>
+                  <mat-option value="csv">CSV</mat-option>
+                  <mat-option value="text">Plain Text</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Title (optional)</mat-label>
+                <input matInput formControlName="fr_title"
+                  placeholder="Deployment Report - {{ '{{' }} trigger.site_name {{ '}}' }}" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="titleVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #titleVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('fr_title')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Footer (optional)</mat-label>
+                <input matInput formControlName="fr_footer_template"
+                  placeholder="Generated at {{ '{{' }} now_iso {{ '}}' }}" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="footerVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #footerVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('fr_footer_template')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+            }
+
+            <!-- Email extra fields -->
+            @if (node.type === 'email') {
+              <mat-form-field appearance="outline">
+                <mat-label>Subject</mat-label>
+                <input matInput formControlName="email_subject"
+                  placeholder="Deployment Report - {{ '{{' }} trigger.site_name {{ '}}' }}" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="subjVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #subjVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('email_subject')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+              <mat-checkbox formControlName="email_html">Send as HTML</mat-checkbox>
             }
 
             <!-- Condition Branches -->
@@ -479,6 +685,23 @@ import { VariablePickerComponent } from './variable-picker.component';
         border-left: 2px solid var(--mat-sys-outline-variant, #e0e0e0);
         margin-bottom: 8px;
       }
+
+      .config-hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--mat-sys-on-surface-variant, #666);
+        margin-top: 4px;
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+          flex-shrink: 0;
+          margin-top: 1px;
+        }
+      }
     `,
   ],
 })
@@ -596,6 +819,27 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       loop_over: [config['loop_over'] || ''],
       loop_variable: [config['loop_variable'] || 'item'],
       max_iterations: [config['max_iterations'] ?? 100],
+      dt_source: [config['source'] || ''],
+      dt_filter: [config['filter'] || ''],
+      dt_fields: this.fb.array(
+        ((config['fields'] as { path: string; label: string }[]) || [{ path: '', label: '' }]).map(
+          (f) => this.fb.group({ path: [f.path || ''], label: [f.label || ''] })
+        )
+      ),
+      fr_data_source: [config['data_source'] || ''],
+      fr_columns_source: [config['columns_source'] || ''],
+      fr_format: [config['format'] || 'markdown'],
+      fr_title: [config['title'] || ''],
+      fr_footer_template: [config['footer_template'] || ''],
+      slack_header: [config['slack_header'] || ''],
+      slack_fields: this.fb.array(
+        ((config['slack_fields'] as { label: string; value: string }[]) || []).map((f) =>
+          this.fb.group({ label: [f.label || ''], value: [f.value || ''] })
+        )
+      ),
+      slack_footer: [config['slack_footer'] || ''],
+      email_subject: [config['email_subject'] || ''],
+      email_html: [config['email_html'] ?? false],
       max_retries: [this.node.max_retries ?? 3],
       retry_delay: [this.node.retry_delay ?? 5],
       continue_on_error: [this.node.continue_on_error ?? false],
@@ -818,6 +1062,13 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       if (this.isNotificationAction) {
         config['notification_channel'] = raw.notification_channel;
         config['notification_template'] = raw.notification_template;
+        if (this.node.type === 'slack') {
+          config['slack_header'] = raw.slack_header || undefined;
+          config['slack_fields'] = (raw.slack_fields || []).filter(
+            (f: { label: string; value: string }) => f.label
+          );
+          config['slack_footer'] = raw.slack_footer || undefined;
+        }
       }
 
       if (this.node.type === 'delay') {
@@ -839,6 +1090,25 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         config['branches'] = raw.branches;
       }
 
+      if (this.node.type === 'data_transform') {
+        config['source'] = raw.dt_source;
+        config['fields'] = raw.dt_fields;
+        config['filter'] = raw.dt_filter || undefined;
+      }
+
+      if (this.node.type === 'format_report') {
+        config['data_source'] = raw.fr_data_source;
+        config['columns_source'] = raw.fr_columns_source || undefined;
+        config['format'] = raw.fr_format;
+        config['title'] = raw.fr_title || undefined;
+        config['footer_template'] = raw.fr_footer_template || undefined;
+      }
+
+      if (this.node.type === 'email') {
+        config['email_subject'] = raw.email_subject;
+        config['email_html'] = raw.email_html;
+      }
+
       updatedNode.config = config;
     }
 
@@ -853,14 +1123,47 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   }
 
   get isNotificationAction(): boolean {
-    return ['slack', 'servicenow', 'pagerduty'].includes(this.node.type);
+    return ['slack', 'servicenow', 'pagerduty', 'email'].includes(this.node.type);
   }
 
   get hasOutput(): boolean {
-    return this.isApiAction || this.node.type === 'webhook';
+    return (
+      this.isApiAction ||
+      this.node.type === 'webhook' ||
+      this.node.type === 'data_transform' ||
+      this.node.type === 'format_report'
+    );
   }
 
   get hasErrorHandling(): boolean {
     return !['set_variable', 'for_each', 'condition', 'delay'].includes(this.node.type);
+  }
+
+  // ── Slack Fields ─────────────────────────────────────────────────
+
+  get slackFieldsArray(): FormArray {
+    return this.form?.get('slack_fields') as FormArray;
+  }
+
+  addSlackField(): void {
+    this.slackFieldsArray.push(this.fb.group({ label: [''], value: [''] }));
+  }
+
+  removeSlackField(index: number): void {
+    this.slackFieldsArray.removeAt(index);
+  }
+
+  // ── Data Transform fields ──────────────────────────────────────
+
+  get dtFieldsArray(): FormArray {
+    return this.form?.get('dt_fields') as FormArray;
+  }
+
+  addDtField(): void {
+    this.dtFieldsArray.push(this.fb.group({ path: [''], label: [''] }));
+  }
+
+  removeDtField(index: number): void {
+    this.dtFieldsArray.removeAt(index);
   }
 }

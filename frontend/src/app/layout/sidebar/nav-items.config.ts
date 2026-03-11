@@ -16,6 +16,7 @@ export const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'All Workflows', icon: 'list', route: '/workflows' },
       { label: 'Webhook Monitor', icon: 'webhook', route: '/workflows/webhooks' },
+      { label: 'Executions', icon: 'history', route: '/workflows/executions' },
     ],
   },
   {
