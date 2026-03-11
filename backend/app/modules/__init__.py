@@ -84,6 +84,11 @@ MODULES: list[AppModule] = [
         tags=["Backups"],
     ),
     AppModule(
+        name="websocket",
+        router_module="app.api.v1.ws",
+        tags=["WebSocket"],
+    ),
+    AppModule(
         name="admin",
         router_module="app.api.v1.admin",
         model_imports=[

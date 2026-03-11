@@ -6,7 +6,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { Store } from '@ngrx/store';
 import { AuthService } from '../../../core/services/auth.service';
+import { AuthActions } from '../../../core/state/auth/auth.actions';
 
 @Component({
   selector: 'app-general-profile',
@@ -64,6 +66,7 @@ export class GeneralProfileComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly store = inject(Store);
 
   saving = signal(false);
 
@@ -105,7 +108,8 @@ export class GeneralProfileComponent implements OnInit {
     this.saving.set(true);
 
     this.authService.updateProfile({ timezone: this.form.value.timezone! }).subscribe({
-      next: () => {
+      next: (user) => {
+        this.store.dispatch(AuthActions.loadUserSuccess({ user }));
         this.saving.set(false);
         this.form.markAsPristine();
         this.snackBar.open('Profile updated', 'OK', { duration: 3000 });

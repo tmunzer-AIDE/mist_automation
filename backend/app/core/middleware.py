@@ -17,8 +17,11 @@ logger = structlog.get_logger(__name__)
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Log all HTTP requests and responses."""
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Skip WebSocket connections — BaseHTTPMiddleware is incompatible with them
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
         # Generate request ID
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
@@ -60,8 +63,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 class ExceptionHandlerMiddleware(BaseHTTPMiddleware):
     """Handle exceptions and return standardized error responses."""
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Skip WebSocket connections — BaseHTTPMiddleware is incompatible with them
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
         try:
             return await call_next(request)
         except MistAutomationException as e:
@@ -108,8 +114,11 @@ class ExceptionHandlerMiddleware(BaseHTTPMiddleware):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses."""
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Skip WebSocket connections — BaseHTTPMiddleware is incompatible with them
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
         response = await call_next(request)
         
         # Add security headers

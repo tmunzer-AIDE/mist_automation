@@ -36,6 +36,7 @@ import {
 } from '../../../../core/models/workflow.model';
 import { WorkflowService } from '../../../../core/services/workflow.service';
 import { VariablePickerComponent } from './variable-picker.component';
+import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
 @Component({
   selector: 'app-node-config-panel',
@@ -52,6 +53,7 @@ import { VariablePickerComponent } from './variable-picker.component';
     MatAutocompleteModule,
     MatMenuModule,
     VariablePickerComponent,
+    JsonSectionToggleComponent,
   ],
   template: `
     @if (node && form) {
@@ -265,25 +267,30 @@ import { VariablePickerComponent } from './variable-picker.component';
               </mat-form-field>
 
               @if (node.type === 'slack') {
-                <div class="section-title">Key-Value Fields (optional)</div>
-                @for (field of slackFieldsArray.controls; track $index; let i = $index) {
-                  <div class="branch-row" [formGroup]="$any(field)">
-                    <mat-form-field appearance="outline" class="save-as-name">
-                      <mat-label>Label</mat-label>
-                      <input matInput formControlName="label" />
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="save-as-name">
-                      <mat-label>Value</mat-label>
-                      <input matInput formControlName="value" />
-                    </mat-form-field>
-                    <button mat-icon-button (click)="removeSlackField(i)">
-                      <mat-icon>close</mat-icon>
-                    </button>
-                  </div>
-                }
-                <button mat-button (click)="addSlackField()">
-                  <mat-icon>add</mat-icon> Add Field
-                </button>
+                <app-json-section-toggle
+                  sectionLabel="Key-Value Fields (optional)"
+                  [sectionData]="slackFieldsArray.getRawValue()"
+                  (dataChanged)="applySlackFieldsJson($event)"
+                >
+                  @for (field of slackFieldsArray.controls; track $index; let i = $index) {
+                    <div class="branch-row" [formGroup]="$any(field)">
+                      <mat-form-field appearance="outline" class="save-as-name">
+                        <mat-label>Label</mat-label>
+                        <input matInput formControlName="label" />
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="save-as-name">
+                        <mat-label>Value</mat-label>
+                        <input matInput formControlName="value" />
+                      </mat-form-field>
+                      <button mat-icon-button (click)="removeSlackField(i)">
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    </div>
+                  }
+                  <button mat-button (click)="addSlackField()">
+                    <mat-icon>add</mat-icon> Add Field
+                  </button>
+                </app-json-section-toggle>
 
                 <mat-form-field appearance="outline">
                   <mat-label>Footer (optional)</mat-label>
@@ -340,7 +347,7 @@ import { VariablePickerComponent } from './variable-picker.component';
             @if (node.type === 'for_each') {
               <mat-form-field appearance="outline">
                 <mat-label>Loop Over (dot path)</mat-label>
-                <input matInput formControlName="loop_over" placeholder="trigger.events" />
+                <input matInput formControlName="loop_over" placeholder="nodes.MyApiCall.body.results" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -377,27 +384,32 @@ import { VariablePickerComponent } from './variable-picker.component';
                 </mat-menu>
               </mat-form-field>
 
-              <div class="section-title">Fields to Extract</div>
-              @for (field of dtFieldsArray.controls; track $index; let i = $index) {
-                <div class="branch-row" [formGroup]="$any(field)">
-                  <mat-form-field appearance="outline" class="save-as-name">
-                    <mat-label>Path</mat-label>
-                    <input matInput formControlName="path" placeholder="port_stat.eth0.up" />
-                  </mat-form-field>
-                  <mat-form-field appearance="outline" class="save-as-name">
-                    <mat-label>Label</mat-label>
-                    <input matInput formControlName="label" placeholder="Eth0 Up" />
-                  </mat-form-field>
-                  @if (dtFieldsArray.length > 1) {
-                    <button mat-icon-button (click)="removeDtField(i)">
-                      <mat-icon>close</mat-icon>
-                    </button>
-                  }
-                </div>
-              }
-              <button mat-button (click)="addDtField()">
-                <mat-icon>add</mat-icon> Add Field
-              </button>
+              <app-json-section-toggle
+                sectionLabel="Fields to Extract"
+                [sectionData]="dtFieldsArray.getRawValue()"
+                (dataChanged)="applyDtFieldsJson($event)"
+              >
+                @for (field of dtFieldsArray.controls; track $index; let i = $index) {
+                  <div class="branch-row" [formGroup]="$any(field)">
+                    <mat-form-field appearance="outline" class="save-as-name">
+                      <mat-label>Path</mat-label>
+                      <input matInput formControlName="path" placeholder="port_stat.eth0.up" />
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="save-as-name">
+                      <mat-label>Label</mat-label>
+                      <input matInput formControlName="label" placeholder="Eth0 Up" />
+                    </mat-form-field>
+                    @if (dtFieldsArray.length > 1) {
+                      <button mat-icon-button (click)="removeDtField(i)">
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    }
+                  </div>
+                }
+                <button mat-button (click)="addDtField()">
+                  <mat-icon>add</mat-icon> Add Field
+                </button>
+              </app-json-section-toggle>
 
               <mat-form-field appearance="outline">
                 <mat-label>Filter Condition (optional)</mat-label>
@@ -509,46 +521,56 @@ import { VariablePickerComponent } from './variable-picker.component';
 
             <!-- Condition Branches -->
             @if (node.type === 'condition') {
-              <div class="section-title">Condition Branches</div>
-              @for (branch of branchesArray.controls; track $index; let i = $index) {
-                <div class="branch-row" [formGroup]="$any(branch)">
-                  <span class="branch-label">{{ i === 0 ? 'If' : 'Else If' }}</span>
-                  <mat-form-field appearance="outline" class="branch-field">
-                    <input matInput formControlName="condition" placeholder="Expression..." />
-                  </mat-form-field>
-                  @if (i > 0) {
-                    <button mat-icon-button (click)="removeBranch(i)">
-                      <mat-icon>close</mat-icon>
-                    </button>
-                  }
-                </div>
-              }
-              <button mat-button (click)="addBranch()">
-                <mat-icon>add</mat-icon> Add Branch
-              </button>
+              <app-json-section-toggle
+                sectionLabel="Condition Branches"
+                [sectionData]="branchesArray.getRawValue()"
+                (dataChanged)="applyBranchesJson($event)"
+              >
+                @for (branch of branchesArray.controls; track $index; let i = $index) {
+                  <div class="branch-row" [formGroup]="$any(branch)">
+                    <span class="branch-label">{{ i === 0 ? 'If' : 'Else If' }}</span>
+                    <mat-form-field appearance="outline" class="branch-field">
+                      <input matInput formControlName="condition" placeholder="Expression..." />
+                    </mat-form-field>
+                    @if (i > 0) {
+                      <button mat-icon-button (click)="removeBranch(i)">
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    }
+                  </div>
+                }
+                <button mat-button (click)="addBranch()">
+                  <mat-icon>add</mat-icon> Add Branch
+                </button>
+              </app-json-section-toggle>
             }
 
             <!-- Save As bindings -->
             @if (hasOutput) {
-              <div class="section-title">Save Output As Variables</div>
-              @for (binding of saveAsArray.controls; track $index; let i = $index) {
-                <div class="save-as-row" [formGroup]="$any(binding)">
-                  <mat-form-field appearance="outline" class="save-as-name">
-                    <mat-label>Name</mat-label>
-                    <input matInput formControlName="name" />
-                  </mat-form-field>
-                  <mat-form-field appearance="outline" class="save-as-expr">
-                    <mat-label>Expression</mat-label>
-                    <input matInput formControlName="expression" />
-                  </mat-form-field>
-                  <button mat-icon-button (click)="removeSaveAsBinding(i)">
-                    <mat-icon>close</mat-icon>
-                  </button>
-                </div>
-              }
-              <button mat-button (click)="addSaveAsBinding()">
-                <mat-icon>add</mat-icon> Add Variable
-              </button>
+              <app-json-section-toggle
+                sectionLabel="Save Output As Variables"
+                [sectionData]="saveAsArray.getRawValue()"
+                (dataChanged)="applySaveAsJson($event)"
+              >
+                @for (binding of saveAsArray.controls; track $index; let i = $index) {
+                  <div class="save-as-row" [formGroup]="$any(binding)">
+                    <mat-form-field appearance="outline" class="save-as-name">
+                      <mat-label>Name</mat-label>
+                      <input matInput formControlName="name" />
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="save-as-expr">
+                      <mat-label>Expression</mat-label>
+                      <input matInput formControlName="expression" />
+                    </mat-form-field>
+                    <button mat-icon-button (click)="removeSaveAsBinding(i)">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  </div>
+                }
+                <button mat-button (click)="addSaveAsBinding()">
+                  <mat-icon>add</mat-icon> Add Variable
+                </button>
+              </app-json-section-toggle>
             }
 
             <!-- Error handling -->
@@ -1165,5 +1187,45 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
   removeDtField(index: number): void {
     this.dtFieldsArray.removeAt(index);
+  }
+
+  // ── JSON apply handlers ────────────────────────────────────────
+
+  applySlackFieldsJson(data: unknown[]): void {
+    this.slackFieldsArray.clear();
+    for (const item of data) {
+      const f = item as { label?: string; value?: string };
+      this.slackFieldsArray.push(
+        this.fb.group({ label: [f.label || ''], value: [f.value || ''] })
+      );
+    }
+  }
+
+  applyDtFieldsJson(data: unknown[]): void {
+    this.dtFieldsArray.clear();
+    for (const item of data) {
+      const f = item as { path?: string; label?: string };
+      this.dtFieldsArray.push(
+        this.fb.group({ path: [f.path || ''], label: [f.label || ''] })
+      );
+    }
+  }
+
+  applyBranchesJson(data: unknown[]): void {
+    this.branchesArray.clear();
+    for (const item of data) {
+      const b = item as { condition?: string };
+      this.branchesArray.push(this.fb.group({ condition: [b.condition || ''] }));
+    }
+  }
+
+  applySaveAsJson(data: unknown[]): void {
+    this.saveAsArray.clear();
+    for (const item of data) {
+      const b = item as { name?: string; expression?: string };
+      this.saveAsArray.push(
+        this.fb.group({ name: [b.name || ''], expression: [b.expression || ''] })
+      );
+    }
   }
 }

@@ -98,6 +98,14 @@ export class WorkflowService {
     return this.api.get<VariableTree>(`/workflows/${workflowId}/available-variables/${nodeId}`);
   }
 
+  computeAvailableVariables(
+    nodeId: string,
+    nodes: WorkflowNode[],
+    edges: WorkflowEdge[]
+  ): Observable<VariableTree> {
+    return this.api.post<VariableTree>(`/workflows/available-variables/${nodeId}`, { nodes, edges });
+  }
+
   getEndpointSchema(
     method: string,
     path: string
@@ -107,8 +115,11 @@ export class WorkflowService {
 
   // ── Simulation ────────────────────────────────────────────────────────
 
-  simulate(workflowId: string, request: SimulateRequest): Observable<WorkflowExecution> {
-    return this.api.post<WorkflowExecution>(`/workflows/${workflowId}/simulate`, request);
+  simulate(
+    workflowId: string,
+    request: SimulateRequest
+  ): Observable<{ execution_id: string; status: string } & Partial<WorkflowExecution>> {
+    return this.api.post(`/workflows/${workflowId}/simulate`, request);
   }
 
   getSamplePayloads(

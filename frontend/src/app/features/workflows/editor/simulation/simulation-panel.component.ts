@@ -3,6 +3,7 @@ import {
   DestroyRef,
   EventEmitter,
   Input,
+  OnDestroy,
   OnInit,
   Output,
   inject,
@@ -18,13 +19,17 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import {
   WorkflowExecution,
   SamplePayload,
   SimulationState,
+  SimulationWsMessage,
   NodeSnapshot,
 } from '../../../../core/models/workflow.model';
 import { WorkflowService } from '../../../../core/services/workflow.service';
+import { WebSocketService } from '../../../../core/services/websocket.service';
+import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
 
 @Component({
   selector: 'app-simulation-panel',
@@ -39,6 +44,7 @@ import { WorkflowService } from '../../../../core/services/workflow.service';
     MatProgressBarModule,
     MatTooltipModule,
     MatSnackBarModule,
+    DateTimePipe,
   ],
   template: `
     <div class="simulation-panel" [class.collapsed]="collapsed()">
@@ -80,7 +86,7 @@ import { WorkflowService } from '../../../../core/services/workflow.service';
                         (click)="selectSample(sample)"
                       >
                         <span class="sample-topic">{{ sample.webhook_type }}</span>
-                        <span class="sample-time">{{ sample.timestamp | date: 'short' }}</span>
+                        <span class="sample-time">{{ sample.timestamp | dateTime:'short' }}</span>
                       </div>
                     }
                   </div>
@@ -439,15 +445,20 @@ import { WorkflowService } from '../../../../core/services/workflow.service';
     `,
   ],
 })
-export class SimulationPanelComponent implements OnInit {
+export class SimulationPanelComponent implements OnInit, OnDestroy {
   @Input() workflowId: string | null = null;
   @Input() simulationState: SimulationState | null = null;
   @Output() simulationStarted = new EventEmitter<SimulationState>();
   @Output() simulationStepChanged = new EventEmitter<SimulationState>();
+  @Output() simulationProgress = new EventEmitter<SimulationState>();
 
   private readonly workflowService = inject(WorkflowService);
+  private readonly wsService = inject(WebSocketService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly destroyRef = inject(DestroyRef);
+
+  private wsSub: Subscription | null = null;
+  private liveNodeStatuses: Record<string, 'pending' | 'success' | 'failed' | 'active'> = {};
 
   collapsed = signal(true);
   payloadJson = signal('');
@@ -471,6 +482,17 @@ export class SimulationPanelComponent implements OnInit {
     this.loadSamplePayloads();
   }
 
+  ngOnDestroy(): void {
+    this.cleanupWs();
+  }
+
+  private cleanupWs(): void {
+    if (this.wsSub) {
+      this.wsSub.unsubscribe();
+      this.wsSub = null;
+    }
+  }
+
   private loadSamplePayloads(): void {
     if (!this.workflowId) return;
     this.workflowService
@@ -491,6 +513,7 @@ export class SimulationPanelComponent implements OnInit {
     if (!this.workflowId || this.isRunning()) return;
 
     this.isRunning.set(true);
+    this.liveNodeStatuses = {};
     let payload: Record<string, unknown> | undefined;
 
     try {
@@ -503,36 +526,33 @@ export class SimulationPanelComponent implements OnInit {
       return;
     }
 
+    // Generate stream_id and subscribe to WS channel before HTTP call
+    const streamId = crypto.randomUUID();
+    const channel = `simulation:${streamId}`;
+
+    this.cleanupWs();
+    this.wsSub = this.wsService
+      .subscribe<SimulationWsMessage>(channel)
+      .subscribe({
+        next: (msg) => this.handleWsMessage(msg),
+        error: () => {},
+      });
+
     this.workflowService
       .simulate(this.workflowId, {
         payload,
         webhook_event_id: this.selectedSampleId() || undefined,
         dry_run: this.dryRun(),
+        stream_id: streamId,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (execution) => {
-          this.isRunning.set(false);
-          const snapshots = execution.node_snapshots || [];
-          const nodeStatuses: Record<string, 'pending' | 'success' | 'failed' | 'active'> = {};
-
-          for (const snap of snapshots) {
-            nodeStatuses[snap.node_id] = snap.status as 'success' | 'failed';
-          }
-
-          const state: SimulationState = {
-            execution,
-            currentStep: 0,
-            totalSteps: snapshots.length,
-            isRunning: false,
-            nodeStatuses,
-            activeEdges: new Set(),
-          };
-
-          this.simulationStarted.emit(state);
+        next: () => {
+          // Backend accepted; progress comes via WS
         },
         error: (err) => {
           this.isRunning.set(false);
+          this.cleanupWs();
           this.snackBar.open(
             'Simulation failed: ' + (err?.error?.detail || err.message),
             'OK',
@@ -540,6 +560,55 @@ export class SimulationPanelComponent implements OnInit {
           );
         },
       });
+  }
+
+  private handleWsMessage(msg: SimulationWsMessage): void {
+    const data = msg.data || {};
+
+    if (msg.type === 'node_started') {
+      const nodeId = data['node_id'] as string;
+      this.liveNodeStatuses[nodeId] = 'active';
+      this.emitProgress();
+    } else if (msg.type === 'node_completed') {
+      const nodeId = data['node_id'] as string;
+      const status = data['status'] as string;
+      this.liveNodeStatuses[nodeId] = status === 'success' ? 'success' : 'failed';
+      this.emitProgress();
+    } else if (msg.type === 'simulation_completed') {
+      this.isRunning.set(false);
+      this.cleanupWs();
+
+      // Build final state from full execution data
+      const execution = data as unknown as WorkflowExecution;
+      const snapshots = execution.node_snapshots || [];
+      const nodeStatuses: Record<string, 'pending' | 'success' | 'failed' | 'active'> = {};
+      for (const snap of snapshots) {
+        nodeStatuses[snap.node_id] = snap.status as 'success' | 'failed';
+      }
+
+      const state: SimulationState = {
+        execution,
+        currentStep: 0,
+        totalSteps: snapshots.length,
+        isRunning: false,
+        nodeStatuses,
+        activeEdges: new Set(),
+      };
+
+      this.simulationStarted.emit(state);
+    }
+  }
+
+  private emitProgress(): void {
+    const state: SimulationState = {
+      execution: null,
+      currentStep: 0,
+      totalSteps: 0,
+      isRunning: true,
+      nodeStatuses: { ...this.liveNodeStatuses },
+      activeEdges: new Set(),
+    };
+    this.simulationProgress.emit(state);
   }
 
   nextStep(): void {

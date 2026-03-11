@@ -9,13 +9,13 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
   { label: 'Backups', icon: 'backup', route: '/backup' },
+  { label: 'Webhook Monitor', icon: 'webhook', route: '/monitoring' },
   {
     label: 'Workflows',
     icon: 'account_tree',
     route: '/workflows',
     children: [
       { label: 'All Workflows', icon: 'list', route: '/workflows' },
-      { label: 'Webhook Monitor', icon: 'webhook', route: '/workflows/webhooks' },
       { label: 'Executions', icon: 'history', route: '/workflows/executions' },
     ],
   },

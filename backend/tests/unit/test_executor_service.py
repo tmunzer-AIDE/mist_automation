@@ -34,7 +34,7 @@ class TestWorkflowExecutor:
             try:
                 execution = await executor.execute_workflow(
                     workflow=test_workflow,
-                    trigger_data={"topic": "device-updowns", "events": []},
+                    trigger_data={"topic": "device-updowns", "type": "device_up", "org_id": "test-org", "site_id": "test-site"},
                     trigger_source="webhook",
                 )
                 assert execution is not None
@@ -57,7 +57,7 @@ class TestWorkflowExecutor:
             mock_exec.return_value = {"status_code": 200}
             execution = await executor.execute_workflow(
                 workflow=test_workflow,
-                trigger_data={"topic": "device-updowns", "events": []},
+                trigger_data={"topic": "device-updowns", "type": "device_up", "org_id": "test-org", "site_id": "test-site"},
                 trigger_source="webhook",
             )
             # The action-1 node should have been executed
@@ -75,7 +75,7 @@ class TestWorkflowExecutor:
             mock_exec.return_value = {"status_code": 200}
             execution = await executor.execute_workflow(
                 workflow=test_workflow,
-                trigger_data={"topic": "device-updowns", "events": []},
+                trigger_data={"topic": "device-updowns", "type": "device_up", "org_id": "test-org", "site_id": "test-site"},
                 trigger_source="simulation",
                 simulate=True,
                 dry_run=True,

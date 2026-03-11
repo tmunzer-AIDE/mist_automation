@@ -59,7 +59,7 @@
       </ng-container>
       <ng-container matColumnDef="created_at">
         <th mat-header-cell *matHeaderCellDef>Date</th>
-        <td mat-cell *matCellDef="let job">{{ job.created_at | date: 'MMM d, yyyy HH:mm' }}</td>
+        <td mat-cell *matCellDef="let job">{{ job.created_at | dateTime:'short' }}</td>
       </ng-container>
 
       <tr mat-header-row *matHeaderRowDef="jobColumns"></tr>

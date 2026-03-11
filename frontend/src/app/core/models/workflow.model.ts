@@ -216,6 +216,13 @@ export interface SimulateRequest {
   payload?: Record<string, unknown>;
   webhook_event_id?: string;
   dry_run: boolean;
+  stream_id?: string;
+}
+
+export interface SimulationWsMessage {
+  type: 'node_started' | 'node_completed' | 'simulation_completed';
+  channel: string;
+  data: Record<string, unknown>;
 }
 
 export interface SamplePayload {

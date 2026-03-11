@@ -135,7 +135,7 @@
             [class.log-w]="log.level === 'warning'"
             [class.log-e]="log.level === 'error'"
           >
-            <span class="log-ts">{{ log.timestamp | date: 'HH:mm:ss.SSS' }}</span>
+            <span class="log-ts">{{ log.timestamp | dateTime:'time-ms' }}</span>
             <span class="log-lvl" [class]="'lvl-' + log.level">{{
               log.level.charAt(0).toUpperCase()
             }}</span>

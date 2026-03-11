@@ -122,6 +122,9 @@ async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str,
         webhook_event.processed = True
         webhook_event.processed_at = datetime.now(timezone.utc)
         webhook_event.matched_workflows = [workflow.id for workflow in matching_workflows]
+        webhook_event.executions_triggered = [
+            PydanticObjectId(r["execution_id"]) for r in execution_results if r.get("execution_id")
+        ]
         await webhook_event.save()
 
         processing_time_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
@@ -133,6 +136,26 @@ async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str,
             executions=len(execution_results),
             processing_time_ms=processing_time_ms,
         )
+
+        # Broadcast processing update to WebSocket monitor
+        from app.core.websocket import ws_manager
+
+        try:
+            await ws_manager.broadcast(
+                "webhook:monitor",
+                {
+                    "type": "webhook_processed",
+                    "data": {
+                        "id": webhook_id,
+                        "processed": True,
+                        "matched_workflows": [str(wid) for wid in webhook_event.matched_workflows],
+                        "executions_triggered": [str(eid) for eid in webhook_event.executions_triggered],
+                        "processed_at": webhook_event.processed_at.isoformat() if webhook_event.processed_at else None,
+                    },
+                },
+            )
+        except Exception as e:
+            logger.debug("ws_broadcast_failed", error=str(e))
 
         return {
             "webhook_id": webhook_id,

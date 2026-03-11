@@ -28,6 +28,14 @@ class WebhookEventResponse(BaseModel):
     received_at: datetime = Field(..., description="Receipt timestamp")
     processed_at: datetime | None = Field(None, description="Processing timestamp")
 
+    # Extracted monitor fields
+    event_type: str | None = Field(None, description="Event type")
+    org_name: str | None = Field(None, description="Organization name")
+    site_name: str | None = Field(None, description="Site name")
+    device_name: str | None = Field(None, description="Device name")
+    device_mac: str | None = Field(None, description="Device MAC address")
+    event_details: str | None = Field(None, description="Event summary text")
+
     class Config:
         from_attributes = True
 

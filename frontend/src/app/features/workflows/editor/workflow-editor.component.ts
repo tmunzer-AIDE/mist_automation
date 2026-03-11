@@ -39,7 +39,7 @@ import { SimulationPanelComponent } from './simulation/simulation-panel.componen
 import { DescriptionDialogComponent } from './description-dialog.component';
 import { ExecutionsListDialogComponent } from './executions-list-dialog.component';
 import { CanvasViewport } from './canvas/canvas-state';
-import { Subject, takeUntil } from 'rxjs';
+import { Subject, debounceTime, takeUntil } from 'rxjs';
 
 @Component({
   selector: 'app-workflow-editor',
@@ -71,6 +71,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
   private readonly destroy$ = new Subject<void>();
+  private readonly graphChanged$ = new Subject<void>();
 
   @ViewChild('topbarActions', { static: true }) topbarActions!: TemplateRef<unknown>;
 
@@ -113,6 +114,13 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.topbarService.setActions(this.topbarActions);
+
+    this.graphChanged$
+      .pipe(debounceTime(500), takeUntil(this.destroy$))
+      .subscribe(() => {
+        const nodeId = this.selectedNodeId();
+        if (nodeId) this.refreshVariables(nodeId);
+      });
 
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
@@ -265,6 +273,8 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     if (this.selectedNodeId() === nodeId) {
       this.selectedNodeId.set(null);
       this.variableTree.set(null);
+    } else {
+      this.graphChanged$.next();
     }
   }
 
@@ -297,6 +307,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     }
 
     this.graph.update((g) => ({ ...g, edges: [...g.edges, edge] }));
+    this.graphChanged$.next();
   }
 
   onEdgeSelected(edgeId: string): void {
@@ -312,6 +323,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     if (this.selectedEdgeId() === edgeId) {
       this.selectedEdgeId.set(null);
     }
+    this.graphChanged$.next();
   }
 
   onCanvasDropped(event: { type: string; x: number; y: number }): void {
@@ -353,18 +365,19 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
       }
       return { ...g, nodes };
     });
+    this.graphChanged$.next();
   }
 
   // ── Variable autocomplete ─────────────────────────────────────────
 
   private loadVariablesForNode(nodeId: string): void {
-    if (!this.workflowId()) {
-      this.variableTree.set(null);
-      return;
-    }
+    this.refreshVariables(nodeId);
+  }
 
+  private refreshVariables(nodeId: string): void {
+    const g = this.graph();
     this.workflowService
-      .getAvailableVariables(this.workflowId()!, nodeId)
+      .computeAvailableVariables(nodeId, g.nodes, g.edges)
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (tree) => this.variableTree.set(tree),
@@ -379,6 +392,10 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   }
 
   onSimulationStepChanged(state: SimulationState): void {
+    this.simulationState.set({ ...state });
+  }
+
+  onSimulationProgress(state: SimulationState): void {
     this.simulationState.set({ ...state });
   }
 

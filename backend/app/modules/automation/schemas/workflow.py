@@ -61,9 +61,17 @@ class WorkflowListResponse(BaseModel):
     total: int = Field(..., description="Total number of workflows")
 
 
+class InlineGraphRequest(BaseModel):
+    """Request body for computing available variables from an in-memory graph."""
+
+    nodes: list[dict[str, Any]] = Field(..., description="Graph nodes")
+    edges: list[dict[str, Any]] = Field(default_factory=list, description="Graph edges")
+
+
 class SimulateRequest(BaseModel):
     """Simulation request schema."""
 
     payload: dict[str, Any] | None = Field(None, description="Custom trigger payload")
     webhook_event_id: str | None = Field(None, description="Use payload from an existing webhook event")
     dry_run: bool = Field(default=True, description="Mock external API/webhook calls")
+    stream_id: str | None = Field(None, description="WebSocket channel suffix for streaming progress")

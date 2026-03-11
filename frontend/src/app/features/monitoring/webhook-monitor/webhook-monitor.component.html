@@ -1,0 +1,151 @@
+<app-page-header subtitle="Real-time Mist webhook events"></app-page-header>
+
+<ng-template #topbarActions>
+  <span
+    class="connection-dot"
+    [class.connected]="connected()"
+    [matTooltip]="connected() ? 'WebSocket connected' : 'WebSocket disconnected'"
+  ></span>
+  @if (paused()) {
+    <span class="pause-badge">
+      Paused
+      @if (pauseBuffer().length > 0) {
+        ({{ pauseBuffer().length }} buffered)
+      }
+    </span>
+  }
+  <button
+    mat-icon-button
+    (click)="togglePause()"
+    [matTooltip]="paused() ? 'Resume live updates' : 'Pause live updates'"
+  >
+    <mat-icon>{{ paused() ? 'play_arrow' : 'pause' }}</mat-icon>
+  </button>
+  <button mat-icon-button (click)="clearEvents()" matTooltip="Clear events">
+    <mat-icon>delete_sweep</mat-icon>
+  </button>
+</ng-template>
+
+<!-- Filter -->
+<div class="filter-row">
+  <mat-form-field appearance="outline" class="filter-field">
+    <mat-label>Filter events</mat-label>
+    <mat-icon matPrefix>search</mat-icon>
+    <input matInput [formControl]="filterControl" placeholder="Search across all columns…" />
+    @if (filterControl.value) {
+      <button matSuffix mat-icon-button (click)="filterControl.setValue('')">
+        <mat-icon>close</mat-icon>
+      </button>
+    }
+  </mat-form-field>
+</div>
+
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+} @else if (events().length === 0) {
+  <app-empty-state
+    icon="webhook"
+    title="No webhook events"
+    message="Webhook events will appear here in real-time once Mist sends them."
+  >
+  </app-empty-state>
+} @else {
+  <div class="table-card">
+    <table mat-table [dataSource]="pagedEvents()">
+      <!-- Received At -->
+      <ng-container matColumnDef="received_at">
+        <th mat-header-cell *matHeaderCellDef>Received</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.received_at | dateTime }}</td>
+      </ng-container>
+
+      <!-- Topic -->
+      <ng-container matColumnDef="webhook_topic">
+        <th mat-header-cell *matHeaderCellDef>Topic</th>
+        <td mat-cell *matCellDef="let ev">
+          <span class="wh-type">{{ ev.webhook_topic || ev.webhook_type }}</span>
+        </td>
+      </ng-container>
+
+      <!-- Event Type -->
+      <ng-container matColumnDef="event_type">
+        <th mat-header-cell *matHeaderCellDef>Event Type</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.event_type || '—' }}</td>
+      </ng-container>
+
+      <!-- Org Name -->
+      <ng-container matColumnDef="org_name">
+        <th mat-header-cell *matHeaderCellDef>Org</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.org_name || '—' }}</td>
+      </ng-container>
+
+      <!-- Site Name -->
+      <ng-container matColumnDef="site_name">
+        <th mat-header-cell *matHeaderCellDef>Site</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.site_name || '—' }}</td>
+      </ng-container>
+
+      <!-- Device Name -->
+      <ng-container matColumnDef="device_name">
+        <th mat-header-cell *matHeaderCellDef>Device</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.device_name || '—' }}</td>
+      </ng-container>
+
+      <!-- Device MAC -->
+      <ng-container matColumnDef="device_mac">
+        <th mat-header-cell *matHeaderCellDef>MAC</th>
+        <td mat-cell *matCellDef="let ev">
+          <span class="mono">{{ ev.device_mac || '—' }}</span>
+        </td>
+      </ng-container>
+
+      <!-- Event Details -->
+      <ng-container matColumnDef="event_details">
+        <th mat-header-cell *matHeaderCellDef>Details</th>
+        <td mat-cell *matCellDef="let ev">
+          <span class="details-cell" [matTooltip]="ev.event_details || ''">
+            {{ ev.event_details || '—' }}
+          </span>
+        </td>
+      </ng-container>
+
+      <!-- Routed To -->
+      <ng-container matColumnDef="routed_to">
+        <th mat-header-cell *matHeaderCellDef>Routed To</th>
+        <td mat-cell *matCellDef="let ev">
+          <div class="chip-list">
+            @for (target of ev.routed_to; track target) {
+              <span class="route-chip" [class]="'chip-' + target">{{ target }}</span>
+            }
+          </div>
+        </td>
+      </ng-container>
+
+      <!-- Processed -->
+      <ng-container matColumnDef="processed">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let ev">
+          <app-status-badge [status]="ev.processed ? 'completed' : 'pending'"></app-status-badge>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr
+        mat-row
+        *matRowDef="let ev; columns: displayedColumns"
+        class="clickable-row"
+        [class.new-event]="ev.isNew"
+        (click)="openEventDetail(ev)"
+      ></tr>
+    </table>
+
+    <mat-paginator
+      [length]="filteredEvents().length"
+      [pageSize]="pageSize()"
+      [pageIndex]="pageIndex()"
+      [pageSizeOptions]="[25, 50, 100]"
+      (page)="onPage($event)"
+      showFirstLastButtons
+    >
+    </mat-paginator>
+  </div>
+}

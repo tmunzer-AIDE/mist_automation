@@ -68,6 +68,12 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("scheduler_start_failed", error=str(e))
 
+        # Start WebSocket heartbeat
+        from app.core.websocket import ws_manager
+
+        ws_manager.start_heartbeat()
+        logger.info("websocket_heartbeat_started")
+
         logger.info("application_started_successfully")
 
         yield
@@ -81,6 +87,14 @@ async def lifespan(_app: FastAPI):
             from app.workers import stop_scheduler
 
             await stop_scheduler()
+        except Exception:
+            pass
+
+        # Stop WebSocket heartbeat
+        try:
+            from app.core.websocket import ws_manager as _ws_mgr
+
+            _ws_mgr.stop_heartbeat()
         except Exception:
             pass
 

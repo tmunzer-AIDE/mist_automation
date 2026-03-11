@@ -20,9 +20,14 @@ class TestTriggerConditionEvaluation:
         self.executor.mist_service = MagicMock()
         self.executor.variable_context = {
             "trigger": {
-                "type": "alarm",
+                "topic": "alarms",
+                "type": "ap_offline",
                 "severity": "critical",
-                "events": [{"type": "ap_offline", "device": {"name": "AP-01"}}],
+                "device_name": "AP-01",
+                "device_type": "ap",
+                "mac": "aa:bb:cc:dd:ee:ff",
+                "org_id": "test-org",
+                "site_id": "test-site",
                 "count": 5,
                 "active": True,
             },
@@ -30,22 +35,22 @@ class TestTriggerConditionEvaluation:
         }
 
     def test_simple_equality_true(self):
-        result = self.executor._evaluate_condition_expression("{{ type == 'alarm' }}")
+        result = self.executor._evaluate_condition_expression("{{ type == 'ap_offline' }}")
         assert result is True
 
     def test_simple_equality_false(self):
         result = self.executor._evaluate_condition_expression("{{ type == 'audit' }}")
         assert result is False
 
-    def test_nested_field_access(self):
+    def test_flat_field_access(self):
         result = self.executor._evaluate_condition_expression(
-            "{{ events[0].device.name == 'AP-01' }}"
+            "{{ device_name == 'AP-01' }}"
         )
         assert result is True
 
-    def test_nested_field_mismatch(self):
+    def test_flat_field_mismatch(self):
         result = self.executor._evaluate_condition_expression(
-            "{{ events[0].device.name == 'SW-01' }}"
+            "{{ device_name == 'SW-01' }}"
         )
         assert result is False
 
@@ -69,13 +74,13 @@ class TestTriggerConditionEvaluation:
 
     def test_and_condition(self):
         result = self.executor._evaluate_condition_expression(
-            "{{ type == 'alarm' and severity == 'critical' }}"
+            "{{ type == 'ap_offline' and severity == 'critical' }}"
         )
         assert result is True
 
     def test_and_condition_partial_fail(self):
         result = self.executor._evaluate_condition_expression(
-            "{{ type == 'alarm' and severity == 'major' }}"
+            "{{ type == 'ap_offline' and severity == 'major' }}"
         )
         assert result is False
 
@@ -115,7 +120,7 @@ class TestTriggerConditionEvaluation:
 
     def test_contains_check(self):
         result = self.executor._evaluate_condition_expression(
-            "{{ 'offline' in events[0].type }}"
+            "{{ 'offline' in type }}"
         )
         assert result is True
 
@@ -191,7 +196,7 @@ class TestSetVariableAction:
         self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
         self.executor.mist_service = MagicMock()
         self.executor.variable_context = {
-            "trigger": {"events": [{"severity": "critical"}]},
+            "trigger": {"topic": "alarms", "type": "ap_offline", "severity": "critical", "org_id": "test-org", "site_id": "test-site"},
             "results": {},
         }
 
@@ -199,7 +204,7 @@ class TestSetVariableAction:
     async def test_set_variable_string(self):
         config = {
             "variable_name": "sev",
-            "variable_expression": "{{ events[0].severity }}",
+            "variable_expression": "{{ severity }}",
         }
         result = await self.executor._execute_set_variable(config)
         assert result["variable_name"] == "sev"

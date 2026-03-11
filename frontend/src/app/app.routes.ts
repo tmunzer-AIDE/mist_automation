@@ -39,6 +39,10 @@ export const routes: Routes = [
         loadChildren: () => import('./features/backup/backup.routes'),
       },
       {
+        path: 'monitoring',
+        loadChildren: () => import('./features/monitoring/monitoring.routes'),
+      },
+      {
         path: 'workflows',
         loadChildren: () => import('./features/workflows/workflow.routes'),
       },

@@ -11,7 +11,7 @@ import json
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 import structlog
@@ -32,14 +32,18 @@ from app.utils.variables import get_nested_value
 logger = structlog.get_logger(__name__)
 
 
+ProgressCallback = Callable[[str, dict[str, Any]], Awaitable[None]] | None
+
+
 class WorkflowExecutor:
     """Graph-based workflow executor."""
 
     _jinja_env = SandboxedEnvironment(undefined=ChainableUndefined)
 
-    def __init__(self, mist_service: MistService | None = None):
+    def __init__(self, mist_service: MistService | None = None, progress_callback: ProgressCallback = None):
         self.mist_service = mist_service or MistService()
         self.variable_context: dict[str, Any] = {}
+        self._progress_callback = progress_callback
 
     async def execute_workflow(
         self,
@@ -210,6 +214,19 @@ class WorkflowExecutor:
                     variables_after=copy.deepcopy(self.variable_context),
                 )
             )
+            if self._progress_callback:
+                await self._progress_callback(
+                    "node_completed",
+                    {
+                        "node_id": trigger_node.id,
+                        "node_name": trigger_node.name,
+                        "step": step_counter[0],
+                        "status": "success",
+                        "duration_ms": None,
+                        "error": None,
+                        "output_data": self.variable_context.get("trigger", {}),
+                    },
+                )
 
         # Step 3: BFS traverse from trigger
         execution.add_log(f"Starting graph execution with {len(workflow.nodes)} nodes and {len(workflow.edges)} edges")
@@ -285,15 +302,28 @@ class WorkflowExecutor:
             # Capture input snapshot for simulation
             input_snapshot = copy.deepcopy(self.variable_context) if simulate else None
 
+            # Broadcast node_started via progress callback
+            if self._progress_callback:
+                await self._progress_callback(
+                    "node_started",
+                    {"node_id": node.id, "node_name": node.name, "step": step_counter[0] + 1},
+                )
+
+            snapshot_recorded = False
+
             try:
+                node_start = datetime.now(timezone.utc)
                 result = await self._execute_node(node, execution, dry_run=dry_run)
+                node_end = datetime.now(timezone.utc)
+                node_duration_ms = int((node_end - node_start).total_seconds() * 1000)
                 node_result = NodeExecutionResult(
                     node_id=node.id,
                     node_name=node.name,
                     node_type=node.type,
                     status="success",
-                    started_at=datetime.now(timezone.utc),
-                    completed_at=datetime.now(timezone.utc),
+                    started_at=node_start,
+                    completed_at=node_end,
+                    duration_ms=node_duration_ms,
                     output_data=result,
                     input_snapshot=input_snapshot,
                     retry_count=0,
@@ -309,6 +339,38 @@ class WorkflowExecutor:
                 # Handle save_as bindings
                 if node.save_as and result:
                     self._store_save_as_variables(node.save_as, result)
+
+                # For for_each nodes, record snapshot BEFORE entering loop body traversal
+                # so the snapshot order is: ... → For Each → body nodes (not body nodes → For Each)
+                if node.type == "for_each" and simulate:
+                    step_counter[0] += 1
+                    execution.node_snapshots.append(
+                        NodeSnapshot(
+                            node_id=node.id,
+                            node_name=node.name,
+                            step=step_counter[0],
+                            input_variables=input_snapshot or {},
+                            output_data=result,
+                            status=node_result.status,
+                            duration_ms=node_result.duration_ms,
+                            error=node_result.error,
+                            variables_after=copy.deepcopy(self.variable_context),
+                        )
+                    )
+                    snapshot_recorded = True
+                    if self._progress_callback:
+                        await self._progress_callback(
+                            "node_completed",
+                            {
+                                "node_id": node.id,
+                                "node_name": node.name,
+                                "step": step_counter[0],
+                                "status": node_result.status,
+                                "duration_ms": node_result.duration_ms,
+                                "error": node_result.error,
+                                "output_data": result,
+                            },
+                        )
 
                 # Special handling for for_each — execute loop body subgraph per item
                 if node.type == "for_each":
@@ -394,8 +456,8 @@ class WorkflowExecutor:
                     if edge_info[0] == "default" and edge_info[1] not in visited:
                         queue.append(edge_info)
 
-            # Record simulation snapshot
-            if simulate:
+            # Record simulation snapshot (skip if already recorded for for_each)
+            if simulate and not snapshot_recorded:
                 step_counter[0] += 1
                 execution.node_snapshots.append(
                     NodeSnapshot(
@@ -410,6 +472,19 @@ class WorkflowExecutor:
                         variables_after=copy.deepcopy(self.variable_context),
                     )
                 )
+                if self._progress_callback:
+                    await self._progress_callback(
+                        "node_completed",
+                        {
+                            "node_id": node.id,
+                            "node_name": node.name,
+                            "step": step_counter[0],
+                            "status": node_result.status,
+                            "duration_ms": node_result.duration_ms,
+                            "error": node_result.error,
+                            "output_data": result if node_result.status == "success" else None,
+                        },
+                    )
 
             await execution.save()
 
@@ -861,7 +936,10 @@ class WorkflowExecutor:
         if collection is None:
             raise ValueError(f"data_transform: '{source}' resolved to None")
         if not isinstance(collection, list):
-            raise ValueError(f"data_transform: '{source}' is not a list (got {type(collection).__name__})")
+            if isinstance(collection, dict):
+                collection = [collection]
+            else:
+                raise ValueError(f"data_transform: '{source}' is not a list (got {type(collection).__name__})")
 
         fields = config.get("fields", [])
         if not fields:

@@ -14,6 +14,7 @@ from app.modules.automation.models.execution import ExecutionStatus, WorkflowExe
 from app.models.user import User
 from app.modules.automation.models.workflow import Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus, SharingPermission
 from app.modules.automation.schemas.workflow import (
+    InlineGraphRequest,
     SimulateRequest,
     WorkflowCreate,
     WorkflowListResponse,
@@ -536,6 +537,28 @@ async def get_available_variables(
     return _get_vars(workflow, node_id)
 
 
+@router.post("/workflows/available-variables/{node_id}", tags=["Workflows"])
+async def compute_available_variables(
+    node_id: str,
+    body: InlineGraphRequest,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Compute variables available to a node from an in-memory (unsaved) graph."""
+    nodes = [WorkflowNode(**n) for n in body.nodes]
+    edges = [WorkflowEdge(**e) for e in body.edges]
+
+    workflow = Workflow(
+        name="__inline__",
+        nodes=nodes,
+        edges=edges,
+        created_by=current_user.id,
+    )
+
+    from app.modules.automation.services.node_schema_service import get_available_variables as _get_vars
+
+    return _get_vars(workflow, node_id)
+
+
 @router.get("/workflows/endpoint-schema", tags=["Workflows"])
 async def get_endpoint_schema(
     method: str = Query(..., description="HTTP method"),
@@ -588,7 +611,90 @@ async def simulate_workflow(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook event not found")
         trigger_data = event.payload
 
-    # Execute in simulation mode
+    # If stream_id is provided, run asynchronously with WS progress
+    if request.stream_id:
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            workflow_name=workflow.name,
+            status=ExecutionStatus.PENDING,
+            trigger_type="simulation",
+            trigger_data=trigger_data,
+            triggered_by=current_user.id,
+            is_simulation=True,
+            is_dry_run=request.dry_run,
+        )
+        await execution.insert()
+
+        stream_id = request.stream_id
+        dry_run = request.dry_run
+
+        async def _run_simulation(wf_id: str, ex_id: str) -> None:
+            from app.core.websocket import ws_manager
+            from app.modules.automation.services.executor_service import WorkflowExecutor
+            from app.services.mist_service_factory import create_mist_service
+
+            wf = await Workflow.get(PydanticObjectId(wf_id))
+            ex = await WorkflowExecution.get(PydanticObjectId(ex_id))
+            if not wf or not ex:
+                return
+
+            channel = f"simulation:{stream_id}"
+
+            async def progress_callback(event_type: str, data: dict) -> None:
+                await ws_manager.broadcast(channel, {"type": event_type, "data": data})
+
+            try:
+                mist_service = await create_mist_service()
+            except Exception:
+                mist_service = None
+
+            try:
+                executor = WorkflowExecutor(mist_service=mist_service, progress_callback=progress_callback)
+                completed = await executor.execute_workflow(
+                    workflow=wf,
+                    trigger_data=trigger_data,
+                    trigger_source="simulation",
+                    execution=ex,
+                    simulate=True,
+                    dry_run=dry_run,
+                )
+                await ws_manager.broadcast(
+                    channel,
+                    {
+                        "type": "simulation_completed",
+                        "data": _build_simulation_result(completed),
+                    },
+                )
+            except Exception as e:
+                ex = await WorkflowExecution.get(PydanticObjectId(ex_id))
+                if ex and ex.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+                    ex.mark_completed(ExecutionStatus.FAILED, error=str(e))
+                    ex.add_log(f"Simulation error: {e}", "error")
+                    await ex.save()
+                await ws_manager.broadcast(
+                    channel,
+                    {
+                        "type": "simulation_completed",
+                        "data": {
+                            "execution_id": ex_id,
+                            "status": "failed",
+                            "error": str(e),
+                            "node_results": {},
+                            "node_snapshots": [],
+                            "variables": {},
+                            "logs": [f"[ERROR] {e}"],
+                        },
+                    },
+                )
+
+        create_background_task(
+            _run_simulation(str(workflow.id), str(execution.id)),
+            name=f"simulation-{execution.id}",
+        )
+
+        return {"execution_id": str(execution.id), "status": "pending"}
+
+    # Synchronous fallback (no stream_id)
     from app.services.mist_service_factory import create_mist_service
     from app.modules.automation.services.executor_service import WorkflowExecutor
 
@@ -606,7 +712,11 @@ async def simulate_workflow(
         dry_run=request.dry_run,
     )
 
-    # Return simulation results
+    return _build_simulation_result(execution)
+
+
+def _build_simulation_result(execution: WorkflowExecution) -> dict:
+    """Build the simulation result dict from an execution."""
     return {
         "execution_id": str(execution.id),
         "status": execution.status.value,

@@ -15,6 +15,8 @@ from pymongo.errors import DuplicateKeyError
 
 from app.config import settings
 from app.core.tasks import create_background_task
+from app.core.webhook_extractor import enrich_event, extract_event_fields
+from app.core.websocket import ws_manager
 from app.dependencies import get_current_user_from_token, require_admin
 from app.models.system import SystemConfig
 from app.models.user import User
@@ -58,10 +60,43 @@ def _event_to_response(
         "response_body": event.response_body,
         "received_at": event.received_at,
         "processed_at": event.processed_at,
+        "event_type": event.event_type,
+        "org_name": event.org_name,
+        "site_name": event.site_name,
+        "device_name": event.device_name,
+        "device_mac": event.device_mac,
+        "event_details": event.event_details,
     }
     if include_payload:
         return WebhookEventDetailResponse(**kwargs, payload=event.payload, headers=event.headers)
     return WebhookEventResponse(**kwargs)
+
+
+def _event_to_monitor_dict(event: WebhookEvent) -> dict:
+    """Convert a WebhookEvent to a flat dict for REST and WebSocket monitor responses."""
+    return {
+        "id": str(event.id),
+        "webhook_type": event.webhook_type,
+        "webhook_topic": event.webhook_topic,
+        "webhook_id": event.webhook_id,
+        "source_ip": event.source_ip,
+        "site_id": event.site_id,
+        "org_id": event.org_id,
+        "processed": event.processed,
+        "matched_workflows": [str(wid) for wid in event.matched_workflows],
+        "executions_triggered": [str(eid) for eid in event.executions_triggered],
+        "signature_valid": event.signature_valid,
+        "routed_to": event.routed_to,
+        "response_status": event.response_status,
+        "received_at": event.received_at.isoformat() if event.received_at else None,
+        "processed_at": event.processed_at.isoformat() if event.processed_at else None,
+        "event_type": event.event_type,
+        "org_name": event.org_name,
+        "site_name": event.site_name,
+        "device_name": event.device_name,
+        "device_mac": event.device_mac,
+        "event_details": event.event_details,
+    }
 
 
 # ── Unified webhook gateway ──────────────────────────────────────────────────
@@ -120,41 +155,71 @@ async def receive_mist_webhook(
     if topic == "audits":
         routed_to.append("backup")
 
-    # Store the webhook event (unique index on webhook_id handles dedup atomically)
-    webhook_event = WebhookEvent(
-        webhook_type=webhook_type,
-        webhook_topic=payload.get("topic"),
-        webhook_id=webhook_id,
-        source_ip=request.client.host if request.client else None,
-        site_id=payload.get("site_id"),
-        org_id=payload.get("org_id"),
-        payload=payload,
-        headers=dict(request.headers),
-        signature_valid=signature_valid,
-        routed_to=routed_to,
-    )
-    try:
-        await webhook_event.insert()
-    except DuplicateKeyError:
-        logger.info("webhook_duplicate_ignored", webhook_id=webhook_id, webhook_type=webhook_type)
-        return {"status": "duplicate", "message": "Event already processed"}
+    # Split webhook into individual events
+    events = payload.get("events", [])
+    if not events:
+        events = [payload]  # Treat as single event if no events array
 
-    logger.info(
-        "webhook_received",
-        webhook_id=webhook_event.webhook_id,
-        webhook_type=webhook_type,
-        routed_to=routed_to,
-    )
+    source_ip = request.client.host if request.client else None
+    headers = dict(request.headers)
 
-    # Dispatch to automation module
-    from app.modules.automation.workers.webhook_worker import process_webhook
+    created_event_ids = []
+    for idx, event in enumerate(events):
+        enriched = enrich_event(event, topic, payload)
+        fields = extract_event_fields(event, topic, payload)
 
-    create_background_task(
-        process_webhook(str(webhook_event.id), webhook_type, payload),
-        name=f"webhook-automation-{webhook_event.webhook_id}",
-    )
+        evt_webhook_id = f"{webhook_id}_evt_{idx}" if len(events) > 1 else webhook_id
 
-    # Dispatch to backup module if applicable
+        webhook_event = WebhookEvent(
+            webhook_type=webhook_type,
+            webhook_topic=topic,
+            webhook_id=evt_webhook_id,
+            source_ip=source_ip,
+            site_id=event.get("site_id") or payload.get("site_id"),
+            org_id=event.get("org_id") or payload.get("org_id"),
+            payload=enriched,
+            headers=headers,
+            signature_valid=signature_valid,
+            routed_to=routed_to,
+            event_type=fields["event_type"],
+            org_name=fields["org_name"],
+            site_name=fields["site_name"],
+            device_name=fields["device_name"],
+            device_mac=fields["device_mac"],
+            event_details=fields["event_details"],
+        )
+        try:
+            await webhook_event.insert()
+            created_event_ids.append(str(webhook_event.id))
+        except DuplicateKeyError:
+            logger.info("webhook_duplicate_ignored", webhook_id=evt_webhook_id, webhook_type=webhook_type)
+            continue
+
+        logger.info(
+            "webhook_event_stored",
+            webhook_id=evt_webhook_id,
+            webhook_type=webhook_type,
+            event_index=idx,
+        )
+
+        # Dispatch to automation (one event at a time)
+        from app.modules.automation.workers.webhook_worker import process_webhook
+
+        create_background_task(
+            process_webhook(str(webhook_event.id), webhook_type, enriched),
+            name=f"webhook-automation-{evt_webhook_id}",
+        )
+
+        # Broadcast to WebSocket monitor
+        create_background_task(
+            ws_manager.broadcast(
+                "webhook:monitor",
+                {"type": "webhook_received", "data": _event_to_monitor_dict(webhook_event)},
+            ),
+            name=f"ws-broadcast-{evt_webhook_id}",
+        )
+
+    # Backup still receives the FULL original payload (unchanged)
     backup_result = None
     if "backup" in routed_to:
         from app.modules.backup.webhook_handler import process_backup_webhook
@@ -164,17 +229,13 @@ async def receive_mist_webhook(
     # Build response
     response_body = {
         "status": "received",
-        "event_id": str(webhook_event.id),
+        "event_ids": created_event_ids,
+        "events_count": len(created_event_ids),
         "routed_to": routed_to,
-        "message": "Webhook event received and routed for processing",
+        "message": f"{len(created_event_ids)} event(s) received and routed for processing",
     }
     if backup_result:
         response_body["backup_result"] = backup_result
-
-    # Update event with response info
-    webhook_event.response_status = 200
-    webhook_event.response_body = response_body
-    await webhook_event.save()
 
     return response_body
 

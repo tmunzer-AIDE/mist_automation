@@ -8,8 +8,8 @@ const routes: Routes = [
   },
   {
     path: 'webhooks',
-    loadComponent: () =>
-      import('./webhooks/webhook-event-list.component').then((m) => m.WebhookEventListComponent),
+    redirectTo: '/monitoring',
+    pathMatch: 'full',
   },
   {
     path: 'executions',

@@ -6,8 +6,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
-import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { StatusBadgeComponent } from '../status-badge/status-badge.component';
+import { DateTimePipe } from '../../pipes/date-time.pipe';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
 import { WebhookEventDetail } from '../../../core/models/webhook-event.model';
 

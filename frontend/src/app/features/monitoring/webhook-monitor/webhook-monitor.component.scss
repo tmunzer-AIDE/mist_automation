@@ -1,0 +1,121 @@
+.filter-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+
+  .filter-field {
+    flex: 1;
+    max-width: 480px;
+  }
+}
+
+.connection-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-right: 8px;
+  vertical-align: middle;
+
+  &.connected {
+    background: #22c55e;
+  }
+}
+
+.pause-badge {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface-variant);
+  margin-right: 4px;
+}
+
+.wh-type {
+  font-weight: 500;
+}
+
+.mono {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.details-cell {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+  font-size: 13px;
+}
+
+.chip-list {
+  display: flex;
+  gap: 4px;
+}
+
+.route-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.chip-automation {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.chip-backup {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.http-status {
+  font-family: monospace;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.status-ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.status-client-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.status-server-error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+// New-event highlight animation
+.new-event {
+  animation: highlight-fade 3s ease-out;
+}
+
+@keyframes highlight-fade {
+  0% {
+    background-color: var(--mat-sys-primary-container);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@media (max-width: 768px) {
+  .filter-row {
+    flex-direction: column;
+
+    .filter-field {
+      max-width: 100%;
+    }
+  }
+}

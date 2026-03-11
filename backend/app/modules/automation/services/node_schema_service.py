@@ -19,59 +19,43 @@ logger = structlog.get_logger(__name__)
 TRIGGER_SCHEMAS: dict[str, dict[str, Any]] = {
     "alarms": {
         "topic": "string",
-        "events": [
-            {
-                "type": "string",
-                "timestamp": "integer",
-                "org_id": "string",
-                "site_id": "string",
-                "device_name": "string",
-                "device_type": "string",
-                "mac": "string",
-                "severity": "string",
-            }
-        ],
+        "type": "string",
+        "timestamp": "integer",
+        "org_id": "string",
+        "site_id": "string",
+        "device_name": "string",
+        "device_type": "string",
+        "mac": "string",
+        "severity": "string",
     },
     "audits": {
         "topic": "string",
-        "events": [
-            {
-                "admin_name": "string",
-                "message": "string",
-                "org_id": "string",
-                "site_id": "string",
-                "timestamp": "number",
-            }
-        ],
+        "admin_name": "string",
+        "message": "string",
+        "org_id": "string",
+        "site_id": "string",
+        "timestamp": "number",
     },
     "device-updowns": {
         "topic": "string",
-        "events": [
-            {
-                "type": "string",
-                "device_name": "string",
-                "device_type": "string",
-                "mac": "string",
-                "org_id": "string",
-                "site_id": "string",
-                "timestamp": "number",
-            }
-        ],
+        "type": "string",
+        "device_name": "string",
+        "device_type": "string",
+        "mac": "string",
+        "org_id": "string",
+        "site_id": "string",
+        "timestamp": "number",
     },
     "device-events": {
         "topic": "string",
-        "events": [
-            {
-                "type": "string",
-                "device_name": "string",
-                "device_type": "string",
-                "mac": "string",
-                "org_id": "string",
-                "site_id": "string",
-                "timestamp": "number",
-                "text": "string",
-            }
-        ],
+        "type": "string",
+        "device_name": "string",
+        "device_type": "string",
+        "mac": "string",
+        "org_id": "string",
+        "site_id": "string",
+        "timestamp": "number",
+        "text": "string",
     },
 }
 
@@ -96,7 +80,7 @@ def get_node_output_schema(node: WorkflowNode) -> dict[str, Any]:
         webhook_topic = node.config.get("webhook_topic") or node.config.get("webhook_type", "")
         if webhook_topic in TRIGGER_SCHEMAS:
             return TRIGGER_SCHEMAS[webhook_topic]
-        return {"topic": "string", "events": [{"type": "string"}]}
+        return {"topic": "string", "type": "string", "org_id": "string", "site_id": "string"}
 
     if node_type in ("mist_api_get", "mist_api_post", "mist_api_put", "mist_api_delete"):
         # Try OAS lookup

@@ -15,6 +15,14 @@ export interface WebhookEventSummary {
   response_body: Record<string, unknown>;
   received_at: string;
   processed_at: string | null;
+
+  // Extracted monitor fields
+  event_type: string | null;
+  org_name: string | null;
+  site_name: string | null;
+  device_name: string | null;
+  device_mac: string | null;
+  event_details: string | null;
 }
 
 export interface WebhookEventDetail extends WebhookEventSummary {
@@ -25,4 +33,8 @@ export interface WebhookEventDetail extends WebhookEventSummary {
 export interface WebhookEventListResponse {
   events: WebhookEventSummary[];
   total: number;
+}
+
+export interface MonitorEvent extends WebhookEventSummary {
+  isNew?: boolean;
 }

@@ -1,5 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -22,6 +22,7 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
+import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import {
   CHART_COLORS,
   baseChartOptions,
@@ -47,7 +48,7 @@ import {
     EmptyStateComponent,
     StatusBadgeComponent,
     BackupChartCardComponent,
-    DatePipe,
+    DateTimePipe,
   ],
   templateUrl: './backup-job-list.component.html',
   styleUrl: './backup-job-list.component.scss',

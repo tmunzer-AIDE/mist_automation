@@ -22,9 +22,17 @@ class WebhookEvent(Document):
     site_id: str | None = Field(default=None, description="Mist site ID")
     org_id: str | None = Field(default=None, description="Mist organization ID")
 
-    # Webhook data
-    payload: dict = Field(..., description="Full webhook payload")
+    # Webhook data (single enriched event dict after splitting)
+    payload: dict = Field(..., description="Single enriched event payload")
     headers: dict = Field(default_factory=dict, description="HTTP headers")
+
+    # Extracted monitor fields (denormalized for fast listing)
+    event_type: str | None = Field(default=None, description="Event type from event.type")
+    org_name: str | None = Field(default=None, description="Organization name")
+    site_name: str | None = Field(default=None, description="Site name")
+    device_name: str | None = Field(default=None, description="Device name / AP / switch name")
+    device_mac: str | None = Field(default=None, description="Device MAC address")
+    event_details: str | None = Field(default=None, description="Event text / message / reason")
 
     # Processing status
     processed: bool = Field(default=False, description="Whether webhook has been processed")
