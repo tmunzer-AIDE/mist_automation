@@ -1,26 +1,94 @@
-.filter-row {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
+:host {
+  display: block;
+  padding: 24px 32px;
+}
 
-  .filter-field {
-    flex: 1;
-    max-width: 480px;
+.connection-spinner {
+  margin-left: 12px;
+  margin-right: 8px;
+
+  &.spinner-disconnected ::ng-deep circle {
+    stroke: #ef4444 !important;
+  }
+
+  &.spinner-paused ::ng-deep circle {
+    stroke: #f59e0b !important;
+  }
+
+  &.spinner-live ::ng-deep circle {
+    stroke: #22c55e !important;
   }
 }
 
-.connection-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #ef4444;
-  margin-right: 8px;
-  vertical-align: middle;
+// ── Filters ──────────────────────────────────────────────────────────────────
 
-  &.connected {
-    background: #22c55e;
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-field-sm {
+  width: 160px;
+}
+
+.filter-field-details {
+  flex: 1;
+  min-width: 180px;
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+
+.chart-section {
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.chart-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface);
+}
+
+.chart-range-selector {
+  display: flex;
+  gap: 4px;
+
+  button {
+    min-width: 48px;
+    font-size: 12px;
+    padding: 0 8px;
+    height: 28px;
+    line-height: 28px;
+    border-radius: 6px;
+
+    &.active {
+      background: var(--mat-sys-primary);
+      color: var(--mat-sys-on-primary);
+    }
   }
+}
+
+.chart-container {
+  height: 200px;
+  position: relative;
+}
+
+// ── Table ────────────────────────────────────────────────────────────────────
+
+.table-card {
+  overflow-x: auto;
 }
 
 .pause-badge {
@@ -111,11 +179,15 @@
 }
 
 @media (max-width: 768px) {
+  :host {
+    padding: 16px;
+  }
+
   .filter-row {
     flex-direction: column;
 
-    .filter-field {
-      max-width: 100%;
+    .filter-field-sm {
+      width: 100%;
     }
   }
 }

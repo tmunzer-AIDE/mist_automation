@@ -1,18 +1,17 @@
-<app-page-header subtitle="Real-time Mist webhook events"></app-page-header>
-
 <ng-template #topbarActions>
-  <span
-    class="connection-dot"
-    [class.connected]="connected()"
-    [matTooltip]="connected() ? 'WebSocket connected' : 'WebSocket disconnected'"
-  ></span>
-  @if (paused()) {
-    <span class="pause-badge">
-      Paused
-      @if (pauseBuffer().length > 0) {
-        ({{ pauseBuffer().length }} buffered)
-      }
-    </span>
+  <mat-progress-spinner
+    class="connection-spinner"
+    [diameter]="16"
+    [strokeWidth]="2"
+    [mode]="!connected() ? 'determinate' : 'indeterminate'"
+    [value]="!connected() ? 100 : 0"
+    [class.spinner-disconnected]="!connected()"
+    [class.spinner-paused]="connected() && paused()"
+    [class.spinner-live]="connected() && !paused()"
+    [matTooltip]="!connected() ? 'WebSocket disconnected' : paused() ? 'Live updates paused' : 'Live'"
+  ></mat-progress-spinner>
+  @if (paused() && pauseBuffer().length > 0) {
+    <span class="pause-badge">{{ pauseBuffer().length }} buffered</span>
   }
   <button
     mat-icon-button
@@ -26,17 +25,101 @@
   </button>
 </ng-template>
 
-<!-- Filter -->
-<div class="filter-row">
-  <mat-form-field appearance="outline" class="filter-field">
-    <mat-label>Filter events</mat-label>
-    <mat-icon matPrefix>search</mat-icon>
-    <input matInput [formControl]="filterControl" placeholder="Search across all columns…" />
-    @if (filterControl.value) {
-      <button matSuffix mat-icon-button (click)="filterControl.setValue('')">
-        <mat-icon>close</mat-icon>
-      </button>
+<!-- Chart -->
+<div class="chart-section">
+  <div class="chart-header">
+    <span class="chart-title">Webhook Volume</span>
+    <div class="chart-range-selector">
+      @for (range of chartRanges; track range.hours) {
+        <button
+          mat-button
+          [class.active]="chartHours() === range.hours"
+          (click)="selectChartRange(range.hours)"
+        >
+          {{ range.label }}
+        </button>
+      }
+    </div>
+  </div>
+  <div class="chart-container">
+    @if (chartLoading()) {
+      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+    } @else if (chartConfig()) {
+      <canvas
+        baseChart
+        [type]="chartConfig()!.type"
+        [data]="chartConfig()!.data"
+        [options]="chartConfig()!.options"
+      ></canvas>
     }
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-row">
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>Topic</mat-label>
+    <input matInput [formControl]="topicFilter" [matAutocomplete]="autoTopic" />
+    <mat-autocomplete #autoTopic="matAutocomplete">
+      @for (opt of topicOptions(); track opt) {
+        <mat-option [value]="opt">{{ opt }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>Event Type</mat-label>
+    <input matInput [formControl]="eventTypeFilter" [matAutocomplete]="autoEventType" />
+    <mat-autocomplete #autoEventType="matAutocomplete">
+      @for (opt of eventTypeOptions(); track opt) {
+        <mat-option [value]="opt">{{ opt }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>Org</mat-label>
+    <input matInput [formControl]="orgFilter" [matAutocomplete]="autoOrg" />
+    <mat-autocomplete #autoOrg="matAutocomplete">
+      @for (opt of orgOptions(); track opt) {
+        <mat-option [value]="opt">{{ opt }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>Site</mat-label>
+    <input matInput [formControl]="siteFilter" [matAutocomplete]="autoSite" />
+    <mat-autocomplete #autoSite="matAutocomplete">
+      @for (opt of siteOptions(); track opt) {
+        <mat-option [value]="opt">{{ opt }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>Device</mat-label>
+    <input matInput [formControl]="deviceFilter" [matAutocomplete]="autoDevice" />
+    <mat-autocomplete #autoDevice="matAutocomplete">
+      @for (opt of deviceOptions(); track opt) {
+        <mat-option [value]="opt">{{ opt }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>MAC</mat-label>
+    <input matInput [formControl]="macFilter" [matAutocomplete]="autoMac" />
+    <mat-autocomplete #autoMac="matAutocomplete">
+      @for (opt of macOptions(); track opt) {
+        <mat-option [value]="opt">{{ opt }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-details">
+    <mat-label>Details</mat-label>
+    <input matInput [formControl]="detailsFilter" placeholder="Free-text search…" />
   </mat-form-field>
 </div>
 

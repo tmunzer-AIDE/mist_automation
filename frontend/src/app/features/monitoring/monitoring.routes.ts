@@ -7,6 +7,7 @@ const routes: Routes = [
       import('./webhook-monitor/webhook-monitor.component').then(
         (m) => m.WebhookMonitorComponent,
       ),
+    data: { fullWidth: true },
   },
 ];
 

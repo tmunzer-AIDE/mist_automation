@@ -1,7 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { WebhookEventDetail, WebhookEventListResponse } from '../models/webhook-event.model';
+import {
+  WebhookEventDetail,
+  WebhookEventListResponse,
+  WebhookStatsResponse,
+} from '../models/webhook-event.model';
 
 @Injectable({ providedIn: 'root' })
 export class WebhookEventService {
@@ -28,5 +32,9 @@ export class WebhookEventService {
 
   replayEvent(eventId: string): Observable<{ status: string; message: string }> {
     return this.api.post<{ status: string; message: string }>(`/webhooks/events/${eventId}/replay`);
+  }
+
+  getStats(hours = 24): Observable<WebhookStatsResponse> {
+    return this.api.get<WebhookStatsResponse>('/webhooks/stats', { hours });
   }
 }

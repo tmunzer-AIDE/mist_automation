@@ -38,3 +38,15 @@ export interface WebhookEventListResponse {
 export interface MonitorEvent extends WebhookEventSummary {
   isNew?: boolean;
 }
+
+export interface WebhookStatsBucket {
+  bucket: string;
+  total: number;
+  by_topic: Record<string, number>;
+}
+
+export interface WebhookStatsResponse {
+  buckets: WebhookStatsBucket[];
+  granularity: 'hourly' | 'daily';
+  hours: number;
+}

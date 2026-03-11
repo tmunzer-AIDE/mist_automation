@@ -52,3 +52,19 @@ class WebhookListResponse(BaseModel):
 
     events: list[WebhookEventResponse] = Field(..., description="List of webhook events")
     total: int = Field(..., description="Total number of events")
+
+
+class WebhookStatsBucket(BaseModel):
+    """Single time bucket in webhook volume stats."""
+
+    bucket: str = Field(..., description="Time bucket label, e.g. '2026-03-11T14:00' or '2026-03-11'")
+    total: int = Field(..., description="Total webhook count in this bucket")
+    by_topic: dict[str, int] = Field(default_factory=dict, description="Webhook count per topic")
+
+
+class WebhookStatsResponse(BaseModel):
+    """Aggregated webhook volume statistics."""
+
+    buckets: list[WebhookStatsBucket] = Field(..., description="Time-bucketed volume data")
+    granularity: str = Field(..., description="Bucket granularity: 'hourly' or 'daily'")
+    hours: int = Field(..., description="Time range in hours")

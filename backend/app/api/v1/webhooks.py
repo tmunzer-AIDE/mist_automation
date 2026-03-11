@@ -7,6 +7,7 @@ to the automation and/or backup modules.
 
 import hashlib
 import hmac
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from beanie import PydanticObjectId
@@ -25,6 +26,8 @@ from app.modules.automation.schemas.webhook import (
     WebhookEventDetailResponse,
     WebhookEventResponse,
     WebhookListResponse,
+    WebhookStatsBucket,
+    WebhookStatsResponse,
 )
 
 router = APIRouter()
@@ -238,6 +241,76 @@ async def receive_mist_webhook(
         response_body["backup_result"] = backup_result
 
     return response_body
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/webhooks/stats", response_model=WebhookStatsResponse, tags=["Webhooks"])
+async def get_webhook_stats(
+    hours: int = Query(24, ge=1, le=720, description="Time range in hours (max 30 days)"),
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Get aggregated webhook volume statistics bucketed by time."""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+    granularity = "hourly" if hours <= 48 else "daily"
+
+    # MongoDB date truncation unit
+    if granularity == "hourly":
+        date_trunc_unit = "hour"
+        bucket_fmt = "%Y-%m-%dT%H:00"
+        step = timedelta(hours=1)
+    else:
+        date_trunc_unit = "day"
+        bucket_fmt = "%Y-%m-%d"
+        step = timedelta(days=1)
+
+    pipeline = [
+        {"$match": {"received_at": {"$gte": since}}},
+        {
+            "$group": {
+                "_id": {
+                    "bucket": {"$dateTrunc": {"date": "$received_at", "unit": date_trunc_unit}},
+                    "topic": {"$ifNull": ["$webhook_topic", "unknown"]},
+                },
+                "count": {"$sum": 1},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.bucket",
+                "topics": {"$push": {"topic": "$_id.topic", "count": "$count"}},
+                "total": {"$sum": "$count"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+
+    results = await WebhookEvent.get_motor_collection().aggregate(pipeline).to_list(length=None)
+
+    # Build lookup from aggregation results
+    bucket_map: dict[str, dict] = {}
+    for row in results:
+        bucket_dt: datetime = row["_id"]
+        label = bucket_dt.strftime(bucket_fmt)
+        by_topic = {t["topic"]: t["count"] for t in row["topics"]}
+        bucket_map[label] = {"total": row["total"], "by_topic": by_topic}
+
+    # Gap-fill missing buckets
+    buckets: list[WebhookStatsBucket] = []
+    cursor = since.replace(minute=0, second=0, microsecond=0)
+    if granularity == "daily":
+        cursor = cursor.replace(hour=0)
+    while cursor <= now:
+        label = cursor.strftime(bucket_fmt)
+        if label in bucket_map:
+            buckets.append(WebhookStatsBucket(bucket=label, **bucket_map[label]))
+        else:
+            buckets.append(WebhookStatsBucket(bucket=label, total=0, by_topic={}))
+        cursor += step
+
+    return WebhookStatsResponse(buckets=buckets, granularity=granularity, hours=hours)
 
 
 # ── Event listing & detail ───────────────────────────────────────────────────
