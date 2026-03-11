@@ -8,7 +8,15 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
-  { label: 'Backups', icon: 'backup', route: '/backup' },
+  {
+    label: 'Backups',
+    icon: 'backup',
+    route: '/backup',
+    children: [
+      { label: 'Objects', icon: 'widgets', route: '/backup' },
+      { label: 'Jobs', icon: 'work_history', route: '/backup/jobs' },
+    ],
+  },
   { label: 'Webhook Monitor', icon: 'webhook', route: '/monitoring' },
   {
     label: 'Workflows',

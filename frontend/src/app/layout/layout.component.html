@@ -1,4 +1,8 @@
-<mat-sidenav-container class="layout-container">
+<mat-sidenav-container
+  class="layout-container"
+  [class.desktop]="!isMobile()"
+  [class.sidebar-collapsed]="sidebarCollapsed() && !isMobile()"
+>
   <mat-sidenav
     #sidenav
     [mode]="isMobile() ? 'over' : 'side'"

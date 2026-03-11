@@ -306,6 +306,21 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                   </mat-menu>
                 </mat-form-field>
 
+                <mat-form-field appearance="outline">
+                  <mat-label>JSON Payload (optional)</mat-label>
+                  <input matInput formControlName="slack_json_variable" placeholder="trigger" />
+                  <button mat-icon-button matSuffix [matMenuTriggerFor]="jsonVarMenu">
+                    <mat-icon>data_object</mat-icon>
+                  </button>
+                  <mat-menu #jsonVarMenu="matMenu">
+                    <app-variable-picker
+                      [variableTree]="variableTree"
+                      (variableSelected)="insertJsonVariablePath($event)"
+                    />
+                  </mat-menu>
+                  <mat-hint>Dumps the variable as a formatted JSON code block</mat-hint>
+                </mat-form-field>
+
                 <div class="config-hint">
                   <mat-icon>info_outline</mat-icon>
                   If an upstream Format Report uses Slack format, its table is automatically
@@ -869,6 +884,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         )
       ),
       slack_footer: [config['slack_footer'] || ''],
+      slack_json_variable: [config['slack_json_variable'] || ''],
       email_subject: [config['email_subject'] || ''],
       email_html: [config['email_html'] ?? false],
       max_retries: [this.node.max_retries ?? 3],
@@ -914,6 +930,12 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   insertIntoControl(control: FormControl | any, value: string): void {
     const current = control.value || '';
     control.setValue(current + value);
+  }
+
+  insertJsonVariablePath(value: string): void {
+    const ctrl = this.form?.get('slack_json_variable');
+    if (!ctrl) return;
+    ctrl.setValue(value.replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, ''));
   }
 
   insertDtFieldPath(index: number, value: string): void {
@@ -1111,6 +1133,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
             (f: { label: string; value: string }) => f.label
           );
           config['slack_footer'] = raw.slack_footer || undefined;
+          config['slack_json_variable'] = raw.slack_json_variable || undefined;
         }
       }
 

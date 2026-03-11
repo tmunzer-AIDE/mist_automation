@@ -1,10 +1,22 @@
 .layout-container {
   height: 100%;
+
+  // Override Angular Material's programmatic inline margin-left so that
+  // the content area smoothly follows the sidebar collapse/expand.
+  &.desktop ::ng-deep .mat-sidenav-content {
+    margin-left: 240px !important;
+    transition: margin-left 0.2s ease !important;
+  }
+
+  &.desktop.sidebar-collapsed ::ng-deep .mat-sidenav-content {
+    margin-left: 56px !important;
+  }
 }
 
 .sidenav {
   border-right: none;
   --mat-sidenav-container-width: 240px;
+  transition: width 0.2s ease;
 
   &.collapsed {
     --mat-sidenav-container-width: 56px;

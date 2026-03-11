@@ -92,7 +92,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   // UI state
   loading = signal(true);
   saving = signal(false);
-  configPanelWidth = signal(320);
+  configPanelWidth = signal(500);
   isResizingPanel = signal(false);
 
   // Execution history

@@ -821,6 +821,15 @@ class WorkflowExecutor:
                 blocks.extend(node_output["slack_blocks"])
                 break
 
+        # 4.5 JSON payload block (if configured)
+        json_path = config.get("slack_json_variable", "").strip()
+        if json_path.startswith("{{"):
+            json_path = json_path.lstrip("{").rstrip("}").strip()
+        if json_path:
+            resolved = get_nested_value(self._build_render_context(), json_path)
+            if resolved is not None:
+                blocks.extend(self._build_slack_json_block(resolved))
+
         # 5. Footer as context block
         footer = self._render_template(config.get("slack_footer", ""))
         if footer.strip():
@@ -1166,6 +1175,22 @@ class WorkflowExecutor:
             })
 
         return blocks
+
+    @staticmethod
+    def _build_slack_json_block(data: Any) -> list[dict[str, Any]]:
+        """Wrap arbitrary data as a pretty-printed JSON code block for Slack."""
+        MAX_LEN = 2990
+        try:
+            text = json.dumps(data, indent=2, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            text = str(data)
+        if len(text) > MAX_LEN:
+            text = text[:MAX_LEN] + "\n… (truncated)"
+        return [{
+            "type": "rich_text",
+            "elements": [{"type": "rich_text_preformatted",
+                           "elements": [{"type": "text", "text": text}]}],
+        }]
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
