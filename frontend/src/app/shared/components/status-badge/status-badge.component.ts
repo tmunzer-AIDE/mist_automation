@@ -47,7 +47,7 @@ import { Component, Input } from '@angular/core';
       .badge-in_progress,
       .badge-running {
         background: var(--app-success-bg);
-        color: var(--app-success-lvl);
+        color: var(--app-success);
         .dot {
           background: var(--app-success);
         }

@@ -15,6 +15,8 @@ import { ApiService } from '../../../../core/services/api.service';
 import { SmeeStatus } from '../../../../core/models/admin.model';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { SettingsService } from '../settings.service';
+import { SystemSettings } from '../../../../core/models/admin.model';
+import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-settings-webhooks',
@@ -148,21 +150,6 @@ import { SettingsService } from '../settings.service';
   `,
   styles: [
     `
-      .tab-form {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      mat-card-content {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding-top: 16px;
-      }
-      mat-form-field {
-        width: 100%;
-        max-width: 500px;
-      }
       .secret-row {
         display: flex;
         align-items: flex-start;
@@ -215,20 +202,30 @@ export class SettingsWebhooksComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.settingsService.load().subscribe({
-      next: (s) => {
-        this.form.patchValue({
-          webhook_secret: s.webhook_secret || '',
-          smee_enabled: s.smee_enabled,
-          smee_channel_url: s.smee_channel_url || '',
-        });
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-      },
-    });
+    const cached = this.settingsService.current;
+    if (cached) {
+      this.populateForm(cached);
+      this.loading.set(false);
+    } else {
+      this.settingsService.load().subscribe({
+        next: (s) => {
+          this.populateForm(s);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
+      });
+    }
     this.loadSmeeStatus();
+  }
+
+  private populateForm(s: SystemSettings): void {
+    this.form.patchValue({
+      webhook_secret: s.webhook_secret || '',
+      smee_enabled: s.smee_enabled,
+      smee_channel_url: s.smee_channel_url || '',
+    });
   }
 
   generateSecret(): void {
@@ -253,7 +250,7 @@ export class SettingsWebhooksComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }
@@ -274,7 +271,7 @@ export class SettingsWebhooksComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }
@@ -292,7 +289,7 @@ export class SettingsWebhooksComponent implements OnInit {
         },
         error: (err) => {
           this.smeeAction.set(false);
-          this.snackBar.open(err.message, 'OK', { duration: 5000 });
+          this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
         },
       });
   }
@@ -307,7 +304,7 @@ export class SettingsWebhooksComponent implements OnInit {
       },
       error: (err) => {
         this.smeeAction.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }

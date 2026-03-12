@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 
 from app.config import settings as settings_module
 from app.core.security import decrypt_sensitive_data, encrypt_sensitive_data
-from app.dependencies import get_current_user_from_token, require_admin
+from app.dependencies import require_admin
 from app.models.system import AuditLog, SystemConfig
 from app.models.user import User
 from app.modules.automation.models.execution import WorkflowExecution
@@ -21,6 +21,7 @@ from app.modules.backup.object_registry import (
     get_object_name,
 )
 from app.modules.backup.services.backup_service import fetch_objects
+from app.schemas.admin import SystemSettingsUpdate
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -73,63 +74,25 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
 
 
 @router.put("/admin/settings", tags=["Admin"])
-async def update_system_settings(settings: dict = Body(...), current_user: User = Depends(require_admin)):
+async def update_system_settings(
+    settings: SystemSettingsUpdate = Body(...), current_user: User = Depends(require_admin)
+):
     """
     Update system configuration settings (admin only).
     """
     # Get or create config
     config = await SystemConfig.get_config()
 
-    # Update allowed fields (encrypt sensitive values)
-    if "mist_api_token" in settings:
-        config.mist_api_token = encrypt_sensitive_data(settings["mist_api_token"])
-    if "mist_org_id" in settings:
-        config.mist_org_id = settings["mist_org_id"]
-    if "mist_cloud_region" in settings:
-        config.mist_cloud_region = settings["mist_cloud_region"]
-    if "webhook_secret" in settings:
-        config.webhook_secret = encrypt_sensitive_data(settings["webhook_secret"])
-    if "max_concurrent_workflows" in settings:
-        config.max_concurrent_workflows = settings["max_concurrent_workflows"]
-    if "workflow_default_timeout" in settings:
-        config.workflow_default_timeout = settings["workflow_default_timeout"]
+    # Only process fields that were explicitly sent in the request
+    updates = settings.model_dump(exclude_unset=True)
 
-    # Password Policy
-    plain_fields = [
-        "min_password_length",
-        "require_uppercase",
-        "require_lowercase",
-        "require_digits",
-        "require_special_chars",
-        # Session Management
-        "session_timeout_hours",
-        "max_concurrent_sessions",
-        # Backup Configuration
-        "backup_enabled",
-        "backup_full_schedule_cron",
-        "backup_retention_days",
-        "backup_git_enabled",
-        "backup_git_repo_url",
-        "backup_git_branch",
-        "backup_git_author_name",
-        "backup_git_author_email",
-        # Smee.io
-        "smee_enabled",
-        "smee_channel_url",
-        # External Integrations (non-sensitive)
-        "slack_webhook_url",
-        "servicenow_instance_url",
-        "servicenow_username",
-    ]
-    for field in plain_fields:
-        if field in settings:
-            setattr(config, field, settings[field])
-
-    # Sensitive integration fields
-    if "servicenow_password" in settings:
-        config.servicenow_password = encrypt_sensitive_data(settings["servicenow_password"])
-    if "pagerduty_api_key" in settings:
-        config.pagerduty_api_key = encrypt_sensitive_data(settings["pagerduty_api_key"])
+    # Encrypt sensitive fields
+    sensitive_encrypt = {"mist_api_token", "webhook_secret", "servicenow_password", "pagerduty_api_key"}
+    for field, value in updates.items():
+        if field in sensitive_encrypt:
+            setattr(config, field, encrypt_sensitive_data(value))
+        else:
+            setattr(config, field, value)
 
     config.update_timestamp()
     await config.save()
@@ -143,11 +106,11 @@ async def update_system_settings(settings: dict = Body(...), current_user: User 
         description="System settings updated",
         user_id=current_user.id,
         user_email=current_user.email,
-        details={"updated_fields": list(settings.keys())},
+        details={"updated_fields": list(updates.keys())},
     )
 
     # If backup schedule changed, update the scheduler
-    if "backup_enabled" in settings or "backup_full_schedule_cron" in settings:
+    if "backup_enabled" in updates or "backup_full_schedule_cron" in updates:
         try:
             from app.workers import get_scheduler
 
@@ -161,7 +124,7 @@ async def update_system_settings(settings: dict = Body(...), current_user: User 
             logger.warning("backup_schedule_update_failed", error=str(e))
 
     # If smee settings changed, notify the backup module
-    if "smee_enabled" in settings or "smee_channel_url" in settings:
+    if "smee_enabled" in updates or "smee_channel_url" in updates:
         from app.core.smee_service import start_smee, stop_smee
 
         refreshed = await SystemConfig.get_config()
@@ -219,40 +182,73 @@ async def get_audit_logs(
 async def get_system_stats(_current_user: User = Depends(require_admin)):
     """
     Get system statistics and metrics (admin only).
+    Uses $facet aggregation to reduce DB round-trips.
     """
-    # Gather statistics from various collections
-    stats = {
-        "workflows": {
-            "total": await Workflow.find().count(),
-            "enabled": await Workflow.find(Workflow.status == "enabled").count(),
-            "draft": await Workflow.find(Workflow.status == "draft").count(),
-        },
-        "executions": {
-            "total": await WorkflowExecution.find().count(),
-            "pending": await WorkflowExecution.find(WorkflowExecution.status == "pending").count(),
-            "running": await WorkflowExecution.find(WorkflowExecution.status == "running").count(),
-            "succeeded": await WorkflowExecution.find(WorkflowExecution.status == "succeeded").count(),
-            "failed": await WorkflowExecution.find(WorkflowExecution.status == "failed").count(),
-        },
-        "backups": {
-            "total": await BackupJob.find().count(),
-            "completed": await BackupJob.find(BackupJob.status == "completed").count(),
-            "pending": await BackupJob.find(BackupJob.status == "pending").count(),
-            "failed": await BackupJob.find(BackupJob.status == "failed").count(),
-        },
+
+    async def _facet_counts(model, field: str, values: list[str]) -> dict[str, int]:
+        """Run a single $facet aggregation that counts total + each status value."""
+        facets: dict = {"total": [{"$count": "n"}]}
+        for v in values:
+            facets[v] = [{"$match": {field: v}}, {"$count": "n"}]
+        results = await model.aggregate([{"$facet": facets}]).to_list()
+        row = results[0] if results else {}
+        out: dict[str, int] = {}
+        for key in ["total"] + values:
+            bucket = row.get(key, [])
+            out[key] = bucket[0]["n"] if bucket else 0
+        return out
+
+    wf_stats = await _facet_counts(Workflow, "status", ["enabled", "draft"])
+    ex_stats = await _facet_counts(WorkflowExecution, "status", ["pending", "running", "succeeded", "failed"])
+    bk_stats = await _facet_counts(BackupJob, "status", ["completed", "pending", "failed"])
+
+    # Webhooks: boolean field needs dedicated facet (can't use generic helper with bool keys)
+    wh_facet = await WebhookEvent.aggregate(
+        [
+            {
+                "$facet": {
+                    "total": [{"$count": "n"}],
+                    "processed": [{"$match": {"processed": True}}, {"$count": "n"}],
+                    "pending": [{"$match": {"processed": False}}, {"$count": "n"}],
+                }
+            }
+        ]
+    ).to_list()
+    wh_row = wh_facet[0] if wh_facet else {}
+
+    # Users: count by roles + is_active
+    user_facet = await User.aggregate(
+        [
+            {
+                "$facet": {
+                    "total": [{"$count": "n"}],
+                    "active": [{"$match": {"is_active": True}}, {"$count": "n"}],
+                    "admins": [{"$match": {"roles": "admin"}}, {"$count": "n"}],
+                }
+            }
+        ]
+    ).to_list()
+    ur = user_facet[0] if user_facet else {}
+
+    def _extract(row: dict, key: str) -> int:
+        bucket = row.get(key, [])
+        return bucket[0]["n"] if bucket else 0
+
+    return {
+        "workflows": wf_stats,
+        "executions": ex_stats,
+        "backups": bk_stats,
         "webhooks": {
-            "total": await WebhookEvent.find().count(),
-            "processed": await WebhookEvent.find(WebhookEvent.processed == True).count(),
-            "pending": await WebhookEvent.find(WebhookEvent.processed == False).count(),
+            "total": _extract(wh_row, "total"),
+            "processed": _extract(wh_row, "processed"),
+            "pending": _extract(wh_row, "pending"),
         },
         "users": {
-            "total": await User.find().count(),
-            "active": await User.find(User.is_active == True).count(),
-            "admins": await User.find({"roles": "admin"}).count(),
+            "total": _extract(ur, "total"),
+            "active": _extract(ur, "active"),
+            "admins": _extract(ur, "admins"),
         },
     }
-
-    return stats
 
 
 @router.post("/admin/mist/test-connection", tags=["Admin"])
@@ -307,33 +303,23 @@ async def test_mist_connection(
 
 
 @router.get("/admin/mist/sites", tags=["Admin"])
-async def list_mist_sites(_current_user: User = Depends(get_current_user_from_token)):
+async def list_mist_sites(_current_user: User = Depends(require_admin)):
     """
     List sites from Mist organization.
     """
-    config = await SystemConfig.get_config()
-    if not config or not config.mist_api_token:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mist API not configured")
-
-    from app.services.mist_service import MistService
+    from app.services.mist_service_factory import create_mist_service
 
     try:
-        api_token = decrypt_sensitive_data(config.mist_api_token)
-        service = MistService(
-            api_token=api_token,
-            org_id=config.mist_org_id or "",
-            cloud_region=config.mist_cloud_region or "global_01",
-        )
+        service = await create_mist_service()
         sites = await service.get_sites()
         return {"sites": [{"id": s.get("id"), "name": s.get("name", "")} for s in sites]}
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch sites from Mist: {str(e)}"
-        )
+        logger.error("mist_sites_fetch_failed", error=str(e))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch sites from Mist") from e
 
 
 @router.get("/admin/mist/object-types", tags=["Admin"])
-async def list_mist_object_types(_current_user: User = Depends(get_current_user_from_token)):
+async def list_mist_object_types(_current_user: User = Depends(require_admin)):
     """
     Return all supported Mist object types for frontend dropdowns.
     """
@@ -344,16 +330,12 @@ async def list_mist_object_types(_current_user: User = Depends(get_current_user_
 async def list_mist_objects(
     object_type: str = Query(..., description="Object type in 'org:key' or 'site:key' format"),
     site_id: str | None = Query(None, description="Site ID for site-level objects"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_admin),
 ):
     """
     List objects of a given type from Mist organization.
     Uses the object registry for consistent API calls.
     """
-    config = await SystemConfig.get_config()
-    if not config or not config.mist_api_token:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mist API not configured")
-
     # Parse scope and key
     if ":" not in object_type:
         raise HTTPException(
@@ -378,15 +360,10 @@ async def list_mist_objects(
             status_code=status.HTTP_400_BAD_REQUEST, detail="site_id is required for site-level objects"
         )
 
-    from app.services.mist_service import MistService
+    from app.services.mist_service_factory import create_mist_service
 
     try:
-        api_token = decrypt_sensitive_data(config.mist_api_token)
-        service = MistService(
-            api_token=api_token,
-            org_id=config.mist_org_id or "",
-            cloud_region=config.mist_cloud_region or "global_01",
-        )
+        service = await create_mist_service()
 
         fetch_kwargs = {}
         if scope == "site":
@@ -408,9 +385,8 @@ async def list_mist_objects(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch objects from Mist: {str(e)}"
-        )
+        logger.error("mist_objects_fetch_failed", error=str(e))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch objects from Mist") from e
 
 
 @router.get("/admin/workers/status", tags=["Admin"])

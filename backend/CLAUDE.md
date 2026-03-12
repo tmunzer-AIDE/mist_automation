@@ -43,7 +43,7 @@ Modules are registered via `MODULES` list in `app/modules/__init__.py` — each 
 Three middleware layers execute in order:
 1. `RequestLoggingMiddleware` — generates `request_id`, logs method/path/IP, adds `X-Request-ID` header
 2. `ExceptionHandlerMiddleware` — catches `MistAutomationException` subclasses → standardized JSON errors
-3. `SecurityHeadersMiddleware` — adds HSTS, X-Frame-Options, X-Content-Type-Options, etc.
+3. `SecurityHeadersMiddleware` — adds HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Permissions-Policy
 
 ### Authentication Flow
 
@@ -87,6 +87,14 @@ Workflow actions use Jinja2 `SandboxedEnvironment` with `ChainableUndefined` for
 
 Always instantiate via `create_mist_service()` from `app.services.mist_service_factory` — it handles config lookup and token decryption. `MistService` wraps the `mistapi` library with `asyncio.to_thread()` for async compatibility. Cloud regions map to: `global_01` → api.mist.com, `emea_01` → api.eu.mist.com, `apac_01` → api.ac5.mist.com.
 
+### SSRF Protection (app/utils/url_safety.py)
+
+`validate_outbound_url(url)` validates scheme (http/https only), resolves hostname, and blocks private/reserved/loopback/link-local IP ranges. Must be called before any outbound HTTP request to a user-controlled URL (webhook actions, generic webhook notifications).
+
+### Admin Settings Validation (app/schemas/admin.py)
+
+`SystemSettingsUpdate` is a Pydantic model with `field_validator` for cron expressions and URLs, plus `Field(ge=, le=)` bounds on numeric settings. Used by `PUT /admin/settings` instead of raw `dict`.
+
 ## Key Patterns
 
 - **Models use `TimestampMixin`** for `created_at`/`updated_at` — call `update_timestamp()` before save
@@ -95,6 +103,23 @@ Always instantiate via `create_mist_service()` from `app.services.mist_service_f
 - **`UserSession` has a TTL index** on `expires_at` — MongoDB auto-cleans expired sessions
 - **Module-specific models** live in their module dirs (e.g., `app/modules/automation/models/`), not in `app/models/`
 - **Shared models** (User, UserSession, SystemConfig, AuditLog) live in `app/models/`
+
+## Security Conventions
+
+- **Access control**: Every endpoint must use the appropriate auth dependency: `require_admin`, `require_automation_role`, `require_backup_role`, or `get_current_user_from_token`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
+- **Sensitive data**: Use `encrypt_sensitive_data()` / `decrypt_sensitive_data()` for tokens and passwords stored in `SystemConfig`. Return `*_set: bool` fields in API responses instead of actual values.
+- **Error messages**: Never leak `str(e)` to API clients. Log full errors server-side with structlog, return generic messages in HTTP responses.
+- **SSRF**: Call `validate_outbound_url()` before any outbound HTTP request to a user-controlled URL.
+- **Session invalidation**: Password changes must invalidate all other sessions. Login enforces `max_concurrent_sessions`.
+- **Input validation**: Admin settings use Pydantic schemas with validators, not raw dicts.
+- **Re-raise from**: Always use `raise ... from e` or `raise ... from None` in except clauses (ruff B904).
+
+## DRY Conventions
+
+- **MistService**: Always instantiate via `create_mist_service()` factory — never inline config+decrypt.
+- **Template braces**: Use `strip_template_braces()` from `app/utils/variables.py` for `{{ }}` stripping.
+- **API methods**: `MistService._api_call()` is the single implementation; thin wrappers for each HTTP verb.
+- **Shared helpers**: Extract common field construction into helpers (e.g., `_event_fields()`, `_user_to_response()`).
 
 ## Testing
 

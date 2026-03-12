@@ -9,7 +9,6 @@ import {
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -46,7 +45,6 @@ import { Subject, debounceTime, takeUntil } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule,
-    FormsModule,
     RouterModule,
     MatButtonModule,
     MatIconModule,

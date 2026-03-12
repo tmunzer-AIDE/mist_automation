@@ -10,6 +10,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { SettingsService } from '../settings.service';
+import { SystemSettings } from '../../../../core/models/admin.model';
+import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-settings-security',
@@ -88,21 +90,6 @@ import { SettingsService } from '../settings.service';
   `,
   styles: [
     `
-      .tab-form {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      mat-card-content {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding-top: 16px;
-      }
-      mat-form-field {
-        width: 100%;
-        max-width: 500px;
-      }
       .toggle-group {
         display: flex;
         flex-direction: column;
@@ -131,22 +118,32 @@ export class SettingsSecurityComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.settingsService.load().subscribe({
-      next: (s) => {
-        this.form.patchValue({
-          min_password_length: s.min_password_length,
-          require_uppercase: s.require_uppercase,
-          require_lowercase: s.require_lowercase,
-          require_digits: s.require_digits,
-          require_special_chars: s.require_special_chars,
-          session_timeout_hours: s.session_timeout_hours,
-          max_concurrent_sessions: s.max_concurrent_sessions,
-        });
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-      },
+    const cached = this.settingsService.current;
+    if (cached) {
+      this.populateForm(cached);
+      this.loading.set(false);
+    } else {
+      this.settingsService.load().subscribe({
+        next: (s) => {
+          this.populateForm(s);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
+      });
+    }
+  }
+
+  private populateForm(s: SystemSettings): void {
+    this.form.patchValue({
+      min_password_length: s.min_password_length,
+      require_uppercase: s.require_uppercase,
+      require_lowercase: s.require_lowercase,
+      require_digits: s.require_digits,
+      require_special_chars: s.require_special_chars,
+      session_timeout_hours: s.session_timeout_hours,
+      max_concurrent_sessions: s.max_concurrent_sessions,
     });
   }
 
@@ -159,7 +156,7 @@ export class SettingsSecurityComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }

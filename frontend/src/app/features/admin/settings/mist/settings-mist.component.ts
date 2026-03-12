@@ -13,6 +13,8 @@ import { ApiService } from '../../../../core/services/api.service';
 import { MistConnectionResult } from '../../../../core/models/admin.model';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { SettingsService } from '../settings.service';
+import { SystemSettings } from '../../../../core/models/admin.model';
+import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
 const CLOUD_REGIONS = [
   { value: 'global_01', label: 'Global 01 (api.mist.com)' },
@@ -108,21 +110,6 @@ const CLOUD_REGIONS = [
   `,
   styles: [
     `
-      .tab-form {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      mat-card-content {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding-top: 16px;
-      }
-      mat-form-field {
-        width: 100%;
-        max-width: 500px;
-      }
       .action-row {
         display: flex;
         align-items: center;
@@ -155,17 +142,27 @@ export class SettingsMistComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.settingsService.load().subscribe({
-      next: (s) => {
-        this.form.patchValue({
-          mist_org_id: s.mist_org_id || '',
-          mist_cloud_region: s.mist_cloud_region,
-        });
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-      },
+    const cached = this.settingsService.current;
+    if (cached) {
+      this.populateForm(cached);
+      this.loading.set(false);
+    } else {
+      this.settingsService.load().subscribe({
+        next: (s) => {
+          this.populateForm(s);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
+      });
+    }
+  }
+
+  private populateForm(s: SystemSettings): void {
+    this.form.patchValue({
+      mist_org_id: s.mist_org_id || '',
+      mist_cloud_region: s.mist_cloud_region,
     });
   }
 
@@ -184,7 +181,7 @@ export class SettingsMistComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }
@@ -206,7 +203,7 @@ export class SettingsMistComponent implements OnInit {
         this.testingConnection.set(false);
       },
       error: (err) => {
-        this.connectionResult.set({ status: 'failed', error: err.message });
+        this.connectionResult.set({ status: 'failed', error: extractErrorMessage(err) });
         this.testingConnection.set(false);
       },
     });

@@ -77,6 +77,12 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   drag: DragState = initialDragState();
   nodeMap: Map<string, WorkflowNode> = new Map();
 
+  // Pre-computed per-node render data (rebuilt in ngOnChanges)
+  nodeRenderData = new Map<
+    string,
+    { color: string; icon: string; label: string; simStatus: string | null; simColor: string }
+  >();
+
   // Computed edge paths
   edgePaths: {
     edge: WorkflowEdge;
@@ -93,6 +99,9 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   selectionRect: { x: number; y: number; w: number; h: number } | null = null;
   private multiDragStartPositions = new Map<string, { x: number; y: number }>();
 
+  // Immutable drag offsets (applied during drag without mutating node.position)
+  dragOffsets = new Map<string, { dx: number; dy: number }>();
+
   readonly NODE_WIDTH = NODE_WIDTH;
   readonly NODE_HEIGHT = NODE_HEIGHT;
   readonly PORT_RADIUS = PORT_RADIUS;
@@ -103,12 +112,16 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   ngOnInit(): void {
     this.rebuildNodeMap();
     this.recalcEdgePaths();
+    this.rebuildRenderData();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['nodes'] || changes['edges']) {
       this.rebuildNodeMap();
       this.recalcEdgePaths();
+    }
+    if (changes['nodes'] || changes['simulationState']) {
+      this.rebuildRenderData();
     }
   }
 
@@ -118,18 +131,17 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   // ── Node rendering helpers ────────────────────────────────────────────
 
-  getNodeMeta(type: string) {
+  private getNodeMeta(type: string) {
     return ACTION_META[type as keyof typeof ACTION_META] || DEFAULT_ACTION_META;
   }
 
-  getNodeLabel(node: WorkflowNode): string {
+  private getNodeLabel(node: WorkflowNode): string {
     if (node.name) return node.name;
     if (node.type === 'trigger') return 'Trigger';
-    const meta = this.getNodeMeta(node.type);
-    return meta.label;
+    return this.getNodeMeta(node.type).label;
   }
 
-  getNodeIcon(node: WorkflowNode): string {
+  private getNodeIcon(node: WorkflowNode): string {
     if (node.type === 'trigger') {
       const tt = node.config?.['trigger_type'];
       if (tt === 'cron') return 'schedule';
@@ -139,13 +151,23 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     return this.getNodeMeta(node.type).icon;
   }
 
-  getNodeColor(node: WorkflowNode): string {
-    if (node.type === 'trigger') return '#6a1b9a';
+  private getNodeColor(node: WorkflowNode): string {
+    if (node.type === 'trigger') return 'var(--app-trigger)';
     return this.getNodeMeta(node.type).color;
   }
 
-  getSimulationStatus(nodeId: string): string | null {
-    return this.simulationState?.nodeStatuses?.[nodeId] ?? null;
+  private rebuildRenderData(): void {
+    this.nodeRenderData.clear();
+    for (const node of this.nodes) {
+      const simStatus = this.simulationState?.nodeStatuses?.[node.id] ?? null;
+      this.nodeRenderData.set(node.id, {
+        color: this.getNodeColor(node),
+        icon: this.getNodeIcon(node),
+        label: this.getNodeLabel(node),
+        simStatus,
+        simColor: this.getSimColor(simStatus),
+      });
+    }
   }
 
   isEdgeActive(edgeId: string): boolean {
@@ -172,16 +194,19 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       const targetNode = this.nodeMap.get(edge.target_node_id);
       if (!sourceNode || !targetNode) continue;
 
+      const sourcePos = this.getEffectivePosition(sourceNode);
+      const targetPos = this.getEffectivePosition(targetNode);
+
       const portIndex = sourceNode.output_ports.findIndex(
         (p) => p.id === edge.source_port_id
       );
       const from = getOutputPortPosition(
-        sourceNode.position.x,
-        sourceNode.position.y,
+        sourcePos.x,
+        sourcePos.y,
         Math.max(0, portIndex),
         sourceNode.output_ports.length || 1
       );
-      const to = getInputPortPosition(targetNode.position.x, targetNode.position.y);
+      const to = getInputPortPosition(targetPos.x, targetPos.y);
 
       this.edgePaths.push({
         edge,
@@ -328,7 +353,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
 
       if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)) {
-        // Multi-drag: move all selected nodes by the same delta
+        // Multi-drag: compute offsets for all selected nodes
         const primaryStart = this.multiDragStartPositions.get(this.drag.nodeId);
         if (primaryStart) {
           const newX = snapToGrid(pos.x - this.drag.offsetX);
@@ -337,19 +362,20 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
           const dy = newY - primaryStart.y;
 
           for (const [id, startPos] of this.multiDragStartPositions) {
-            const n = this.nodeMap.get(id);
-            if (n) {
-              n.position.x = snapToGrid(startPos.x + dx);
-              n.position.y = snapToGrid(startPos.y + dy);
-            }
+            this.dragOffsets.set(id, {
+              dx: snapToGrid(startPos.x + dx) - startPos.x,
+              dy: snapToGrid(startPos.y + dy) - startPos.y,
+            });
           }
         }
       } else {
         // Single node drag
         const node = this.nodeMap.get(this.drag.nodeId);
         if (node) {
-          node.position.x = snapToGrid(pos.x - this.drag.offsetX);
-          node.position.y = snapToGrid(pos.y - this.drag.offsetY);
+          this.dragOffsets.set(this.drag.nodeId, {
+            dx: snapToGrid(pos.x - this.drag.offsetX) - node.position.x,
+            dy: snapToGrid(pos.y - this.drag.offsetY) - node.position.y,
+          });
         }
       }
       this.recalcEdgePaths();
@@ -399,23 +425,30 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
     if (this.drag.type === 'node' && this.drag.nodeId) {
       if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)) {
-        // Emit nodeMoved for each moved node
+        // Emit nodeMoved for each moved node using effective positions
         for (const id of this.multiSelectedIds) {
           const n = this.nodeMap.get(id);
           if (n) {
-            this.nodeMoved.emit({ nodeId: id, x: n.position.x, y: n.position.y });
+            const offset = this.dragOffsets.get(id);
+            this.nodeMoved.emit({
+              nodeId: id,
+              x: n.position.x + (offset?.dx ?? 0),
+              y: n.position.y + (offset?.dy ?? 0),
+            });
           }
         }
       } else {
         const node = this.nodeMap.get(this.drag.nodeId);
         if (node) {
+          const offset = this.dragOffsets.get(this.drag.nodeId);
           this.nodeMoved.emit({
             nodeId: this.drag.nodeId,
-            x: node.position.x,
-            y: node.position.y,
+            x: node.position.x + (offset?.dx ?? 0),
+            y: node.position.y + (offset?.dy ?? 0),
           });
         }
       }
+      this.dragOffsets.clear();
       this.multiDragStartPositions.clear();
     }
 
@@ -624,6 +657,20 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   getInputPortY(): number {
     return 0;
+  }
+
+  /** Returns effective position accounting for drag offsets. */
+  private getEffectivePosition(node: WorkflowNode): { x: number; y: number } {
+    const offset = this.dragOffsets.get(node.id);
+    return offset
+      ? { x: node.position.x + offset.dx, y: node.position.y + offset.dy }
+      : node.position;
+  }
+
+  /** Returns the SVG transform for a node, accounting for drag offsets. */
+  nodeTransform(node: WorkflowNode): string {
+    const pos = this.getEffectivePosition(node);
+    return `translate(${pos.x}, ${pos.y})`;
   }
 
   get viewTransform(): string {

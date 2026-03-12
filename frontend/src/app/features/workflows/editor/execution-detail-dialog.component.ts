@@ -7,6 +7,7 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/materia
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/workflow.model';
+import { DurationPipe } from '../../../shared/pipes/duration.pipe';
 
 @Component({
   selector: 'app-execution-detail-dialog',
@@ -18,6 +19,7 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
     MatTabsModule,
     MatDialogModule,
     StatusBadgeComponent,
+    DurationPipe,
   ],
   template: `
     <h2 mat-dialog-title>
@@ -26,7 +28,7 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
           <app-status-badge [status]="execution()!.status"></app-status-badge>
           <span class="header-name">{{ execution()!.workflow_name }}</span>
           <span class="header-meta"
-            >{{ execution()!.trigger_type }} &middot; {{ formatDuration(execution()!.duration_ms) }}</span
+            >{{ execution()!.trigger_type }} &middot; {{ execution()!.duration_ms | duration }}</span
           >
         </div>
       } @else {
@@ -59,7 +61,7 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
                         <span class="action-name">{{ result.node_name || result.node_id }}</span>
                         <span class="action-type">{{ result.node_type }}</span>
                         <span class="action-meta">
-                          {{ formatDuration(result.duration_ms) }}
+                          {{ result.duration_ms | duration }}
                           @if (result.retry_count > 0) {
                             &middot; {{ result.retry_count }} retries
                           }
@@ -149,8 +151,8 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
         gap: 8px;
         padding: 12px 16px;
         margin-bottom: 16px;
-        background: #fef2f2;
-        color: #b91c1c;
+        background: var(--app-error-status-bg);
+        color: var(--app-error-status);
         border-radius: 8px;
         font-size: 14px;
         line-height: 1.5;
@@ -206,8 +208,8 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
         gap: 6px;
         margin-top: 8px;
         padding: 8px 10px;
-        background: #fef2f2;
-        color: #b91c1c;
+        background: var(--app-error-status-bg);
+        color: var(--app-error-status);
         border-radius: 6px;
         font-size: 13px;
 
@@ -245,10 +247,10 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
         word-break: break-all;
       }
       .log-warn {
-        color: #b45309;
+        color: var(--app-warning-lvl);
       }
       .log-error {
-        color: #b91c1c;
+        color: var(--app-error-status);
       }
 
       /* JSON */
@@ -289,12 +291,6 @@ export class ExecutionDetailDialogComponent implements OnInit {
         this.loading.set(false);
       },
     });
-  }
-
-  formatDuration(ms: number | null): string {
-    if (!ms) return '\u2014';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
   }
 
   getLogClass(line: string): string {

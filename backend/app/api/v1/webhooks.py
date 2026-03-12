@@ -42,41 +42,8 @@ def _verify_mist_signature(payload: bytes, signature: str, secret: str) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
-def _event_to_response(
-    event: WebhookEvent, *, include_payload: bool = False
-) -> WebhookEventResponse | WebhookEventDetailResponse:
-    """Convert a WebhookEvent document to a response schema."""
-    kwargs = {
-        "id": str(event.id),
-        "webhook_type": event.webhook_type,
-        "webhook_topic": event.webhook_topic,
-        "webhook_id": event.webhook_id,
-        "source_ip": event.source_ip,
-        "site_id": event.site_id,
-        "org_id": event.org_id,
-        "processed": event.processed,
-        "matched_workflows": [str(wid) for wid in event.matched_workflows],
-        "executions_triggered": [str(eid) for eid in event.executions_triggered],
-        "signature_valid": event.signature_valid,
-        "routed_to": event.routed_to,
-        "response_status": event.response_status,
-        "response_body": event.response_body,
-        "received_at": event.received_at,
-        "processed_at": event.processed_at,
-        "event_type": event.event_type,
-        "org_name": event.org_name,
-        "site_name": event.site_name,
-        "device_name": event.device_name,
-        "device_mac": event.device_mac,
-        "event_details": event.event_details,
-    }
-    if include_payload:
-        return WebhookEventDetailResponse(**kwargs, payload=event.payload, headers=event.headers)
-    return WebhookEventResponse(**kwargs)
-
-
-def _event_to_monitor_dict(event: WebhookEvent) -> dict:
-    """Convert a WebhookEvent to a flat dict for REST and WebSocket monitor responses."""
+def _event_fields(event: WebhookEvent) -> dict:
+    """Common fields shared by response schema and monitor dict."""
     return {
         "id": str(event.id),
         "webhook_type": event.webhook_type,
@@ -91,8 +58,8 @@ def _event_to_monitor_dict(event: WebhookEvent) -> dict:
         "signature_valid": event.signature_valid,
         "routed_to": event.routed_to,
         "response_status": event.response_status,
-        "received_at": event.received_at.isoformat() if event.received_at else None,
-        "processed_at": event.processed_at.isoformat() if event.processed_at else None,
+        "received_at": event.received_at,
+        "processed_at": event.processed_at,
         "event_type": event.event_type,
         "org_name": event.org_name,
         "site_name": event.site_name,
@@ -100,6 +67,25 @@ def _event_to_monitor_dict(event: WebhookEvent) -> dict:
         "device_mac": event.device_mac,
         "event_details": event.event_details,
     }
+
+
+def _event_to_response(
+    event: WebhookEvent, *, include_payload: bool = False
+) -> WebhookEventResponse | WebhookEventDetailResponse:
+    """Convert a WebhookEvent document to a response schema."""
+    kwargs = {**_event_fields(event), "response_body": event.response_body}
+    if include_payload:
+        return WebhookEventDetailResponse(**kwargs, payload=event.payload, headers=event.headers)
+    return WebhookEventResponse(**kwargs)
+
+
+def _event_to_monitor_dict(event: WebhookEvent) -> dict:
+    """Convert a WebhookEvent to a flat dict for REST and WebSocket monitor responses."""
+    fields = _event_fields(event)
+    # Monitor dict uses ISO strings for dates
+    fields["received_at"] = event.received_at.isoformat() if event.received_at else None
+    fields["processed_at"] = event.processed_at.isoformat() if event.processed_at else None
+    return fields
 
 
 # ── Unified webhook gateway ──────────────────────────────────────────────────

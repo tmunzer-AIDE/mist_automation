@@ -9,6 +9,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { SettingsService } from '../settings.service';
+import { SystemSettings } from '../../../../core/models/admin.model';
+import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-settings-workflows',
@@ -53,25 +55,7 @@ import { SettingsService } from '../settings.service';
       </form>
     }
   `,
-  styles: [
-    `
-      .tab-form {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      mat-card-content {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding-top: 16px;
-      }
-      mat-form-field {
-        width: 100%;
-        max-width: 500px;
-      }
-    `,
-  ],
+  styles: [],
 })
 export class SettingsWorkflowsComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
@@ -87,17 +71,27 @@ export class SettingsWorkflowsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.settingsService.load().subscribe({
-      next: (s) => {
-        this.form.patchValue({
-          max_concurrent_workflows: s.max_concurrent_workflows,
-          workflow_default_timeout: s.workflow_default_timeout,
-        });
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-      },
+    const cached = this.settingsService.current;
+    if (cached) {
+      this.populateForm(cached);
+      this.loading.set(false);
+    } else {
+      this.settingsService.load().subscribe({
+        next: (s) => {
+          this.populateForm(s);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
+      });
+    }
+  }
+
+  private populateForm(s: SystemSettings): void {
+    this.form.patchValue({
+      max_concurrent_workflows: s.max_concurrent_workflows,
+      workflow_default_timeout: s.workflow_default_timeout,
     });
   }
 
@@ -110,7 +104,7 @@ export class SettingsWorkflowsComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }

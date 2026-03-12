@@ -15,6 +15,7 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { DurationPipe } from '../../../shared/pipes/duration.pipe';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { WorkflowExecution } from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
@@ -39,6 +40,7 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
     EmptyStateComponent,
     StatusBadgeComponent,
     DateTimePipe,
+    DurationPipe,
   ],
   template: `
     <div class="filters-bar">
@@ -109,7 +111,7 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
           <!-- Duration -->
           <ng-container matColumnDef="duration">
             <th mat-header-cell *matHeaderCellDef>Duration</th>
-            <td mat-cell *matCellDef="let ex">{{ formatDuration(ex.duration_ms) }}</td>
+            <td mat-cell *matCellDef="let ex">{{ ex.duration_ms | duration }}</td>
           </ng-container>
 
           <!-- Nodes -->
@@ -275,9 +277,4 @@ export class ExecutionListComponent implements OnInit {
     });
   }
 
-  formatDuration(ms: number | null): string {
-    if (!ms) return '\u2014';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
 }

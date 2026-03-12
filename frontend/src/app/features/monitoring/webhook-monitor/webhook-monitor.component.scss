@@ -149,21 +149,6 @@
   border-radius: 4px;
 }
 
-.status-ok {
-  background: var(--app-success-bg);
-  color: var(--app-success);
-}
-
-.status-client-error {
-  background: var(--app-error-status-bg);
-  color: var(--app-error-status);
-}
-
-.status-server-error {
-  background: var(--app-error-status-bg);
-  color: var(--app-error-server);
-}
-
 // New-event highlight animation
 .new-event {
   animation: highlight-fade 3s ease-out;

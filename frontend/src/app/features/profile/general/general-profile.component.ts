@@ -11,6 +11,7 @@ import { Store } from '@ngrx/store';
 import { AuthService } from '../../../core/services/auth.service';
 import { AuthActions } from '../../../core/state/auth/auth.actions';
 import { ThemeService, ThemePreference } from '../../../core/services/theme.service';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-general-profile',
@@ -148,7 +149,7 @@ export class GeneralProfileComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message || 'Update failed', 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }

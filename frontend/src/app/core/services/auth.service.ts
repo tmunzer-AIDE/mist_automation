@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { shareReplay } from 'rxjs/operators';
 import { ApiService } from './api.service';
-import { HttpClient } from '@angular/common/http';
 import {
   LoginRequest,
   TokenResponse,
@@ -14,7 +14,7 @@ import { HealthResponse, SessionListResponse } from '../models/session.model';
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(ApiService);
-  private readonly http = inject(HttpClient);
+  private healthCache$: Observable<HealthResponse> | null = null;
 
   login(data: LoginRequest): Observable<TokenResponse> {
     return this.api.post<TokenResponse>('/auth/login', data);
@@ -53,6 +53,9 @@ export class AuthService {
   }
 
   checkHealth(): Observable<HealthResponse> {
-    return this.http.get<HealthResponse>('/health');
+    if (!this.healthCache$) {
+      this.healthCache$ = this.api.getRaw<HealthResponse>('/health').pipe(shareReplay(1));
+    }
+    return this.healthCache$;
   }
 }

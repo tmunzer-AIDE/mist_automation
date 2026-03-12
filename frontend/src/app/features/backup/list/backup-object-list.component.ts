@@ -1,7 +1,7 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
-import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
+import { ReactiveFormsModule, FormBuilder, FormControl } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -93,6 +93,7 @@ export class BackupObjectListComponent implements OnInit {
   sortDirection: 'asc' | 'desc' | '' = 'desc';
 
   // ── Filters ──────────────────────────────────────────────────────────
+  searchControl = new FormControl('');
   searchQuery = '';
   objectTypeOptions = signal<MistObjectTypeOption[]>([]);
   objectType = signal<MistObjectTypeOption[]>([]);
@@ -211,9 +212,8 @@ export class BackupObjectListComponent implements OnInit {
 
   // ── Filter actions ───────────────────────────────────────────────────
 
-  applySearch(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.searchQuery = input.value.trim();
+  applySearch(): void {
+    this.searchQuery = (this.searchControl.value || '').trim();
     this.objectsPageIndex = 0;
     this.loadObjects();
   }

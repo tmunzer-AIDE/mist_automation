@@ -1,5 +1,5 @@
-import { Injectable, inject, NgZone } from '@angular/core';
-import { BehaviorSubject, Observable, Subject, share, filter, map } from 'rxjs';
+import { Injectable, inject } from '@angular/core';
+import { BehaviorSubject, Observable, Subject, filter, map } from 'rxjs';
 import { TokenService } from './token.service';
 
 interface WsMessage {
@@ -11,7 +11,6 @@ interface WsMessage {
 @Injectable({ providedIn: 'root' })
 export class WebSocketService {
   private readonly tokenService = inject(TokenService);
-  private readonly zone = inject(NgZone);
 
   private ws: WebSocket | null = null;
   private readonly message$ = new Subject<WsMessage>();
@@ -27,6 +26,7 @@ export class WebSocketService {
   private reconnectDelay = 1000;
   private pingTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private authenticated = false;
 
   /**
    * Subscribe to a WebSocket channel. Lazily opens the connection on first call.
@@ -46,7 +46,6 @@ export class WebSocketService {
           filter((msg) => msg.type !== 'ping' && msg.type !== 'pong'),
           filter((msg) => !msg.channel || msg.channel === channel),
           map((msg) => msg as unknown as T),
-          share(),
         )
         .subscribe(subscriber);
 
@@ -78,54 +77,68 @@ export class WebSocketService {
     if (!token) return;
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`;
+    const url = `${proto}://${window.location.host}/api/v1/ws`;
 
     this.intentionalClose = false;
+    this.authenticated = false;
 
-    // Run WebSocket outside Angular zone to avoid unnecessary change detection
-    this.zone.runOutsideAngular(() => {
-      this.ws = new WebSocket(url);
+    this.ws = new WebSocket(url);
 
-      this.ws.onopen = () => {
-        this.zone.run(() => this.connectedSubject.next(true));
-        this.reconnectDelay = 1000;
-        // Re-subscribe all active channels
-        for (const ch of this.channelRefs.keys()) {
-          this.sendSubscribe(ch);
-        }
-        this.startPingMonitor();
-      };
+    this.ws.onopen = () => {
+      // Send auth message as first frame
+      this.ws?.send(JSON.stringify({ type: 'auth', token }));
+    };
 
-      this.ws.onmessage = (event) => {
-        try {
-          const msg: WsMessage = JSON.parse(event.data);
-          if (msg.type === 'ping') {
-            this.ws?.send(JSON.stringify({ type: 'pong' }));
-            this.resetPingMonitor();
-            return;
+    this.ws.onmessage = (event) => {
+      try {
+        const msg: WsMessage = JSON.parse(event.data);
+
+        // Handle auth response
+        if (msg.type === 'auth_ok') {
+          this.authenticated = true;
+          this.connectedSubject.next(true);
+          this.reconnectDelay = 1000;
+          // Re-subscribe all active channels after auth
+          for (const ch of this.channelRefs.keys()) {
+            this.sendSubscribe(ch);
           }
-          this.zone.run(() => this.message$.next(msg));
-        } catch {
-          // Ignore non-JSON messages
+          this.startPingMonitor();
+          return;
         }
-      };
 
-      this.ws.onclose = () => {
-        this.zone.run(() => this.connectedSubject.next(false));
-        this.stopPingMonitor();
-        if (!this.intentionalClose && this.channelRefs.size > 0) {
-          this.scheduleReconnect();
+        if (msg.type === 'auth_error') {
+          this.ws?.close();
+          return;
         }
-      };
 
-      this.ws.onerror = () => {
-        // onclose will fire after onerror
-      };
-    });
+        if (msg.type === 'ping') {
+          this.ws?.send(JSON.stringify({ type: 'pong' }));
+          this.resetPingMonitor();
+          return;
+        }
+        this.message$.next(msg);
+      } catch {
+        // Ignore non-JSON messages
+      }
+    };
+
+    this.ws.onclose = () => {
+      this.authenticated = false;
+      this.connectedSubject.next(false);
+      this.stopPingMonitor();
+      if (!this.intentionalClose && this.channelRefs.size > 0) {
+        this.scheduleReconnect();
+      }
+    };
+
+    this.ws.onerror = () => {
+      // onclose will fire after onerror
+    };
   }
 
   private closeConnection(): void {
     this.intentionalClose = true;
+    this.authenticated = false;
     this.stopPingMonitor();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -148,13 +161,13 @@ export class WebSocketService {
   }
 
   private sendSubscribe(channel: string): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.authenticated) {
       this.ws.send(JSON.stringify({ action: 'subscribe', channel }));
     }
   }
 
   private sendUnsubscribe(channel: string): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.authenticated) {
       this.ws.send(JSON.stringify({ action: 'unsubscribe', channel }));
     }
   }

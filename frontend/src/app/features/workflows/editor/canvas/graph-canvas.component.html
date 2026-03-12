@@ -144,7 +144,7 @@
         class="node-group"
         [class.selected]="isNodeHighlighted(node.id)"
         [class.disabled]="!node.enabled"
-        [attr.transform]="'translate(' + node.position.x + ',' + node.position.y + ')'"
+        [attr.transform]="nodeTransform(node)"
         (pointerdown)="onNodePointerDown($event, node)"
       >
         <!-- Node card background -->
@@ -158,12 +158,12 @@
         />
 
         <!-- Simulation status indicator -->
-        @if (getSimulationStatus(node.id); as simStatus) {
+        @if (nodeRenderData.get(node.id)?.simStatus; as simStatus) {
           <circle
             [attr.cx]="NODE_WIDTH - 12"
             cy="12"
             r="6"
-            [attr.fill]="getSimColor(simStatus)"
+            [attr.fill]="nodeRenderData.get(node.id)?.simColor"
             class="sim-indicator"
           />
           @if (simStatus === 'active') {
@@ -184,7 +184,7 @@
           width="4"
           [attr.height]="NODE_HEIGHT"
           rx="2"
-          [attr.fill]="getNodeColor(node)"
+          [attr.fill]="nodeRenderData.get(node.id)?.color"
           class="node-accent"
         />
 
@@ -193,15 +193,15 @@
           <div
             xmlns="http://www.w3.org/1999/xhtml"
             class="node-icon"
-            [style.background]="getNodeColor(node)"
+            [style.background]="nodeRenderData.get(node.id)?.color"
           >
-            <mat-icon>{{ getNodeIcon(node) }}</mat-icon>
+            <mat-icon>{{ nodeRenderData.get(node.id)?.icon }}</mat-icon>
           </div>
         </foreignObject>
 
         <!-- Node label -->
         <text x="52" y="32" class="node-label">
-          {{ getNodeLabel(node) }}
+          {{ nodeRenderData.get(node.id)?.label }}
         </text>
 
         <!-- Node type subtitle -->

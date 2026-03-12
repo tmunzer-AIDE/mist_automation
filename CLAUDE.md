@@ -117,6 +117,38 @@ Most complex feature, spanning both backend and frontend:
 
 **Frontend**: Prettier (100 char, single quotes), strict TypeScript with `strictTemplates`. See `frontend/CLAUDE.md` for Angular-specific conventions.
 
+## Engineering Principles
+
+### Security
+
+- **Access control**: All endpoints MUST enforce role-based access via `require_admin`, `require_automation_role`, or `require_backup_role` from `app/dependencies.py`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
+- **SSRF protection**: Outbound HTTP requests to user-controlled URLs MUST call `validate_outbound_url()` from `app/utils/url_safety.py` before sending.
+- **Sensitive data in responses**: Never leak internal error details (`str(e)`) to API clients. Log full errors server-side, return generic messages to the user. Use `*_set: bool` fields for sensitive config (tokens, passwords) instead of returning actual values.
+- **Session management**: Password changes invalidate all other sessions. Login enforces `max_concurrent_sessions`. Sessions use JTI-based revocation via `UserSession` DB lookup.
+- **Input validation**: Admin settings use `SystemSettingsUpdate` Pydantic model (`app/schemas/admin.py`) with field validators for cron expressions, URLs, and numeric bounds. Never accept raw `dict = Body(...)`.
+- **CSP & security headers**: `SecurityHeadersMiddleware` in `app/core/middleware.py` adds CSP, Permissions-Policy, HSTS, X-Frame-Options, X-Content-Type-Options.
+- **CORS**: Restricted to specific methods (`GET, POST, PUT, DELETE, OPTIONS`) and headers (`Authorization, Content-Type, X-Request-ID`).
+
+### KISS (Keep It Simple)
+
+- Initialize data structures with expected shapes upfront (e.g., `variable_context = {"trigger": {}, "nodes": {}, "results": {}}`).
+- Extract small helpers for repeated response construction patterns (e.g., `_user_to_response()` in auth.py).
+- Don't add abstractions until the same pattern appears 3+ times.
+
+### DRY (Don't Repeat Yourself)
+
+- **MistService instantiation**: Always use `create_mist_service()` from `app.services.mist_service_factory` — never manually create MistService with config+decrypt inline.
+- **Template brace stripping**: Use `strip_template_braces()` from `app/utils/variables.py` instead of inline `{{ }}` removal.
+- **MistService API methods**: `_api_call()` is the single implementation for GET/POST/PUT/DELETE; thin wrappers (`api_get`, `api_post`, etc.) delegate to it.
+- **Webhook response helpers**: `_event_fields()` in `webhooks.py` provides shared fields used by both REST responses and WebSocket monitor dicts.
+
+### Efficiency
+
+- **MongoDB `$facet` aggregation**: Admin stats endpoint uses `$facet` to batch multiple count queries into a single DB round-trip per collection.
+- **DB-level filtering**: Webhook worker uses `$elemMatch` queries to filter workflows at the database level instead of loading all enabled workflows and filtering in Python.
+- **Render context caching**: Executor service caches the Jinja2 render context per node execution (`_cached_render_context`), invalidated after each node completes.
+- **Compiled regex patterns**: Executor service compiles node-name regex patterns once per execution (`_node_name_patterns`), rebuilt only when the node map changes.
+
 ## Maintenance
 
 **Always update these CLAUDE.md files** (root and `frontend/CLAUDE.md`) when making architectural changes, adding new patterns, modifying conventions, or restructuring features. These files are the primary reference for AI-assisted development and must stay accurate. When in doubt, update — stale documentation is worse than none.

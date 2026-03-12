@@ -17,6 +17,7 @@ import {
   MistObjectOption,
   MistObjectTypeOption,
 } from '../../../core/models/backup.model';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 const BACKUP_TYPES = [
   { value: 'full', label: 'Full Backup', description: 'Backup the entire organization' },
@@ -314,7 +315,7 @@ export class BackupCreateDialogComponent implements OnInit {
       next: () => this.dialogRef.close(true),
       error: (err) => {
         this.creating.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }

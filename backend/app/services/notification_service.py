@@ -2,12 +2,14 @@
 Notification service for external integrations (Slack, ServiceNow, PagerDuty).
 """
 
-from typing import Any, Optional
 from datetime import datetime, timezone
-import structlog
+from typing import Any
+
 import httpx
-from app.core.exceptions import NotificationError, ConfigurationError
+import structlog
+
 from app.config import settings
+from app.core.exceptions import ConfigurationError, NotificationError
 
 logger = structlog.get_logger(__name__)
 
@@ -32,7 +34,6 @@ class NotificationService:
 
         Same fallback strategy as SmeeClient for ZScaler/TLS-intercepting proxies.
         """
-        import os
 
         from app.core.smee_service import _build_verify_options
 
@@ -49,14 +50,14 @@ class NotificationService:
 
     async def send_slack_notification(
         self,
-        webhook_url: Optional[str],
+        webhook_url: str | None,
         message: str,
-        channel: Optional[str] = None,
+        channel: str | None = None,
         username: str = "Mist Automation",
         icon_emoji: str = ":robot_face:",
         color: str = "good",
-        fields: Optional[list[dict[str, Any]]] = None,
-        blocks: Optional[list[dict[str, Any]]] = None,
+        fields: list[dict[str, Any]] | None = None,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Send notification to Slack.
@@ -145,7 +146,9 @@ class NotificationService:
 
             response.raise_for_status()
 
-            logger.info("slack_notification_sent", channel=channel, message_length=len(message), has_blocks=bool(blocks))
+            logger.info(
+                "slack_notification_sent", channel=channel, message_length=len(message), has_blocks=bool(blocks)
+            )
 
             result: dict[str, Any] = {
                 "status": "sent",
@@ -164,13 +167,13 @@ class NotificationService:
 
     async def send_servicenow_notification(
         self,
-        instance_url: Optional[str],
-        username: Optional[str],
-        password: Optional[str],
+        instance_url: str | None,
+        username: str | None,
+        password: str | None,
         table: str = "incident",
-        data: Optional[dict[str, Any]] = None,
-        short_description: Optional[str] = None,
-        description: Optional[str] = None,
+        data: dict[str, Any] | None = None,
+        short_description: str | None = None,
+        description: str | None = None,
         priority: int = 3,
         urgency: int = 3,
     ) -> dict[str, Any]:
@@ -250,12 +253,12 @@ class NotificationService:
 
     async def send_pagerduty_alert(
         self,
-        integration_key: Optional[str],
+        integration_key: str | None,
         summary: str,
         severity: str = "warning",
         source: str = "Mist Automation",
-        custom_details: Optional[dict[str, Any]] = None,
-        dedup_key: Optional[str] = None,
+        custom_details: dict[str, Any] | None = None,
+        dedup_key: str | None = None,
     ) -> dict[str, Any]:
         """
         Send alert to PagerDuty.
@@ -331,7 +334,7 @@ class NotificationService:
         self,
         url: str,
         payload: dict[str, Any],
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         method: str = "POST",
     ) -> dict[str, Any]:
         """
@@ -349,6 +352,10 @@ class NotificationService:
         Raises:
             NotificationError: If webhook fails
         """
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(url)
+
         try:
             # Prepare headers
             request_headers = {"Content-Type": "application/json"}
@@ -386,7 +393,7 @@ class NotificationService:
         to: list[str],
         subject: str,
         body: str,
-        from_address: Optional[str] = None,
+        from_address: str | None = None,
         html: bool = False,
     ) -> dict[str, Any]:
         """
@@ -408,9 +415,10 @@ class NotificationService:
         Raises:
             NotImplementedError: Email not yet implemented
         """
-        import aiosmtplib
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
+
+        import aiosmtplib
 
         if not settings.smtp_host:
             raise ConfigurationError("SMTP not configured")
@@ -419,9 +427,14 @@ class NotificationService:
         msg["From"] = from_address or settings.smtp_from_email
         msg["To"] = ", ".join(to) if isinstance(to, list) else to
         msg.attach(MIMEText(body, "html" if html else "plain"))
-        await aiosmtplib.send(msg, hostname=settings.smtp_host, port=settings.smtp_port,
-            username=settings.smtp_username, password=settings.smtp_password,
-            use_tls=settings.smtp_use_tls)
+        await aiosmtplib.send(
+            msg,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            use_tls=settings.smtp_use_tls,
+        )
 
         logger.info("email_sent", to=to, subject=subject)
         return {
@@ -462,7 +475,7 @@ class NotificationService:
             logger.error("template_rendering_failed", error=str(e))
             raise NotificationError(f"Failed to render template: {str(e)}")
 
-    async def test_slack_connection(self, webhook_url: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    async def test_slack_connection(self, webhook_url: str | None = None) -> tuple[bool, str | None]:
         """
         Test Slack webhook connection.
 
@@ -485,10 +498,10 @@ class NotificationService:
 
     async def test_servicenow_connection(
         self,
-        instance_url: Optional[str] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-    ) -> tuple[bool, Optional[str]]:
+        instance_url: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> tuple[bool, str | None]:
         """
         Test ServiceNow connection.
 
@@ -525,8 +538,8 @@ class NotificationService:
 
     async def test_pagerduty_connection(
         self,
-        integration_key: Optional[str] = None,
-    ) -> tuple[bool, Optional[str]]:
+        integration_key: str | None = None,
+    ) -> tuple[bool, str | None]:
         """
         Test PagerDuty integration.
 

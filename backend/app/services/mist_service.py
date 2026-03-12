@@ -3,19 +3,20 @@ Mist API service wrapper using the mistapi package.
 Provides abstraction layer for all Mist API interactions.
 """
 
-from typing import Any, Optional
 import asyncio
-import structlog
 from functools import lru_cache
+from typing import Any
 
-import mistapi
-from mistapi.api.v1.orgs import sites, wlans as org_wlans, templates, networks, deviceprofiles
-from mistapi.api.v1.sites import devices, maps, zones, wlans as site_wlans
-from mistapi.api.v1 import orgs as orgs_api
+import structlog
 from mistapi import APISession
+from mistapi.api.v1 import orgs as orgs_api
+from mistapi.api.v1.orgs import sites, templates
+from mistapi.api.v1.orgs import wlans as org_wlans
+from mistapi.api.v1.sites import devices
+from mistapi.api.v1.sites import wlans as site_wlans
 
 from app.config import settings
-from app.core.exceptions import MistAPIError, ConfigurationError
+from app.core.exceptions import ConfigurationError, MistAPIError
 
 logger = structlog.get_logger(__name__)
 
@@ -25,8 +26,8 @@ class MistService:
 
     def __init__(
         self,
-        api_token: Optional[str] = None,
-        org_id: Optional[str] = None,
+        api_token: str | None = None,
+        org_id: str | None = None,
         cloud_region: str = "global",
     ):
         """
@@ -85,7 +86,7 @@ class MistService:
             logger.error("mist_api_session_creation_failed", error=str(e))
             raise MistAPIError(f"Failed to create Mist API session: {str(e)}")
 
-    async def test_connection(self) -> tuple[bool, Optional[str]]:
+    async def test_connection(self) -> tuple[bool, str | None]:
         """
         Test Mist API connection and credentials.
 
@@ -94,11 +95,7 @@ class MistService:
         """
         try:
             # Try to get org details as a simple test
-            result = await asyncio.to_thread(
-                orgs_api.orgs.getOrg,
-                self.session,
-                self.org_id
-            )
+            result = await asyncio.to_thread(orgs_api.orgs.getOrg, self.session, self.org_id)
 
             if result.status_code == 200:
                 logger.info("mist_api_connection_successful", org_id=self.org_id)
@@ -126,11 +123,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                orgs_api.orgs.getOrg,
-                self.session,
-                self.org_id
-            )
+            result = await asyncio.to_thread(orgs_api.orgs.getOrg, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get org info: {result.status_code}")
@@ -155,11 +148,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                sites.listOrgSites,
-                self.session,
-                self.org_id
-            )
+            result = await asyncio.to_thread(sites.listOrgSites, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get sites: {result.status_code}")
@@ -185,12 +174,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                sites.getOrgSite,
-                self.session,
-                self.org_id,
-                site_id
-            )
+            result = await asyncio.to_thread(sites.getOrgSite, self.session, self.org_id, site_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get site: {result.status_code}")
@@ -204,7 +188,7 @@ class MistService:
 
     # ===== WLAN Operations =====
 
-    async def get_wlans(self, site_id: Optional[str] = None) -> list[dict[str, Any]]:
+    async def get_wlans(self, site_id: str | None = None) -> list[dict[str, Any]]:
         """
         Get WLANs (org-level or site-level).
 
@@ -220,18 +204,10 @@ class MistService:
         try:
             if site_id:
                 # Get site WLANs
-                result = await asyncio.to_thread(
-                    site_wlans.listSiteWlans,
-                    self.session,
-                    site_id
-                )
+                result = await asyncio.to_thread(site_wlans.listSiteWlans, self.session, site_id)
             else:
                 # Get org WLANs
-                result = await asyncio.to_thread(
-                    org_wlans.listOrgWlans,
-                    self.session,
-                    self.org_id
-                )
+                result = await asyncio.to_thread(org_wlans.listOrgWlans, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get WLANs: {result.status_code}")
@@ -258,12 +234,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                site_wlans.createSiteWlan,
-                self.session,
-                site_id,
-                wlan_data
-            )
+            result = await asyncio.to_thread(site_wlans.createSiteWlan, self.session, site_id, wlan_data)
 
             if result.status_code not in (200, 201):
                 raise MistAPIError(f"Failed to create WLAN: {result.status_code}")
@@ -291,13 +262,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                site_wlans.updateSiteWlan,
-                self.session,
-                site_id,
-                wlan_id,
-                wlan_data
-            )
+            result = await asyncio.to_thread(site_wlans.updateSiteWlan, self.session, site_id, wlan_id, wlan_data)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to update WLAN: {result.status_code}")
@@ -321,12 +286,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                site_wlans.deleteSiteWlan,
-                self.session,
-                site_id,
-                wlan_id
-            )
+            result = await asyncio.to_thread(site_wlans.deleteSiteWlan, self.session, site_id, wlan_id)
 
             if result.status_code not in (200, 204):
                 raise MistAPIError(f"Failed to delete WLAN: {result.status_code}")
@@ -350,11 +310,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(
-                templates.listOrgTemplates,
-                self.session,
-                self.org_id
-            )
+            result = await asyncio.to_thread(templates.listOrgTemplates, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get templates: {result.status_code}")
@@ -368,7 +324,7 @@ class MistService:
 
     # ===== Device Operations =====
 
-    async def get_devices(self, site_id: Optional[str] = None) -> list[dict[str, Any]]:
+    async def get_devices(self, site_id: str | None = None) -> list[dict[str, Any]]:
         """
         Get devices (org-level or site-level).
 
@@ -384,18 +340,10 @@ class MistService:
         try:
             if site_id:
                 # Get site devices
-                result = await asyncio.to_thread(
-                    devices.listSiteDevices,
-                    self.session,
-                    site_id
-                )
+                result = await asyncio.to_thread(devices.listSiteDevices, self.session, site_id)
             else:
                 # Get org devices
-                result = await asyncio.to_thread(
-                    orgs_api.devices.listOrgDevices,
-                    self.session,
-                    self.org_id
-                )
+                result = await asyncio.to_thread(orgs_api.devices.listOrgDevices, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get devices: {result.status_code}")
@@ -409,167 +357,53 @@ class MistService:
 
     # ===== Generic API Operations =====
 
-    async def api_get(self, endpoint: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        """
-        Generic GET request to Mist API.
+    async def _api_call(
+        self,
+        method: str,
+        endpoint: str,
+        success_codes: tuple[int, ...] = (200,),
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a Mist API call with common error handling."""
+        endpoint = endpoint.replace("{org_id}", self.org_id)
+        session_method = getattr(self.session, f"mist_{method}")
 
-        Args:
-            endpoint: API endpoint path (e.g., "/api/v1/orgs/{org_id}/sites")
-            params: Optional query parameters
-
-        Returns:
-            API response data
-
-        Raises:
-            MistAPIError: If API call fails
-        """
         try:
-            # Replace org_id placeholder
-            endpoint = endpoint.replace("{org_id}", self.org_id)
+            result = await asyncio.to_thread(session_method, endpoint, **kwargs)
 
-            result = await asyncio.to_thread(
-                self.session.mist_get,
-                endpoint,
-                query=params or {}
-            )
-
-            if result.status_code != 200:
+            if result.status_code not in success_codes:
                 raise MistAPIError(
-                    f"GET {endpoint} failed: {result.status_code}",
+                    f"{method.upper()} {endpoint} failed: {result.status_code}",
                     api_status_code=result.status_code,
                 )
 
-            logger.debug("api_get_success", endpoint=endpoint)
+            logger.info(f"api_{method}_success", endpoint=endpoint)
             return result.data
 
         except MistAPIError:
             raise
         except Exception as e:
-            logger.error("api_get_failed", endpoint=endpoint, error=str(e))
-            raise MistAPIError(f"GET request failed: {str(e)}")
+            logger.error(f"api_{method}_failed", endpoint=endpoint, error=str(e))
+            raise MistAPIError(f"{method.upper()} request failed: {str(e)}") from e
 
-    async def api_post(
-        self,
-        endpoint: str,
-        data: dict[str, Any],
-    ) -> dict[str, Any]:
-        """
-        Generic POST request to Mist API.
+    async def api_get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Generic GET request to Mist API."""
+        return await self._api_call("get", endpoint, query=params or {})
 
-        Args:
-            endpoint: API endpoint path
-            data: Request body data
+    async def api_post(self, endpoint: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Generic POST request to Mist API."""
+        return await self._api_call("post", endpoint, success_codes=(200, 201), body=data)
 
-        Returns:
-            API response data
+    async def api_put(self, endpoint: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Generic PUT request to Mist API."""
+        return await self._api_call("put", endpoint, body=data)
 
-        Raises:
-            MistAPIError: If API call fails
-        """
-        try:
-            # Replace org_id placeholder
-            endpoint = endpoint.replace("{org_id}", self.org_id)
-
-            result = await asyncio.to_thread(
-                self.session.mist_post,
-                endpoint,
-                body=data,
-            )
-
-            if result.status_code not in (200, 201):
-                raise MistAPIError(
-                    f"POST {endpoint} failed: {result.status_code}",
-                    api_status_code=result.status_code,
-                )
-
-            logger.info("api_post_success", endpoint=endpoint)
-            return result.data
-
-        except MistAPIError:
-            raise
-        except Exception as e:
-            logger.error("api_post_failed", endpoint=endpoint, error=str(e))
-            raise MistAPIError(f"POST request failed: {str(e)}")
-
-    async def api_put(
-        self,
-        endpoint: str,
-        data: dict[str, Any],
-    ) -> dict[str, Any]:
-        """
-        Generic PUT request to Mist API.
-
-        Args:
-            endpoint: API endpoint path
-            data: Request body data
-
-        Returns:
-            API response data
-
-        Raises:
-            MistAPIError: If API call fails
-        """
-        try:
-            # Replace org_id placeholder
-            endpoint = endpoint.replace("{org_id}", self.org_id)
-
-            result = await asyncio.to_thread(
-                self.session.mist_put,
-                endpoint,
-                body=data,
-            )
-
-            if result.status_code != 200:
-                raise MistAPIError(
-                    f"PUT {endpoint} failed: {result.status_code}",
-                    api_status_code=result.status_code,
-                )
-
-            logger.info("api_put_success", endpoint=endpoint)
-            return result.data
-
-        except MistAPIError:
-            raise
-        except Exception as e:
-            logger.error("api_put_failed", endpoint=endpoint, error=str(e))
-            raise MistAPIError(f"PUT request failed: {str(e)}")
-
-    async def api_delete(
-        self,
-        endpoint: str,
-        params: Optional[dict[str, Any]] = None
-    ) -> None:
-        """
-        Generic DELETE request to Mist API.
-
-        Args:
-            endpoint: API endpoint path
-            params: Optional query parameters
-
-        Raises:
-            MistAPIError: If API call fails
-        """
-        try:
-            # Replace org_id placeholder
-            endpoint = endpoint.replace("{org_id}", self.org_id)
-
-            result = await asyncio.to_thread(
-                self.session.mist_delete,
-                endpoint,
-                query=params or {}
-            )
-
-            if result.status_code not in (200, 204):
-                raise MistAPIError(f"DELETE {endpoint} failed: {result.status_code}")
-
-            logger.info("api_delete_success", endpoint=endpoint)
-
-        except Exception as e:
-            logger.error("api_delete_failed", endpoint=endpoint, error=str(e))
-            raise MistAPIError(f"DELETE request failed: {str(e)}")
+    async def api_delete(self, endpoint: str, params: dict[str, Any] | None = None) -> None:
+        """Generic DELETE request to Mist API."""
+        await self._api_call("delete", endpoint, success_codes=(200, 204), query=params or {})
 
 
-@lru_cache()
+@lru_cache
 def get_mist_service() -> MistService:
     """
     Get singleton instance of MistService.

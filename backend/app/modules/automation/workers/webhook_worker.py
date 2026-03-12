@@ -76,16 +76,22 @@ async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str,
         # Mark as processing (will be set to processed=True at the end)
         logger.info("webhook_processing_started", webhook_id=webhook_id, webhook_type=webhook_type)
 
-        # Find matching workflows — graph model stores trigger config in nodes
-        all_enabled = await Workflow.find(Workflow.status == WorkflowStatus.ENABLED).to_list()
-        matching_workflows = []
-        for wf in all_enabled:
-            trigger_node = wf.get_trigger_node()
-            if not trigger_node:
-                continue
-            cfg = trigger_node.config
-            if cfg.get("trigger_type") == "webhook" and (cfg.get("webhook_topic") or cfg.get("webhook_type")) == webhook_type:
-                matching_workflows.append(wf)
+        # Find matching workflows — filter at DB level using $elemMatch on trigger node config
+        matching_workflows = await Workflow.find(
+            {
+                "status": WorkflowStatus.ENABLED,
+                "nodes": {
+                    "$elemMatch": {
+                        "type": "trigger",
+                        "config.trigger_type": "webhook",
+                        "$or": [
+                            {"config.webhook_topic": webhook_type},
+                            {"config.webhook_type": webhook_type},
+                        ],
+                    }
+                },
+            }
+        ).to_list()
 
         logger.info(
             "workflows_matched", webhook_id=webhook_id, webhook_type=webhook_type, matched_count=len(matching_workflows)

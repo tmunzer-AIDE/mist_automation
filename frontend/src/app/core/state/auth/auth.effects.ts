@@ -26,7 +26,11 @@ export class AuthEffects {
             });
           }),
           catchError((error) =>
-            of(AuthActions.loginFailure({ error: error.message || 'Login failed' })),
+            of(
+              AuthActions.loginFailure({
+                error: error.error?.detail || error.error?.message || 'Login failed',
+              }),
+            ),
           ),
         ),
       ),
@@ -47,7 +51,11 @@ export class AuthEffects {
         this.authService.me().pipe(
           map((user) => AuthActions.loadUserSuccess({ user })),
           catchError((error) =>
-            of(AuthActions.loadUserFailure({ error: error.message || 'Failed to load user' })),
+            of(
+              AuthActions.loadUserFailure({
+                error: error.error?.detail || error.error?.message || 'Failed to load user',
+              }),
+            ),
           ),
         ),
       ),

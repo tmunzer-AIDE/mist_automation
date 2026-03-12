@@ -12,6 +12,7 @@ import {
   passwordValidator,
   matchPasswordValidator,
 } from '../../../shared/validators/password.validator';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-password-change',
@@ -130,7 +131,7 @@ export class PasswordChangeComponent implements OnInit {
         },
         error: (err) => {
           this.saving.set(false);
-          this.snackBar.open(err.message, 'OK', { duration: 5000 });
+          this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
         },
       });
   }

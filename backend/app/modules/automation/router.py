@@ -10,9 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.tasks import create_background_task
 from app.dependencies import get_current_user_from_token
-from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
 from app.models.user import User
-from app.modules.automation.models.workflow import Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus, SharingPermission
+from app.modules.automation.api_catalog import API_CATALOG
+from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
+from app.modules.automation.models.workflow import (
+    SharingPermission,
+    Workflow,
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowStatus,
+)
 from app.modules.automation.schemas.workflow import (
     InlineGraphRequest,
     SimulateRequest,
@@ -21,7 +28,6 @@ from app.modules.automation.schemas.workflow import (
     WorkflowResponse,
     WorkflowUpdate,
 )
-from app.modules.automation.api_catalog import API_CATALOG
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -116,10 +122,21 @@ async def list_all_executions(
     limit: int = Query(25, ge=1, le=100),
     status_filter: str | None = Query(None, description="Filter by execution status"),
     trigger_type: str | None = Query(None, description="Filter by trigger type"),
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(get_current_user_from_token),
 ):
-    """List all workflow executions across all workflows."""
-    match: dict = {}
+    """List all workflow executions across all workflows accessible to the current user."""
+    # Only show executions for workflows the user can access
+    accessible_wfs = await Workflow.find(
+        {
+            "$or": [
+                {"created_by": current_user.id},
+                {"sharing": {"$in": [SharingPermission.READ_ONLY, SharingPermission.READ_WRITE]}},
+            ]
+        }
+    ).to_list()
+    accessible_ids = [wf.id for wf in accessible_wfs]
+
+    match: dict = {"workflow_id": {"$in": accessible_ids}}
     if status_filter:
         match["status"] = status_filter
     if trigger_type:
@@ -177,7 +194,7 @@ async def list_all_executions(
 @router.post("/executions/{execution_id}/cancel", tags=["Executions"])
 async def cancel_execution(
     execution_id: str,
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(get_current_user_from_token),
 ):
     """Cancel a pending or running execution."""
     try:
@@ -189,6 +206,11 @@ async def cancel_execution(
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
 
+    # Verify user can access the parent workflow
+    workflow = await Workflow.get(execution.workflow_id)
+    if not workflow or not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     if execution.status not in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -199,7 +221,7 @@ async def cancel_execution(
     execution.add_log("Execution cancelled by user", "info")
     await execution.save()
 
-    logger.info("execution_cancelled", execution_id=execution_id, user_id=str(_current_user.id))
+    logger.info("execution_cancelled", execution_id=execution_id, user_id=str(current_user.id))
     return {"status": execution.status.value, "message": "Execution cancelled"}
 
 
@@ -337,8 +359,8 @@ async def execute_workflow(
         ex = await WorkflowExecution.get(PydanticObjectId(ex_id))
         if not wf or not ex:
             return
-        from app.services.mist_service_factory import create_mist_service
         from app.modules.automation.services.executor_service import WorkflowExecutor
+        from app.services.mist_service_factory import create_mist_service
 
         try:
             mist_service = await create_mist_service()
@@ -457,7 +479,9 @@ async def get_workflow_execution(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
 
     if execution.workflow_id != wf_oid:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Execution does not belong to this workflow")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Execution does not belong to this workflow"
+        )
 
     return {
         "id": str(execution.id),
@@ -521,7 +545,7 @@ async def get_workflow_execution(
 async def get_available_variables(
     workflow_id: str,
     node_id: str,
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(get_current_user_from_token),
 ):
     """Get variables available to a specific node from upstream nodes."""
     try:
@@ -531,6 +555,9 @@ async def get_available_variables(
 
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     from app.modules.automation.services.node_schema_service import get_available_variables as _get_vars
 
@@ -596,6 +623,9 @@ async def simulate_workflow(
 
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     # Determine trigger payload
     trigger_data = request.payload or {}
@@ -695,8 +725,8 @@ async def simulate_workflow(
         return {"execution_id": str(execution.id), "status": "pending"}
 
     # Synchronous fallback (no stream_id)
-    from app.services.mist_service_factory import create_mist_service
     from app.modules.automation.services.executor_service import WorkflowExecutor
+    from app.services.mist_service_factory import create_mist_service
 
     try:
         mist_service = await create_mist_service()
@@ -756,7 +786,7 @@ def _build_simulation_result(execution: WorkflowExecution) -> dict:
 async def get_sample_payloads(
     workflow_id: str,
     limit: int = Query(10, ge=1, le=50),
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(get_current_user_from_token),
 ):
     """Get recent webhook events matching the workflow's trigger type for simulation."""
     try:
@@ -766,6 +796,9 @@ async def get_sample_payloads(
 
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     # Find the trigger node
     trigger_node = workflow.get_trigger_node()
@@ -779,10 +812,7 @@ async def get_sample_payloads(
     from app.modules.automation.models.webhook import WebhookEvent
 
     events = (
-        await WebhookEvent.find(WebhookEvent.webhook_type == webhook_type)
-        .sort("-received_at")
-        .limit(limit)
-        .to_list()
+        await WebhookEvent.find(WebhookEvent.webhook_type == webhook_type).sort("-received_at").limit(limit).to_list()
     )
 
     return {

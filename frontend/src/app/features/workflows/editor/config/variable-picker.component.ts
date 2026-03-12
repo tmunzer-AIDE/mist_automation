@@ -34,6 +34,21 @@ interface FilterDef {
     FormsModule,
   ],
   template: `
+    <ng-template #filterMenu let-varNode>
+      @if (filterMenuNode?.path === varNode.path) {
+        <div class="filter-menu" (click)="$event.stopPropagation()">
+          @for (f of availableFilters; track f.name) {
+            <div
+              class="filter-item"
+              (click)="selectWithFilter(varNode, f.syntax)"
+              [matTooltip]="f.description"
+            >
+              <code>| {{ f.name }}</code>
+            </div>
+          }
+        </div>
+      }
+    </ng-template>
     <div class="variable-picker">
       <div class="picker-header" (click)="$event.stopPropagation()">
         <span class="picker-title">Insert Variable</span>
@@ -78,19 +93,7 @@ interface FilterDef {
                     >|</button>
                   }
                 </div>
-                @if (filterMenuNode?.path === node.path) {
-                  <div class="filter-menu" (click)="$event.stopPropagation()">
-                    @for (f of availableFilters; track f.name) {
-                      <div
-                        class="filter-item"
-                        (click)="selectWithFilter(node, f.syntax)"
-                        [matTooltip]="f.description"
-                      >
-                        <code>| {{ f.name }}</code>
-                      </div>
-                    }
-                  </div>
-                }
+                <ng-container *ngTemplateOutlet="filterMenu; context: { $implicit: node }"></ng-container>
                 @if (node.children?.length) {
                   @for (child of node.children; track child.path) {
                     <div
@@ -107,19 +110,7 @@ interface FilterDef {
                         matTooltip="Apply filter"
                       >|</button>
                     </div>
-                    @if (filterMenuNode?.path === child.path) {
-                      <div class="filter-menu" (click)="$event.stopPropagation()">
-                        @for (f of availableFilters; track f.name) {
-                          <div
-                            class="filter-item"
-                            (click)="selectWithFilter(child, f.syntax)"
-                            [matTooltip]="f.description"
-                          >
-                            <code>| {{ f.name }}</code>
-                          </div>
-                        }
-                      </div>
-                    }
+                    <ng-container *ngTemplateOutlet="filterMenu; context: { $implicit: child }"></ng-container>
                   }
                 }
               }
@@ -146,19 +137,7 @@ interface FilterDef {
                     matTooltip="Apply filter"
                   >|</button>
                 </div>
-                @if (filterMenuNode?.path === u.path) {
-                  <div class="filter-menu" (click)="$event.stopPropagation()">
-                    @for (f of availableFilters; track f.name) {
-                      <div
-                        class="filter-item"
-                        (click)="selectWithFilter(u, f.syntax)"
-                        [matTooltip]="f.description"
-                      >
-                        <code>| {{ f.name }}</code>
-                      </div>
-                    }
-                  </div>
-                }
+                <ng-container *ngTemplateOutlet="filterMenu; context: { $implicit: u }"></ng-container>
               }
             }
           </div>

@@ -10,6 +10,7 @@ import { StatusBadgeComponent } from '../status-badge/status-badge.component';
 import { DateTimePipe } from '../../pipes/date-time.pipe';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
 import { WebhookEventDetail } from '../../../core/models/webhook-event.model';
+import { getStatusClass } from '../../utils/http-status.utils';
 
 @Component({
   selector: 'app-webhook-event-detail-dialog',
@@ -201,12 +202,12 @@ import { WebhookEventDetail } from '../../../core/models/webhook-event.model';
         text-transform: capitalize;
       }
       .chip-automation {
-        background: #eff6ff;
-        color: #1d4ed8;
+        background: var(--app-info-chip-bg);
+        color: var(--app-info-chip);
       }
       .chip-backup {
-        background: #ecfdf5;
-        color: #047857;
+        background: var(--app-success-bg);
+        color: var(--app-success);
       }
       .http-status {
         font-family: monospace;
@@ -214,18 +215,6 @@ import { WebhookEventDetail } from '../../../core/models/webhook-event.model';
         font-size: 13px;
         padding: 2px 8px;
         border-radius: 4px;
-      }
-      .status-ok {
-        background: #ecfdf5;
-        color: #047857;
-      }
-      .status-client-error {
-        background: #fef2f2;
-        color: #b91c1c;
-      }
-      .status-server-error {
-        background: #fef2f2;
-        color: #991b1b;
       }
       .tab-content {
         padding: 16px 0;
@@ -318,10 +307,5 @@ export class WebhookEventDetailDialogComponent implements OnInit {
     });
   }
 
-  getStatusClass(code: number): string {
-    if (code >= 200 && code < 300) return 'status-ok';
-    if (code >= 400 && code < 500) return 'status-client-error';
-    if (code >= 500) return 'status-server-error';
-    return '';
-  }
+  readonly getStatusClass = getStatusClass;
 }

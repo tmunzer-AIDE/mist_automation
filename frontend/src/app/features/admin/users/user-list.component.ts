@@ -20,6 +20,7 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { UserDialogComponent } from './user-dialog.component';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-user-list',
@@ -134,7 +135,7 @@ export class UserListComponent implements OnInit {
             this.snackBar.open('User deleted', 'OK', { duration: 3000 });
             this.loadUsers();
           },
-          error: (err) => this.snackBar.open(err.message, 'OK', { duration: 5000 }),
+          error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
         });
       }
     });

@@ -23,14 +23,28 @@ export class DateTimePipe implements PipeTransform {
   private readonly store = inject(Store);
   private readonly destroyRef = inject(DestroyRef);
   private userTimezone: string | undefined;
+  private formatCache = new Map<string, Intl.DateTimeFormat>();
 
   constructor() {
     this.store
       .select(selectCurrentUser)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((user) => {
-        this.userTimezone = user?.timezone || undefined;
+        const tz = user?.timezone || undefined;
+        if (tz !== this.userTimezone) {
+          this.userTimezone = tz;
+          this.formatCache.clear();
+        }
       });
+  }
+
+  private getFormatter(key: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+    let fmt = this.formatCache.get(key);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-GB', options);
+      this.formatCache.set(key, fmt);
+    }
+    return fmt;
   }
 
   transform(value: string | Date | null | undefined, format?: string): string {
@@ -43,7 +57,7 @@ export class DateTimePipe implements PipeTransform {
 
       switch (format) {
         case 'short':
-          return new Intl.DateTimeFormat('en-GB', {
+          return this.getFormatter('short', {
             ...tzOpt,
             day: '2-digit',
             month: 'short',
@@ -55,7 +69,7 @@ export class DateTimePipe implements PipeTransform {
           }).format(date);
 
         case 'date':
-          return new Intl.DateTimeFormat('en-GB', {
+          return this.getFormatter('date', {
             ...tzOpt,
             day: '2-digit',
             month: 'short',
@@ -63,7 +77,7 @@ export class DateTimePipe implements PipeTransform {
           }).format(date);
 
         case 'time-ms': {
-          const parts = new Intl.DateTimeFormat('en-GB', {
+          const parts = this.getFormatter('time-ms', {
             ...tzOpt,
             hour: '2-digit',
             minute: '2-digit',
@@ -76,7 +90,7 @@ export class DateTimePipe implements PipeTransform {
         }
 
         default:
-          return new Intl.DateTimeFormat('en-GB', {
+          return this.getFormatter('default', {
             ...tzOpt,
             year: 'numeric',
             month: '2-digit',

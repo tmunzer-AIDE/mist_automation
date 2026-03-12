@@ -12,6 +12,8 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDividerModule } from '@angular/material/divider';
 import { SettingsService } from '../settings.service';
+import { SystemSettings } from '../../../../core/models/admin.model';
+import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-settings-backups',
@@ -141,21 +143,6 @@ import { SettingsService } from '../settings.service';
   `,
   styles: [
     `
-      .tab-form {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      mat-card-content {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding-top: 16px;
-      }
-      mat-form-field {
-        width: 100%;
-        max-width: 500px;
-      }
       .subsection-title {
         font-size: 14px;
         font-weight: 500;
@@ -222,27 +209,37 @@ export class SettingsBackupsComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.settingsService.load().subscribe({
-      next: (s) => {
-        const parsed = this.parseCron(s.backup_full_schedule_cron || '0 2 * * *');
-        this.form.patchValue({
-          backup_enabled: s.backup_enabled,
-          schedule_frequency: parsed.frequency,
-          schedule_hour: parsed.hour,
-          schedule_day_of_week: parsed.dayOfWeek,
-          schedule_day_of_month: parsed.dayOfMonth,
-          backup_retention_days: s.backup_retention_days,
-          backup_git_enabled: s.backup_git_enabled,
-          backup_git_repo_url: s.backup_git_repo_url || '',
-          backup_git_branch: s.backup_git_branch,
-          backup_git_author_name: s.backup_git_author_name,
-          backup_git_author_email: s.backup_git_author_email,
-        });
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-      },
+    const cached = this.settingsService.current;
+    if (cached) {
+      this.populateForm(cached);
+      this.loading.set(false);
+    } else {
+      this.settingsService.load().subscribe({
+        next: (s) => {
+          this.populateForm(s);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
+      });
+    }
+  }
+
+  private populateForm(s: SystemSettings): void {
+    const parsed = this.parseCron(s.backup_full_schedule_cron || '0 2 * * *');
+    this.form.patchValue({
+      backup_enabled: s.backup_enabled,
+      schedule_frequency: parsed.frequency,
+      schedule_hour: parsed.hour,
+      schedule_day_of_week: parsed.dayOfWeek,
+      schedule_day_of_month: parsed.dayOfMonth,
+      backup_retention_days: s.backup_retention_days,
+      backup_git_enabled: s.backup_git_enabled,
+      backup_git_repo_url: s.backup_git_repo_url || '',
+      backup_git_branch: s.backup_git_branch,
+      backup_git_author_name: s.backup_git_author_name,
+      backup_git_author_email: s.backup_git_author_email,
     });
   }
 
@@ -269,7 +266,7 @@ export class SettingsBackupsComponent implements OnInit {
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(err.message, 'OK', { duration: 5000 });
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
     });
   }

@@ -6,6 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { DurationPipe } from '../../../shared/pipes/duration.pipe';
 import { WorkflowExecution } from '../../../core/models/workflow.model';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { ExecutionDetailDialogComponent } from './execution-detail-dialog.component';
@@ -21,6 +22,7 @@ import { ExecutionDetailDialogComponent } from './execution-detail-dialog.compon
     MatProgressBarModule,
     StatusBadgeComponent,
     DateTimePipe,
+    DurationPipe,
   ],
   template: `
     <h2 mat-dialog-title>Executions ({{ total() }})</h2>
@@ -48,7 +50,7 @@ import { ExecutionDetailDialogComponent } from './execution-detail-dialog.compon
 
           <ng-container matColumnDef="duration">
             <th mat-header-cell *matHeaderCellDef>Duration</th>
-            <td mat-cell *matCellDef="let ex">{{ formatDuration(ex.duration_ms) }}</td>
+            <td mat-cell *matCellDef="let ex">{{ ex.duration_ms | duration }}</td>
           </ng-container>
 
           <ng-container matColumnDef="nodes_executed">
@@ -123,9 +125,4 @@ export class ExecutionsListDialogComponent implements OnInit {
     });
   }
 
-  formatDuration(ms: number | null): string {
-    if (!ms) return '\u2014';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
 }

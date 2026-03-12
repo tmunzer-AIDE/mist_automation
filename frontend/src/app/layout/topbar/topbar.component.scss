@@ -11,11 +11,6 @@ mat-toolbar {
   padding: 0 12px;
 }
 
-::ng-deep .mat-toolbar-row,
-::ng-deep .mat-toolbar-single-row {
-  height: 56px;
-}
-
 .spacer {
   flex: 1;
 }

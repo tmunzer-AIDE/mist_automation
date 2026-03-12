@@ -20,7 +20,6 @@ from jinja2 import (
 )
 from jinja2.sandbox import SandboxedEnvironment
 
-
 # ── Custom Jinja2 filters ───────────────────────────────────────────────────
 
 
@@ -48,6 +47,14 @@ def create_jinja_env(strict: bool = False) -> SandboxedEnvironment:
         env = SandboxedEnvironment(undefined=ChainableUndefined)
     env.filters["datetimeformat"] = _datetimeformat
     return env
+
+
+def strip_template_braces(value: str) -> str:
+    """Strip Jinja2 template braces from a value, e.g. '{{ trigger.events }}' → 'trigger.events'."""
+    value = value.strip()
+    if value.startswith("{{") and value.endswith("}}"):
+        return value[2:-2].strip()
+    return value
 
 
 class VariableSubstitutionError(Exception):

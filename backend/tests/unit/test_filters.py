@@ -18,6 +18,8 @@ class TestTriggerConditionEvaluation:
     def setup_method(self):
         self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
         self.executor.mist_service = MagicMock()
+        self.executor._cached_render_context = None
+        self.executor._node_name_patterns = None
         self.executor.variable_context = {
             "trigger": {
                 "topic": "alarms",
@@ -43,21 +45,15 @@ class TestTriggerConditionEvaluation:
         assert result is False
 
     def test_flat_field_access(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ device_name == 'AP-01' }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ device_name == 'AP-01' }}")
         assert result is True
 
     def test_flat_field_mismatch(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ device_name == 'SW-01' }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ device_name == 'SW-01' }}")
         assert result is False
 
     def test_severity_critical(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ severity == 'critical' }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ severity == 'critical' }}")
         assert result is True
 
     def test_numeric_comparison(self):
@@ -73,33 +69,23 @@ class TestTriggerConditionEvaluation:
         assert result is True
 
     def test_and_condition(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ type == 'ap_offline' and severity == 'critical' }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ type == 'ap_offline' and severity == 'critical' }}")
         assert result is True
 
     def test_and_condition_partial_fail(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ type == 'ap_offline' and severity == 'major' }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ type == 'ap_offline' and severity == 'major' }}")
         assert result is False
 
     def test_or_condition(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ severity == 'critical' or severity == 'major' }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ severity == 'critical' or severity == 'major' }}")
         assert result is True
 
     def test_in_operator(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ severity in ['critical', 'major'] }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ severity in ['critical', 'major'] }}")
         assert result is True
 
     def test_not_in_operator(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ severity not in ['info', 'warning'] }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ severity not in ['info', 'warning'] }}")
         assert result is True
 
     def test_empty_expression_is_falsy(self):
@@ -119,9 +105,7 @@ class TestTriggerConditionEvaluation:
         assert result is False
 
     def test_contains_check(self):
-        result = self.executor._evaluate_condition_expression(
-            "{{ 'offline' in type }}"
-        )
+        result = self.executor._evaluate_condition_expression("{{ 'offline' in type }}")
         assert result is True
 
 
@@ -134,9 +118,7 @@ class TestTriggerConditionValidation:
         assert error is None
 
     def test_valid_complex_expression(self):
-        is_valid, error = validate_template(
-            "{{ severity in ['critical', 'major'] and count > 0 }}"
-        )
+        is_valid, error = validate_template("{{ severity in ['critical', 'major'] and count > 0 }}")
         assert is_valid is True
         assert error is None
 
@@ -168,6 +150,8 @@ class TestSaveAsVariableStorage:
     def setup_method(self):
         self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
         self.executor.mist_service = MagicMock()
+        self.executor._cached_render_context = None
+        self.executor._node_name_patterns = None
         self.executor.variable_context = {
             "trigger": {"type": "alarm"},
             "results": {},
@@ -195,8 +179,16 @@ class TestSetVariableAction:
     def setup_method(self):
         self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
         self.executor.mist_service = MagicMock()
+        self.executor._cached_render_context = None
+        self.executor._node_name_patterns = None
         self.executor.variable_context = {
-            "trigger": {"topic": "alarms", "type": "ap_offline", "severity": "critical", "org_id": "test-org", "site_id": "test-site"},
+            "trigger": {
+                "topic": "alarms",
+                "type": "ap_offline",
+                "severity": "critical",
+                "org_id": "test-org",
+                "site_id": "test-site",
+            },
             "results": {},
         }
 
@@ -226,6 +218,8 @@ class TestForEachAction:
     def setup_method(self):
         self.executor = WorkflowExecutor.__new__(WorkflowExecutor)
         self.executor.mist_service = MagicMock()
+        self.executor._cached_render_context = None
+        self.executor._node_name_patterns = None
         self.executor.variable_context = {
             "trigger": {},
             "results": {
@@ -239,6 +233,7 @@ class TestForEachAction:
 
     def _make_for_each_node(self, loop_over, loop_variable="site", max_iterations=100):
         from app.modules.automation.models.workflow import WorkflowNode
+
         return WorkflowNode(
             id="foreach-1",
             type="for_each",

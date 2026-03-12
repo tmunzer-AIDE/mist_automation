@@ -10,11 +10,13 @@ import copy
 import json
 import re
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import httpx
 import structlog
+
 from app.core.exceptions import WorkflowExecutionError, WorkflowTimeoutError
 from app.modules.automation.models.execution import (
     ExecutionStatus,
@@ -22,9 +24,9 @@ from app.modules.automation.models.execution import (
     NodeSnapshot,
     WorkflowExecution,
 )
-from app.modules.automation.models.workflow import ActionType, Workflow, WorkflowNode
+from app.modules.automation.models.workflow import Workflow, WorkflowNode
 from app.services.mist_service import MistService
-from app.utils.variables import create_jinja_env, get_nested_value
+from app.utils.variables import create_jinja_env, get_nested_value, strip_template_braces
 
 logger = structlog.get_logger(__name__)
 
@@ -39,8 +41,10 @@ class WorkflowExecutor:
 
     def __init__(self, mist_service: MistService | None = None, progress_callback: ProgressCallback = None):
         self.mist_service = mist_service or MistService()
-        self.variable_context: dict[str, Any] = {}
+        self.variable_context: dict[str, Any] = {"trigger": {}, "nodes": {}, "results": {}}
         self._progress_callback = progress_callback
+        self._cached_render_context: dict[str, Any] | None = None
+        self._node_name_patterns: list[tuple[re.Pattern, str]] | None = None
 
     async def execute_workflow(
         self,
@@ -163,9 +167,7 @@ class WorkflowExecutor:
         node_map = {n.id: n for n in workflow.nodes}
         adjacency: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
         for edge in workflow.edges:
-            adjacency[edge.source_node_id].append(
-                (edge.source_port_id, edge.target_node_id, edge.target_port_id)
-            )
+            adjacency[edge.source_node_id].append((edge.source_port_id, edge.target_node_id, edge.target_port_id))
 
         # Find trigger node
         trigger_node = workflow.get_trigger_node()
@@ -328,10 +330,12 @@ class WorkflowExecutor:
                 execution.add_node_result(node_result)
                 execution.add_log(f"Node '{node.name or node.id}' succeeded")
 
-                # Store output in variable context
+                # Store output in variable context and invalidate caches
                 self.variable_context["nodes"][node.id] = result
                 if node.name:
                     self.variable_context["nodes"][node.name] = result
+                self._invalidate_render_cache()
+                self._node_name_patterns = None
 
                 # Handle save_as bindings
                 if node.save_as and result:
@@ -375,9 +379,7 @@ class WorkflowExecutor:
                     if loop_body_edges:
                         config = node.config
                         loop_over_raw = config.get("loop_over", "")
-                        loop_over = loop_over_raw.strip()
-                        if loop_over.startswith("{{") and loop_over.endswith("}}"):
-                            loop_over = loop_over[2:-2].strip()
+                        loop_over = strip_template_braces(loop_over_raw)
                         collection = get_nested_value(self.variable_context, loop_over) or []
                         max_iterations = config.get("max_iterations", 100)
                         items = collection[:max_iterations]
@@ -393,6 +395,7 @@ class WorkflowExecutor:
                             self.variable_context["nodes"][node.id] = item_output
                             if node.name:
                                 self.variable_context["nodes"][node.name] = item_output
+                            self._invalidate_render_cache()
 
                             # Traverse loop body with fresh visited set each iteration
                             body_visited: set[str] = {node.id}
@@ -418,6 +421,8 @@ class WorkflowExecutor:
                         self.variable_context["nodes"][node.id] = result
                         if node.name:
                             self.variable_context["nodes"][node.name] = result
+                        self._invalidate_render_cache()
+                        self._node_name_patterns = None
 
                 # Determine which edges to follow based on node type
                 next_edges = self._resolve_output_edges(node, result, adjacency)
@@ -606,54 +611,75 @@ class WorkflowExecutor:
 
     # ── Template rendering ───────────────────────────────────────────────────
 
+    def _invalidate_render_cache(self) -> None:
+        """Invalidate the cached render context (call after each node execution)."""
+        self._cached_render_context = None
+
+    def _rebuild_node_name_patterns(self) -> None:
+        """Rebuild compiled regex patterns for node names with spaces."""
+        nodes = self.variable_context.get("nodes", {})
+        names_with_spaces = sorted(
+            [name for name in nodes if " " in name],
+            key=len,
+            reverse=True,
+        )
+        self._node_name_patterns = []
+        for name in names_with_spaces:
+            pattern = re.compile(r"nodes\." + re.escape(name) + r"((?:\.\w+)*)")
+            safe_name = name.replace("\\", "\\\\").replace('"', '\\"')
+            self._node_name_patterns.append((pattern, safe_name))
+
     def _build_render_context(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Build a Jinja2 rendering context from the full variable context.
 
         Includes trigger, results, nodes (with sanitized name aliases), loop/item,
-        and utility values (now, now_iso, etc.).
+        and utility values (now, now_iso, etc.). Uses cached base context when possible.
         """
-        context: dict[str, Any] = {}
+        if self._cached_render_context is None:
+            context: dict[str, Any] = {}
 
-        # Add trigger data at root level (for {{ topic }}, {{ events }}) AND under "trigger" key
-        trigger_data = self.variable_context.get("trigger")
-        if trigger_data:
-            context.update(trigger_data)
-            context["trigger"] = trigger_data
+            # Add trigger data at root level (for {{ topic }}, {{ events }}) AND under "trigger" key
+            trigger_data = self.variable_context.get("trigger")
+            if trigger_data:
+                context.update(trigger_data)
+                context["trigger"] = trigger_data
 
-        # Add saved results
-        results = self.variable_context.get("results")
-        if results:
-            for key, value in results.items():
-                context[key] = value
+            # Add saved results
+            results = self.variable_context.get("results")
+            if results:
+                for key, value in results.items():
+                    context[key] = value
 
-        # Add nodes with sanitized name aliases (spaces → underscores)
-        nodes = self.variable_context.get("nodes", {})
-        sanitized_nodes: dict[str, Any] = {}
-        for key, value in nodes.items():
-            sanitized_nodes[key] = value
-            sanitized = key.replace(" ", "_")
-            if sanitized != key:
-                sanitized_nodes[sanitized] = value
-        context["nodes"] = sanitized_nodes
+            # Add nodes with sanitized name aliases (spaces → underscores)
+            nodes = self.variable_context.get("nodes", {})
+            sanitized_nodes: dict[str, Any] = {}
+            for key, value in nodes.items():
+                sanitized_nodes[key] = value
+                sanitized = key.replace(" ", "_")
+                if sanitized != key:
+                    sanitized_nodes[sanitized] = value
+            context["nodes"] = sanitized_nodes
 
-        # Add loop context
-        if "loop" in self.variable_context:
-            context["loop"] = self.variable_context["loop"]
-        if "item" in self.variable_context:
-            context["item"] = self.variable_context["item"]
+            # Add loop context
+            if "loop" in self.variable_context:
+                context["loop"] = self.variable_context["loop"]
+            if "item" in self.variable_context:
+                context["item"] = self.variable_context["item"]
 
-        # Utility values
-        from datetime import datetime, timezone as tz
+            self._cached_render_context = context
 
-        context["now"] = datetime.now(tz.utc)
-        context["now_iso"] = datetime.now(tz.utc).isoformat()
-        context["now_timestamp"] = int(datetime.now(tz.utc).timestamp())
+        # Utility values are always fresh (time-dependent)
+        result = {**self._cached_render_context}
+        now = datetime.now(timezone.utc)
+        result["now"] = now
+        result["now_iso"] = now.isoformat()
+        result["now_timestamp"] = int(now.timestamp())
 
         if extra:
-            context.update(extra)
+            result.update(extra)
 
-        return context
+        return result
 
     def _normalize_template(self, template: str) -> str:
         """
@@ -666,25 +692,14 @@ class WorkflowExecutor:
         if "nodes." not in template:
             return template
 
-        # Collect node names that contain spaces (sorted longest-first to avoid partial matches)
-        nodes = self.variable_context.get("nodes", {})
-        names_with_spaces = sorted(
-            [name for name in nodes if " " in name],
-            key=len,
-            reverse=True,
-        )
-        if not names_with_spaces:
+        # Build patterns once per execution, reuse across all templates
+        if self._node_name_patterns is None:
+            self._rebuild_node_name_patterns()
+
+        if not self._node_name_patterns:
             return template
 
-        for name in names_with_spaces:
-            # Match  nodes.<name>  optionally followed by  .<field>.<subfield>...
-            # Use re.escape to handle any special regex chars in node names
-            pattern = re.compile(
-                r"nodes\." + re.escape(name) + r"((?:\.\w+)*)"
-            )
-
-            # Escape quotes in the node name to prevent bracket-notation injection
-            safe_name = name.replace("\\", "\\\\").replace('"', '\\"')
+        for pattern, safe_name in self._node_name_patterns:
 
             def _replace(m: re.Match, _safe=safe_name) -> str:
                 suffix = m.group(1)  # e.g. ".site_id" or ".foo.bar" or ""
@@ -777,6 +792,11 @@ class WorkflowExecutor:
     async def _execute_webhook(self, config: dict) -> dict[str, Any]:
         """Execute webhook action."""
         url = self._render_template(config.get("webhook_url", ""))
+
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(url)
+
         headers = self._render_dict(config.get("webhook_headers", {}) or {})
         body = self._render_dict(config.get("webhook_body", {}) or {})
 
@@ -913,9 +933,7 @@ class WorkflowExecutor:
         config = node.config
         loop_over_raw = config.get("loop_over", "")
         # Strip Jinja2 template braces if present (e.g. "{{ trigger.events }}" → "trigger.events")
-        loop_over = loop_over_raw.strip()
-        if loop_over.startswith("{{") and loop_over.endswith("}}"):
-            loop_over = loop_over[2:-2].strip()
+        loop_over = strip_template_braces(loop_over_raw)
         collection = get_nested_value(self.variable_context, loop_over)
 
         if collection is None:
@@ -934,9 +952,7 @@ class WorkflowExecutor:
     async def _execute_data_transform(self, config: dict) -> dict[str, Any]:
         """Extract and filter fields from a data array."""
         source_raw = config.get("source", "")
-        source = source_raw.strip()
-        if source.startswith("{{") and source.endswith("}}"):
-            source = source[2:-2].strip()
+        source = strip_template_braces(source_raw)
         collection = get_nested_value(self.variable_context, source)
 
         if collection is None:
@@ -1027,9 +1043,7 @@ class WorkflowExecutor:
         """Format structured data as a table report."""
         # Resolve rows
         data_source_raw = config.get("data_source", "")
-        data_source = data_source_raw.strip()
-        if data_source.startswith("{{") and data_source.endswith("}}"):
-            data_source = data_source[2:-2].strip()
+        data_source = strip_template_braces(data_source_raw)
         rows = get_nested_value(self.variable_context, data_source)
 
         if rows is None:
@@ -1041,9 +1055,7 @@ class WorkflowExecutor:
         columns: list[dict[str, str]] | None = None
         columns_source_raw = config.get("columns_source", "")
         if columns_source_raw:
-            cs = columns_source_raw.strip()
-            if cs.startswith("{{") and cs.endswith("}}"):
-                cs = cs[2:-2].strip()
+            cs = strip_template_braces(columns_source_raw)
             columns = get_nested_value(self.variable_context, cs)
 
         # Auto-detect from first row
@@ -1160,19 +1172,25 @@ class WorkflowExecutor:
         # Build aligned text table and wrap in a rich_text preformatted block
         table_text = WorkflowExecutor._format_table(rows[:99], columns, "slack")
         if table_text:
-            blocks.append({
-                "type": "rich_text",
-                "elements": [{
-                    "type": "rich_text_preformatted",
-                    "elements": [{"type": "text", "text": table_text}],
-                }],
-            })
+            blocks.append(
+                {
+                    "type": "rich_text",
+                    "elements": [
+                        {
+                            "type": "rich_text_preformatted",
+                            "elements": [{"type": "text", "text": table_text}],
+                        }
+                    ],
+                }
+            )
 
         if footer:
-            blocks.append({
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": footer}],
-            })
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": footer}],
+                }
+            )
 
         return blocks
 
@@ -1186,11 +1204,12 @@ class WorkflowExecutor:
             text = str(data)
         if len(text) > MAX_LEN:
             text = text[:MAX_LEN] + "\n… (truncated)"
-        return [{
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_preformatted",
-                           "elements": [{"type": "text", "text": text}]}],
-        }]
+        return [
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_preformatted", "elements": [{"type": "text", "text": text}]}],
+            }
+        ]
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

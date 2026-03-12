@@ -8,6 +8,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatChipsModule } from '@angular/material/chips';
 import { AuthService } from '../../../core/services/auth.service';
 import { UserSession } from '../../../core/models/session.model';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 
@@ -116,7 +117,7 @@ export class SessionsComponent implements OnInit {
         this.snackBar.open('Session revoked', 'OK', { duration: 3000 });
         this.loadSessions();
       },
-      error: (err) => this.snackBar.open(err.message, 'OK', { duration: 5000 }),
+      error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
     });
   }
 }

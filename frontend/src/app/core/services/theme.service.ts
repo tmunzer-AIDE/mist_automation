@@ -8,9 +8,11 @@ const STORAGE_KEY = 'theme_preference';
 export class ThemeService {
   readonly preference = signal<ThemePreference>(this.loadPreference());
 
+  private readonly osDark = signal(this.osPrefersDark());
+
   readonly isDark = computed(() => {
     const pref = this.preference();
-    if (pref === 'auto') return this.osPrefersDark();
+    if (pref === 'auto') return this.osDark();
     return pref === 'dark';
   });
 
@@ -24,8 +26,8 @@ export class ThemeService {
 
   constructor() {
     try {
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-        this.preference.update((p) => p);
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        this.osDark.set(e.matches);
       });
     } catch {
       // Not in a browser environment

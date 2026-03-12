@@ -4,36 +4,36 @@ Backup and restore API endpoints.
 
 import asyncio
 import re
-import structlog
 from datetime import datetime, timedelta, timezone
+
+import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.dependencies import get_current_user_from_token
-from app.modules.backup.models import BackupJob, BackupLogEntry, BackupStatus, BackupType
-from app.models.user import User
-from app.models.system import SystemConfig
 from app.core.security import decrypt_sensitive_data
-from app.modules.backup.models import BackupObject
+from app.dependencies import require_backup_role
+from app.models.system import SystemConfig
+from app.models.user import User
+from app.modules.backup.models import BackupJob, BackupLogEntry, BackupObject, BackupStatus, BackupType
 from app.modules.backup.schemas import (
-    BackupJobResponse,
-    BackupJobListResponse,
-    BackupDiffResponse,
-    BackupObjectSummary,
-    BackupObjectListResponse,
     BackupChangeEvent,
     BackupChangeListResponse,
-    BackupObjectVersionResponse,
+    BackupDiffResponse,
+    BackupJobListResponse,
+    BackupJobResponse,
+    BackupJobStatsResponse,
     BackupLogEntryResponse,
     BackupLogListResponse,
-    DailyObjectStats,
-    DailyJobStats,
+    BackupObjectListResponse,
     BackupObjectStatsResponse,
-    BackupJobStatsResponse,
-    ParentReference,
+    BackupObjectSummary,
+    BackupObjectVersionResponse,
     ChildReference,
+    DailyJobStats,
+    DailyObjectStats,
     ObjectDependencyResponse,
+    ParentReference,
 )
 
 router = APIRouter()
@@ -65,11 +65,7 @@ async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
     )
     for d in docs:
         if d.object_id not in names:
-            names[d.object_id] = (
-                d.object_name
-                or d.configuration.get("name")
-                or d.object_id[:8]
-            )
+            names[d.object_id] = d.object_name or d.configuration.get("name") or d.object_id[:8]
 
     # 2. Fallback to Mist API for any unresolved IDs
     missing = site_ids - names.keys()
@@ -99,7 +95,9 @@ async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
 class BackupCreateRequest(BaseModel):
     backup_type: str = Field(default="full", description="Backup type: manual or full")
     site_id: str | None = Field(default=None, description="Site ID (for site-scoped manual backup)")
-    object_type: str | None = Field(default=None, description="Object type in 'org:key' or 'site:key' format (for manual backup)")
+    object_type: str | None = Field(
+        default=None, description="Object type in 'org:key' or 'site:key' format (for manual backup)"
+    )
     object_ids: list[str] | None = Field(default=None, description="Object IDs to backup (for manual list-type backup)")
 
 
@@ -124,7 +122,7 @@ async def list_backups(
     limit: int = Query(100, ge=1, le=1000),
     backup_type: str | None = Query(None, description="Filter by backup type"),
     org_id: str | None = Query(None, description="Filter by organization ID"),
-    _current_user: User = Depends(get_current_user_from_token)
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     List all configuration backups.
@@ -155,19 +153,16 @@ async def list_backups(
                 object_count=backup.object_count,
                 size_bytes=backup.size_bytes,
                 created_at=backup.created_at,
-                created_by=str(backup.created_by) if backup.created_by else None
+                created_by=str(backup.created_by) if backup.created_by else None,
             )
             for backup in backups
         ],
-        total=total
+        total=total,
     )
 
 
 @router.post("/backups", response_model=BackupJobResponse, status_code=status.HTTP_201_CREATED, tags=["Backups"])
-async def create_backup(
-    request: BackupCreateRequest,
-    current_user: User = Depends(get_current_user_from_token)
-):
+async def create_backup(request: BackupCreateRequest, current_user: User = Depends(require_backup_role)):
     """
     Trigger a configuration backup.
     For 'full' backups: backs up the entire org (org_id from system config).
@@ -177,8 +172,7 @@ async def create_backup(
     config = await SystemConfig.get_config()
     if not config or not config.mist_org_id:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mist Organization ID not configured in system settings"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Mist Organization ID not configured in system settings"
         )
     org_id = config.mist_org_id
 
@@ -186,33 +180,30 @@ async def create_backup(
     if request.backup_type == "manual":
         if not request.object_type:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="object_type is required for manual backups"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="object_type is required for manual backups"
             )
         if ":" not in request.object_type:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="object_type must be in 'org:key' or 'site:key' format"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="object_type must be in 'org:key' or 'site:key' format"
             )
         scope, key = request.object_type.split(":", 1)
 
         from app.modules.backup.object_registry import ORG_OBJECTS, SITE_OBJECTS
+
         registry = ORG_OBJECTS if scope == "org" else SITE_OBJECTS
         obj_def = registry.get(key)
         if not obj_def:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown object type: {request.object_type}"
+                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown object type: {request.object_type}"
             )
         if scope == "site" and not request.site_id:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="site_id is required for site-scoped manual backups"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="site_id is required for site-scoped manual backups"
             )
         if obj_def.is_list and (not request.object_ids or len(request.object_ids) == 0):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="At least one object_id is required for list-type manual backups"
+                detail="At least one object_id is required for list-type manual backups",
             )
 
     # Create backup record
@@ -221,21 +212,24 @@ async def create_backup(
         org_id=org_id,
         site_id=request.site_id,
         status=BackupStatus.PENDING,
-        created_by=current_user.id
+        created_by=current_user.id,
     )
     await backup.insert()
 
     logger.info("backup_created", backup_id=str(backup.id), org_id=org_id, user_id=str(current_user.id))
 
     from app.modules.backup.workers import perform_backup
-    asyncio.create_task(perform_backup(
-        str(backup.id),
-        request.backup_type,
-        org_id,
-        request.site_id,
-        object_type=request.object_type,
-        object_ids=request.object_ids,
-    ))
+
+    asyncio.create_task(
+        perform_backup(
+            str(backup.id),
+            request.backup_type,
+            org_id,
+            request.site_id,
+            object_type=request.object_type,
+            object_ids=request.object_ids,
+        )
+    )
 
     return BackupJobResponse(
         id=str(backup.id),
@@ -264,7 +258,7 @@ def _fill_missing_days(data: dict[str, dict], days: int = 30) -> list[str]:
 
 @router.get("/backups/stats/objects", response_model=BackupObjectStatsResponse, tags=["Backups"])
 async def get_object_stats(
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """Daily count of distinct objects backed up over the last 30 days."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
@@ -292,16 +286,13 @@ async def get_object_stats(
     all_dates = _fill_missing_days(by_date)
 
     return BackupObjectStatsResponse(
-        days=[
-            DailyObjectStats(date=d, object_count=by_date[d].get("object_count", 0))
-            for d in all_dates
-        ]
+        days=[DailyObjectStats(date=d, object_count=by_date[d].get("object_count", 0)) for d in all_dates]
     )
 
 
 @router.get("/backups/stats/jobs", response_model=BackupJobStatsResponse, tags=["Backups"])
 async def get_job_stats(
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """Daily job statistics over the last 30 days."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
@@ -365,7 +356,7 @@ async def get_job_stats(
 async def compare_backups(
     backup_id_1: str = Query(..., description="First backup ID"),
     backup_id_2: str = Query(..., description="Second backup ID"),
-    _current_user: User = Depends(get_current_user_from_token)
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     Compare two backups to see configuration differences.
@@ -375,27 +366,19 @@ async def compare_backups(
         backup1 = await BackupJob.get(PydanticObjectId(backup_id_1))
         backup2 = await BackupJob.get(PydanticObjectId(backup_id_2))
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid backup ID format"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid backup ID format") from exc
 
     if not backup1 or not backup2:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="One or both backups not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or both backups not found")
 
     if backup1.data is None or backup1.status != BackupStatus.COMPLETED:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Backup {backup_id_1} is not completed or has no data"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Backup {backup_id_1} is not completed or has no data"
         )
 
     if backup2.data is None or backup2.status != BackupStatus.COMPLETED:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Backup {backup_id_2} is not completed or has no data"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Backup {backup_id_2} is not completed or has no data"
         )
 
     differences = _deep_diff(backup1.data, backup2.data)
@@ -409,7 +392,7 @@ async def compare_backups(
         differences=differences,
         added_count=added_count,
         removed_count=removed_count,
-        modified_count=modified_count
+        modified_count=modified_count,
     )
 
 
@@ -419,7 +402,7 @@ async def get_backup_timeline(
     site_id: str | None = Query(None, description="Site ID (optional)"),
     start_date: str | None = Query(None, description="Start date (ISO format)"),
     end_date: str | None = Query(None, description="End date (ISO format)"),
-    _current_user: User = Depends(get_current_user_from_token)
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     Get timeline view of configuration changes over time.
@@ -447,17 +430,21 @@ async def get_backup_timeline(
                 "status": backup.status.value,
                 "object_count": backup.object_count,
                 "created_at": backup.created_at,
-                "created_by": str(backup.created_by) if backup.created_by else None
+                "created_by": str(backup.created_by) if backup.created_by else None,
             }
             for backup in backups
         ],
-        "total": len(backups)
+        "total": len(backups),
     }
 
 
 OBJECT_SORT_FIELDS = {
-    "object_name", "object_type", "version_count",
-    "last_backed_up_at", "first_backed_up_at", "latest_version",
+    "object_name",
+    "object_type",
+    "version_count",
+    "last_backed_up_at",
+    "first_backed_up_at",
+    "latest_version",
 }
 
 
@@ -472,7 +459,7 @@ async def list_backup_objects(
     status_filter: str | None = Query(None, alias="status", description="Filter: active, deleted"),
     sort: str | None = Query(None, description="Sort field"),
     order: str | None = Query(None, description="Sort direction: asc or desc"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     List backed-up objects with latest version summary.
@@ -512,23 +499,25 @@ async def list_backup_objects(
     pipeline.append({"$sort": {"version": -1}})
 
     # Group by object_id — pick latest version's data
-    pipeline.append({
-        "$group": {
-            "_id": "$object_id",
-            "object_id": {"$first": "$object_id"},
-            "object_type": {"$first": "$object_type"},
-            "object_name": {"$first": "$object_name"},
-            "org_id": {"$first": "$org_id"},
-            "site_id": {"$first": "$site_id"},
-            "latest_version": {"$first": "$version"},
-            "version_count": {"$sum": 1},
-            "first_backed_up_at": {"$min": "$backed_up_at"},
-            "last_backed_up_at": {"$max": "$backed_up_at"},
-            "last_modified_at": {"$max": "$last_modified_at"},
-            "is_deleted": {"$first": "$is_deleted"},
-            "event_type": {"$first": "$event_type"},
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$object_id",
+                "object_id": {"$first": "$object_id"},
+                "object_type": {"$first": "$object_type"},
+                "object_name": {"$first": "$object_name"},
+                "org_id": {"$first": "$org_id"},
+                "site_id": {"$first": "$site_id"},
+                "latest_version": {"$first": "$version"},
+                "version_count": {"$sum": 1},
+                "first_backed_up_at": {"$min": "$backed_up_at"},
+                "last_backed_up_at": {"$max": "$backed_up_at"},
+                "last_modified_at": {"$max": "$last_modified_at"},
+                "is_deleted": {"$first": "$is_deleted"},
+                "event_type": {"$first": "$event_type"},
+            }
         }
-    })
+    )
 
     # Post-group filter for status
     if status_filter == "active":
@@ -557,22 +546,24 @@ async def list_backup_objects(
     objects = []
     for r in results:
         site_id_val = r.get("site_id")
-        objects.append(BackupObjectSummary(
-            object_id=r["object_id"],
-            object_type=r["object_type"],
-            object_name=r.get("object_name"),
-            org_id=r["org_id"],
-            site_id=site_id_val,
-            site_name=site_names.get(site_id_val) if site_id_val else None,
-            scope="org" if not site_id_val else "site",
-            version_count=r["version_count"],
-            latest_version=r["latest_version"],
-            first_backed_up_at=r["first_backed_up_at"],
-            last_backed_up_at=r["last_backed_up_at"],
-            last_modified_at=r.get("last_modified_at"),
-            is_deleted=r.get("is_deleted", False),
-            event_type=r.get("event_type", ""),
-        ))
+        objects.append(
+            BackupObjectSummary(
+                object_id=r["object_id"],
+                object_type=r["object_type"],
+                object_name=r.get("object_name"),
+                org_id=r["org_id"],
+                site_id=site_id_val,
+                site_name=site_names.get(site_id_val) if site_id_val else None,
+                scope="org" if not site_id_val else "site",
+                version_count=r["version_count"],
+                latest_version=r["latest_version"],
+                first_backed_up_at=r["first_backed_up_at"],
+                last_backed_up_at=r["last_backed_up_at"],
+                last_modified_at=r.get("last_modified_at"),
+                is_deleted=r.get("is_deleted", False),
+                event_type=r.get("event_type", ""),
+            )
+        )
 
     return BackupObjectListResponse(objects=objects, total=total)
 
@@ -587,7 +578,7 @@ async def list_backup_changes(
     scope: str | None = Query(None, description="Filter by scope: org or site"),
     start_date: str | None = Query(None, description="Start date (ISO format)"),
     end_date: str | None = Query(None, description="End date (ISO format)"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     List individual backup change events for the timeline view.
@@ -618,13 +609,7 @@ async def list_backup_changes(
         query.setdefault("backed_up_at", {})["$lte"] = datetime.fromisoformat(end_date)
 
     total = await BackupObject.find(query).count()
-    docs = await (
-        BackupObject.find(query)
-        .sort([("backed_up_at", -1)])
-        .skip(skip)
-        .limit(limit)
-        .to_list()
-    )
+    docs = await BackupObject.find(query).sort([("backed_up_at", -1)]).skip(skip).limit(limit).to_list()
 
     # Resolve site names
     site_ids = {d.site_id for d in docs if d.site_id}
@@ -632,20 +617,22 @@ async def list_backup_changes(
 
     changes = []
     for d in docs:
-        changes.append(BackupChangeEvent(
-            id=str(d.id),
-            object_id=d.object_id,
-            object_type=d.object_type,
-            object_name=d.object_name,
-            site_id=d.site_id,
-            site_name=site_names.get(d.site_id) if d.site_id else None,
-            scope="org" if not d.site_id else "site",
-            event_type=d.event_type.value if hasattr(d.event_type, 'value') else d.event_type,
-            version=d.version,
-            changed_fields=d.changed_fields,
-            backed_up_at=d.backed_up_at,
-            backed_up_by=d.backed_up_by,
-        ))
+        changes.append(
+            BackupChangeEvent(
+                id=str(d.id),
+                object_id=d.object_id,
+                object_type=d.object_type,
+                object_name=d.object_name,
+                site_id=d.site_id,
+                site_name=site_names.get(d.site_id) if d.site_id else None,
+                scope="org" if not d.site_id else "site",
+                event_type=d.event_type.value if hasattr(d.event_type, "value") else d.event_type,
+                version=d.version,
+                changed_fields=d.changed_fields,
+                backed_up_at=d.backed_up_at,
+                backed_up_by=d.backed_up_by,
+            )
+        )
 
     return BackupChangeListResponse(changes=changes, total=total)
 
@@ -653,7 +640,7 @@ async def list_backup_changes(
 @router.get("/backups/objects/{object_id}/dependencies", response_model=ObjectDependencyResponse, tags=["Backups"])
 async def get_object_dependencies(
     object_id: str,
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     Get parent and child dependencies for a backed-up object.
@@ -663,15 +650,23 @@ async def get_object_dependencies(
     Implicit site parent is included when the object has a ``site_id``.
     """
     # Find latest version — prefer non-deleted, fall back to any
-    obj = await BackupObject.find(
-        BackupObject.object_id == object_id,
-        BackupObject.is_deleted == False,
-    ).sort([("version", -1)]).first_or_none()
+    obj = (
+        await BackupObject.find(
+            BackupObject.object_id == object_id,
+            BackupObject.is_deleted == False,
+        )
+        .sort([("version", -1)])
+        .first_or_none()
+    )
 
     if not obj:
-        obj = await BackupObject.find(
-            BackupObject.object_id == object_id,
-        ).sort([("version", -1)]).first_or_none()
+        obj = (
+            await BackupObject.find(
+                BackupObject.object_id == object_id,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
     if not obj:
         raise HTTPException(
@@ -685,59 +680,83 @@ async def get_object_dependencies(
     # Explicit references stored on the document
     for ref in obj.references:
         # Try active first, then fall back to any version
-        target = await BackupObject.find(
-            BackupObject.object_id == ref.target_id,
-            BackupObject.is_deleted == False,
-        ).sort([("version", -1)]).first_or_none()
+        target = (
+            await BackupObject.find(
+                BackupObject.object_id == ref.target_id,
+                BackupObject.is_deleted == False,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         target_deleted = False
         if not target:
-            target = await BackupObject.find(
-                BackupObject.object_id == ref.target_id,
-            ).sort([("version", -1)]).first_or_none()
+            target = (
+                await BackupObject.find(
+                    BackupObject.object_id == ref.target_id,
+                )
+                .sort([("version", -1)])
+                .first_or_none()
+            )
             if target:
                 target_deleted = True
 
-        parents.append(ParentReference(
-            target_type=ref.target_type,
-            target_id=ref.target_id,
-            target_name=target.object_name if target else None,
-            field_path=ref.field_path,
-            exists_in_backup=target is not None,
-            is_deleted=target_deleted,
-        ))
+        parents.append(
+            ParentReference(
+                target_type=ref.target_type,
+                target_id=ref.target_id,
+                target_name=target.object_name if target else None,
+                field_path=ref.field_path,
+                exists_in_backup=target is not None,
+                is_deleted=target_deleted,
+            )
+        )
 
     # Implicit site parent
     if obj.site_id:
-        site = await BackupObject.find(
-            BackupObject.object_id == obj.site_id,
-            BackupObject.object_type == "sites",
-            BackupObject.is_deleted == False,
-        ).sort([("version", -1)]).first_or_none()
+        site = (
+            await BackupObject.find(
+                BackupObject.object_id == obj.site_id,
+                BackupObject.object_type == "sites",
+                BackupObject.is_deleted == False,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         site_deleted = False
         if not site:
-            site = await BackupObject.find(
-                BackupObject.object_id == obj.site_id,
-                BackupObject.object_type == "sites",
-            ).sort([("version", -1)]).first_or_none()
+            site = (
+                await BackupObject.find(
+                    BackupObject.object_id == obj.site_id,
+                    BackupObject.object_type == "sites",
+                )
+                .sort([("version", -1)])
+                .first_or_none()
+            )
             if site:
                 site_deleted = True
 
-        parents.append(ParentReference(
-            target_type="sites",
-            target_id=obj.site_id,
-            target_name=site.object_name if site else None,
-            field_path="site_id",
-            exists_in_backup=site is not None,
-            is_deleted=site_deleted,
-        ))
+        parents.append(
+            ParentReference(
+                target_type="sites",
+                target_id=obj.site_id,
+                target_name=site.object_name if site else None,
+                field_path="site_id",
+                exists_in_backup=site is not None,
+                is_deleted=site_deleted,
+            )
+        )
 
     # --- Children ---
     # Find objects whose references.target_id matches this object_id (including deleted)
-    child_docs = await BackupObject.find(
-        {"references.target_id": object_id},
-    ).sort([("version", -1)]).to_list()
+    child_docs = (
+        await BackupObject.find(
+            {"references.target_id": object_id},
+        )
+        .sort([("version", -1)])
+        .to_list()
+    )
 
     # Deduplicate by object_id (keep latest version)
     seen_children: set[str] = set()
@@ -749,13 +768,15 @@ async def get_object_dependencies(
         # Find matching field_path(s) from the child's references
         for ref in doc.references:
             if ref.target_id == object_id:
-                children.append(ChildReference(
-                    source_type=doc.object_type,
-                    source_id=doc.object_id,
-                    source_name=doc.object_name,
-                    field_path=ref.field_path,
-                    is_deleted=doc.is_deleted,
-                ))
+                children.append(
+                    ChildReference(
+                        source_type=doc.object_type,
+                        source_id=doc.object_id,
+                        source_name=doc.object_name,
+                        field_path=ref.field_path,
+                        is_deleted=doc.is_deleted,
+                    )
+                )
 
     return ObjectDependencyResponse(
         object_id=obj.object_id,
@@ -769,40 +790,35 @@ async def get_object_dependencies(
 @router.get("/backups/objects/{object_id}/versions", tags=["Backups"])
 async def get_object_versions(
     object_id: str,
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """
     Get all versions of a backed-up object.
     """
-    docs = await (
-        BackupObject.find(BackupObject.object_id == object_id)
-        .sort([("version", -1)])
-        .to_list()
-    )
+    docs = await BackupObject.find(BackupObject.object_id == object_id).sort([("version", -1)]).to_list()
 
     if not docs:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No backup records found for this object"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No backup records found for this object")
 
     versions = []
     for d in docs:
-        versions.append(BackupObjectVersionResponse(
-            id=str(d.id),
-            object_id=d.object_id,
-            object_type=d.object_type,
-            object_name=d.object_name,
-            org_id=d.org_id,
-            site_id=d.site_id,
-            version=d.version,
-            event_type=d.event_type.value if hasattr(d.event_type, 'value') else d.event_type,
-            changed_fields=d.changed_fields,
-            backed_up_at=d.backed_up_at,
-            backed_up_by=d.backed_up_by,
-            is_deleted=d.is_deleted,
-            configuration=d.configuration,
-        ))
+        versions.append(
+            BackupObjectVersionResponse(
+                id=str(d.id),
+                object_id=d.object_id,
+                object_type=d.object_type,
+                object_name=d.object_name,
+                org_id=d.org_id,
+                site_id=d.site_id,
+                version=d.version,
+                event_type=d.event_type.value if hasattr(d.event_type, "value") else d.event_type,
+                changed_fields=d.changed_fields,
+                backed_up_at=d.backed_up_at,
+                backed_up_by=d.backed_up_by,
+                is_deleted=d.is_deleted,
+                configuration=d.configuration,
+            )
+        )
 
     return {"versions": versions, "total": len(versions)}
 
@@ -812,7 +828,7 @@ async def restore_object_version(
     version_id: str,
     dry_run: bool = Query(False, description="Preview restore without applying"),
     cascade: bool = Query(False, description="Cascade restore parents and children"),
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_backup_role),
 ):
     """Restore a backed-up object to a specific version in Mist.
 
@@ -852,8 +868,8 @@ async def restore_object_version(
         )
 
     api_token = decrypt_sensitive_data(config.mist_api_token)
-    from app.services.mist_service import MistService
     from app.modules.backup.services.restore_service import RestoreService
+    from app.services.mist_service import MistService
 
     mist_service = MistService(
         api_token=api_token,
@@ -899,7 +915,7 @@ async def get_backup_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
     level: str | None = Query(None, description="Filter by log level: info, warning, error"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_backup_role),
 ):
     """Get execution logs for a specific backup job."""
     try:
@@ -915,13 +931,7 @@ async def get_backup_logs(
         query["level"] = level
 
     total = await BackupLogEntry.find(query).count()
-    entries = await (
-        BackupLogEntry.find(query)
-        .sort([("timestamp", 1)])
-        .skip(skip)
-        .limit(limit)
-        .to_list()
-    )
+    entries = await BackupLogEntry.find(query).sort([("timestamp", 1)]).skip(skip).limit(limit).to_list()
 
     return BackupLogListResponse(
         logs=[
@@ -945,26 +955,17 @@ async def get_backup_logs(
 
 
 @router.get("/backups/{backup_id}", response_model=BackupJobResponse, tags=["Backups"])
-async def get_backup(
-    backup_id: str,
-    _current_user: User = Depends(get_current_user_from_token)
-):
+async def get_backup(backup_id: str, _current_user: User = Depends(require_backup_role)):
     """
     Get a specific backup by ID.
     """
     try:
         backup = await BackupJob.get(PydanticObjectId(backup_id))
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid backup ID format"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid backup ID format") from exc
 
     if not backup:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Backup not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
 
     return BackupJobResponse(
         id=str(backup.id),
@@ -986,7 +987,7 @@ async def get_backup(
 async def restore_backup(
     backup_id: str,
     dry_run: bool = Query(False, description="Perform a dry run without making changes"),
-    current_user: User = Depends(get_current_user_from_token)
+    current_user: User = Depends(require_backup_role),
 ):
     """
     Restore configuration from a backup.
@@ -994,35 +995,22 @@ async def restore_backup(
     try:
         backup = await BackupJob.get(PydanticObjectId(backup_id))
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid backup ID format"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid backup ID format") from exc
 
     if not backup:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Backup not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
 
     if backup.status != BackupStatus.COMPLETED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only completed backups can be restored"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only completed backups can be restored")
 
-    logger.info(
-        "restore_requested",
-        backup_id=backup_id,
-        dry_run=dry_run,
-        user_id=str(current_user.id)
-    )
+    logger.info("restore_requested", backup_id=backup_id, dry_run=dry_run, user_id=str(current_user.id))
 
     from app.modules.backup.workers import perform_restore
+
     asyncio.create_task(perform_restore(backup_id, dry_run=dry_run))
 
     return {
         "message": "Restore initiated" if not dry_run else "Dry run restore initiated",
         "backup_id": backup_id,
-        "dry_run": dry_run
+        "dry_run": dry_run,
     }

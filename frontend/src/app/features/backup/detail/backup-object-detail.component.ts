@@ -1,7 +1,7 @@
-import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal, computed } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { Subscription } from 'rxjs';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -62,14 +62,14 @@ interface ObjectVersion {
   templateUrl: './backup-object-detail.component.html',
   styleUrl: './backup-object-detail.component.scss',
 })
-export class BackupObjectDetailComponent implements OnInit, OnDestroy {
+export class BackupObjectDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
-  private routeSub!: Subscription;
+  private readonly destroyRef = inject(DestroyRef);
 
   objectId = '';
   versions = signal<ObjectVersion[]>([]);
@@ -97,7 +97,7 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Object Detail');
-    this.routeSub = this.route.paramMap.subscribe((params) => {
+    this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const id = params.get('objectId') || '';
       if (id !== this.objectId) {
         this.objectId = id;
@@ -106,10 +106,6 @@ export class BackupObjectDetailComponent implements OnInit, OnDestroy {
         this.loadDependencies();
       }
     });
-  }
-
-  ngOnDestroy(): void {
-    this.routeSub.unsubscribe();
   }
 
   private resetState(): void {

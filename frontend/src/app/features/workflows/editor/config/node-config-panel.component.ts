@@ -600,16 +600,18 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             <!-- Error handling -->
             @if (hasErrorHandling) {
               <div class="section-title">Error Handling</div>
-              <div class="error-row">
-                <mat-form-field appearance="outline">
-                  <mat-label>Max Retries</mat-label>
-                  <input matInput type="number" formControlName="max_retries" />
-                </mat-form-field>
-                <mat-form-field appearance="outline">
-                  <mat-label>Retry Delay (s)</mat-label>
-                  <input matInput type="number" formControlName="retry_delay" />
-                </mat-form-field>
-              </div>
+              @if (hasRetry) {
+                <div class="error-row">
+                  <mat-form-field appearance="outline">
+                    <mat-label>Max Retries</mat-label>
+                    <input matInput type="number" formControlName="max_retries" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Retry Delay (s)</mat-label>
+                    <input matInput type="number" formControlName="retry_delay" />
+                  </mat-form-field>
+                </div>
+              }
               <mat-checkbox formControlName="continue_on_error">Continue on error</mat-checkbox>
             }
           }
@@ -1203,6 +1205,20 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
   get hasErrorHandling(): boolean {
     return !['set_variable', 'for_each', 'condition', 'delay'].includes(this.node.type);
+  }
+
+  get hasRetry(): boolean {
+    return [
+      'mist_api_get',
+      'mist_api_post',
+      'mist_api_put',
+      'mist_api_delete',
+      'webhook',
+      'slack',
+      'servicenow',
+      'pagerduty',
+      'email',
+    ].includes(this.node.type);
   }
 
   // ── Slack Fields ─────────────────────────────────────────────────

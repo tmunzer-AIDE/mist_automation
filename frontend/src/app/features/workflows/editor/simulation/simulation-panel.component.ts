@@ -255,13 +255,13 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
         font-weight: 500;
 
         &.success {
-          background: #e8f5e9;
-          color: #2e7d32;
+          background: var(--app-success-bg);
+          color: var(--app-success-text);
         }
 
         &.failed {
-          background: #ffebee;
-          color: #c62828;
+          background: var(--app-error-status-bg);
+          color: var(--app-error);
         }
       }
 
@@ -365,13 +365,13 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
         border-radius: 4px;
 
         &.success {
-          background: #e8f5e9;
-          color: #2e7d32;
+          background: var(--app-success-bg);
+          color: var(--app-success-text);
         }
 
         &.failed {
-          background: #ffebee;
-          color: #c62828;
+          background: var(--app-error-status-bg);
+          color: var(--app-error);
         }
       }
 
@@ -381,8 +381,8 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
       }
 
       .snap-error {
-        background: #ffebee;
-        color: #c62828;
+        background: var(--app-error-status-bg);
+        color: var(--app-error);
         padding: 4px 8px;
         border-radius: 4px;
         font-size: 12px;
@@ -422,11 +422,11 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
         padding: 1px 0;
 
         &.error {
-          color: #c62828;
+          color: var(--app-error);
         }
 
         &.warning {
-          color: #e65100;
+          color: var(--app-modified);
         }
       }
 
@@ -614,38 +614,38 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
   nextStep(): void {
     if (!this.simulationState) return;
     if (this.simulationState.currentStep < this.simulationState.totalSteps - 1) {
-      this.simulationState.currentStep++;
-      this.updateStepState();
+      this.emitStepChange(this.simulationState.currentStep + 1);
     }
   }
 
   previousStep(): void {
     if (!this.simulationState) return;
     if (this.simulationState.currentStep > 0) {
-      this.simulationState.currentStep--;
-      this.updateStepState();
+      this.emitStepChange(this.simulationState.currentStep - 1);
     }
   }
 
-  private updateStepState(): void {
+  private emitStepChange(step: number): void {
     if (!this.simulationState?.execution) return;
 
     const snapshots = this.simulationState.execution.node_snapshots;
-    const currentStep = this.simulationState.currentStep;
     const nodeStatuses: Record<string, 'pending' | 'success' | 'failed' | 'active'> = {};
 
     for (let i = 0; i < snapshots.length; i++) {
       const snap = snapshots[i];
-      if (i < currentStep) {
+      if (i < step) {
         nodeStatuses[snap.node_id] = snap.status as 'success' | 'failed';
-      } else if (i === currentStep) {
+      } else if (i === step) {
         nodeStatuses[snap.node_id] = 'active';
       } else {
         nodeStatuses[snap.node_id] = 'pending';
       }
     }
 
-    this.simulationState.nodeStatuses = nodeStatuses;
-    this.simulationStepChanged.emit({ ...this.simulationState });
+    this.simulationStepChanged.emit({
+      ...this.simulationState,
+      currentStep: step,
+      nodeStatuses,
+    });
   }
 }

@@ -15,6 +15,7 @@ import {
   passwordValidator,
   matchPasswordValidator,
 } from '../../../shared/validators/password.validator';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 interface DialogData {
   mode: 'create' | 'edit';
@@ -170,7 +171,7 @@ export class UserDialogComponent implements OnInit {
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.message, 'OK', { duration: 5000 });
+          this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
         },
       });
     } else {
@@ -181,7 +182,7 @@ export class UserDialogComponent implements OnInit {
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.message, 'OK', { duration: 5000 });
+          this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
         },
       });
     }

@@ -229,7 +229,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
       .warnings-box {
         margin-top: 12px;
         padding: 8px 12px;
-        background: #fffbeb;
+        background: var(--app-warning-bg);
         border-radius: 8px;
       }
 
@@ -238,7 +238,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
         align-items: center;
         gap: 6px;
         font-size: 13px;
-        color: #b45309;
+        color: var(--app-warning-lvl);
         margin: 4px 0;
       }
 
@@ -246,7 +246,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
         font-size: 18px;
         width: 18px;
         height: 18px;
-        color: #f59e0b;
+        color: var(--app-warning);
       }
 
       .dep-heading {
@@ -332,20 +332,20 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
         text-transform: uppercase;
 
         &.role-parent {
-          background: #eff6ff;
-          color: #1d4ed8;
+          background: var(--app-info-chip-bg);
+          color: var(--app-info-chip);
         }
         &.role-target {
-          background: #faf5ff;
-          color: #7c3aed;
+          background: var(--app-purple-bg);
+          color: var(--app-purple);
         }
         &.role-child {
-          background: #ecfdf5;
-          color: #047857;
+          background: var(--app-success-bg);
+          color: var(--app-success);
         }
         &.role-update {
-          background: #fef3c7;
-          color: #92400e;
+          background: var(--app-warning-bg);
+          color: var(--app-warning-lvl);
         }
       }
 
@@ -368,11 +368,11 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
         align-items: center;
         gap: 6px;
         font-weight: 600;
-        color: #047857;
+        color: var(--app-success);
       }
 
       .result-icon {
-        color: #10b981;
+        color: var(--app-success-border);
       }
 
       .error-msg {

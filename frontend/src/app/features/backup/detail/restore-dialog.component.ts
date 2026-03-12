@@ -4,16 +4,15 @@ import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/materia
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../../core/services/api.service';
 import { RestoreResponse } from '../../../core/models/backup.model';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-restore-dialog',
   standalone: true,
   imports: [
     CommonModule,
-    FormsModule,
     MatDialogModule,
     MatButtonModule,
     MatCheckboxModule,
@@ -25,7 +24,7 @@ import { RestoreResponse } from '../../../core/models/backup.model';
       <p class="warning">
         This will restore configuration from the backup. Existing configuration may be overwritten.
       </p>
-      <mat-checkbox [(ngModel)]="dryRun">Dry run (preview changes only)</mat-checkbox>
+      <mat-checkbox [checked]="dryRun()" (change)="dryRun.set($event.checked)">Dry run (preview changes only)</mat-checkbox>
 
       @if (result()) {
         <div class="result">
@@ -40,7 +39,7 @@ import { RestoreResponse } from '../../../core/models/backup.model';
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close>Cancel</button>
       <button mat-flat-button color="warn" (click)="restore()" [disabled]="restoring()">
-        {{ restoring() ? 'Restoring...' : dryRun ? 'Preview' : 'Restore' }}
+        {{ restoring() ? 'Restoring...' : dryRun() ? 'Preview' : 'Restore' }}
       </button>
     </mat-dialog-actions>
   `,
@@ -70,7 +69,7 @@ export class RestoreDialogComponent {
   private readonly api = inject(ApiService);
   private readonly snackBar = inject(MatSnackBar);
 
-  dryRun = true;
+  dryRun = signal(true);
   restoring = signal(false);
   result = signal<RestoreResponse | null>(null);
 
@@ -79,18 +78,18 @@ export class RestoreDialogComponent {
     this.result.set(null);
 
     this.api
-      .post<RestoreResponse>(`/backups/${this.data.backupId}/restore?dry_run=${this.dryRun}`, {})
+      .post<RestoreResponse>(`/backups/${this.data.backupId}/restore?dry_run=${this.dryRun()}`, {})
       .subscribe({
         next: (res) => {
           this.restoring.set(false);
           this.result.set(res);
-          if (!this.dryRun) {
+          if (!this.dryRun()) {
             this.dialogRef.close(true);
           }
         },
         error: (err) => {
           this.restoring.set(false);
-          this.snackBar.open(err.message, 'OK', { duration: 5000 });
+          this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
         },
       });
   }

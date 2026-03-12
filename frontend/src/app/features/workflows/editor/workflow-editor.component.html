@@ -3,7 +3,7 @@
   <button mat-icon-button (click)="cancel()" matTooltip="Back to workflows">
     <mat-icon>arrow_back</mat-icon>
   </button>
-  <input class="topbar-workflow-name" [ngModel]="workflowName()" (ngModelChange)="workflowName.set($event)" placeholder="Workflow name" />
+  <input class="topbar-workflow-name" [value]="workflowName()" (input)="workflowName.set($any($event.target).value)" placeholder="Workflow name" />
   <span class="spacer"></span>
   @if (workflowId()) {
     <span class="status-chip" [ngClass]="statusChipClass()">{{ workflowStatus() }}</span>

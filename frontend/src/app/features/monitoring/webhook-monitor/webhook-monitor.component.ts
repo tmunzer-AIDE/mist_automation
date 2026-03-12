@@ -35,6 +35,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { MonitorEvent } from '../../../core/models/webhook-event.model';
 import { barDataset, getChartGridColor } from '../../../shared/utils/chart-defaults';
+import { getStatusClass } from '../../../shared/utils/http-status.utils';
 
 const MAX_EVENTS = 500;
 
@@ -385,10 +386,5 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     });
   }
 
-  getStatusClass(code: number): string {
-    if (code >= 200 && code < 300) return 'status-ok';
-    if (code >= 400 && code < 500) return 'status-client-error';
-    if (code >= 500) return 'status-server-error';
-    return '';
-  }
+  readonly getStatusClass = getStatusClass;
 }
