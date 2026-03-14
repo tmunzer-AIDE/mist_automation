@@ -47,6 +47,10 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
     ],
   },
   {
+    name: 'Sub-Flows',
+    options: [blockOption('invoke_subflow', 'Call a reusable sub-flow workflow')],
+  },
+  {
     name: 'Data Processing',
     options: [
       blockOption('data_transform', 'Extract and filter fields from data'),
@@ -64,3 +68,9 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
     ],
   },
 ];
+
+/** Sub-flow-only block: shown in palette only when editing a subflow workflow. */
+export const SUBFLOW_OUTPUT_BLOCK: BlockOption = blockOption(
+  'subflow_output',
+  'Set outputs and end sub-flow execution'
+);

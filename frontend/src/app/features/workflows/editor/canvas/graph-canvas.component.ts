@@ -138,6 +138,8 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   private getNodeLabel(node: WorkflowNode): string {
     if (node.name) return node.name;
     if (node.type === 'trigger') return 'Trigger';
+    if (node.type === 'subflow_input') return 'Sub-Flow Input';
+    if (node.type === 'subflow_output') return 'Return Output';
     return this.getNodeMeta(node.type).label;
   }
 
@@ -148,11 +150,15 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       if (tt === 'manual') return 'play_circle';
       return 'webhook';
     }
+    if (node.type === 'subflow_input') return 'input';
+    if (node.type === 'subflow_output') return 'output';
     return this.getNodeMeta(node.type).icon;
   }
 
   private getNodeColor(node: WorkflowNode): string {
     if (node.type === 'trigger') return 'var(--app-trigger)';
+    if (node.type === 'subflow_input') return '#00695c';
+    if (node.type === 'subflow_output') return '#00695c';
     return this.getNodeMeta(node.type).color;
   }
 

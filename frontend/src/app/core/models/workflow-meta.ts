@@ -22,6 +22,8 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   data_transform: { label: 'Data Transform', icon: 'transform', color: '#ff6f00' },
   format_report: { label: 'Format Report', icon: 'table_chart', color: '#00838f' },
   email: { label: 'Email', icon: 'email', color: '#5c6bc0' },
+  invoke_subflow: { label: 'Sub-Flow', icon: 'account_tree', color: '#00695c' },
+  subflow_output: { label: 'Return Output', icon: 'output', color: '#00695c' },
 };
 
 export const DEFAULT_ACTION_META: ActionMeta = {

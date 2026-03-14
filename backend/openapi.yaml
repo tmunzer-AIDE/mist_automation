@@ -34,12 +34,16 @@ tags:
     description: User management (admin only)
   - name: Workflows
     description: Workflow automation management
+  - name: Executions
+    description: Workflow execution management
   - name: Webhooks
     description: Mist webhook receiver and event management
   - name: Backups
     description: Configuration backup and restore operations
   - name: Admin
     description: System administration (admin only)
+  - name: WebSocket
+    description: Real-time WebSocket connections
 
 security:
   - BearerAuth: []
@@ -615,6 +619,12 @@ paths:
           schema:
             type: string
             enum: [draft, enabled, disabled]
+        - name: workflow_type
+          in: query
+          description: Filter by workflow type
+          schema:
+            type: string
+            enum: [standard, subflow]
       responses:
         '200':
           description: List of workflows
@@ -793,6 +803,54 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /workflows/{workflow_id}/subflow-schema:
+    get:
+      tags:
+        - Workflows
+      summary: Get sub-flow schema
+      description: |
+        Get the input/output parameter schema for a sub-flow workflow.
+        Only works for workflows with workflow_type "subflow".
+      operationId: getSubflowSchema
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sub-flow schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubflowSchemaResponse'
+        '400':
+          description: Workflow is not a sub-flow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /workflows/{workflow_id}/execute:
     post:
       tags:
@@ -923,6 +981,329 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{workflow_id}/available-variables/{node_id}:
+    get:
+      tags:
+        - Workflows
+      summary: Get available variables for node
+      description: Get variables available to a specific node from upstream nodes
+      operationId: getAvailableVariables
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+        - name: node_id
+          in: path
+          required: true
+          description: Node ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Available variables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailableVariablesResponse'
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/available-variables/{node_id}:
+    post:
+      tags:
+        - Workflows
+      summary: Compute available variables for unsaved graph
+      description: Compute variables available to a node from an in-memory (unsaved) graph
+      operationId: computeAvailableVariables
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          description: Node ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InlineGraphRequest'
+      responses:
+        '200':
+          description: Available variables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailableVariablesResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/endpoint-schema:
+    get:
+      tags:
+        - Workflows
+      summary: Get Mist API endpoint schema
+      description: Look up the response schema for a Mist API endpoint from the OAS
+      operationId: getEndpointSchema
+      parameters:
+        - name: method
+          in: query
+          required: true
+          description: HTTP method
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          description: API path template
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Endpoint schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointSchemaResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{workflow_id}/simulate:
+    post:
+      tags:
+        - Workflows
+      summary: Simulate workflow execution
+      description: Simulate a workflow execution with optional dry-run mode
+      operationId: simulateWorkflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulateRequest'
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationResultResponse'
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow or webhook event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{workflow_id}/sample-payloads:
+    get:
+      tags:
+        - Workflows
+      summary: Get sample payloads for simulation
+      description: Get recent webhook events matching the workflow's trigger type for simulation
+      operationId: getSamplePayloads
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of payloads to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Sample payloads
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SamplePayloadsResponse'
+        '400':
+          description: Invalid workflow ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Execution Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /executions:
+    get:
+      tags:
+        - Executions
+      summary: List all executions
+      description: List all workflow executions across all workflows accessible to the current user
+      operationId: listAllExecutions
+      parameters:
+        - name: skip
+          in: query
+          description: Number of executions to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of executions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: status_filter
+          in: query
+          description: Filter by execution status
+          schema:
+            type: string
+            enum: [pending, running, succeeded, failed, cancelled]
+        - name: trigger_type
+          in: query
+          description: Filter by trigger type
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of executions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /executions/{execution_id}/cancel:
+    post:
+      tags:
+        - Executions
+      summary: Cancel execution
+      description: Cancel a pending or running execution
+      operationId: cancelExecution
+      parameters:
+        - name: execution_id
+          in: path
+          required: true
+          description: Execution ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessageResponse'
+        '400':
+          description: Invalid execution ID format or cannot cancel execution with current status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
           content:
             application/json:
               schema:
@@ -1103,6 +1484,132 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/stats:
+    get:
+      tags:
+        - Webhooks
+      summary: Get webhook statistics
+      description: Get aggregated webhook volume statistics bucketed by time
+      operationId: getWebhookStats
+      parameters:
+        - name: hours
+          in: query
+          description: Time range in hours (max 30 days)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+      responses:
+        '200':
+          description: Webhook statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookStatsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/smee/status:
+    get:
+      tags:
+        - Webhooks
+      summary: Get Smee status
+      description: Get Smee.io webhook forwarder client status (admin only)
+      operationId: getSmeeStatus
+      responses:
+        '200':
+          description: Smee status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmeeStatusResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/smee/start:
+    post:
+      tags:
+        - Webhooks
+      summary: Start Smee client
+      description: |
+        Start the Smee.io webhook forwarder (admin only).
+        Accepts an optional smee_channel_url in the request body.
+        The provided URL is persisted automatically.
+      operationId: startSmeeClient
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmeeStartRequest'
+      responses:
+        '200':
+          description: Smee started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmeeStatusResponse'
+        '400':
+          description: Smee.io channel URL not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/smee/stop:
+    post:
+      tags:
+        - Webhooks
+      summary: Stop Smee client
+      description: Stop the Smee.io webhook forwarder (admin only)
+      operationId: stopSmeeClient
+      responses:
+        '200':
+          description: Smee stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessageResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin access required
           content:
             application/json:
               schema:
@@ -1738,102 +2245,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /backups/smee/status:
-    get:
-      tags:
-        - Backups
-      summary: Get Smee status
-      description: Get Smee.io webhook forwarder client status (admin only)
-      operationId: getSmeeStatus
-      responses:
-        '200':
-          description: Smee status
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SmeeStatusResponse'
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Admin access required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /backups/smee/start:
-    post:
-      tags:
-        - Backups
-      summary: Start Smee client
-      description: |
-        Start the Smee.io webhook forwarder (admin only).
-        Accepts an optional smee_channel_url in the request body.
-        The provided URL is persisted automatically.
-      operationId: startSmeeClient
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SmeeStartRequest'
-      responses:
-        '200':
-          description: Smee started
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SmeeStatusResponse'
-        '400':
-          description: Smee.io channel URL not configured
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Admin access required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /backups/smee/stop:
-    post:
-      tags:
-        - Backups
-      summary: Stop Smee client
-      description: Stop the Smee.io webhook forwarder (admin only)
-      operationId: stopSmeeClient
-      responses:
-        '200':
-          description: Smee stopped
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StatusMessageResponse'
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Admin access required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
   # ═══════════════════════════════════════════════════════════════════════════
   # Admin Endpoints
   # ═══════════════════════════════════════════════════════════════════════════
@@ -2144,6 +2555,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # WebSocket Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /ws:
+    get:
+      tags:
+        - WebSocket
+      summary: WebSocket connection
+      description: |
+        Authenticated WebSocket endpoint with channel-based pub/sub.
+        
+        Protocol:
+        1. Connect to ws://host/api/v1/ws
+        2. Send auth message: { "type": "auth", "token": "<jwt>" } within 10 seconds
+        3. Server responds { "type": "auth_ok" } on success or { "type": "auth_error" } on failure
+        4. After auth, send subscribe/unsubscribe messages for channels:
+           - { "type": "subscribe", "channel": "simulation:<stream_id>" }
+           - { "type": "unsubscribe", "channel": "simulation:<stream_id>" }
+        5. Server sends { "type": "ping" } periodically, respond with { "type": "pong" }
+        
+        Available channels:
+        - simulation:<stream_id> - Real-time simulation progress updates
+        - webhooks:monitor - Live webhook event stream
+      operationId: websocketConnect
+      security: []
+      responses:
+        '101':
+          description: Switching Protocols to WebSocket
+        '400':
+          description: WebSocket upgrade required
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Components
@@ -2492,8 +2934,7 @@ components:
       type: object
       required:
         - name
-        - trigger
-        - actions
+        - nodes
       properties:
         name:
           type: string
@@ -2504,23 +2945,48 @@ components:
           type: string
           nullable: true
           description: Workflow description
+        workflow_type:
+          type: string
+          enum: [standard, subflow]
+          default: standard
+          description: "Workflow type: standard (trigger-based) or subflow (callable from other workflows)"
         timeout_seconds:
           type: integer
           minimum: 10
           maximum: 3600
           default: 300
           description: Workflow execution timeout
-        trigger:
-          type: object
-          additionalProperties: true
-          description: Trigger configuration
-        actions:
+        nodes:
           type: array
           items:
             type: object
             additionalProperties: true
           minItems: 1
-          description: Actions to execute
+          description: Graph nodes (trigger/subflow_input + action nodes)
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          default: []
+          description: Graph edges connecting nodes
+        viewport:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Canvas viewport state (zoom, pan position)
+        input_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          default: []
+          description: Input parameters for sub-flow workflows
+        output_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          default: []
+          description: Output parameters for sub-flow workflows
 
     WorkflowUpdate:
       type: object
@@ -2543,28 +3009,46 @@ components:
           minimum: 10
           maximum: 3600
           description: Workflow execution timeout
-        trigger:
-          type: object
-          additionalProperties: true
-          description: Trigger configuration
-        actions:
+        nodes:
           type: array
           items:
             type: object
             additionalProperties: true
-          description: Actions to execute
+          description: Graph nodes
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Graph edges connecting nodes
+        viewport:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Canvas viewport state
+        input_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          description: Input parameters for sub-flow workflows
+        output_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          description: Output parameters for sub-flow workflows
 
     WorkflowResponse:
       type: object
       required:
         - id
         - name
+        - workflow_type
         - created_by
         - status
         - sharing
         - timeout_seconds
-        - trigger
-        - actions
+        - nodes
+        - edges
         - execution_count
         - success_count
         - failure_count
@@ -2581,6 +3065,10 @@ components:
           type: string
           nullable: true
           description: Workflow description
+        workflow_type:
+          type: string
+          enum: [standard, subflow]
+          description: "Workflow type: standard or subflow"
         created_by:
           type: string
           description: Creator user ID
@@ -2595,16 +3083,33 @@ components:
         timeout_seconds:
           type: integer
           description: Execution timeout
-        trigger:
-          type: object
-          additionalProperties: true
-          description: Trigger configuration
-        actions:
+        nodes:
           type: array
           items:
             type: object
             additionalProperties: true
-          description: Actions
+          description: Graph nodes (trigger/subflow_input + action nodes)
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Graph edges connecting nodes
+        viewport:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Canvas viewport state
+        input_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          description: Input parameters (sub-flow workflows only)
+        output_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          description: Output parameters (sub-flow workflows only)
         execution_count:
           type: integer
           description: Total executions
@@ -2614,6 +3119,11 @@ components:
         failure_count:
           type: integer
           description: Failed executions
+        last_execution:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last execution timestamp
         created_at:
           type: string
           format: date-time
@@ -2637,6 +3147,54 @@ components:
         total:
           type: integer
           description: Total number of workflows
+
+    SubflowParameter:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Parameter name
+        type:
+          type: string
+          enum: [string, number, boolean, object, array, any]
+          default: any
+          description: Parameter type
+        description:
+          type: string
+          default: ''
+          description: Parameter description
+        required:
+          type: boolean
+          default: true
+          description: Whether the parameter is required
+        default_value:
+          description: Default value for optional parameters
+          nullable: true
+
+    SubflowSchemaResponse:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          description: Workflow ID
+        name:
+          type: string
+          description: Workflow name
+        input_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          description: Input parameters the sub-flow accepts
+        output_parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubflowParameter'
+          description: Output parameters the sub-flow produces
 
     ExecutionQueuedResponse:
       type: object
@@ -2702,6 +3260,19 @@ components:
         actions_failed:
           type: integer
           description: Number of actions failed
+        parent_execution_id:
+          type: string
+          nullable: true
+          description: Parent execution ID (when this is a sub-flow execution)
+        parent_workflow_id:
+          type: string
+          nullable: true
+          description: Parent workflow ID (when this is a sub-flow execution)
+        child_execution_ids:
+          type: array
+          items:
+            type: string
+          description: Child execution IDs spawned by invoke_subflow nodes
 
     ExecutionListResponse:
       type: object
@@ -2830,6 +3401,56 @@ components:
           items:
             type: string
           description: Execution logs
+        node_results:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              node_id:
+                type: string
+              node_name:
+                type: string
+              status:
+                type: string
+              started_at:
+                type: string
+                format: date-time
+              completed_at:
+                type: string
+                format: date-time
+                nullable: true
+              duration_ms:
+                type: integer
+                nullable: true
+              output:
+                type: object
+                additionalProperties: true
+                nullable: true
+              error:
+                type: string
+                nullable: true
+          nullable: true
+          description: Per-node execution results keyed by node_id
+        node_snapshots:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          nullable: true
+          description: Ordered snapshots of node execution for simulation replay
+        parent_execution_id:
+          type: string
+          nullable: true
+          description: Parent execution ID (when this is a sub-flow execution)
+        parent_workflow_id:
+          type: string
+          nullable: true
+          description: Parent workflow ID (when this is a sub-flow execution)
+        child_execution_ids:
+          type: array
+          items:
+            type: string
+          description: Child execution IDs spawned by invoke_subflow nodes
 
     # ─────────────────────────────────────────────────────────────────────────
     # Webhook
@@ -2965,6 +3586,251 @@ components:
         total:
           type: integer
           description: Total number of events
+
+    WebhookStatsBucket:
+      type: object
+      required:
+        - bucket
+        - total
+        - by_topic
+      properties:
+        bucket:
+          type: string
+          description: Time bucket label (ISO format)
+        total:
+          type: integer
+          description: Total events in bucket
+        by_topic:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Event counts by webhook topic
+
+    WebhookStatsResponse:
+      type: object
+      required:
+        - buckets
+        - granularity
+        - hours
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookStatsBucket'
+          description: Time-bucketed statistics
+        granularity:
+          type: string
+          enum: [hourly, daily]
+          description: Bucket granularity
+        hours:
+          type: integer
+          description: Time range in hours
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Workflow Simulation & Variables
+    # ─────────────────────────────────────────────────────────────────────────
+    AvailableVariablesResponse:
+      type: object
+      properties:
+        trigger:
+          type: object
+          additionalProperties: true
+          description: Variables from trigger node
+        nodes:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+          description: Variables from upstream nodes keyed by node name
+
+    InlineGraphRequest:
+      type: object
+      required:
+        - nodes
+        - edges
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Workflow nodes
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Workflow edges
+
+    EndpointSchemaResponse:
+      type: object
+      properties:
+        fields:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              type:
+                type: string
+              description:
+                type: string
+          description: Response field definitions
+        schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for response
+        example:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Example response
+
+    SimulateRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Custom trigger payload
+        webhook_event_id:
+          type: string
+          nullable: true
+          description: Use payload from existing webhook event
+        dry_run:
+          type: boolean
+          default: false
+          description: Simulate without making real API calls
+        stream_id:
+          type: string
+          nullable: true
+          description: WebSocket stream ID for real-time progress updates
+
+    SimulationResultResponse:
+      type: object
+      required:
+        - execution_id
+        - status
+      properties:
+        execution_id:
+          type: string
+          description: Execution ID
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed, cancelled]
+          description: Simulation status
+        duration_ms:
+          type: integer
+          nullable: true
+          description: Duration in milliseconds
+        node_results:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              node_id:
+                type: string
+              node_name:
+                type: string
+              node_type:
+                type: string
+              status:
+                type: string
+              duration_ms:
+                type: integer
+              error:
+                type: string
+                nullable: true
+              output_data:
+                type: object
+                additionalProperties: true
+                nullable: true
+          description: Results keyed by node ID
+        node_snapshots:
+          type: array
+          items:
+            type: object
+            properties:
+              node_id:
+                type: string
+              node_name:
+                type: string
+              step:
+                type: integer
+              input_variables:
+                type: object
+                additionalProperties: true
+              output_data:
+                type: object
+                additionalProperties: true
+                nullable: true
+              status:
+                type: string
+              duration_ms:
+                type: integer
+              error:
+                type: string
+                nullable: true
+              variables_after:
+                type: object
+                additionalProperties: true
+          description: Step-by-step execution snapshots
+        variables:
+          type: object
+          additionalProperties: true
+          description: Final variable state
+        logs:
+          type: array
+          items:
+            type: string
+          description: Execution logs
+        error:
+          type: string
+          nullable: true
+          description: Error message if failed
+
+    SamplePayloadEntry:
+      type: object
+      required:
+        - event_id
+        - timestamp
+        - payload
+      properties:
+        event_id:
+          type: string
+          description: Webhook event ID
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp
+        topic:
+          type: string
+          nullable: true
+          description: Webhook topic
+        webhook_type:
+          type: string
+          description: Webhook type
+        payload_preview:
+          type: object
+          additionalProperties: true
+          description: Truncated payload preview
+        payload:
+          type: object
+          additionalProperties: true
+          description: Full webhook payload
+
+    SamplePayloadsResponse:
+      type: object
+      required:
+        - payloads
+      properties:
+        payloads:
+          type: array
+          items:
+            $ref: '#/components/schemas/SamplePayloadEntry'
+          description: List of sample payloads
 
     # ─────────────────────────────────────────────────────────────────────────
     # Backup

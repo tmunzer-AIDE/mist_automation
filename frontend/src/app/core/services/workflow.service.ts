@@ -19,6 +19,8 @@ import {
   VariableTree,
   SimulateRequest,
   SamplePayload,
+  SubflowSchemaResponse,
+  WorkflowType,
 } from '../models/workflow.model';
 import { ACTION_META, DEFAULT_ACTION_META } from '../models/workflow-meta';
 
@@ -29,10 +31,24 @@ export class WorkflowService {
 
   // ── CRUD ──────────────────────────────────────────────────────────────
 
-  list(skip = 0, limit = 100, statusFilter?: string): Observable<WorkflowListResponse> {
+  list(
+    skip = 0,
+    limit = 100,
+    statusFilter?: string,
+    workflowType?: WorkflowType
+  ): Observable<WorkflowListResponse> {
     const params: Record<string, string | number> = { skip, limit };
     if (statusFilter) params['status_filter'] = statusFilter;
+    if (workflowType) params['workflow_type'] = workflowType;
     return this.api.get<WorkflowListResponse>('/workflows', params);
+  }
+
+  listSubflows(): Observable<WorkflowListResponse> {
+    return this.list(0, 1000, undefined, 'subflow');
+  }
+
+  getSubflowSchema(id: string): Observable<SubflowSchemaResponse> {
+    return this.api.get<SubflowSchemaResponse>(`/workflows/${id}/subflow-schema`);
   }
 
   get(id: string): Observable<WorkflowResponse> {
@@ -137,6 +153,7 @@ export class WorkflowService {
       _version: 1,
       _exported_at: new Date().toISOString(),
       name: workflow.name,
+      workflow_type: (workflow as WorkflowResponse).workflow_type ?? 'standard',
       description: (workflow as WorkflowResponse).description ?? null,
       timeout_seconds: (workflow as WorkflowResponse).timeout_seconds ?? 300,
       nodes: ('nodes' in workflow ? workflow.nodes : []).map((n: WorkflowNode) => ({
@@ -202,8 +219,10 @@ export class WorkflowService {
     if (!data || typeof data !== 'object') return null;
     const nodes = data['nodes'] as Record<string, unknown>[];
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
-    // Require at least a trigger node
-    if (!nodes.some((n) => n['type'] === 'trigger')) return null;
+    // Require at least a trigger or subflow_input node
+    const hasTrigger = nodes.some((n) => n['type'] === 'trigger');
+    const hasSubflowInput = nodes.some((n) => n['type'] === 'subflow_input');
+    if (!hasTrigger && !hasSubflowInput) return null;
 
     // Regenerate all node and edge IDs to avoid collisions
     const idMap = new Map<string, string>();
@@ -224,6 +243,7 @@ export class WorkflowService {
     return {
       name: (data['name'] as string) || 'Imported Workflow',
       description: (data['description'] as string) || undefined,
+      workflow_type: (data['workflow_type'] as WorkflowType) || (hasSubflowInput ? 'subflow' : 'standard'),
       timeout_seconds: (data['timeout_seconds'] as number) || 300,
       nodes: newNodes,
       edges: newEdges,
@@ -263,6 +283,21 @@ export class WorkflowService {
         name: 'Webhook Trigger',
         position,
         config: { trigger_type: 'webhook' },
+        output_ports: [{ id: 'default', label: '', type: 'default' }],
+        enabled: true,
+        continue_on_error: false,
+        max_retries: 0,
+        retry_delay: 0,
+      };
+    }
+
+    if (type === 'subflow_input') {
+      return {
+        id,
+        type: 'subflow_input',
+        name: 'Sub-Flow Input',
+        position,
+        config: {},
         output_ports: [{ id: 'default', label: '', type: 'default' }],
         enabled: true,
         continue_on_error: false,
@@ -318,6 +353,9 @@ export class WorkflowService {
         { id: 'done', label: 'Done', type: 'loop_done' },
       ];
     }
+    if (type === 'subflow_output') {
+      return []; // Terminal node — no output ports
+    }
     return [{ id: 'default', label: '', type: 'default' }];
   }
 
@@ -341,6 +379,10 @@ export class WorkflowService {
           title: '',
           footer_template: '',
         };
+      case 'invoke_subflow':
+        return { target_workflow_id: '', input_mappings: {}, _output_schema: {} };
+      case 'subflow_output':
+        return { outputs: {} };
       default:
         return {};
     }

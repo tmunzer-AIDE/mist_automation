@@ -86,6 +86,11 @@ class WorkflowExecution(Document):
     is_simulation: bool = Field(default=False, description="Whether this was a simulation run")
     is_dry_run: bool = Field(default=False, description="Whether external calls were mocked")
 
+    # Sub-flow execution linkage
+    parent_execution_id: PydanticObjectId | None = Field(default=None, description="Parent execution ID if sub-flow")
+    parent_workflow_id: PydanticObjectId | None = Field(default=None, description="Parent workflow ID if sub-flow")
+    child_execution_ids: list[PydanticObjectId] = Field(default_factory=list, description="Child sub-flow execution IDs")
+
     # Error handling
     error: str | None = Field(default=None, description="Error message if execution failed")
     error_details: dict | None = Field(default=None, description="Detailed error information")

@@ -15,7 +15,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { WorkflowService } from '../../../core/services/workflow.service';
-import { WorkflowResponse } from '../../../core/models/workflow.model';
+import { WorkflowResponse, WorkflowType } from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
 
 @Component({
@@ -52,17 +52,26 @@ export class WorkflowListComponent implements OnInit {
   pageSize = signal(25);
   pageIndex = signal(0);
   loading = signal(true);
+  workflowTypeFilter = signal<WorkflowType | undefined>(undefined);
 
-  displayedColumns = ['name', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
+  displayedColumns = ['name', 'type', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
 
   ngOnInit(): void {
     this.topbarService.setTitle('Workflows');
     this.loadWorkflows();
   }
 
+  setTypeFilter(type: WorkflowType | undefined): void {
+    this.workflowTypeFilter.set(type);
+    this.pageIndex.set(0);
+    this.loadWorkflows();
+  }
+
   loadWorkflows(): void {
     this.loading.set(true);
-    this.workflowService.list(this.pageIndex() * this.pageSize(), this.pageSize()).subscribe({
+    this.workflowService
+      .list(this.pageIndex() * this.pageSize(), this.pageSize(), undefined, this.workflowTypeFilter())
+      .subscribe({
       next: (res) => {
         this.workflows.set(res.workflows);
         this.total.set(res.total);
@@ -82,6 +91,10 @@ export class WorkflowListComponent implements OnInit {
 
   createWorkflow(): void {
     this.router.navigate(['/workflows/new']);
+  }
+
+  createSubflow(): void {
+    this.router.navigate(['/workflows/new'], { queryParams: { type: 'subflow' } });
   }
 
   editWorkflow(workflow: WorkflowResponse): void {
@@ -177,6 +190,9 @@ export class WorkflowListComponent implements OnInit {
   }
 
   getTriggerLabel(workflow: WorkflowResponse): string {
+    if (workflow.workflow_type === 'subflow') {
+      return 'Sub-Flow Input';
+    }
     const triggerNode = workflow.nodes?.find((n) => n.type === 'trigger');
     if (!triggerNode) return '\u2014';
     const config = triggerNode.config || {};

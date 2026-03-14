@@ -163,3 +163,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/workflows/
 ## Code Style
 
 Black (120 char), Ruff (isort + pycodestyle + pyflakes + bugbear + comprehensions + pyupgrade), MyPy with Pydantic plugin. Python >=3.10. See `pyproject.toml` for full config.
+
+## OpenAPI Specification
+
+When modifying API endpoints, update the OpenAPI spec in `openapi.yaml` accordingly. This file is used for generating API client SDKs and must be kept in sync with the actual implementation. Use `openapi-generator validate -i ./openapi.yaml` to validate the spec after editing.

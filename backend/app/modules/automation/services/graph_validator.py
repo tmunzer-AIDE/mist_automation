@@ -8,14 +8,18 @@ from app.core.exceptions import ValidationError
 from app.modules.automation.models.workflow import WorkflowEdge, WorkflowNode
 
 
-def validate_graph(nodes: list[WorkflowNode], edges: list[WorkflowEdge]) -> None:
+def validate_graph(
+    nodes: list[WorkflowNode],
+    edges: list[WorkflowEdge],
+    workflow_type: str = "standard",
+) -> None:
     """
     Validate a workflow graph structure.
 
     Checks:
-    - Exactly one trigger node
+    - Entry node rules based on workflow_type
     - All edge references point to existing nodes/ports
-    - No orphan non-trigger nodes (every non-trigger node must be reachable from the trigger)
+    - No orphan nodes (every non-entry node must be reachable from entry)
     - No cycles (except for_each loops are allowed to have back-edges)
 
     Raises:
@@ -27,14 +31,13 @@ def validate_graph(nodes: list[WorkflowNode], edges: list[WorkflowEdge]) -> None
     node_ids = {n.id for n in nodes}
     node_map = {n.id: n for n in nodes}
 
-    # ── Check exactly one trigger ────────────────────────────────────────
-    trigger_nodes = [n for n in nodes if n.type == "trigger"]
-    if len(trigger_nodes) == 0:
-        raise ValidationError("Workflow must have exactly one trigger node")
-    if len(trigger_nodes) > 1:
-        raise ValidationError("Workflow must have exactly one trigger node, found multiple")
-
-    trigger_id = trigger_nodes[0].id
+    # ── Validate entry node based on workflow_type ────────────────────────
+    if workflow_type == "subflow":
+        _validate_subflow_entry(nodes)
+        entry_id = next(n.id for n in nodes if n.type == "subflow_input")
+    else:
+        _validate_standard_entry(nodes)
+        entry_id = next(n.id for n in nodes if n.type == "trigger")
 
     # ── Validate edges reference existing nodes ──────────────────────────
     edge_ids = set()
@@ -62,9 +65,9 @@ def validate_graph(nodes: list[WorkflowNode], edges: list[WorkflowEdge]) -> None
     for edge in edges:
         adjacency[edge.source_node_id].append(edge.target_node_id)
 
-    # BFS from trigger
+    # BFS from entry node
     visited: set[str] = set()
-    queue: deque[str] = deque([trigger_id])
+    queue: deque[str] = deque([entry_id])
     while queue:
         nid = queue.popleft()
         if nid in visited:
@@ -75,9 +78,10 @@ def validate_graph(nodes: list[WorkflowNode], edges: list[WorkflowEdge]) -> None
                 queue.append(neighbor)
 
     # Check for orphan nodes
+    entry_type = "subflow_input" if workflow_type == "subflow" else "trigger"
     for node in nodes:
-        if node.id not in visited and node.type != "trigger":
-            raise ValidationError(f"Node '{node.name or node.id}' is not reachable from the trigger")
+        if node.id not in visited and node.type != entry_type:
+            raise ValidationError(f"Node '{node.name or node.id}' is not reachable from the entry node")
 
     # ── Cycle detection (Kahn's algorithm — topological sort) ────────────
     # Skip for_each back-edges for cycle detection
@@ -113,3 +117,90 @@ def validate_graph(nodes: list[WorkflowNode], edges: list[WorkflowEdge]) -> None
 
     if topo_count != len(node_ids):
         raise ValidationError("Workflow graph contains a cycle")
+
+
+def _validate_standard_entry(nodes: list[WorkflowNode]) -> None:
+    """Validate entry node rules for standard workflows."""
+    trigger_nodes = [n for n in nodes if n.type == "trigger"]
+    if len(trigger_nodes) == 0:
+        raise ValidationError("Workflow must have exactly one trigger node")
+    if len(trigger_nodes) > 1:
+        raise ValidationError("Workflow must have exactly one trigger node, found multiple")
+
+    # Standard workflows must not contain subflow-specific nodes
+    for node in nodes:
+        if node.type in ("subflow_input", "subflow_output"):
+            raise ValidationError(
+                f"Standard workflows cannot contain '{node.type}' nodes. "
+                "Use a sub-flow workflow instead."
+            )
+
+
+def _validate_subflow_entry(nodes: list[WorkflowNode]) -> None:
+    """Validate entry node rules for sub-flow workflows."""
+    input_nodes = [n for n in nodes if n.type == "subflow_input"]
+    if len(input_nodes) == 0:
+        raise ValidationError("Sub-flow must have exactly one subflow_input node")
+    if len(input_nodes) > 1:
+        raise ValidationError("Sub-flow must have exactly one subflow_input node, found multiple")
+
+    output_nodes = [n for n in nodes if n.type == "subflow_output"]
+    if len(output_nodes) == 0:
+        raise ValidationError("Sub-flow must have at least one subflow_output node")
+
+    # Sub-flow workflows must not contain trigger nodes
+    for node in nodes:
+        if node.type == "trigger":
+            raise ValidationError("Sub-flow workflows cannot contain trigger nodes. Use subflow_input instead.")
+
+
+async def validate_no_circular_subflow_references(
+    workflow_id: str | None,
+    nodes: list[WorkflowNode],
+) -> None:
+    """
+    Detect circular references in invoke_subflow nodes.
+
+    Walks the chain of sub-flow invocations and raises ValidationError
+    if a cycle is found (e.g., A → B → A).
+    """
+    from app.modules.automation.models.workflow import Workflow
+
+    # Extract target workflow IDs from invoke_subflow nodes
+    target_ids = set()
+    for node in nodes:
+        if node.type == "invoke_subflow":
+            target_wf_id = node.config.get("target_workflow_id")
+            if target_wf_id:
+                target_ids.add(target_wf_id)
+
+    if not target_ids:
+        return
+
+    # BFS through sub-flow references
+    visited: set[str] = set()
+    if workflow_id:
+        visited.add(workflow_id)
+
+    queue = deque(target_ids)
+    while queue:
+        wf_id = queue.popleft()
+        if wf_id in visited:
+            raise ValidationError(f"Circular sub-flow reference detected involving workflow {wf_id}")
+        visited.add(wf_id)
+
+        try:
+            from beanie import PydanticObjectId
+
+            target_wf = await Workflow.get(PydanticObjectId(wf_id))
+        except Exception:
+            continue
+
+        if not target_wf:
+            continue
+
+        for node in target_wf.nodes:
+            if node.type == "invoke_subflow":
+                child_id = node.config.get("target_workflow_id")
+                if child_id and child_id not in visited:
+                    queue.append(child_id)

@@ -67,13 +67,29 @@ UTILITY_VARIABLES: dict[str, str] = {
 }
 
 
-def get_node_output_schema(node: WorkflowNode) -> dict[str, Any]:
+def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None) -> dict[str, Any]:
     """
     Derive the output schema for a node based on its type and config.
 
     Returns a dict representing the shape of the node's output data.
     """
     node_type = node.type
+
+    if node_type == "subflow_input":
+        # Schema comes from the workflow's input_parameters
+        if workflow and workflow.input_parameters:
+            return {p.name: p.type for p in workflow.input_parameters}
+        return {}
+
+    if node_type == "invoke_subflow":
+        # Use cached output schema from node config (set by UI when target is selected)
+        output_schema = node.config.get("_output_schema")
+        if isinstance(output_schema, dict):
+            return {"outputs": output_schema, "child_execution_id": "string", "status": "string"}
+        return {"outputs": {}, "child_execution_id": "string", "status": "string"}
+
+    if node_type == "subflow_output":
+        return {}  # Terminal node, no downstream outputs
 
     if node_type == "trigger":
         # Use hardcoded webhook topic schema (support both new and legacy field names)
@@ -208,9 +224,9 @@ def get_available_variables(workflow: Workflow, target_node_id: str) -> dict[str
         if not node:
             continue
 
-        schema = get_node_output_schema(node)
+        schema = get_node_output_schema(node, workflow=workflow)
 
-        if node.type == "trigger":
+        if node.type in ("trigger", "subflow_input"):
             result["trigger"] = schema
         else:
             base_key = node.name or node.type.replace("_", " ").title()

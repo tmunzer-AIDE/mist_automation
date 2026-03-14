@@ -17,7 +17,18 @@ export type ActionType =
   | 'for_each'
   | 'data_transform'
   | 'format_report'
-  | 'email';
+  | 'email'
+  | 'invoke_subflow'
+  | 'subflow_output';
+export type WorkflowType = 'standard' | 'subflow';
+
+export interface SubflowParameter {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  default_value: unknown;
+}
 export type ExecutionStatus =
   | 'pending'
   | 'running'
@@ -82,10 +93,13 @@ export interface VariableBinding {
 export interface WorkflowCreate {
   name: string;
   description?: string;
+  workflow_type?: WorkflowType;
   timeout_seconds?: number;
   nodes: Record<string, unknown>[];
   edges: Record<string, unknown>[];
   viewport?: Record<string, unknown> | null;
+  input_parameters?: SubflowParameter[];
+  output_parameters?: SubflowParameter[];
 }
 
 export interface WorkflowUpdate {
@@ -96,12 +110,15 @@ export interface WorkflowUpdate {
   nodes?: Record<string, unknown>[];
   edges?: Record<string, unknown>[];
   viewport?: Record<string, unknown> | null;
+  input_parameters?: SubflowParameter[];
+  output_parameters?: SubflowParameter[];
 }
 
 export interface WorkflowResponse {
   id: string;
   name: string;
   description: string | null;
+  workflow_type: WorkflowType;
   created_by: string;
   status: WorkflowStatus;
   sharing: string;
@@ -109,12 +126,21 @@ export interface WorkflowResponse {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   viewport: { x: number; y: number; zoom: number } | null;
+  input_parameters: SubflowParameter[];
+  output_parameters: SubflowParameter[];
   execution_count: number;
   success_count: number;
   failure_count: number;
   last_execution: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SubflowSchemaResponse {
+  id: string;
+  name: string;
+  input_parameters: SubflowParameter[];
+  output_parameters: SubflowParameter[];
 }
 
 export interface WorkflowListResponse {
@@ -170,6 +196,9 @@ export interface WorkflowExecution {
   node_snapshots: NodeSnapshot[];
   is_simulation: boolean;
   is_dry_run: boolean;
+  parent_execution_id: string | null;
+  parent_workflow_id: string | null;
+  child_execution_ids: string[];
   error: string | null;
   error_details: string | null;
   variables?: Record<string, unknown>;

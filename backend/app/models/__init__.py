@@ -5,10 +5,12 @@ from app.models.user import User
 from app.models.session import UserSession, DeviceInfo
 from app.modules.automation.models.workflow import (
     Workflow,
+    WorkflowType,
     WorkflowStatus,
     SharingPermission,
     TriggerType,
     ActionType,
+    SubflowParameter,
     WorkflowNode,
     WorkflowEdge,
 )
@@ -33,10 +35,12 @@ __all__ = [
     "UserSession",
     "DeviceInfo",
     "Workflow",
+    "WorkflowType",
     "WorkflowStatus",
     "SharingPermission",
     "TriggerType",
     "ActionType",
+    "SubflowParameter",
     "WorkflowNode",
     "WorkflowEdge",
     "WorkflowExecution",

@@ -39,12 +39,20 @@ class WorkflowExecutor:
 
     _jinja_env = create_jinja_env()
 
-    def __init__(self, mist_service: MistService | None = None, progress_callback: ProgressCallback = None):
+    def __init__(
+        self,
+        mist_service: MistService | None = None,
+        progress_callback: ProgressCallback = None,
+        recursion_depth: int = 0,
+        max_recursion_depth: int = 5,
+    ):
         self.mist_service = mist_service or MistService()
         self.variable_context: dict[str, Any] = {"trigger": {}, "nodes": {}, "results": {}}
         self._progress_callback = progress_callback
         self._cached_render_context: dict[str, Any] | None = None
         self._node_name_patterns: list[tuple[re.Pattern, str]] | None = None
+        self._recursion_depth = recursion_depth
+        self._max_recursion_depth = max_recursion_depth
 
     async def execute_workflow(
         self,
@@ -161,7 +169,7 @@ class WorkflowExecutor:
         simulate: bool = False,
         dry_run: bool = False,
     ) -> WorkflowExecution:
-        """Execute the workflow graph via BFS from the trigger node."""
+        """Execute the workflow graph via BFS from the entry node."""
 
         # Build adjacency map: source_node_id -> [(edge, target_node)]
         node_map = {n.id: n for n in workflow.nodes}
@@ -169,43 +177,49 @@ class WorkflowExecutor:
         for edge in workflow.edges:
             adjacency[edge.source_node_id].append((edge.source_port_id, edge.target_node_id, edge.target_port_id))
 
-        # Find trigger node
-        trigger_node = workflow.get_trigger_node()
-        if not trigger_node:
-            raise WorkflowExecutionError("No trigger node found in workflow")
+        # Find entry node (trigger for standard, subflow_input for sub-flows)
+        entry_node = workflow.get_entry_node()
+        if not entry_node:
+            raise WorkflowExecutionError("No entry node found in workflow")
 
-        # Step 1: Evaluate trigger condition
-        trigger_condition = trigger_node.config.get("condition")
-        if trigger_condition:
-            execution.trigger_condition = trigger_condition
-            execution.add_log(f"Evaluating trigger condition: {trigger_condition}")
-            condition_passed = self._evaluate_condition_expression(trigger_condition)
-            execution.trigger_condition_passed = condition_passed
-            execution.add_log(f"Trigger condition result: {'passed' if condition_passed else 'not met'}")
-            await execution.save()
+        is_subflow = workflow.workflow_type == "subflow"
 
-            if not condition_passed:
-                execution.status = ExecutionStatus.FILTERED
-                execution.add_log("Workflow filtered out — trigger condition not met")
+        # Step 1: Evaluate trigger condition (skip for sub-flows)
+        if not is_subflow:
+            trigger_condition = entry_node.config.get("condition")
+            if trigger_condition:
+                execution.trigger_condition = trigger_condition
+                execution.add_log(f"Evaluating trigger condition: {trigger_condition}")
+                condition_passed = self._evaluate_condition_expression(trigger_condition)
+                execution.trigger_condition_passed = condition_passed
+                execution.add_log(f"Trigger condition result: {'passed' if condition_passed else 'not met'}")
                 await execution.save()
-                return execution
+
+                if not condition_passed:
+                    execution.status = ExecutionStatus.FILTERED
+                    execution.add_log("Workflow filtered out — trigger condition not met")
+                    await execution.save()
+                    return execution
+            else:
+                execution.trigger_condition_passed = True
+                await execution.save()
         else:
             execution.trigger_condition_passed = True
             await execution.save()
 
-        # Step 2: Extract trigger variables
-        trigger_save_as = trigger_node.save_as
-        if trigger_save_as:
-            self._store_save_as_variables(trigger_save_as, self.variable_context.get("trigger", {}))
+        # Step 2: Extract trigger/input variables
+        entry_save_as = entry_node.save_as
+        if entry_save_as:
+            self._store_save_as_variables(entry_save_as, self.variable_context.get("trigger", {}))
 
-        # Record trigger node snapshot
+        # Record entry node snapshot
         step_counter = [0]
         if simulate:
             step_counter[0] += 1
             execution.node_snapshots.append(
                 NodeSnapshot(
-                    node_id=trigger_node.id,
-                    node_name=trigger_node.name,
+                    node_id=entry_node.id,
+                    node_name=entry_node.name,
                     step=step_counter[0],
                     input_variables={},
                     output_data=self.variable_context.get("trigger", {}),
@@ -217,8 +231,8 @@ class WorkflowExecutor:
                 await self._progress_callback(
                     "node_completed",
                     {
-                        "node_id": trigger_node.id,
-                        "node_name": trigger_node.name,
+                        "node_id": entry_node.id,
+                        "node_name": entry_node.name,
                         "step": step_counter[0],
                         "status": "success",
                         "duration_ms": None,
@@ -227,12 +241,12 @@ class WorkflowExecutor:
                     },
                 )
 
-        # Step 3: BFS traverse from trigger
+        # Step 3: BFS traverse from entry node
         execution.add_log(f"Starting graph execution with {len(workflow.nodes)} nodes and {len(workflow.edges)} edges")
         await execution.save()
 
         all_success = await self._traverse_from(
-            trigger_node.id,
+            entry_node.id,
             adjacency,
             node_map,
             execution,
@@ -312,7 +326,7 @@ class WorkflowExecutor:
 
             try:
                 node_start = datetime.now(timezone.utc)
-                result = await self._execute_node(node, execution, dry_run=dry_run)
+                result = await self._execute_node(node, execution, dry_run=dry_run, simulate=simulate)
                 node_end = datetime.now(timezone.utc)
                 node_duration_ms = int((node_end - node_start).total_seconds() * 1000)
                 node_result = NodeExecutionResult(
@@ -525,6 +539,7 @@ class WorkflowExecutor:
         node: WorkflowNode,
         execution: WorkflowExecution,
         dry_run: bool = False,
+        simulate: bool = False,
     ) -> dict[str, Any]:
         """Execute a single node with retry logic."""
         last_error = None
@@ -535,7 +550,7 @@ class WorkflowExecutor:
                     logger.info("node_retry", node_id=node.id, attempt=attempt)
                     await asyncio.sleep(node.retry_delay)
 
-                return await self._execute_node_by_type(node, execution, dry_run=dry_run)
+                return await self._execute_node_by_type(node, execution, dry_run=dry_run, simulate=simulate)
 
             except Exception as e:
                 last_error = e
@@ -548,6 +563,7 @@ class WorkflowExecutor:
         node: WorkflowNode,
         execution: WorkflowExecution,
         dry_run: bool = False,
+        simulate: bool = False,
     ) -> dict[str, Any]:
         """Dispatch node execution based on type."""
         node_type = node.type
@@ -589,6 +605,12 @@ class WorkflowExecutor:
             if dry_run:
                 return {"status": "mocked", "channel": config.get("notification_channel", "")}
             return await self._execute_notification(node_type, config)
+
+        if node_type == "invoke_subflow":
+            return await self._execute_invoke_subflow(node, execution, dry_run=dry_run, simulate=simulate)
+
+        if node_type == "subflow_output":
+            return await self._execute_subflow_output(config)
 
         raise NotImplementedError(f"Node type '{node_type}' not implemented")
 
@@ -856,6 +878,130 @@ class WorkflowExecutor:
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
 
         return blocks if blocks else None
+
+    async def _execute_invoke_subflow(
+        self,
+        node: WorkflowNode,
+        execution: WorkflowExecution,
+        dry_run: bool = False,
+        simulate: bool = False,
+    ) -> dict[str, Any]:
+        """Execute an invoke_subflow node — runs a sub-flow workflow as a child execution."""
+        from beanie import PydanticObjectId
+
+        config = node.config
+
+        # Check recursion depth
+        if self._recursion_depth >= self._max_recursion_depth:
+            raise WorkflowExecutionError(
+                f"Maximum sub-flow recursion depth ({self._max_recursion_depth}) exceeded"
+            )
+
+        # Fetch target workflow
+        target_wf_id = config.get("target_workflow_id")
+        if not target_wf_id:
+            raise WorkflowExecutionError("invoke_subflow node missing target_workflow_id")
+
+        try:
+            target_workflow = await Workflow.get(PydanticObjectId(target_wf_id))
+        except Exception as e:
+            raise WorkflowExecutionError(f"Invalid target workflow ID: {target_wf_id}") from e
+
+        if not target_workflow:
+            raise WorkflowExecutionError(f"Target sub-flow workflow not found: {target_wf_id}")
+
+        if target_workflow.workflow_type != "subflow":
+            raise WorkflowExecutionError(f"Target workflow '{target_workflow.name}' is not a sub-flow")
+
+        # Resolve input mappings
+        input_mappings: dict[str, str] = config.get("input_mappings", {})
+        resolved_inputs: dict[str, Any] = {}
+
+        for param in target_workflow.input_parameters:
+            if param.name in input_mappings:
+                template = input_mappings[param.name]
+                resolved_inputs[param.name] = self._render_template(template)
+            elif param.required:
+                if param.default_value is not None:
+                    resolved_inputs[param.name] = param.default_value
+                else:
+                    raise WorkflowExecutionError(
+                        f"Required sub-flow input parameter '{param.name}' not provided"
+                    )
+            elif param.default_value is not None:
+                resolved_inputs[param.name] = param.default_value
+
+        # Create child execution
+        child_execution = WorkflowExecution(
+            workflow_id=target_workflow.id,
+            workflow_name=target_workflow.name,
+            trigger_type="subflow",
+            trigger_data=resolved_inputs,
+            status=ExecutionStatus.PENDING,
+            is_simulation=simulate,
+            is_dry_run=dry_run,
+            parent_execution_id=execution.id,
+            parent_workflow_id=execution.workflow_id,
+        )
+        await child_execution.insert()
+
+        # Create child executor with incremented recursion depth
+        child_executor = WorkflowExecutor(
+            mist_service=self.mist_service,
+            progress_callback=self._progress_callback,
+            recursion_depth=self._recursion_depth + 1,
+            max_recursion_depth=self._max_recursion_depth,
+        )
+
+        try:
+            child_execution = await child_executor.execute_workflow(
+                workflow=target_workflow,
+                trigger_data=resolved_inputs,
+                trigger_source="subflow",
+                execution=child_execution,
+                simulate=simulate,
+                dry_run=dry_run,
+            )
+        except Exception as e:
+            execution.add_log(f"Sub-flow '{target_workflow.name}' failed: {e}", "error")
+            raise WorkflowExecutionError(f"Sub-flow '{target_workflow.name}' execution failed: {e}") from e
+
+        # Link child execution to parent
+        execution.child_execution_ids.append(child_execution.id)
+
+        # Extract outputs from child execution variables
+        output = child_execution.variables or {}
+
+        execution.add_log(
+            f"Sub-flow '{target_workflow.name}' completed with status {child_execution.status.value}"
+        )
+
+        if child_execution.status not in (ExecutionStatus.SUCCESS, ExecutionStatus.PARTIAL):
+            raise WorkflowExecutionError(
+                f"Sub-flow '{target_workflow.name}' finished with status: {child_execution.status.value}"
+            )
+
+        return {
+            "child_execution_id": str(child_execution.id),
+            "child_workflow_id": str(target_workflow.id),
+            "child_workflow_name": target_workflow.name,
+            "status": child_execution.status.value,
+            "outputs": output,
+        }
+
+    async def _execute_subflow_output(self, config: dict) -> dict[str, Any]:
+        """Execute a subflow_output node — renders output expressions and stores them."""
+        outputs_config: dict[str, str] = config.get("outputs", {})
+        rendered_outputs: dict[str, Any] = {}
+
+        for key, template in outputs_config.items():
+            rendered_outputs[key] = self._render_template(template)
+
+        # Store outputs in the results context so they appear in execution.variables
+        for key, value in rendered_outputs.items():
+            self.variable_context["results"][key] = value
+
+        return rendered_outputs
 
     async def _execute_notification(self, node_type: str, config: dict) -> dict[str, Any]:
         """Execute a notification action (slack, servicenow, pagerduty)."""

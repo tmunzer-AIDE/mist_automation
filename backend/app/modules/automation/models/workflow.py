@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field
 from app.models.mixins import TimestampMixin
 
 
+class WorkflowType(str, Enum):
+    """Workflow type enumeration."""
+    STANDARD = "standard"
+    SUBFLOW = "subflow"
+
+
 class WorkflowStatus(str, Enum):
     """Workflow status enumeration."""
     ENABLED = "enabled"
@@ -50,6 +56,17 @@ class ActionType(str, Enum):
     DATA_TRANSFORM = "data_transform"
     FORMAT_REPORT = "format_report"
     EMAIL = "email"
+    INVOKE_SUBFLOW = "invoke_subflow"
+    SUBFLOW_OUTPUT = "subflow_output"
+
+
+class SubflowParameter(BaseModel):
+    """A parameter definition for sub-flow input/output."""
+    name: str = Field(..., description="Parameter name")
+    type: str = Field(default="any", description="Parameter type: string, number, boolean, object, array, any")
+    description: str = Field(default="", description="Parameter description")
+    required: bool = Field(default=True, description="Whether the parameter is required")
+    default_value: Any = Field(default=None, description="Default value for optional parameters")
 
 
 class VariableBinding(BaseModel):
@@ -108,6 +125,11 @@ class Workflow(TimestampMixin, Document):
     # Basic info
     name: str = Field(..., description="Workflow name")
     description: str | None = Field(default=None, description="Workflow description")
+    workflow_type: str = Field(default="standard", description="Workflow type: standard or subflow")
+
+    # Sub-flow parameters (only used when workflow_type == 'subflow')
+    input_parameters: list[SubflowParameter] = Field(default_factory=list, description="Sub-flow input parameters")
+    output_parameters: list[SubflowParameter] = Field(default_factory=list, description="Sub-flow output parameters")
 
     # Ownership and permissions
     created_by: PydanticObjectId = Field(..., description="User ID who created the workflow")
@@ -139,6 +161,7 @@ class Workflow(TimestampMixin, Document):
             "created_by",
             "status",
             "last_execution",
+            "workflow_type",
         ]
 
     def can_be_accessed_by(self, user: "User") -> bool:
@@ -185,6 +208,15 @@ class Workflow(TimestampMixin, Document):
             if node.type == "trigger":
                 return node
         return None
+
+    def get_entry_node(self) -> WorkflowNode | None:
+        """Find the entry node: trigger for standard workflows, subflow_input for sub-flows."""
+        if self.workflow_type == "subflow":
+            for node in self.nodes:
+                if node.type == "subflow_input":
+                    return node
+            return None
+        return self.get_trigger_node()
 
     def get_node_by_id(self, node_id: str) -> WorkflowNode | None:
         """Find a node by its ID."""

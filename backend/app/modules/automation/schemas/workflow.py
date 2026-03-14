@@ -13,10 +13,13 @@ class WorkflowCreate(BaseModel):
 
     name: str = Field(..., description="Workflow name", min_length=1, max_length=200)
     description: str | None = Field(None, description="Workflow description")
+    workflow_type: str = Field(default="standard", description="Workflow type: standard or subflow")
     timeout_seconds: int = Field(default=300, description="Workflow execution timeout", ge=10, le=3600)
     nodes: list[dict[str, Any]] = Field(..., description="Graph nodes", min_length=1)
     edges: list[dict[str, Any]] = Field(default_factory=list, description="Graph edges")
     viewport: dict | None = Field(None, description="Canvas viewport state")
+    input_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Sub-flow input parameters")
+    output_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Sub-flow output parameters")
 
 
 class WorkflowUpdate(BaseModel):
@@ -29,6 +32,8 @@ class WorkflowUpdate(BaseModel):
     nodes: list[dict[str, Any]] | None = Field(None, description="Graph nodes")
     edges: list[dict[str, Any]] | None = Field(None, description="Graph edges")
     viewport: dict | None = Field(None, description="Canvas viewport state")
+    input_parameters: list[dict[str, Any]] | None = Field(None, description="Sub-flow input parameters")
+    output_parameters: list[dict[str, Any]] | None = Field(None, description="Sub-flow output parameters")
 
 
 class WorkflowResponse(BaseModel):
@@ -37,6 +42,7 @@ class WorkflowResponse(BaseModel):
     id: str = Field(..., description="Workflow ID")
     name: str = Field(..., description="Workflow name")
     description: str | None = Field(None, description="Workflow description")
+    workflow_type: str = Field(default="standard", description="Workflow type")
     created_by: str = Field(..., description="Creator user ID")
     status: str = Field(..., description="Workflow status")
     sharing: str = Field(..., description="Sharing permission")
@@ -44,6 +50,8 @@ class WorkflowResponse(BaseModel):
     nodes: list[dict[str, Any]] = Field(..., description="Graph nodes")
     edges: list[dict[str, Any]] = Field(..., description="Graph edges")
     viewport: dict | None = Field(None, description="Canvas viewport state")
+    input_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Sub-flow input parameters")
+    output_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Sub-flow output parameters")
     execution_count: int = Field(..., description="Total executions")
     success_count: int = Field(..., description="Successful executions")
     failure_count: int = Field(..., description="Failed executions")
@@ -52,6 +60,15 @@ class WorkflowResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SubflowSchemaResponse(BaseModel):
+    """Sub-flow schema response — input/output parameter definitions."""
+
+    id: str = Field(..., description="Workflow ID")
+    name: str = Field(..., description="Workflow name")
+    input_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Input parameters")
+    output_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Output parameters")
 
 
 class WorkflowListResponse(BaseModel):

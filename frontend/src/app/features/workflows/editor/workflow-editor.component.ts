@@ -26,6 +26,8 @@ import {
   WorkflowResponse,
   WorkflowExecution,
   WorkflowStatus,
+  WorkflowType,
+  SubflowParameter,
   ActionType,
   SimulationState,
   VariableTree,
@@ -78,6 +80,9 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   workflowName = signal('New Workflow');
   workflowDescription = signal<string | null>(null);
   workflowStatus = signal<WorkflowStatus>('draft');
+  workflowType = signal<WorkflowType>('standard');
+  inputParameters = signal<SubflowParameter[]>([]);
+  outputParameters = signal<SubflowParameter[]>([]);
   timeoutSeconds = signal(300);
 
   // Graph state
@@ -147,6 +152,9 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
           this.workflowName.set(response.name);
           this.workflowDescription.set(response.description);
           this.workflowStatus.set(response.status);
+          this.workflowType.set(response.workflow_type || 'standard');
+          this.inputParameters.set(response.input_parameters || []);
+          this.outputParameters.set(response.output_parameters || []);
           this.timeoutSeconds.set(response.timeout_seconds);
           this.graph.set(this.workflowService.toGraph(response));
           this.loading.set(false);
@@ -161,12 +169,26 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   }
 
   private createNewWorkflow(): void {
-    const triggerNode = this.workflowService.createNode('trigger', { x: 400, y: 80 });
-    this.graph.set({
-      nodes: [triggerNode],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-    });
+    const type = (this.route.snapshot.queryParamMap.get('type') as WorkflowType) || 'standard';
+    this.workflowType.set(type);
+
+    if (type === 'subflow') {
+      this.workflowName.set('New Sub-Flow');
+      const inputNode = this.workflowService.createNode('subflow_input', { x: 400, y: 80 });
+      const outputNode = this.workflowService.createNode('subflow_output', { x: 400, y: 320 });
+      this.graph.set({
+        nodes: [inputNode, outputNode],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      });
+    } else {
+      const triggerNode = this.workflowService.createNode('trigger', { x: 400, y: 80 });
+      this.graph.set({
+        nodes: [triggerNode],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      });
+    }
   }
 
   private loadLastExecution(id: string): void {
@@ -192,6 +214,8 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
           name: this.workflowName(),
           description: this.workflowDescription() || undefined,
           timeout_seconds: this.timeoutSeconds(),
+          input_parameters: this.inputParameters(),
+          output_parameters: this.outputParameters(),
           ...graphData,
         })
         .pipe(takeUntil(this.destroy$))
@@ -214,7 +238,10 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
         .create({
           name: this.workflowName(),
           description: this.workflowDescription() || undefined,
+          workflow_type: this.workflowType(),
           timeout_seconds: this.timeoutSeconds(),
+          input_parameters: this.inputParameters(),
+          output_parameters: this.outputParameters(),
           ...graphData,
         })
         .pipe(takeUntil(this.destroy$))
@@ -501,6 +528,14 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
       maxHeight: '80vh',
       data: this.workflowId(),
     });
+  }
+
+  onInputParametersChanged(params: SubflowParameter[]): void {
+    this.inputParameters.set(params);
+  }
+
+  onOutputParametersChanged(params: SubflowParameter[]): void {
+    this.outputParameters.set(params);
   }
 
   exportWorkflow(): void {

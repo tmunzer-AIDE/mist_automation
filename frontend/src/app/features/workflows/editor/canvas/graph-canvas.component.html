@@ -209,8 +209,8 @@
           {{ node.type === 'trigger' ? (node.config['trigger_type'] || 'webhook') : node.type.replace('_', ' ') }}
         </text>
 
-        <!-- Input port (top center) — not on trigger -->
-        @if (node.type !== 'trigger') {
+        <!-- Input port (top center) — not on trigger or subflow_input -->
+        @if (node.type !== 'trigger' && node.type !== 'subflow_input') {
           <circle
             [attr.cx]="getInputPortX()"
             [attr.cy]="getInputPortY()"

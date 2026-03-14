@@ -97,10 +97,10 @@ Most complex feature, spanning both backend and frontend:
 
 **Backend** (`app/modules/automation/`):
 - **Graph data model**: `WorkflowNode[]` + `WorkflowEdge[]` replace the old linear trigger + actions pipeline. Each node has `id`, `type`, `position`, `config`, `output_ports`. Edges connect source/target node:port pairs.
-- **Graph executor** (`services/executor_service.py`): BFS traversal from trigger node, resolving output ports per node type. Results stored as `node_results: dict[str, NodeExecutionResult]` keyed by node_id.
+- **Graph executor** (`services/executor_service.py`): BFS traversal from entry node (trigger for standard, `subflow_input` for sub-flows), resolving output ports per node type. Results stored as `node_results: dict[str, NodeExecutionResult]` keyed by node_id. Supports `invoke_subflow` (nested execution with recursion depth limit of 5) and `subflow_output` (terminal node that collects outputs).
 - **OAS service** (`services/oas_service.py`): Loads Mist OpenAPI Spec, indexes endpoints, generates mock responses for simulation dry-run mode.
 - **Node schema service** (`services/node_schema_service.py`): Provides upstream variable schemas for the variable picker, combining OAS data with node-type knowledge.
-- **Graph validator** (`services/graph_validator.py`): Validates no orphans, no cycles, exactly one trigger, valid edge references.
+- **Graph validator** (`services/graph_validator.py`): Validates no orphans, no cycles, valid edge references. Workflow-type-aware: standard workflows require exactly one trigger; sub-flow workflows require exactly one `subflow_input` and at least one `subflow_output`. Also validates no circular sub-flow references via BFS through `invoke_subflow` chains.
 - **Simulation endpoint**: `POST /workflows/{id}/simulate` with payload picker and dry-run mode. Returns per-node snapshots (input/output/variables at each step).
 
 **Frontend** (`features/workflows/editor/`):
@@ -110,6 +110,7 @@ Most complex feature, spanning both backend and frontend:
 - **Simulation panel**: Bottom panel for dry-run and step-by-step replay with visual execution status on canvas.
 - **Palette sidebar**: Native HTML drag-and-drop (not CDK), emits action type string.
 - **Port-based branching**: Condition nodes → `branch_0`/`branch_1`/`else` ports; for-each → `loop_body`/`done` ports.
+- **Sub-flows**: Workflows can be `standard` (trigger-based) or `subflow` (callable from other workflows). Sub-flows use `subflow_input` entry node + `subflow_output` terminal node with explicit `input_parameters`/`output_parameters`. Standard workflows call sub-flows via `invoke_subflow` action nodes with input mappings.
 
 ## Code Style
 

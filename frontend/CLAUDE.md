@@ -48,6 +48,7 @@ The workflow editor (`features/workflows/editor/`) is the most complex feature, 
 - **Action metadata**: `ACTION_META` in `core/models/workflow-meta.ts` is the single source of truth for action type icons, colors, labels, and default output ports — do not duplicate.
 - **API catalog** fetched from backend, filtered by HTTP method matching action type, with dynamic path/query parameter inputs.
 - **Port-based branching**: Condition nodes have `branch_0`/`branch_1`/`else` output ports. For-each nodes have `loop_body`/`done` output ports. Trigger nodes have no input port, only a `default` output port.
+- **Sub-flow support**: Workflows have a `workflow_type` (`standard` or `subflow`). Sub-flows use `subflow_input` (entry, no input port) and `subflow_output` (terminal, no output ports) nodes. Standard workflows invoke sub-flows via `invoke_subflow` action nodes. The palette conditionally shows `subflow_output` only when editing a subflow. Config panel has specialized sections for `subflow_input` (editable parameter list), `invoke_subflow` (target picker + input mappings), and `subflow_output` (output expression editors).
 - **Execution results**: `node_results: Record<string, NodeExecutionResult>` dict keyed by node_id (not a flat array).
 
 ### Backend Proxy

@@ -5,6 +5,9 @@
   </button>
   <input class="topbar-workflow-name" [value]="workflowName()" (input)="workflowName.set($any($event.target).value)" placeholder="Workflow name" />
   <span class="spacer"></span>
+  @if (workflowType() === 'subflow') {
+    <span class="status-chip status-subflow">Sub-Flow</span>
+  }
   @if (workflowId()) {
     <span class="status-chip" [ngClass]="statusChipClass()">{{ workflowStatus() }}</span>
   }
@@ -41,7 +44,7 @@
   <div class="editor-shell">
     <!-- Left: Block palette sidebar -->
     <div class="palette-sidebar">
-      <app-block-palette-sidebar (blockSelected)="onPaletteBlockSelected($event)" />
+      <app-block-palette-sidebar [workflowType]="workflowType()" (blockSelected)="onPaletteBlockSelected($event)" />
     </div>
 
     <!-- Center: Graph canvas + simulation panel -->
@@ -78,7 +81,7 @@
       <div class="config-panel-container" [style.width.px]="configPanelWidth()">
         <div class="resize-handle" (mousedown)="onResizeStart($event)"></div>
         <div class="config-panel-header-actions">
-          @if (selectedNode()?.type !== 'trigger') {
+          @if (selectedNode()?.type !== 'trigger' && selectedNode()?.type !== 'subflow_input') {
             <button mat-icon-button matTooltip="Delete node" (click)="onNodeRemoved(selectedNode()!.id)">
               <mat-icon>delete</mat-icon>
             </button>
@@ -90,8 +93,13 @@
         <app-node-config-panel
           [node]="selectedNode()!"
           [workflowId]="workflowId()"
+          [workflowType]="workflowType()"
+          [inputParameters]="inputParameters()"
+          [outputParameters]="outputParameters()"
           [variableTree]="variableTree()"
           (configChanged)="onNodeConfigChanged($event)"
+          (inputParametersChanged)="onInputParametersChanged($event)"
+          (outputParametersChanged)="onOutputParametersChanged($event)"
         />
       </div>
     }

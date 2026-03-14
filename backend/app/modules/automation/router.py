@@ -15,6 +15,7 @@ from app.modules.automation.api_catalog import API_CATALOG
 from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
 from app.modules.automation.models.workflow import (
     SharingPermission,
+    SubflowParameter,
     Workflow,
     WorkflowEdge,
     WorkflowNode,
@@ -23,6 +24,7 @@ from app.modules.automation.models.workflow import (
 from app.modules.automation.schemas.workflow import (
     InlineGraphRequest,
     SimulateRequest,
+    SubflowSchemaResponse,
     WorkflowCreate,
     WorkflowListResponse,
     WorkflowResponse,
@@ -38,6 +40,7 @@ def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
         id=str(wf.id),
         name=wf.name,
         description=wf.description,
+        workflow_type=wf.workflow_type,
         created_by=str(wf.created_by),
         status=wf.status.value,
         sharing=wf.sharing.value,
@@ -45,6 +48,8 @@ def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
         nodes=[n.model_dump() for n in wf.nodes],
         edges=[e.model_dump() for e in wf.edges],
         viewport=wf.viewport,
+        input_parameters=[p.model_dump() for p in wf.input_parameters],
+        output_parameters=[p.model_dump() for p in wf.output_parameters],
         execution_count=wf.execution_count,
         success_count=wf.success_count,
         failure_count=wf.failure_count,
@@ -66,6 +71,7 @@ async def list_workflows(
     skip: int = Query(0, ge=0, description="Number of workflows to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Number of workflows to return"),
     status_filter: str | None = Query(None, description="Filter by status"),
+    workflow_type: str | None = Query(None, description="Filter by workflow type: standard or subflow"),
     current_user: User = Depends(get_current_user_from_token),
 ):
     """List all workflows accessible to the current user."""
@@ -78,6 +84,8 @@ async def list_workflows(
 
     if status_filter:
         query["status"] = status_filter
+    if workflow_type:
+        query["workflow_type"] = workflow_type
 
     total = await Workflow.find(query).count()
     workflows = await Workflow.find(query).skip(skip).limit(limit).to_list()
@@ -94,21 +102,33 @@ async def create_workflow(
     # Parse nodes and edges
     nodes = [WorkflowNode(**n) for n in workflow_data.nodes]
     edges = [WorkflowEdge(**e) for e in workflow_data.edges]
+    wf_type = workflow_data.workflow_type or "standard"
 
     # Validate graph structure
     from app.modules.automation.services.graph_validator import validate_graph
 
-    validate_graph(nodes, edges)
+    validate_graph(nodes, edges, workflow_type=wf_type)
+
+    # Validate circular sub-flow references
+    from app.modules.automation.services.graph_validator import validate_no_circular_subflow_references
+
+    await validate_no_circular_subflow_references(None, nodes)
+
+    input_params = [SubflowParameter(**p) for p in workflow_data.input_parameters]
+    output_params = [SubflowParameter(**p) for p in workflow_data.output_parameters]
 
     workflow = Workflow(
         name=workflow_data.name,
         description=workflow_data.description,
+        workflow_type=wf_type,
         created_by=current_user.id,
         status=WorkflowStatus.DRAFT,
         timeout_seconds=workflow_data.timeout_seconds,
         nodes=nodes,
         edges=edges,
         viewport=workflow_data.viewport,
+        input_parameters=input_params,
+        output_parameters=output_params,
     )
     await workflow.insert()
 
@@ -271,12 +291,20 @@ async def update_workflow(
         workflow.status = WorkflowStatus(workflow_data.status)
     if workflow_data.timeout_seconds is not None:
         workflow.timeout_seconds = workflow_data.timeout_seconds
+    if workflow_data.input_parameters is not None:
+        workflow.input_parameters = [SubflowParameter(**p) for p in workflow_data.input_parameters]
+    if workflow_data.output_parameters is not None:
+        workflow.output_parameters = [SubflowParameter(**p) for p in workflow_data.output_parameters]
     if workflow_data.nodes is not None:
         nodes = [WorkflowNode(**n) for n in workflow_data.nodes]
         edges = [WorkflowEdge(**e) for e in (workflow_data.edges or [])]
         from app.modules.automation.services.graph_validator import validate_graph
 
-        validate_graph(nodes, edges)
+        validate_graph(nodes, edges, workflow_type=workflow.workflow_type)
+
+        from app.modules.automation.services.graph_validator import validate_no_circular_subflow_references
+
+        await validate_no_circular_subflow_references(str(workflow.id), nodes)
         workflow.nodes = nodes
         workflow.edges = edges
     if workflow_data.edges is not None and workflow_data.nodes is None:
@@ -284,7 +312,7 @@ async def update_workflow(
         edges = [WorkflowEdge(**e) for e in workflow_data.edges]
         from app.modules.automation.services.graph_validator import validate_graph
 
-        validate_graph(workflow.nodes, edges)
+        validate_graph(workflow.nodes, edges, workflow_type=workflow.workflow_type)
         workflow.edges = edges
     if workflow_data.viewport is not None:
         workflow.viewport = workflow_data.viewport
@@ -318,6 +346,38 @@ async def delete_workflow(
     await workflow.delete()
     logger.info("workflow_deleted", workflow_id=str(workflow.id), user_id=str(current_user.id))
     return None
+
+
+@router.get(
+    "/workflows/{workflow_id}/subflow-schema",
+    response_model=SubflowSchemaResponse,
+    tags=["Workflows"],
+)
+async def get_subflow_schema(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Get the input/output parameter schema of a sub-flow workflow."""
+    try:
+        workflow = await Workflow.get(PydanticObjectId(workflow_id))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid workflow ID format") from exc
+
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    if workflow.workflow_type != "subflow":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workflow is not a sub-flow")
+
+    return SubflowSchemaResponse(
+        id=str(workflow.id),
+        name=workflow.name,
+        input_parameters=[p.model_dump() for p in workflow.input_parameters],
+        output_parameters=[p.model_dump() for p in workflow.output_parameters],
+    )
 
 
 @router.post("/workflows/{workflow_id}/execute", tags=["Workflows"])
@@ -531,6 +591,9 @@ async def get_workflow_execution(
         ],
         "is_simulation": execution.is_simulation,
         "is_dry_run": execution.is_dry_run,
+        "parent_execution_id": str(execution.parent_execution_id) if execution.parent_execution_id else None,
+        "parent_workflow_id": str(execution.parent_workflow_id) if execution.parent_workflow_id else None,
+        "child_execution_ids": [str(cid) for cid in execution.child_execution_ids],
         "error": execution.error,
         "error_details": execution.error_details,
         "variables": execution.variables,

@@ -33,6 +33,10 @@ import {
   ApiCatalogEntry,
   VariableBinding,
   VariableTree,
+  WorkflowType,
+  SubflowParameter,
+  WorkflowResponse,
+  SubflowSchemaResponse,
 } from '../../../../core/models/workflow.model';
 import { WorkflowService } from '../../../../core/services/workflow.service';
 import { VariablePickerComponent } from './variable-picker.component';
@@ -59,7 +63,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
     @if (node && form) {
       <div class="config-panel">
         <div class="panel-header">
-          <h3 class="panel-title">{{ node.type === 'trigger' ? 'Trigger' : 'Node' }} Config</h3>
+          <h3 class="panel-title">{{ node.type === 'trigger' ? 'Trigger' : node.type === 'subflow_input' ? 'Sub-Flow Input' : node.type === 'subflow_output' ? 'Sub-Flow Output' : node.type === 'invoke_subflow' ? 'Sub-Flow Call' : 'Node' }} Config</h3>
         </div>
 
         <form [formGroup]="form" class="config-form">
@@ -543,6 +547,114 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-checkbox formControlName="email_html">Send as HTML</mat-checkbox>
             }
 
+            <!-- Sub-Flow Input: parameter list editor -->
+            @if (node.type === 'subflow_input') {
+              <div class="section-title">Input Parameters</div>
+              @for (param of subflowInputParams; track $index; let i = $index) {
+                <div class="subflow-param-row">
+                  <mat-form-field appearance="outline">
+                    <mat-label>Name</mat-label>
+                    <input matInput [value]="param.name" (input)="updateSubflowInputParam(i, 'name', $any($event.target).value)" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Type</mat-label>
+                    <mat-select [value]="param.type" (selectionChange)="updateSubflowInputParam(i, 'type', $event.value)">
+                      <mat-option value="any">Any</mat-option>
+                      <mat-option value="string">String</mat-option>
+                      <mat-option value="number">Number</mat-option>
+                      <mat-option value="boolean">Boolean</mat-option>
+                      <mat-option value="object">Object</mat-option>
+                      <mat-option value="array">Array</mat-option>
+                    </mat-select>
+                  </mat-form-field>
+                  <mat-checkbox [checked]="param.required" (change)="updateSubflowInputParam(i, 'required', $event.checked)">Required</mat-checkbox>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Description</mat-label>
+                    <input matInput [value]="param.description" (input)="updateSubflowInputParam(i, 'description', $any($event.target).value)" />
+                  </mat-form-field>
+                  <button mat-icon-button (click)="removeSubflowInputParam(i)">
+                    <mat-icon>close</mat-icon>
+                  </button>
+                </div>
+              }
+              <button mat-button (click)="addSubflowInputParam()">
+                <mat-icon>add</mat-icon> Add Parameter
+              </button>
+            }
+
+            <!-- Invoke Sub-Flow: target selection + input mappings -->
+            @if (node.type === 'invoke_subflow') {
+              <mat-form-field appearance="outline">
+                <mat-label>Target Sub-Flow</mat-label>
+                <mat-select formControlName="target_workflow_id" (selectionChange)="onSubflowTargetChanged($event.value)">
+                  @for (sf of availableSubflows; track sf.id) {
+                    <mat-option [value]="sf.id">{{ sf.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              @if (selectedSubflowSchema) {
+                <div class="section-title">Input Mappings</div>
+                @for (param of selectedSubflowSchema.input_parameters; track param.name) {
+                  <mat-form-field appearance="outline">
+                    <mat-label>{{ param.name }}{{ param.required ? ' *' : '' }} ({{ param.type }})</mat-label>
+                    <textarea matInput [value]="getInputMapping(param.name)"
+                      (input)="setInputMapping(param.name, $any($event.target).value)"
+                      rows="1"
+                      [placeholder]="param.description || ''"></textarea>
+                    <button mat-icon-button matSuffix [matMenuTriggerFor]="sfVarMenu">
+                      <mat-icon>data_object</mat-icon>
+                    </button>
+                    <mat-menu #sfVarMenu="matMenu">
+                      <app-variable-picker
+                        [variableTree]="variableTree"
+                        (variableSelected)="appendInputMapping(param.name, $event)"
+                      />
+                    </mat-menu>
+                  </mat-form-field>
+                }
+
+                @if (selectedSubflowSchema.output_parameters.length > 0) {
+                  <div class="section-title">Outputs (read-only)</div>
+                  @for (param of selectedSubflowSchema.output_parameters; track param.name) {
+                    <div class="subflow-output-info">
+                      <span class="param-name">{{ param.name }}</span>
+                      <span class="param-type">({{ param.type }})</span>
+                      @if (param.description) {
+                        <span class="param-desc">{{ param.description }}</span>
+                      }
+                    </div>
+                  }
+                }
+              }
+            }
+
+            <!-- Sub-Flow Output: map output expressions -->
+            @if (node.type === 'subflow_output') {
+              <div class="section-title">Output Mappings</div>
+              @for (param of outputParameters; track param.name) {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ param.name }} ({{ param.type }})</mat-label>
+                  <textarea matInput [value]="getSubflowOutputValue(param.name)"
+                    (input)="setSubflowOutputValue(param.name, $any($event.target).value)"
+                    rows="1"
+                    [placeholder]="param.description || ''"></textarea>
+                  <button mat-icon-button matSuffix [matMenuTriggerFor]="outVarMenu">
+                    <mat-icon>data_object</mat-icon>
+                  </button>
+                  <mat-menu #outVarMenu="matMenu">
+                    <app-variable-picker
+                      [variableTree]="variableTree"
+                      (variableSelected)="appendSubflowOutputValue(param.name, $event)"
+                    />
+                  </mat-menu>
+                </mat-form-field>
+              }
+              @if (outputParameters.length === 0) {
+                <div class="hint-text">Define output parameters on the Sub-Flow Input node first.</div>
+              }
+            }
+
             <!-- Condition Branches -->
             @if (node.type === 'condition') {
               <app-json-section-toggle
@@ -706,6 +818,50 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
         flex: 1;
       }
 
+      .subflow-param-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px;
+        border: 1px solid var(--mat-sys-outline-variant, #ccc);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        position: relative;
+
+        button[mat-icon-button] {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+        }
+      }
+
+      .subflow-output-info {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding: 4px 8px;
+        font-size: 13px;
+
+        .param-name {
+          font-weight: 500;
+        }
+
+        .param-type {
+          color: var(--mat-sys-on-surface-variant, #666);
+        }
+
+        .param-desc {
+          color: var(--mat-sys-on-surface-variant, #888);
+          font-size: 12px;
+        }
+      }
+
+      .hint-text {
+        font-size: 12px;
+        color: var(--mat-sys-on-surface-variant, #888);
+        padding: 8px 0;
+      }
+
       .save-as-row {
         display: flex;
         gap: 8px;
@@ -761,8 +917,17 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
   @Input() node!: WorkflowNode;
   @Input() workflowId: string | null = null;
+  @Input() workflowType: WorkflowType = 'standard';
+  @Input() inputParameters: SubflowParameter[] = [];
+  @Input() outputParameters: SubflowParameter[] = [];
   @Input() variableTree: VariableTree | null = null;
   @Output() configChanged = new EventEmitter<WorkflowNode>();
+  @Output() inputParametersChanged = new EventEmitter<SubflowParameter[]>();
+  @Output() outputParametersChanged = new EventEmitter<SubflowParameter[]>();
+
+  // Sub-flow state
+  availableSubflows: WorkflowResponse[] = [];
+  selectedSubflowSchema: SubflowSchemaResponse | null = null;
 
   form!: FormGroup;
   catalogEntries: ApiCatalogEntry[] = [];
@@ -808,11 +973,25 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
     if (this.node.type === 'trigger') {
       this.buildTriggerForm(config);
+    } else if (this.node.type === 'subflow_input') {
+      this.buildSubflowInputForm(config);
     } else {
       this.buildActionForm(config);
     }
 
     this.form.valueChanges.pipe(takeUntil(this.rebuild$)).subscribe(() => this.emitChanges());
+
+    // Load subflow list when configuring invoke_subflow
+    if (this.node.type === 'invoke_subflow') {
+      this.loadAvailableSubflows();
+    }
+  }
+
+  private buildSubflowInputForm(config: Record<string, unknown>): void {
+    this.initSubflowInputParams();
+    this.form = this.fb.group({
+      name: [this.node.name || ''],
+    });
   }
 
   private buildTriggerForm(config: Record<string, unknown>): void {
@@ -889,6 +1068,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       slack_json_variable: [config['slack_json_variable'] || ''],
       email_subject: [config['email_subject'] || ''],
       email_html: [config['email_html'] ?? false],
+      target_workflow_id: [config['target_workflow_id'] || ''],
       max_retries: [this.node.max_retries ?? 3],
       retry_delay: [this.node.retry_delay ?? 5],
       continue_on_error: [this.node.continue_on_error ?? false],
@@ -1079,6 +1259,13 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     const raw = this.form.getRawValue();
     const updatedNode: WorkflowNode = { ...this.node };
 
+    if (this.node.type === 'subflow_input') {
+      updatedNode.name = raw.name;
+      this.emitting = true;
+      this.configChanged.emit(updatedNode);
+      return;
+    }
+
     if (this.node.type === 'trigger') {
       updatedNode.name = raw.name;
       updatedNode.config = {
@@ -1177,6 +1364,15 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         config['email_html'] = raw.email_html;
       }
 
+      if (this.node.type === 'invoke_subflow') {
+        config['target_workflow_id'] = raw.target_workflow_id;
+        // input_mappings and _output_schema are managed directly on node.config
+      }
+
+      if (this.node.type === 'subflow_output') {
+        // outputs are managed directly on node.config
+      }
+
       updatedNode.config = config;
     }
 
@@ -1185,6 +1381,122 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   }
 
   // ── Getters ───────────────────────────────────────────────────────
+
+  // ── Sub-flow input parameter management ──────────────────────────
+
+  subflowInputParams: SubflowParameter[] = [];
+
+  private initSubflowInputParams(): void {
+    this.subflowInputParams = [...this.inputParameters];
+  }
+
+  addSubflowInputParam(): void {
+    this.subflowInputParams = [
+      ...this.subflowInputParams,
+      { name: '', type: 'any', description: '', required: true, default_value: null },
+    ];
+    this.emitSubflowInputParams();
+  }
+
+  removeSubflowInputParam(index: number): void {
+    this.subflowInputParams = this.subflowInputParams.filter((_, i) => i !== index);
+    this.emitSubflowInputParams();
+  }
+
+  updateSubflowInputParam(index: number, field: string, value: unknown): void {
+    this.subflowInputParams = this.subflowInputParams.map((p, i) =>
+      i === index ? { ...p, [field]: value } : p
+    );
+    this.emitSubflowInputParams();
+  }
+
+  private emitSubflowInputParams(): void {
+    this.inputParametersChanged.emit(this.subflowInputParams);
+  }
+
+  // ── Invoke sub-flow ──────────────────────────────────────────────
+
+  private loadAvailableSubflows(): void {
+    this.workflowService
+      .listSubflows()
+      .pipe(takeUntil(this.rebuild$))
+      .subscribe({
+        next: (res) => {
+          this.availableSubflows = res.workflows;
+          // Auto-load schema if target is already set
+          const targetId = this.node.config['target_workflow_id'] as string;
+          if (targetId) {
+            this.loadSubflowSchema(targetId);
+          }
+        },
+      });
+  }
+
+  onSubflowTargetChanged(targetId: string): void {
+    this.loadSubflowSchema(targetId);
+    this.emitChanges();
+  }
+
+  private loadSubflowSchema(targetId: string): void {
+    if (!targetId) {
+      this.selectedSubflowSchema = null;
+      return;
+    }
+    this.workflowService
+      .getSubflowSchema(targetId)
+      .pipe(takeUntil(this.rebuild$))
+      .subscribe({
+        next: (schema) => {
+          this.selectedSubflowSchema = schema;
+          // Cache output schema in node config for variable autocomplete
+          const outputSchema: Record<string, string> = {};
+          for (const p of schema.output_parameters) {
+            outputSchema[p.name] = p.type;
+          }
+          this.node.config['_output_schema'] = outputSchema;
+          this.emitChanges();
+        },
+        error: () => {
+          this.selectedSubflowSchema = null;
+        },
+      });
+  }
+
+  getInputMapping(paramName: string): string {
+    const mappings = (this.node.config['input_mappings'] || {}) as Record<string, string>;
+    return mappings[paramName] || '';
+  }
+
+  setInputMapping(paramName: string, value: string): void {
+    const mappings = { ...((this.node.config['input_mappings'] || {}) as Record<string, string>) };
+    mappings[paramName] = value;
+    this.node.config['input_mappings'] = mappings;
+    this.emitChanges();
+  }
+
+  appendInputMapping(paramName: string, variablePath: string): void {
+    const current = this.getInputMapping(paramName);
+    this.setInputMapping(paramName, current + variablePath);
+  }
+
+  // ── Sub-flow output ──────────────────────────────────────────────
+
+  getSubflowOutputValue(paramName: string): string {
+    const outputs = (this.node.config['outputs'] || {}) as Record<string, string>;
+    return outputs[paramName] || '';
+  }
+
+  setSubflowOutputValue(paramName: string, value: string): void {
+    const outputs = { ...((this.node.config['outputs'] || {}) as Record<string, string>) };
+    outputs[paramName] = value;
+    this.node.config['outputs'] = outputs;
+    this.emitChanges();
+  }
+
+  appendSubflowOutputValue(paramName: string, variablePath: string): void {
+    const current = this.getSubflowOutputValue(paramName);
+    this.setSubflowOutputValue(paramName, current + variablePath);
+  }
 
   get isApiAction(): boolean {
     return this.node.type.startsWith('mist_api_');
@@ -1204,7 +1516,9 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   }
 
   get hasErrorHandling(): boolean {
-    return !['set_variable', 'for_each', 'condition', 'delay'].includes(this.node.type);
+    return !['set_variable', 'for_each', 'condition', 'delay', 'subflow_input', 'subflow_output'].includes(
+      this.node.type
+    );
   }
 
   get hasRetry(): boolean {

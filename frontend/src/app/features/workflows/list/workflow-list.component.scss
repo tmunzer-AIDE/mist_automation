@@ -27,3 +27,37 @@
 .clickable {
   cursor: pointer;
 }
+
+.filter-chips {
+  display: flex;
+  gap: 4px;
+
+  button.active {
+    background: var(--mat-sys-primary-container, #e3f2fd);
+    color: var(--mat-sys-on-primary-container, #1565c0);
+  }
+}
+
+.spacer {
+  flex: 1;
+}
+
+.type-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+
+  &.type-standard {
+    background: var(--mat-sys-surface-variant, #e0e0e0);
+    color: var(--mat-sys-on-surface-variant, #666);
+  }
+
+  &.type-subflow {
+    background: #e0f2f1;
+    color: #00695c;
+  }
+}
