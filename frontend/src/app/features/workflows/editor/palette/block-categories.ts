@@ -35,6 +35,7 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
       blockOption('mist_api_post', 'Create resource via Mist API'),
       blockOption('mist_api_put', 'Update resource via Mist API'),
       blockOption('mist_api_delete', 'Delete resource via Mist API'),
+      blockOption('device_utils', 'Run device diagnostic (ping, traceroute, ARP, etc.)'),
     ],
   },
   {

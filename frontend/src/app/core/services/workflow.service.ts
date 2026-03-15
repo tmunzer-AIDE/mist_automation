@@ -16,6 +16,7 @@ import {
   NodePort,
   ActionType,
   ApiCatalogEntry,
+  DeviceUtilEntry,
   VariableTree,
   SimulateRequest,
   SamplePayload,
@@ -28,6 +29,7 @@ import { ACTION_META, DEFAULT_ACTION_META } from '../models/workflow-meta';
 export class WorkflowService {
   private readonly api = inject(ApiService);
   private catalogCache$: Observable<ApiCatalogEntry[]> | null = null;
+  private deviceUtilsCatalogCache$: Observable<DeviceUtilEntry[]> | null = null;
 
   // ── CRUD ──────────────────────────────────────────────────────────────
 
@@ -106,6 +108,15 @@ export class WorkflowService {
         .pipe(shareReplay(1));
     }
     return this.catalogCache$;
+  }
+
+  getDeviceUtilsCatalog(): Observable<DeviceUtilEntry[]> {
+    if (!this.deviceUtilsCatalogCache$) {
+      this.deviceUtilsCatalogCache$ = this.api
+        .get<DeviceUtilEntry[]>('/workflows/device-utils-catalog')
+        .pipe(shareReplay(1));
+    }
+    return this.deviceUtilsCatalogCache$;
   }
 
   // ── Variable autocomplete ─────────────────────────────────────────────

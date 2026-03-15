@@ -1,0 +1,15 @@
+Collecting reportlab
+  Downloading reportlab-4.4.10-py3-none-any.whl.metadata (1.7 kB)
+Collecting pillow>=9.0.0 (from reportlab)
+  Downloading pillow-12.1.1-cp314-cp314-macosx_11_0_arm64.whl.metadata (8.8 kB)
+Requirement already satisfied: charset-normalizer in ./.venv/lib/python3.14/site-packages (from reportlab) (3.4.5)
+Downloading reportlab-4.4.10-py3-none-any.whl (2.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 26.5 MB/s  0:00:00
+Downloading pillow-12.1.1-cp314-cp314-macosx_11_0_arm64.whl (4.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.7/4.7 MB 35.7 MB/s  0:00:00
+Installing collected packages: pillow, reportlab
+
+Successfully installed pillow-12.1.1 reportlab-4.4.10
+
+[notice] A new release of pip is available: 26.0 -> 26.0.1
+[notice] To update, run: /Users/tmunzer/4_dev/mist_automation/backend/.venv/bin/python3.14 -m pip install --upgrade pip

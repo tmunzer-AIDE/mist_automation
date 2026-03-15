@@ -239,7 +239,7 @@ async def onboard(request: Request, data: OnboardRequest):
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
-        roles=["admin", "automation", "backup"],
+        roles=["admin", "automation", "backup", "reports"],
     )
     try:
         await user.insert()

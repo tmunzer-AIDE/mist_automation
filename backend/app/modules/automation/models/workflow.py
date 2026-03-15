@@ -58,6 +58,7 @@ class ActionType(str, Enum):
     EMAIL = "email"
     INVOKE_SUBFLOW = "invoke_subflow"
     SUBFLOW_OUTPUT = "subflow_output"
+    DEVICE_UTILS = "device_utils"
 
 
 class SubflowParameter(BaseModel):

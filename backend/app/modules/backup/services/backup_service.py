@@ -4,9 +4,9 @@ Backup service for fetching and storing Mist configuration backups.
 
 from datetime import datetime, timezone
 from typing import Any, Optional
-import asyncio
 import hashlib
 import json
+import mistapi
 import structlog
 from beanie import PydanticObjectId
 
@@ -45,11 +45,11 @@ async def fetch_objects(
         kwargs["type"] = obj_def.request_type
 
     if site_id:
-        result = await asyncio.to_thread(
+        result = await mistapi.arun(
             obj_def.mistapi_function, session, site_id, **kwargs
         )
     else:
-        result = await asyncio.to_thread(
+        result = await mistapi.arun(
             obj_def.mistapi_function, session, org_id, **kwargs
         )
 

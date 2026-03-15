@@ -19,7 +19,7 @@ qrcode>=8.0  # QR code generation for 2FA
 cryptography>=43.0.0  # Encryption utilities
 
 # Mist Integration
-mistapi>=0.60.4  # Official Mist API package
+mistapi>=0.61.1  # Official Mist API package (device_utils + websockets + arun)
 httpx>=0.28.0  # HTTP client
 
 # HTTP Client

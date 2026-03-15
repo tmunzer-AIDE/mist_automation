@@ -66,6 +66,16 @@ async def get_api_catalog(
     return [entry.model_dump() for entry in API_CATALOG]
 
 
+@router.get("/workflows/device-utils-catalog", tags=["Workflows"])
+async def get_device_utils_catalog(
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Return the device utility catalog for device_utils action autocomplete."""
+    from app.modules.automation.device_utils_catalog import DEVICE_UTILS_CATALOG
+
+    return [entry.model_dump() for entry in DEVICE_UTILS_CATALOG]
+
+
 @router.get("/workflows", response_model=WorkflowListResponse, tags=["Workflows"])
 async def list_workflows(
     skip: int = Query(0, ge=0, description="Number of workflows to skip"),

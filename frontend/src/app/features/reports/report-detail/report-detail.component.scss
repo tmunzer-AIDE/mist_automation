@@ -1,0 +1,264 @@
+.progress-card {
+  max-width: 700px;
+  margin: 24px auto;
+
+  .progress-step {
+    margin-top: 12px;
+    font-size: 14px;
+    color: var(--app-neutral);
+  }
+}
+
+.progress-log {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding: 8px;
+  background: var(--app-canvas);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+
+  .log-line {
+    padding: 2px 0;
+    color: var(--app-neutral);
+  }
+}
+
+.error-card {
+  max-width: 700px;
+  margin: 24px auto;
+  border-left: 4px solid var(--app-error);
+
+  .error-message {
+    color: var(--app-error);
+  }
+}
+
+.site-info-card {
+  margin-bottom: 24px;
+
+  mat-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+  }
+}
+
+.site-details {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .detail-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--app-neutral);
+  }
+
+  .detail-value {
+    font-size: 14px;
+  }
+}
+
+.site-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 8px;
+
+  .site-info-section {
+    h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--app-neutral);
+    }
+
+    .chip-type {
+      font-size: 11px;
+      opacity: 0.7;
+      margin-left: 4px;
+    }
+
+    .empty-text {
+      font-size: 13px;
+      color: var(--app-neutral);
+      font-style: italic;
+    }
+  }
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+
+  .summary-card {
+    text-align: center;
+    padding: 16px;
+
+    mat-icon {
+      font-size: 32px;
+      width: 32px;
+      height: 32px;
+    }
+
+    .count {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 4px 0;
+    }
+
+    .label {
+      font-size: 13px;
+      color: var(--app-neutral);
+    }
+
+    &.pass {
+      mat-icon,
+      .count {
+        color: var(--app-success);
+      }
+    }
+
+    &.fail {
+      mat-icon,
+      .count {
+        color: var(--app-error);
+      }
+    }
+
+    &.warn {
+      mat-icon,
+      .count {
+        color: var(--app-warning);
+      }
+    }
+
+    &.info {
+      mat-icon,
+      .count {
+        color: var(--app-info);
+      }
+    }
+  }
+}
+
+.section-panel {
+  margin-bottom: 16px;
+
+  mat-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.device-panel {
+  margin: 8px 0;
+
+  mat-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  h4 {
+    margin: 16px 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--app-neutral);
+  }
+}
+
+.status-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+
+  &.pass {
+    color: var(--app-success);
+  }
+
+  &.fail {
+    color: var(--app-error);
+  }
+
+  &.warn {
+    color: var(--app-warning);
+  }
+
+  &.info {
+    color: var(--app-info);
+  }
+
+  &.error {
+    color: var(--app-error);
+  }
+
+  &.small {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.status-text {
+  &.pass {
+    color: var(--app-success);
+  }
+
+  &.fail {
+    color: var(--app-error);
+  }
+
+  &.warn {
+    color: var(--app-warning);
+  }
+}
+
+.pair-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 1px 4px 1px 0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+
+  &.pass {
+    background: rgba(var(--app-success-rgb, 76, 175, 80), 0.15);
+    color: var(--app-success);
+  }
+
+  &.fail {
+    background: rgba(var(--app-error-rgb, 244, 67, 54), 0.15);
+    color: var(--app-error);
+  }
+}
+
+.raw-output {
+  font-family: monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--app-neutral);
+}
+
+code {
+  padding: 2px 6px;
+  background: var(--app-canvas);
+  border-radius: 3px;
+  font-size: 12px;
+}

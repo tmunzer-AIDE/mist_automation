@@ -180,13 +180,13 @@ async def require_backup_role(
 ) -> User:
     """
     Require user to have backup or admin role.
-    
+
     Args:
         current_user: Authenticated user
-    
+
     Returns:
         User: User with backup or admin role
-    
+
     Raises:
         AuthorizationException: If user lacks required role
     """
@@ -198,7 +198,34 @@ async def require_backup_role(
             required_role="backup",
         )
         raise AuthorizationException("Backup role required")
-    
+
+    return current_user
+
+
+async def require_reports_role(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Require user to have reports or admin role.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        User: User with reports or admin role
+
+    Raises:
+        AuthorizationException: If user lacks required role
+    """
+    if not current_user.can_manage_reports():
+        logger.warning(
+            "authorization_failed",
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            required_role="reports",
+        )
+        raise AuthorizationException("Reports role required")
+
     return current_user
 
 

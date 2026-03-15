@@ -3,16 +3,17 @@ Mist API service wrapper using the mistapi package.
 Provides abstraction layer for all Mist API interactions.
 """
 
-import asyncio
 from functools import lru_cache
 from typing import Any
 
+import mistapi
 import structlog
 from mistapi import APISession
 from mistapi.api.v1 import orgs as orgs_api
 from mistapi.api.v1.orgs import sites, templates
 from mistapi.api.v1.orgs import wlans as org_wlans
 from mistapi.api.v1.sites import devices
+from mistapi.api.v1.sites import sites as site_sites
 from mistapi.api.v1.sites import wlans as site_wlans
 
 from app.config import settings
@@ -95,7 +96,7 @@ class MistService:
         """
         try:
             # Try to get org details as a simple test
-            result = await asyncio.to_thread(orgs_api.orgs.getOrg, self.session, self.org_id)
+            result = await mistapi.arun(orgs_api.orgs.getOrg, self.session, self.org_id)
 
             if result.status_code == 200:
                 logger.info("mist_api_connection_successful", org_id=self.org_id)
@@ -123,7 +124,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(orgs_api.orgs.getOrg, self.session, self.org_id)
+            result = await mistapi.arun(orgs_api.orgs.getOrg, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get org info: {result.status_code}")
@@ -148,7 +149,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(sites.listOrgSites, self.session, self.org_id)
+            result = await mistapi.arun(sites.listOrgSites, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get sites: {result.status_code}")
@@ -174,7 +175,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(sites.getOrgSite, self.session, self.org_id, site_id)
+            result = await mistapi.arun(site_sites.getSiteInfo, self.session, site_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get site: {result.status_code}")
@@ -204,10 +205,10 @@ class MistService:
         try:
             if site_id:
                 # Get site WLANs
-                result = await asyncio.to_thread(site_wlans.listSiteWlans, self.session, site_id)
+                result = await mistapi.arun(site_wlans.listSiteWlans, self.session, site_id)
             else:
                 # Get org WLANs
-                result = await asyncio.to_thread(org_wlans.listOrgWlans, self.session, self.org_id)
+                result = await mistapi.arun(org_wlans.listOrgWlans, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get WLANs: {result.status_code}")
@@ -234,7 +235,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(site_wlans.createSiteWlan, self.session, site_id, wlan_data)
+            result = await mistapi.arun(site_wlans.createSiteWlan, self.session, site_id, wlan_data)
 
             if result.status_code not in (200, 201):
                 raise MistAPIError(f"Failed to create WLAN: {result.status_code}")
@@ -262,7 +263,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(site_wlans.updateSiteWlan, self.session, site_id, wlan_id, wlan_data)
+            result = await mistapi.arun(site_wlans.updateSiteWlan, self.session, site_id, wlan_id, wlan_data)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to update WLAN: {result.status_code}")
@@ -286,7 +287,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(site_wlans.deleteSiteWlan, self.session, site_id, wlan_id)
+            result = await mistapi.arun(site_wlans.deleteSiteWlan, self.session, site_id, wlan_id)
 
             if result.status_code not in (200, 204):
                 raise MistAPIError(f"Failed to delete WLAN: {result.status_code}")
@@ -310,7 +311,7 @@ class MistService:
             MistAPIError: If API call fails
         """
         try:
-            result = await asyncio.to_thread(templates.listOrgTemplates, self.session, self.org_id)
+            result = await mistapi.arun(templates.listOrgTemplates, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get templates: {result.status_code}")
@@ -340,10 +341,10 @@ class MistService:
         try:
             if site_id:
                 # Get site devices
-                result = await asyncio.to_thread(devices.listSiteDevices, self.session, site_id)
+                result = await mistapi.arun(devices.listSiteDevices, self.session, site_id)
             else:
                 # Get org devices
-                result = await asyncio.to_thread(orgs_api.devices.listOrgDevices, self.session, self.org_id)
+                result = await mistapi.arun(orgs_api.devices.listOrgDevices, self.session, self.org_id)
 
             if result.status_code != 200:
                 raise MistAPIError(f"Failed to get devices: {result.status_code}")
@@ -354,6 +355,10 @@ class MistService:
         except Exception as e:
             logger.error("get_devices_failed", site_id=site_id, error=str(e))
             raise MistAPIError(f"Failed to get devices: {str(e)}")
+
+    def get_session(self) -> APISession:
+        """Return the underlying APISession for direct mistapi access (e.g., device_utils)."""
+        return self.session
 
     # ===== Generic API Operations =====
 
@@ -369,7 +374,7 @@ class MistService:
         session_method = getattr(self.session, f"mist_{method}")
 
         try:
-            result = await asyncio.to_thread(session_method, endpoint, **kwargs)
+            result = await mistapi.arun(session_method, endpoint, **kwargs)
 
             if result.status_code not in success_codes:
                 raise MistAPIError(

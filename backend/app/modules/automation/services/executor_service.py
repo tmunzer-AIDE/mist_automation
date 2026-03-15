@@ -612,6 +612,16 @@ class WorkflowExecutor:
         if node_type == "subflow_output":
             return await self._execute_subflow_output(config)
 
+        if node_type == "device_utils":
+            if dry_run:
+                return {
+                    "status": "mocked",
+                    "device_type": config.get("device_type", ""),
+                    "function": config.get("function", ""),
+                    "data": [],
+                }
+            return await self._execute_device_utils(config)
+
         raise NotImplementedError(f"Node type '{node_type}' not implemented")
 
     # ── TLS ────────────────────────────────────────────────────────────────────
@@ -828,6 +838,61 @@ class WorkflowExecutor:
 
         logger.info("webhook_executed", url=url, status_code=response.status_code)
         return {"status_code": response.status_code, "response": response.text[:1000]}
+
+    async def _execute_device_utils(self, config: dict) -> dict[str, Any]:
+        """Execute a mistapi.device_utils diagnostic command.
+
+        Calls the appropriate device utility function (ping, traceroute, ARP, etc.)
+        and awaits the WebSocket-streamed results via UtilResponse.
+        """
+        from mistapi.device_utils import ap, ex, srx, ssr
+
+        from app.modules.automation.device_utils_catalog import is_allowed
+
+        device_type = self._render_template(config.get("device_type", ""))
+        func_name = self._render_template(config.get("function", ""))
+        site_id = self._render_template(config.get("site_id", ""))
+        device_id = self._render_template(config.get("device_id", ""))
+
+        if not all((device_type, func_name, site_id, device_id)):
+            raise WorkflowExecutionError("device_utils requires device_type, function, site_id, device_id")
+
+        if not is_allowed(device_type, func_name):
+            raise WorkflowExecutionError(f"device_utils: '{device_type}.{func_name}' is not an allowed operation")
+
+        modules = {"ap": ap, "ex": ex, "srx": srx, "ssr": ssr}
+        module = modules.get(device_type)
+        if module is None:
+            raise WorkflowExecutionError(f"device_utils: unknown device type '{device_type}'")
+
+        func = getattr(module, func_name, None)
+        if func is None:
+            raise WorkflowExecutionError(f"device_utils: unknown function '{func_name}' on '{device_type}'")
+
+        # Build function-specific kwargs from config params
+        params: dict[str, Any] = {}
+        for key, val in (config.get("params", {}) or {}).items():
+            if val is not None and val != "":
+                rendered = self._render_template(str(val)) if isinstance(val, str) else val
+                params[key] = rendered
+
+        try:
+            response = func(self.mist_service.get_session(), site_id, device_id, **params)
+            await response  # UtilResponse.__await__() — waits for WS completion
+        except WorkflowExecutionError:
+            raise
+        except Exception as e:
+            logger.error("device_utils_failed", device_type=device_type, function=func_name, error=str(e))
+            raise WorkflowExecutionError(f"Device utility '{device_type}.{func_name}' failed") from e
+
+        status_code = response.trigger_api_response.status_code if response.trigger_api_response else None
+        logger.info("device_utils_executed", device_type=device_type, function=func_name, site_id=site_id)
+        return {
+            "status": "success",
+            "device_type": device_type,
+            "function": func_name,
+            "data": response.ws_data,
+        }
 
     def _build_slack_message_blocks(self, config: dict, message: str) -> list[dict[str, Any]] | None:
         """Assemble Slack Block Kit blocks from node config + upstream data.

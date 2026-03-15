@@ -19,8 +19,25 @@ export type ActionType =
   | 'format_report'
   | 'email'
   | 'invoke_subflow'
-  | 'subflow_output';
+  | 'subflow_output'
+  | 'device_utils';
 export type WorkflowType = 'standard' | 'subflow';
+
+export interface DeviceUtilParam {
+  name: string;
+  description: string;
+  required: boolean;
+  type: string;
+}
+
+export interface DeviceUtilEntry {
+  id: string;
+  device_type: string;
+  function: string;
+  label: string;
+  params: DeviceUtilParam[];
+  description: string;
+}
 
 export interface SubflowParameter {
   name: string;

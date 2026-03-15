@@ -153,6 +153,9 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
     if node_type in ("slack", "servicenow", "pagerduty"):
         return {"status": "string", "response": "string"}
 
+    if node_type == "device_utils":
+        return {"status": "string", "device_type": "string", "function": "string", "data": {}}
+
     return {"status": "string", "result": "unknown"}
 
 

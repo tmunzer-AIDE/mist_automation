@@ -15,7 +15,7 @@ class User(TimestampMixin, Document):
     
     email: EmailStr = Field(..., description="User email address")
     password_hash: str = Field(..., description="Hashed password")
-    roles: list[str] = Field(default_factory=list, description="User roles: admin, automation, backup")
+    roles: list[str] = Field(default_factory=list, description="User roles: admin, automation, backup, reports")
     
     # Profile information
     timezone: str = Field(default="UTC", description="User timezone for cron schedules")
@@ -57,6 +57,10 @@ class User(TimestampMixin, Document):
     def can_manage_backups(self) -> bool:
         """Check if user can manage backups."""
         return self.has_any_role("admin", "backup")
+
+    def can_manage_reports(self) -> bool:
+        """Check if user can manage reports."""
+        return self.has_any_role("admin", "reports")
     
     def update_last_login(self):
         """Update last login timestamp."""
@@ -66,7 +70,7 @@ class User(TimestampMixin, Document):
         json_schema_extra = {
             "example": {
                 "email": "admin@example.com",
-                "roles": ["admin", "automation", "backup"],
+                "roles": ["admin", "automation", "backup", "reports"],
                 "timezone": "America/Los_Angeles",
                 "is_active": True,
                 "totp_enabled": False,

@@ -17,6 +17,12 @@ export const NAV_ITEMS: NavItem[] = [
       { label: 'Jobs', icon: 'work_history', route: '/backup/jobs' },
     ],
   },
+  {
+    label: 'Reports',
+    icon: 'assessment',
+    route: '/reports',
+    roles: ['reports', 'admin'],
+  },
   { label: 'Webhook Monitor', icon: 'webhook', route: '/monitoring' },
   {
     label: 'Workflows',

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-_ALLOWED_ROLES = {"admin", "automation", "backup"}
+_ALLOWED_ROLES = {"admin", "automation", "backup", "reports"}
 
 
 class UserCreate(BaseModel):

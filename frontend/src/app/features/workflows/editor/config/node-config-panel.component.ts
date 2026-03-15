@@ -31,6 +31,7 @@ import {
   WorkflowNode,
   ActionType,
   ApiCatalogEntry,
+  DeviceUtilEntry,
   VariableBinding,
   VariableTree,
   WorkflowType,
@@ -547,6 +548,82 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-checkbox formControlName="email_html">Send as HTML</mat-checkbox>
             }
 
+            <!-- Device Utils -->
+            @if (isDeviceUtilAction) {
+              <mat-form-field appearance="outline">
+                <mat-label>Device Type</mat-label>
+                <mat-select formControlName="du_device_type">
+                  <mat-option value="ap">AP (Access Point)</mat-option>
+                  <mat-option value="ex">EX (Switch)</mat-option>
+                  <mat-option value="srx">SRX (Firewall)</mat-option>
+                  <mat-option value="ssr">SSR (Router)</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              @if (form.get('du_device_type')?.value) {
+                <mat-form-field appearance="outline">
+                  <mat-label>Utility Function</mat-label>
+                  <mat-select formControlName="du_function">
+                    @for (entry of filteredDeviceFunctions; track entry.id) {
+                      <mat-option [value]="entry.function">{{ entry.label }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
+
+              <mat-form-field appearance="outline">
+                <mat-label>Site ID</mat-label>
+                <input matInput formControlName="du_site_id" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="duSiteVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #duSiteVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('du_site_id')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Device ID</mat-label>
+                <input matInput formControlName="du_device_id" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="duDeviceVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #duDeviceVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('du_device_id')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              @if (selectedDeviceEntry && deviceParamControls) {
+                <div class="section-title">Parameters</div>
+                <div class="params-section" [formGroup]="deviceParamControls">
+                  @for (param of selectedDeviceEntry.params; track param.name) {
+                    <mat-form-field appearance="outline">
+                      <mat-label>{{ param.name }}{{ param.required ? ' *' : '' }}</mat-label>
+                      <input matInput [formControlName]="param.name" />
+                      <button mat-icon-button matSuffix [matMenuTriggerFor]="duParamVarMenu">
+                        <mat-icon>data_object</mat-icon>
+                      </button>
+                      <mat-menu #duParamVarMenu="matMenu">
+                        <app-variable-picker
+                          [variableTree]="variableTree"
+                          (variableSelected)="insertIntoControl(deviceParamControls!.get(param.name)!, $event)"
+                        />
+                      </mat-menu>
+                      @if (param.description) {
+                        <mat-hint>{{ param.description }}</mat-hint>
+                      }
+                    </mat-form-field>
+                  }
+                </div>
+              }
+            }
+
             <!-- Sub-Flow Input: parameter list editor -->
             @if (node.type === 'subflow_input') {
               <div class="section-title">Input Parameters</div>
@@ -938,6 +1015,12 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   queryParamControls: FormGroup | null = null;
   catalogSearchControl = new FormControl('');
 
+  // Device utils state
+  deviceUtilsCatalog: DeviceUtilEntry[] = [];
+  filteredDeviceFunctions: DeviceUtilEntry[] = [];
+  selectedDeviceEntry: DeviceUtilEntry | null = null;
+  deviceParamControls: FormGroup | null = null;
+
   private emitting = false;
 
   ngOnInit(): void {
@@ -955,6 +1038,16 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     this.catalogSearchControl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((value) => this.filterCatalog(value || ''));
+
+    this.workflowService
+      .getDeviceUtilsCatalog()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (entries) => {
+          this.deviceUtilsCatalog = entries;
+          this.tryAutoSelectDeviceUtil();
+        },
+      });
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -1069,10 +1162,54 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       email_subject: [config['email_subject'] || ''],
       email_html: [config['email_html'] ?? false],
       target_workflow_id: [config['target_workflow_id'] || ''],
+      du_device_type: [config['device_type'] || ''],
+      du_function: [config['function'] || ''],
+      du_site_id: [config['site_id'] || ''],
+      du_device_id: [config['device_id'] || ''],
       max_retries: [this.node.max_retries ?? 3],
       retry_delay: [this.node.retry_delay ?? 5],
       continue_on_error: [this.node.continue_on_error ?? false],
     });
+
+    // Device utils: subscribe to device_type and function changes
+    if (this.isDeviceUtilAction) {
+      this.selectedDeviceEntry = null;
+      this.deviceParamControls = null;
+
+      this.form
+        .get('du_device_type')!
+        .valueChanges.pipe(takeUntil(this.rebuild$))
+        .subscribe((value) => {
+          if (!this.emitting) {
+            this.onDeviceTypeChange(value);
+          }
+        });
+
+      this.form
+        .get('du_function')!
+        .valueChanges.pipe(takeUntil(this.rebuild$))
+        .subscribe((value) => {
+          if (!this.emitting) {
+            this.onFunctionChange(value);
+          }
+        });
+
+      // Restore selection from existing config
+      const deviceType = config['device_type'] as string;
+      if (deviceType) {
+        this.filteredDeviceFunctions = this.deviceUtilsCatalog.filter(
+          (e) => e.device_type === deviceType
+        );
+        const fn = config['function'] as string;
+        if (fn) {
+          const entry = this.filteredDeviceFunctions.find((e) => e.function === fn);
+          if (entry) {
+            this.selectedDeviceEntry = entry;
+            this.rebuildDeviceParamControls(config['params'] as Record<string, unknown>);
+          }
+        }
+      }
+    }
 
     this.applyMethodFilter();
     const matched = this.tryAutoSelectCatalogEntry();
@@ -1373,6 +1510,20 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         // outputs are managed directly on node.config
       }
 
+      if (this.isDeviceUtilAction) {
+        config['device_type'] = raw.du_device_type || '';
+        config['function'] = raw.du_function || '';
+        config['site_id'] = raw.du_site_id || '';
+        config['device_id'] = raw.du_device_id || '';
+        if (this.deviceParamControls) {
+          const params: Record<string, string> = {};
+          for (const [k, v] of Object.entries(this.deviceParamControls.getRawValue())) {
+            if (v) params[k] = v as string;
+          }
+          config['params'] = params;
+        }
+      }
+
       updatedNode.config = config;
     }
 
@@ -1502,6 +1653,10 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     return this.node.type.startsWith('mist_api_');
   }
 
+  get isDeviceUtilAction(): boolean {
+    return this.node.type === 'device_utils';
+  }
+
   get isNotificationAction(): boolean {
     return ['slack', 'servicenow', 'pagerduty', 'email'].includes(this.node.type);
   }
@@ -1509,6 +1664,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   get hasOutput(): boolean {
     return (
       this.isApiAction ||
+      this.isDeviceUtilAction ||
       this.node.type === 'webhook' ||
       this.node.type === 'data_transform' ||
       this.node.type === 'format_report'
@@ -1532,7 +1688,66 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       'servicenow',
       'pagerduty',
       'email',
+      'device_utils',
     ].includes(this.node.type);
+  }
+
+  // ── Device Utils ─────────────────────────────────────────────────
+
+  onDeviceTypeChange(value: string): void {
+    this.filteredDeviceFunctions = this.deviceUtilsCatalog.filter(
+      (e) => e.device_type === value
+    );
+    this.selectedDeviceEntry = null;
+    this.deviceParamControls = null;
+    this.form.get('du_function')?.setValue('', { emitEvent: false });
+  }
+
+  onFunctionChange(value: string): void {
+    if (!value) {
+      this.selectedDeviceEntry = null;
+      this.deviceParamControls = null;
+      return;
+    }
+    const entry = this.filteredDeviceFunctions.find((e) => e.function === value);
+    this.selectedDeviceEntry = entry || null;
+    this.rebuildDeviceParamControls();
+  }
+
+  private rebuildDeviceParamControls(
+    existingParams?: Record<string, unknown> | null | undefined
+  ): void {
+    if (!this.selectedDeviceEntry) {
+      this.deviceParamControls = null;
+      return;
+    }
+    const controls: Record<string, FormControl> = {};
+    const existing = existingParams || {};
+    for (const param of this.selectedDeviceEntry.params) {
+      controls[param.name] = new FormControl((existing[param.name] as string) || '');
+    }
+    this.deviceParamControls = this.fb.group(controls);
+    this.deviceParamControls.valueChanges
+      .pipe(takeUntil(this.rebuild$))
+      .subscribe(() => this.emitChanges());
+  }
+
+  private tryAutoSelectDeviceUtil(): void {
+    if (!this.isDeviceUtilAction) return;
+    const config = this.node.config || {};
+    const deviceType = config['device_type'] as string;
+    if (!deviceType) return;
+    this.filteredDeviceFunctions = this.deviceUtilsCatalog.filter(
+      (e) => e.device_type === deviceType
+    );
+    const fn = config['function'] as string;
+    if (fn) {
+      const entry = this.filteredDeviceFunctions.find((e) => e.function === fn);
+      if (entry) {
+        this.selectedDeviceEntry = entry;
+        this.rebuildDeviceParamControls(config['params'] as Record<string, unknown>);
+      }
+    }
   }
 
   // ── Slack Fields ─────────────────────────────────────────────────

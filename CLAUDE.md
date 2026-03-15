@@ -63,7 +63,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/workflows/
 
 **Key layers**:
 - `app/api/v1/` — Route handlers for auth, users, admin, and the unified webhook gateway (receives all Mist webhooks, routes to automation/backup, manages Smee.io)
-- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning)
+- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning), `reports` (post-deployment validation reports with PDF/CSV export)
 - `app/models/` — Beanie Document models (User, UserSession, SystemConfig, AuditLog). Module-specific models live in their module dirs.
 - `app/services/` — Business logic: `auth_service`, `mist_service`, `mist_service_factory` (shared async factory for MistService), `notification_service`
 - `app/core/` — Database init, security, logging (structlog), middleware, custom exceptions, `smee_service` (dev webhook forwarding), `tasks` (safe background task creation)
@@ -86,10 +86,23 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 - **Zoneless** with `provideZonelessChangeDetection()`; all component state uses `signal()` / `computed()` — no `ChangeDetectorRef`
 - NgRx for auth state only; features use service-local observables
 - `ApiService` is the single HTTP client (base URL `/api/v1`)
-- Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile
+- Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile, reports
 - Angular Material with CSS custom property theming; dark mode via `ThemeService` toggling `html.dark-theme` class
 - All custom colors use `--app-*` CSS custom properties (defined in `styles.scss` with light defaults + `.dark-theme` overrides) — never hardcode hex colors in component SCSS
 - Dev proxy: `/api` and `/health` → `http://localhost:8000` (see `proxy.conf.json`)
+
+### Reports Module
+
+**Backend** (`app/modules/reports/`):
+- **Report job model**: `ReportJob` Beanie Document stores report type, site, status, progress, and full validation results.
+- **Validation service** (`services/validation_service.py`): Runs post-deployment validation as a background task. Checks template variables (Jinja2 extraction across all string values), AP health (name, firmware, eth0 speed with < 1Gbps warning, connection status), switch health (name, firmware, status, virtual chassis consistency, cable tests parallelized per switch), and gateway health (name, firmware, WAN port status).
+- **Export service** (`services/export_service.py`): Generates PDF (via `reportlab`) and CSV (ZIP of CSVs) from completed reports.
+- **WebSocket progress**: Broadcasts real-time progress on channel `report:{id}` using existing `ws_manager`.
+- **Access control**: `require_reports_role` dependency — requires `reports` or `admin` role.
+
+**Frontend** (`features/reports/`):
+- **Report list**: Table of past reports with create dialog (site picker dropdown).
+- **Report detail**: Live progress view (WebSocket subscription) during generation, then expandable sections for template variables, APs, switches (with VC + cable test sub-tables), and gateways. Export PDF/CSV buttons in topbar.
 
 ### Workflow Editor (Graph-based)
 
@@ -122,7 +135,7 @@ Most complex feature, spanning both backend and frontend:
 
 ### Security
 
-- **Access control**: All endpoints MUST enforce role-based access via `require_admin`, `require_automation_role`, or `require_backup_role` from `app/dependencies.py`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
+- **Access control**: All endpoints MUST enforce role-based access via `require_admin`, `require_automation_role`, `require_backup_role`, or `require_reports_role` from `app/dependencies.py`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
 - **SSRF protection**: Outbound HTTP requests to user-controlled URLs MUST call `validate_outbound_url()` from `app/utils/url_safety.py` before sending.
 - **Sensitive data in responses**: Never leak internal error details (`str(e)`) to API clients. Log full errors server-side, return generic messages to the user. Use `*_set: bool` fields for sensitive config (tokens, passwords) instead of returning actual values.
 - **Session management**: Password changes invalidate all other sessions. Login enforces `max_concurrent_sessions`. Sessions use JTI-based revocation via `UserSession` DB lookup.
