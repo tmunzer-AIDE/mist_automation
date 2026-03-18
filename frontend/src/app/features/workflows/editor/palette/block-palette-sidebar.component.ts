@@ -1,5 +1,4 @@
 import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import {
@@ -12,7 +11,7 @@ import { WorkflowType } from '../../../../core/models/workflow.model';
 @Component({
   selector: 'app-block-palette-sidebar',
   standalone: true,
-  imports: [CommonModule, MatIconModule, MatTooltipModule],
+  imports: [MatIconModule, MatTooltipModule],
   templateUrl: './block-palette-sidebar.component.html',
   styleUrl: './block-palette-sidebar.component.scss',
 })

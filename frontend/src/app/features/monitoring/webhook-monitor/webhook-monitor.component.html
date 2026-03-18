@@ -135,6 +135,12 @@
 } @else {
   <div class="table-card">
     <table mat-table [dataSource]="pagedEvents()">
+      <!-- Event Timestamp -->
+      <ng-container matColumnDef="event_timestamp">
+        <th mat-header-cell *matHeaderCellDef>Event Time</th>
+        <td mat-cell *matCellDef="let ev">{{ ev.event_timestamp | dateTime }}</td>
+      </ng-container>
+      
       <!-- Received At -->
       <ng-container matColumnDef="received_at">
         <th mat-header-cell *matHeaderCellDef>Received</th>

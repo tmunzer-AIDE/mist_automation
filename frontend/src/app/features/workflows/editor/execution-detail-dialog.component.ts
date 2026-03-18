@@ -1,5 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { JsonPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -13,7 +13,7 @@ import { DurationPipe } from '../../../shared/pipes/duration.pipe';
   selector: 'app-execution-detail-dialog',
   standalone: true,
   imports: [
-    CommonModule,
+    JsonPipe,
     MatButtonModule,
     MatIconModule,
     MatTabsModule,

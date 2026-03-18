@@ -16,8 +16,10 @@ class User(TimestampMixin, Document):
     email: EmailStr = Field(..., description="User email address")
     password_hash: str = Field(..., description="Hashed password")
     roles: list[str] = Field(default_factory=list, description="User roles: admin, automation, backup, reports")
-    
+
     # Profile information
+    first_name: str | None = Field(default=None, description="User first name")
+    last_name: str | None = Field(default=None, description="User last name")
     timezone: str = Field(default="UTC", description="User timezone for cron schedules")
     is_active: bool = Field(default=True, description="Whether the user account is active")
     
@@ -61,7 +63,16 @@ class User(TimestampMixin, Document):
     def can_manage_reports(self) -> bool:
         """Check if user can manage reports."""
         return self.has_any_role("admin", "reports")
-    
+
+    def display_name(self) -> str:
+        """Return a display-friendly name, falling back to the email local part."""
+        if self.first_name:
+            parts = [self.first_name]
+            if self.last_name:
+                parts.append(self.last_name)
+            return " ".join(parts)
+        return self.email.split("@")[0]
+
     def update_last_login(self):
         """Update last login timestamp."""
         self.last_login = datetime.now(timezone.utc)

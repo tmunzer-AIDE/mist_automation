@@ -97,6 +97,12 @@ MODULES: list[AppModule] = [
         tags=["Reports"],
     ),
     AppModule(
+        name="dashboard",
+        router_module="app.api.v1.dashboard",
+        model_imports=[],
+        tags=["Dashboard"],
+    ),
+    AppModule(
         name="admin",
         router_module="app.api.v1.admin",
         model_imports=[

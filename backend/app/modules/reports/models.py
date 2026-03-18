@@ -29,9 +29,7 @@ class ReportJob(TimestampMixin, Document):
     site_id: str = Field(..., description="Mist site ID")
     site_name: str = Field(default="", description="Site name (populated at runtime)")
     status: ReportStatus = Field(default=ReportStatus.PENDING)
-    progress: dict = Field(
-        default_factory=lambda: {"current_step": "", "completed": 0, "total": 0, "details": ""}
-    )
+    progress: dict = Field(default_factory=lambda: {"overall_completed": 0, "overall_total": 0, "steps": []})
     result: dict | None = Field(default=None, description="Full validation results")
     error: str | None = Field(default=None, description="Error message if failed")
     options: dict = Field(default_factory=dict, description="Report options")

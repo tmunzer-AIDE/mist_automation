@@ -35,6 +35,63 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
+# ── Response construction helpers ─────────────────────────────────────────────
+
+
+def _execution_summary(ex: dict) -> dict:
+    """Convert an aggregation result dict to execution list item."""
+    return {
+        "id": str(ex["_id"]),
+        "workflow_id": str(ex.get("workflow_id", "")),
+        "workflow_name": ex.get("workflow_name", ""),
+        "status": ex.get("status", "unknown"),
+        "trigger_type": ex.get("trigger_type", ""),
+        "started_at": ex.get("started_at"),
+        "completed_at": ex.get("completed_at"),
+        "duration_ms": ex.get("duration_ms"),
+        "nodes_executed": ex.get("nodes_executed", 0),
+        "nodes_succeeded": ex.get("nodes_succeeded", 0),
+        "nodes_failed": ex.get("nodes_failed", 0),
+        "is_simulation": ex.get("is_simulation", False),
+    }
+
+
+def _node_result_to_dict(r, full: bool = False) -> dict:
+    """Convert a NodeExecutionResult to response dict."""
+    d = {
+        "node_id": r.node_id,
+        "node_name": r.node_name,
+        "node_type": r.node_type,
+        "status": r.status,
+        "duration_ms": r.duration_ms,
+        "error": r.error,
+        "output_data": r.output_data,
+    }
+    if full:
+        d.update({
+            "started_at": r.started_at,
+            "completed_at": r.completed_at,
+            "input_snapshot": r.input_snapshot,
+            "retry_count": r.retry_count,
+        })
+    return d
+
+
+def _snapshot_to_dict(s) -> dict:
+    """Convert a NodeSnapshot to response dict."""
+    return {
+        "node_id": s.node_id,
+        "node_name": s.node_name,
+        "step": s.step,
+        "input_variables": s.input_variables,
+        "output_data": s.output_data,
+        "status": s.status,
+        "duration_ms": s.duration_ms,
+        "error": s.error,
+        "variables_after": s.variables_after,
+    }
+
+
 def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
     return WorkflowResponse(
         id=str(wf.id),
@@ -200,23 +257,7 @@ async def list_all_executions(
     ).to_list()
 
     return {
-        "executions": [
-            {
-                "id": str(ex["_id"]),
-                "workflow_id": str(ex.get("workflow_id", "")),
-                "workflow_name": ex.get("workflow_name", ""),
-                "status": ex.get("status", "unknown"),
-                "trigger_type": ex.get("trigger_type", ""),
-                "started_at": ex.get("started_at"),
-                "completed_at": ex.get("completed_at"),
-                "duration_ms": ex.get("duration_ms"),
-                "nodes_executed": ex.get("nodes_executed", 0),
-                "nodes_succeeded": ex.get("nodes_succeeded", 0),
-                "nodes_failed": ex.get("nodes_failed", 0),
-                "is_simulation": ex.get("is_simulation", False),
-            }
-            for ex in executions
-        ],
+        "executions": [_execution_summary(ex) for ex in executions],
         "total": total,
     }
 
@@ -510,23 +551,7 @@ async def list_workflow_executions(
     ).to_list()
 
     return {
-        "executions": [
-            {
-                "id": str(ex["_id"]),
-                "workflow_id": str(ex.get("workflow_id", "")),
-                "workflow_name": ex.get("workflow_name", ""),
-                "status": ex.get("status", "unknown"),
-                "trigger_type": ex.get("trigger_type", ""),
-                "started_at": ex.get("started_at"),
-                "completed_at": ex.get("completed_at"),
-                "duration_ms": ex.get("duration_ms"),
-                "nodes_executed": ex.get("nodes_executed", 0),
-                "nodes_succeeded": ex.get("nodes_succeeded", 0),
-                "nodes_failed": ex.get("nodes_failed", 0),
-                "is_simulation": ex.get("is_simulation", False),
-            }
-            for ex in executions
-        ],
+        "executions": [_execution_summary(ex) for ex in executions],
         "total": total,
     }
 
@@ -569,36 +594,8 @@ async def get_workflow_execution(
         "nodes_executed": execution.nodes_executed,
         "nodes_succeeded": execution.nodes_succeeded,
         "nodes_failed": execution.nodes_failed,
-        "node_results": {
-            nid: {
-                "node_id": r.node_id,
-                "node_name": r.node_name,
-                "node_type": r.node_type,
-                "status": r.status,
-                "started_at": r.started_at,
-                "completed_at": r.completed_at,
-                "duration_ms": r.duration_ms,
-                "error": r.error,
-                "output_data": r.output_data,
-                "input_snapshot": r.input_snapshot,
-                "retry_count": r.retry_count,
-            }
-            for nid, r in execution.node_results.items()
-        },
-        "node_snapshots": [
-            {
-                "node_id": s.node_id,
-                "node_name": s.node_name,
-                "step": s.step,
-                "input_variables": s.input_variables,
-                "output_data": s.output_data,
-                "status": s.status,
-                "duration_ms": s.duration_ms,
-                "error": s.error,
-                "variables_after": s.variables_after,
-            }
-            for s in execution.node_snapshots
-        ],
+        "node_results": {nid: _node_result_to_dict(r, full=True) for nid, r in execution.node_results.items()},
+        "node_snapshots": [_snapshot_to_dict(s) for s in execution.node_snapshots],
         "is_simulation": execution.is_simulation,
         "is_dry_run": execution.is_dry_run,
         "parent_execution_id": str(execution.parent_execution_id) if execution.parent_execution_id else None,
@@ -652,6 +649,7 @@ async def compute_available_variables(
         nodes=nodes,
         edges=edges,
         created_by=current_user.id,
+        input_parameters=[SubflowParameter(**p) for p in body.input_parameters],
     )
 
     from app.modules.automation.services.node_schema_service import get_available_variables as _get_vars
@@ -824,32 +822,8 @@ def _build_simulation_result(execution: WorkflowExecution) -> dict:
         "execution_id": str(execution.id),
         "status": execution.status.value,
         "duration_ms": execution.duration_ms,
-        "node_results": {
-            nid: {
-                "node_id": r.node_id,
-                "node_name": r.node_name,
-                "node_type": r.node_type,
-                "status": r.status,
-                "duration_ms": r.duration_ms,
-                "error": r.error,
-                "output_data": r.output_data,
-            }
-            for nid, r in execution.node_results.items()
-        },
-        "node_snapshots": [
-            {
-                "node_id": s.node_id,
-                "node_name": s.node_name,
-                "step": s.step,
-                "input_variables": s.input_variables,
-                "output_data": s.output_data,
-                "status": s.status,
-                "duration_ms": s.duration_ms,
-                "error": s.error,
-                "variables_after": s.variables_after,
-            }
-            for s in execution.node_snapshots
-        ],
+        "node_results": {nid: _node_result_to_dict(r) for nid, r in execution.node_results.items()},
+        "node_snapshots": [_snapshot_to_dict(s) for s in execution.node_snapshots],
         "variables": execution.variables,
         "logs": execution.logs,
     }

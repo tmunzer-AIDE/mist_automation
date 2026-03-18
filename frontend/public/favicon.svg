@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1565C0"/>
+      <stop offset="100%" stop-color="#1E88E5"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF8F00"/>
+      <stop offset="100%" stop-color="#FFB300"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Connection lines from center hub to satellite nodes -->
+  <line x1="128" y1="128" x2="128" y2="32" stroke="#1976D2" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+  <line x1="128" y1="128" x2="211" y2="80" stroke="#1976D2" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+  <line x1="128" y1="128" x2="211" y2="176" stroke="#1976D2" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+  <line x1="128" y1="128" x2="128" y2="224" stroke="#1976D2" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+  <line x1="128" y1="128" x2="45" y2="176" stroke="#1976D2" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+  <line x1="128" y1="128" x2="45" y2="80" stroke="#1976D2" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- Automation arc — clockwise flow indicator -->
+  <path d="M 170 50 A 108 108 0 0 1 222 155" stroke="url(#g2)" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <path d="M 86 206 A 108 108 0 0 1 34 101" stroke="url(#g2)" stroke-width="8" fill="none" stroke-linecap="round"/>
+
+  <!-- Satellite nodes -->
+  <circle cx="128" cy="32" r="20" fill="url(#g1)"/>
+  <circle cx="211" cy="80" r="20" fill="url(#g1)"/>
+  <circle cx="211" cy="176" r="20" fill="url(#g1)"/>
+  <circle cx="128" cy="224" r="20" fill="url(#g1)"/>
+  <circle cx="45" cy="176" r="20" fill="url(#g1)"/>
+  <circle cx="45" cy="80" r="20" fill="url(#g1)"/>
+
+  <!-- Inner dots on satellite nodes -->
+  <circle cx="128" cy="32" r="8" fill="white" opacity="0.85"/>
+  <circle cx="211" cy="80" r="8" fill="white" opacity="0.85"/>
+  <circle cx="211" cy="176" r="8" fill="white" opacity="0.85"/>
+  <circle cx="128" cy="224" r="8" fill="white" opacity="0.85"/>
+  <circle cx="45" cy="176" r="8" fill="white" opacity="0.85"/>
+  <circle cx="45" cy="80" r="8" fill="white" opacity="0.85"/>
+
+  <!-- Central hub -->
+  <circle cx="128" cy="128" r="36" fill="url(#g1)"/>
+  <circle cx="128" cy="128" r="18" fill="white" opacity="0.2"/>
+  <circle cx="128" cy="128" r="10" fill="white" opacity="0.85"/>
+</svg>

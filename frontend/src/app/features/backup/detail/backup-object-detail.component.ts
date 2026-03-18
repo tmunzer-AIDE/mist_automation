@@ -1,6 +1,6 @@
 import { Component, DestroyRef, inject, OnInit, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+import { NgClass, SlicePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -42,7 +42,8 @@ interface ObjectVersion {
   selector: 'app-backup-object-detail',
   standalone: true,
   imports: [
-    CommonModule,
+    NgClass,
+    SlicePipe,
     RouterModule,
     MatCardModule,
     MatButtonModule,

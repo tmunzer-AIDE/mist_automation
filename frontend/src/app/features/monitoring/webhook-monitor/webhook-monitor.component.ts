@@ -9,7 +9,6 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormControl } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -23,7 +22,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subscription } from 'rxjs';
+import { Subject, Subscription, debounceTime } from 'rxjs';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
@@ -34,23 +33,16 @@ import { WebhookEventService } from '../../../core/services/webhook-event.servic
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { MonitorEvent } from '../../../core/models/webhook-event.model';
-import { barDataset, getChartGridColor } from '../../../shared/utils/chart-defaults';
+import {
+  barDataset,
+  getChartGridColor,
+  getChartColor,
+  getTopicColor,
+} from '../../../shared/utils/chart-defaults';
 import { getStatusClass } from '../../../shared/utils/http-status.utils';
 
 const MAX_EVENTS = 500;
 
-const TOPIC_COLORS = [
-  '#2563eb',
-  '#8b5cf6',
-  '#ef4444',
-  '#f59e0b',
-  '#10b981',
-  '#ec4899',
-  '#06b6d4',
-  '#84cc16',
-  '#f97316',
-  '#6366f1',
-];
 
 interface WsMonitorMessage {
   type: 'webhook_received' | 'webhook_processed';
@@ -66,7 +58,6 @@ interface ChartRange {
   selector: 'app-webhook-monitor',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatTableModule,
     MatPaginatorModule,
@@ -95,6 +86,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('topbarActions', { static: true }) topbarActions!: TemplateRef<unknown>;
+  @ViewChild(BaseChartDirective) private chartDirective?: BaseChartDirective;
 
   events = signal<MonitorEvent[]>([]);
   paused = signal(false);
@@ -143,16 +135,22 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     const mac = this.macValue().toLowerCase();
     const details = this.detailsValue().toLowerCase();
 
-    return this.events().filter((ev) => {
-      if (topic && !ev.webhook_topic?.toLowerCase().includes(topic)) return false;
-      if (eventType && !ev.event_type?.toLowerCase().includes(eventType)) return false;
-      if (org && !ev.org_name?.toLowerCase().includes(org)) return false;
-      if (site && !ev.site_name?.toLowerCase().includes(site)) return false;
-      if (device && !ev.device_name?.toLowerCase().includes(device)) return false;
-      if (mac && !ev.device_mac?.toLowerCase().includes(mac)) return false;
-      if (details && !ev.event_details?.toLowerCase().includes(details)) return false;
-      return true;
-    });
+    return this.events()
+      .filter((ev) => {
+        if (topic && !ev.webhook_topic?.toLowerCase().includes(topic)) return false;
+        if (eventType && !ev.event_type?.toLowerCase().includes(eventType)) return false;
+        if (org && !ev.org_name?.toLowerCase().includes(org)) return false;
+        if (site && !ev.site_name?.toLowerCase().includes(site)) return false;
+        if (device && !ev.device_name?.toLowerCase().includes(device)) return false;
+        if (mac && !ev.device_mac?.toLowerCase().includes(mac)) return false;
+        if (details && !ev.event_details?.toLowerCase().includes(details)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const ta = a.event_timestamp || a.received_at || '';
+        const tb = b.event_timestamp || b.received_at || '';
+        return tb.localeCompare(ta);
+      });
   });
 
   pagedEvents = computed(() => {
@@ -172,6 +170,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   ];
 
   displayedColumns = [
+    'event_timestamp',
     'received_at',
     'webhook_topic',
     'event_type',
@@ -186,6 +185,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
 
   private wsSub: Subscription | null = null;
   private highlightTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private chartRefresh$ = new Subject<void>();
 
   ngOnInit(): void {
     this.topbarService.setTitle('Webhook Monitor');
@@ -223,8 +223,11 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
       }
     });
 
-    // Load chart
+    // Load chart + debounced refresh on new events
     this.loadChart();
+    this.chartRefresh$
+      .pipe(debounceTime(5000), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadChart(false));
   }
 
   ngOnDestroy(): void {
@@ -267,6 +270,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     }
 
     this.events.update((list) => [ev, ...list].slice(0, MAX_EVENTS));
+    this.chartRefresh$.next();
 
     // Clear highlight after 3s
     this.highlightTimers.set(
@@ -336,8 +340,10 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     this.loadChart();
   }
 
-  loadChart(): void {
-    this.chartLoading.set(true);
+  loadChart(animate = true): void {
+    if (animate) {
+      this.chartLoading.set(true);
+    }
     this.webhookEventService.getStats(this.chartHours()).subscribe({
       next: (stats) => {
         const labels = stats.buckets.map((b) => b.bucket);
@@ -349,38 +355,59 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
         }
         const topics = Array.from(topicSet).sort();
 
-        const datasets = topics.map((topic, i) =>
-          barDataset(
+        const textColor = getChartColor('text');
+        const legendColor = getChartColor('legend');
+
+        let fallbackIdx = 0;
+        const datasets = topics.map((topic) => {
+          const color = getTopicColor(topic, fallbackIdx++);
+          return barDataset(
             topic,
             stats.buckets.map((b) => b.by_topic[topic] || 0),
-            TOPIC_COLORS[i % TOPIC_COLORS.length],
+            color,
             'webhooks',
-          ),
-        );
+          );
+        });
 
-        this.chartConfig.set({
-          type: 'bar',
-          data: { labels, datasets },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: 'bottom' } },
-            scales: {
-              x: {
-                stacked: true,
-                grid: { display: false },
-                ticks: { maxTicksLimit: 15, font: { size: 10 } },
-              },
-              y: {
-                stacked: true,
-                beginAtZero: true,
-                grid: { color: getChartGridColor() },
-                ticks: { precision: 0, font: { size: 10 } },
-              },
+        const options: any = {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: { color: legendColor },
             },
           },
-        });
-        this.chartLoading.set(false);
+          scales: {
+            x: {
+              stacked: true,
+              grid: { display: false },
+              ticks: { maxTicksLimit: 15, font: { size: 10 }, color: textColor },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              grid: { color: getChartGridColor() },
+              ticks: { precision: 0, font: { size: 10 }, color: textColor },
+            },
+          },
+        };
+
+        // In-place update if chart already exists (no animation, no DOM rebuild)
+        if (!animate && this.chartDirective?.chart) {
+          const chart = this.chartDirective.chart;
+          chart.data = { labels, datasets: datasets as any };
+          chart.options = options;
+          chart.update('none');
+        } else {
+          this.chartConfig.set({
+            type: 'bar',
+            data: { labels, datasets },
+            options,
+          });
+          this.chartLoading.set(false);
+        }
       },
       error: () => this.chartLoading.set(false),
     });

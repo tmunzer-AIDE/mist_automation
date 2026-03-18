@@ -105,7 +105,7 @@ async def test_workflow(test_db, test_user):
             WorkflowNode(
                 id="trigger-1",
                 type="trigger",
-                name="Webhook Trigger",
+                name="Trigger",
                 position=NodePosition(x=400, y=80),
                 config={"trigger_type": "webhook", "webhook_type": "device-updowns"},
                 output_ports=[NodePort(id="default")],

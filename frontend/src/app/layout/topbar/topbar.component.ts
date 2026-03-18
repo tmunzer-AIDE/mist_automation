@@ -1,5 +1,5 @@
 import { Component, Output, EventEmitter, inject } from '@angular/core';
-import { CommonModule, NgTemplateOutlet } from '@angular/common';
+import { AsyncPipe, NgTemplateOutlet } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatButtonModule } from '@angular/material/button';
@@ -14,7 +14,7 @@ import { TopbarService } from '../../core/services/topbar.service';
   selector: 'app-topbar',
   standalone: true,
   imports: [
-    CommonModule,
+    AsyncPipe,
     NgTemplateOutlet,
     RouterModule,
     MatToolbarModule,

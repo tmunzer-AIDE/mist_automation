@@ -33,6 +33,7 @@ class WebhookEvent(Document):
     device_name: str | None = Field(default=None, description="Device name / AP / switch name")
     device_mac: str | None = Field(default=None, description="Device MAC address")
     event_details: str | None = Field(default=None, description="Event text / message / reason")
+    event_timestamp: datetime | None = Field(default=None, description="Event timestamp from Mist payload")
 
     # Processing status
     processed: bool = Field(default=False, description="Whether webhook has been processed")

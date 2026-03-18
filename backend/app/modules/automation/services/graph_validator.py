@@ -34,10 +34,11 @@ def validate_graph(
     # ── Validate entry node based on workflow_type ────────────────────────
     if workflow_type == "subflow":
         _validate_subflow_entry(nodes)
-        entry_id = next(n.id for n in nodes if n.type == "subflow_input")
+        entry = _require_single_node(nodes, "subflow_input", "subflow_input node")
     else:
         _validate_standard_entry(nodes)
-        entry_id = next(n.id for n in nodes if n.type == "trigger")
+        entry = _require_single_node(nodes, "trigger", "trigger node")
+    entry_id = entry.id
 
     # ── Validate edges reference existing nodes ──────────────────────────
     edge_ids = set()
@@ -119,15 +120,18 @@ def validate_graph(
         raise ValidationError("Workflow graph contains a cycle")
 
 
+def _require_single_node(nodes: list[WorkflowNode], node_type: str, label: str) -> WorkflowNode:
+    """Find exactly one node of the given type, or raise ValidationError."""
+    matching = [n for n in nodes if n.type == node_type]
+    if len(matching) != 1:
+        raise ValidationError(f"Workflow must have exactly one {label}, found {len(matching)}")
+    return matching[0]
+
+
 def _validate_standard_entry(nodes: list[WorkflowNode]) -> None:
     """Validate entry node rules for standard workflows."""
-    trigger_nodes = [n for n in nodes if n.type == "trigger"]
-    if len(trigger_nodes) == 0:
-        raise ValidationError("Workflow must have exactly one trigger node")
-    if len(trigger_nodes) > 1:
-        raise ValidationError("Workflow must have exactly one trigger node, found multiple")
+    _require_single_node(nodes, "trigger", "trigger node")
 
-    # Standard workflows must not contain subflow-specific nodes
     for node in nodes:
         if node.type in ("subflow_input", "subflow_output"):
             raise ValidationError(
@@ -138,17 +142,12 @@ def _validate_standard_entry(nodes: list[WorkflowNode]) -> None:
 
 def _validate_subflow_entry(nodes: list[WorkflowNode]) -> None:
     """Validate entry node rules for sub-flow workflows."""
-    input_nodes = [n for n in nodes if n.type == "subflow_input"]
-    if len(input_nodes) == 0:
-        raise ValidationError("Sub-flow must have exactly one subflow_input node")
-    if len(input_nodes) > 1:
-        raise ValidationError("Sub-flow must have exactly one subflow_input node, found multiple")
+    _require_single_node(nodes, "subflow_input", "subflow_input node")
 
     output_nodes = [n for n in nodes if n.type == "subflow_output"]
     if len(output_nodes) == 0:
         raise ValidationError("Sub-flow must have at least one subflow_output node")
 
-    # Sub-flow workflows must not contain trigger nodes
     for node in nodes:
         if node.type == "trigger":
             raise ValidationError("Sub-flow workflows cannot contain trigger nodes. Use subflow_input instead.")

@@ -13,6 +13,8 @@ export interface TokenResponse {
 export interface UserResponse {
   id: string;
   email: string;
+  first_name: string | null;
+  last_name: string | null;
   roles: string[];
   timezone: string;
   is_active: boolean;
@@ -24,12 +26,16 @@ export interface UserResponse {
 export interface UserCreate {
   email: string;
   password: string;
+  first_name?: string;
+  last_name?: string;
   roles: string[];
   timezone: string;
 }
 
 export interface UserUpdate {
   email?: string;
+  first_name?: string;
+  last_name?: string;
   roles?: string[];
   timezone?: string;
   is_active?: boolean;
@@ -43,6 +49,8 @@ export interface UserListResponse {
 export interface OnboardRequest {
   email: string;
   password: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 export interface ChangePasswordRequest {

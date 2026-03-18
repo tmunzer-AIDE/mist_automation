@@ -1,5 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { JsonPipe } from '@angular/common';
 import { Clipboard } from '@angular/cdk/clipboard';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -16,7 +16,7 @@ import { getStatusClass } from '../../utils/http-status.utils';
   selector: 'app-webhook-event-detail-dialog',
   standalone: true,
   imports: [
-    CommonModule,
+    JsonPipe,
     MatButtonModule,
     MatIconModule,
     MatTabsModule,

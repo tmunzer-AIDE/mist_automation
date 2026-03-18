@@ -10,7 +10,6 @@ import {
   inject,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
 import {
   ReactiveFormsModule,
   FormBuilder,
@@ -26,6 +25,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { Subject, takeUntil } from 'rxjs';
 import {
   WorkflowNode,
@@ -47,7 +47,6 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
   selector: 'app-node-config-panel',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatFormFieldModule,
     MatInputModule,
@@ -57,6 +56,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
     MatButtonModule,
     MatAutocompleteModule,
     MatMenuModule,
+    MatSlideToggleModule,
     VariablePickerComponent,
     JsonSectionToggleComponent,
   ],
@@ -131,8 +131,6 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <input matInput formControlName="name" />
             </mat-form-field>
 
-            <mat-checkbox formControlName="enabled">Enabled</mat-checkbox>
-
             <!-- API action fields -->
             @if (isApiAction) {
               @if (!useCustomEndpoint && !selectedCatalogEntry) {
@@ -187,6 +185,15 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                       <mat-form-field appearance="outline">
                         <mat-label>{{ qp.name }}</mat-label>
                         <input matInput [formControlName]="qp.name" />
+                        <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
+                          <mat-icon>data_object</mat-icon>
+                        </button>
+                        <mat-menu #varMenu="matMenu">
+                          <app-variable-picker
+                            [variableTree]="variableTree"
+                            (variableSelected)="insertIntoControl(queryParamControls!.get(qp.name)!, $event)"
+                          />
+                        </mat-menu>
                       </mat-form-field>
                     }
                   </div>
@@ -386,6 +393,13 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                 <mat-label>Max Iterations</mat-label>
                 <input matInput type="number" formControlName="max_iterations" />
               </mat-form-field>
+              <mat-slide-toggle formControlName="parallel">Run iterations in parallel</mat-slide-toggle>
+              @if (form.get('parallel')?.value) {
+                <mat-form-field appearance="outline">
+                  <mat-label>Max Concurrent</mat-label>
+                  <input matInput type="number" formControlName="max_concurrent" />
+                </mat-form-field>
+              }
             }
 
             <!-- Data Transform -->
@@ -706,16 +720,37 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               }
             }
 
-            <!-- Sub-Flow Output: map output expressions -->
+            <!-- Sub-Flow Output: define parameters + map output expressions -->
             @if (node.type === 'subflow_output') {
-              <div class="section-title">Output Mappings</div>
-              @for (param of outputParameters; track param.name) {
-                <mat-form-field appearance="outline">
-                  <mat-label>{{ param.name }} ({{ param.type }})</mat-label>
+              <div class="section-title">Output Parameters</div>
+              @for (param of subflowOutputParams; track $index; let i = $index) {
+                <div class="subflow-param-row">
+                  <mat-form-field appearance="outline">
+                    <mat-label>Name</mat-label>
+                    <input matInput [value]="param.name" (input)="updateSubflowOutputParam(i, 'name', $any($event.target).value)" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Type</mat-label>
+                    <mat-select [value]="param.type" (selectionChange)="updateSubflowOutputParam(i, 'type', $event.value)">
+                      <mat-option value="any">Any</mat-option>
+                      <mat-option value="string">String</mat-option>
+                      <mat-option value="number">Number</mat-option>
+                      <mat-option value="boolean">Boolean</mat-option>
+                      <mat-option value="object">Object</mat-option>
+                      <mat-option value="array">Array</mat-option>
+                    </mat-select>
+                  </mat-form-field>
+                  <button mat-icon-button (click)="removeSubflowOutputParam(i)">
+                    <mat-icon>close</mat-icon>
+                  </button>
+                </div>
+                <!-- Value mapping for this parameter -->
+                <mat-form-field appearance="outline" class="output-mapping-field">
+                  <mat-label>{{ param.name }} value</mat-label>
                   <textarea matInput [value]="getSubflowOutputValue(param.name)"
                     (input)="setSubflowOutputValue(param.name, $any($event.target).value)"
                     rows="1"
-                    [placeholder]="param.description || ''"></textarea>
+                    placeholder="e.g. {{ '{{' }} nodes.Some_Node.body {{ '}}' }}"></textarea>
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="outVarMenu">
                     <mat-icon>data_object</mat-icon>
                   </button>
@@ -727,9 +762,9 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                   </mat-menu>
                 </mat-form-field>
               }
-              @if (outputParameters.length === 0) {
-                <div class="hint-text">Define output parameters on the Sub-Flow Input node first.</div>
-              }
+              <button mat-button (click)="addSubflowOutputParam()">
+                <mat-icon>add</mat-icon> Add Output
+              </button>
             }
 
             <!-- Condition Branches -->
@@ -744,6 +779,15 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                     <span class="branch-label">{{ i === 0 ? 'If' : 'Else If' }}</span>
                     <mat-form-field appearance="outline" class="branch-field">
                       <input matInput formControlName="condition" placeholder="Expression..." />
+                      <button mat-icon-button matSuffix [matMenuTriggerFor]="branchVarMenu">
+                        <mat-icon>data_object</mat-icon>
+                      </button>
+                      <mat-menu #branchVarMenu="matMenu">
+                        <app-variable-picker
+                          [variableTree]="variableTree"
+                          (variableSelected)="insertIntoControl($any(branch).controls.condition, $event)"
+                        />
+                      </mat-menu>
                     </mat-form-field>
                     @if (i > 0) {
                       <button mat-icon-button (click)="removeBranch(i)">
@@ -760,6 +804,9 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
             <!-- Save As bindings -->
             @if (hasOutput) {
+              @if (outputHint) {
+                <div class="output-hint">Available: {{ outputHint }}</div>
+              }
               <app-json-section-toggle
                 sectionLabel="Save Output As Variables"
                 [sectionData]="saveAsArray.getRawValue()"
@@ -773,7 +820,16 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                     </mat-form-field>
                     <mat-form-field appearance="outline" class="save-as-expr">
                       <mat-label>Expression</mat-label>
-                      <input matInput formControlName="expression" />
+                      <input matInput formControlName="expression" [placeholder]="'e.g. {{ output.data }}'" />
+                      <button mat-icon-button matSuffix [matMenuTriggerFor]="saveAsVarMenu">
+                        <mat-icon>data_object</mat-icon>
+                      </button>
+                      <mat-menu #saveAsVarMenu="matMenu">
+                        <app-variable-picker
+                          [variableTree]="variableTree"
+                          (variableSelected)="insertIntoControl($any(binding).controls.expression, $event)"
+                        />
+                      </mat-menu>
                     </mat-form-field>
                     <button mat-icon-button (click)="removeSaveAsBinding(i)">
                       <mat-icon>close</mat-icon>
@@ -834,6 +890,16 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
         mat-form-field {
           width: 100%;
         }
+      }
+
+      .output-hint {
+        font-size: 11px;
+        color: var(--mat-sys-on-surface-variant, #888);
+        font-family: monospace;
+        padding: 4px 8px;
+        margin-top: 8px;
+        background: var(--mat-sys-surface-variant, #f5f5f5);
+        border-radius: 4px;
       }
 
       .section-title {
@@ -1072,6 +1138,10 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       this.buildActionForm(config);
     }
 
+    if (this.node.type === 'subflow_output') {
+      this.initSubflowOutputParams();
+    }
+
     this.form.valueChanges.pipe(takeUntil(this.rebuild$)).subscribe(() => this.emitChanges());
 
     // Load subflow list when configuring invoke_subflow
@@ -1139,6 +1209,8 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       loop_over: [config['loop_over'] || ''],
       loop_variable: [config['loop_variable'] || 'item'],
       max_iterations: [config['max_iterations'] ?? 100],
+      parallel: [config['parallel'] || false],
+      max_concurrent: [config['max_concurrent'] ?? 5],
       dt_source: [config['source'] || ''],
       dt_filter: [config['filter'] || ''],
       dt_fields: this.fb.array(
@@ -1476,6 +1548,8 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         config['loop_over'] = raw.loop_over;
         config['loop_variable'] = raw.loop_variable;
         config['max_iterations'] = raw.max_iterations;
+        config['parallel'] = raw.parallel;
+        config['max_concurrent'] = raw.max_concurrent;
       }
 
       if (this.node.type === 'condition') {
@@ -1563,6 +1637,38 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
   private emitSubflowInputParams(): void {
     this.inputParametersChanged.emit(this.subflowInputParams);
+  }
+
+  // ── Sub-flow output parameter management ─────────────────────────
+
+  subflowOutputParams: SubflowParameter[] = [];
+
+  private initSubflowOutputParams(): void {
+    this.subflowOutputParams = [...this.outputParameters];
+  }
+
+  addSubflowOutputParam(): void {
+    this.subflowOutputParams = [
+      ...this.subflowOutputParams,
+      { name: '', type: 'any', description: '', required: true, default_value: null },
+    ];
+    this.emitSubflowOutputParams();
+  }
+
+  removeSubflowOutputParam(index: number): void {
+    this.subflowOutputParams = this.subflowOutputParams.filter((_, i) => i !== index);
+    this.emitSubflowOutputParams();
+  }
+
+  updateSubflowOutputParam(index: number, field: string, value: unknown): void {
+    this.subflowOutputParams = this.subflowOutputParams.map((p, i) =>
+      i === index ? { ...p, [field]: value } : p
+    );
+    this.emitSubflowOutputParams();
+  }
+
+  private emitSubflowOutputParams(): void {
+    this.outputParametersChanged.emit(this.subflowOutputParams);
   }
 
   // ── Invoke sub-flow ──────────────────────────────────────────────
@@ -1669,6 +1775,16 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       this.node.type === 'data_transform' ||
       this.node.type === 'format_report'
     );
+  }
+
+  get outputHint(): string {
+    const t = this.node.type;
+    if (this.isApiAction) return 'output.status_code, output.body';
+    if (this.isDeviceUtilAction) return 'output.status, output.device_type, output.function, output.data';
+    if (t === 'webhook') return 'output.status_code, output.response';
+    if (t === 'data_transform') return 'output.rows, output.columns, output.row_count';
+    if (t === 'format_report') return 'output.report, output.format, output.row_count';
+    return '';
   }
 
   get hasErrorHandling(): boolean {

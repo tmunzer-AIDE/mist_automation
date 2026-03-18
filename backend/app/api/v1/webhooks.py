@@ -12,13 +12,14 @@ from datetime import datetime, timedelta, timezone
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from app.config import settings
 from app.core.tasks import create_background_task
 from app.core.webhook_extractor import enrich_event, extract_event_fields
 from app.core.websocket import ws_manager
-from app.dependencies import get_current_user_from_token, require_admin
+from app.dependencies import get_current_user_from_token, require_admin, require_automation_role
 from app.models.system import SystemConfig
 from app.models.user import User
 from app.modules.automation.models.webhook import WebhookEvent
@@ -32,6 +33,10 @@ from app.modules.automation.schemas.webhook import (
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
+
+
+class SmeeStartRequest(BaseModel):
+    smee_channel_url: str | None = None
 
 
 def _verify_mist_signature(payload: bytes, signature: str, secret: str) -> bool:
@@ -66,6 +71,7 @@ def _event_fields(event: WebhookEvent) -> dict:
         "device_name": event.device_name,
         "device_mac": event.device_mac,
         "event_details": event.event_details,
+        "event_timestamp": event.event_timestamp,
     }
 
 
@@ -85,6 +91,7 @@ def _event_to_monitor_dict(event: WebhookEvent) -> dict:
     # Monitor dict uses ISO strings for dates
     fields["received_at"] = event.received_at.isoformat() if event.received_at else None
     fields["processed_at"] = event.processed_at.isoformat() if event.processed_at else None
+    fields["event_timestamp"] = event.event_timestamp.isoformat() if event.event_timestamp else None
     return fields
 
 
@@ -157,7 +164,13 @@ async def receive_mist_webhook(
         enriched = enrich_event(event, topic, payload)
         fields = extract_event_fields(event, topic, payload)
 
-        evt_webhook_id = f"{webhook_id}_evt_{idx}" if len(events) > 1 else webhook_id
+        # For audit events, use audit_id for deduplication
+        if topic == "audits" and event.get("audit_id"):
+            evt_webhook_id = f"audit_{event['audit_id']}"
+        elif len(events) > 1:
+            evt_webhook_id = f"{webhook_id}_evt_{idx}"
+        else:
+            evt_webhook_id = webhook_id
 
         webhook_event = WebhookEvent(
             webhook_type=webhook_type,
@@ -176,6 +189,7 @@ async def receive_mist_webhook(
             device_name=fields["device_name"],
             device_mac=fields["device_mac"],
             event_details=fields["event_details"],
+            event_timestamp=fields["event_timestamp"],
         )
         try:
             await webhook_event.insert()
@@ -195,7 +209,7 @@ async def receive_mist_webhook(
         from app.modules.automation.workers.webhook_worker import process_webhook
 
         create_background_task(
-            process_webhook(str(webhook_event.id), webhook_type, enriched),
+            process_webhook(str(webhook_event.id), webhook_type, enriched, event_type=fields["event_type"]),
             name=f"webhook-automation-{evt_webhook_id}",
         )
 
@@ -235,7 +249,7 @@ async def receive_mist_webhook(
 @router.get("/webhooks/stats", response_model=WebhookStatsResponse, tags=["Webhooks"])
 async def get_webhook_stats(
     hours: int = Query(24, ge=1, le=720, description="Time range in hours (max 30 days)"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_automation_role),
 ):
     """Get aggregated webhook volume statistics bucketed by time."""
     now = datetime.now(timezone.utc)
@@ -308,7 +322,7 @@ async def list_webhook_events(
     limit: int = Query(100, ge=1, le=1000),
     webhook_type: str | None = Query(None, description="Filter by webhook type"),
     processed: bool | None = Query(None, description="Filter by processed status"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_automation_role),
 ):
     """List webhook events received from Mist."""
     query = {}
@@ -318,7 +332,13 @@ async def list_webhook_events(
         query["processed"] = processed
 
     total = await WebhookEvent.find(query).count()
-    events = await WebhookEvent.find(query).sort("-received_at").skip(skip).limit(limit).to_list()
+    events = (
+        await WebhookEvent.find(query)
+        .sort(["-event_timestamp", "-received_at"])
+        .skip(skip)
+        .limit(limit)
+        .to_list()
+    )
 
     return WebhookListResponse(
         events=[_event_to_response(event) for event in events],
@@ -329,7 +349,7 @@ async def list_webhook_events(
 @router.get("/webhooks/events/{event_id}", response_model=WebhookEventDetailResponse, tags=["Webhooks"])
 async def get_webhook_event(
     event_id: str,
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_automation_role),
 ):
     """Get webhook event details by ID."""
     try:
@@ -352,7 +372,7 @@ async def get_webhook_event(
 @router.post("/webhooks/events/{event_id}/replay", tags=["Webhooks"])
 async def replay_webhook_event(
     event_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Replay a webhook event through the workflow engine."""
     try:
@@ -378,8 +398,10 @@ async def replay_webhook_event(
 
     from app.modules.automation.workers.webhook_worker import process_webhook
 
+    # Extract event_type from the stored event for correct event_type_filter matching
+    event_type = event.event_type
     create_background_task(
-        process_webhook(str(event.id), event.webhook_type, event.payload),
+        process_webhook(str(event.id), event.webhook_type, event.payload, event_type=event_type),
         name=f"webhook-replay-{event.webhook_id}",
     )
 
@@ -408,7 +430,7 @@ async def get_smee_status(
 
 @router.post("/webhooks/smee/start", tags=["Webhooks"])
 async def start_smee_client(
-    request: Request,
+    body: SmeeStartRequest | None = None,
     current_user: User = Depends(require_admin),
 ):
     """Start the Smee.io webhook forwarder.
@@ -417,16 +439,10 @@ async def start_smee_client(
     user can start the client with a new URL without saving first.  The
     provided URL is persisted automatically.
     """
-    # Parse optional JSON body
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
     config = await SystemConfig.get_config()
 
     # Prefer URL from request body, fall back to saved config
-    channel_url = body.get("smee_channel_url") or config.smee_channel_url
+    channel_url = (body.smee_channel_url if body else None) or config.smee_channel_url
     if not channel_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

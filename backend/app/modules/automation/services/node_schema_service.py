@@ -5,6 +5,7 @@ Combines OAS data with node-type knowledge to produce variable trees
 for the variable autocomplete feature.
 """
 
+import re
 from collections import defaultdict, deque
 from typing import Any
 
@@ -132,10 +133,9 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
         return {"matched_branch": "string|integer|null"}
 
     if node_type == "for_each":
-        # During iteration, the node output is the current item.
-        # The actual item schema is resolved in get_available_variables
-        # using the loop_over path; this is a fallback.
-        return {"(current item)": "object"}
+        # During iteration, the node output is the current item (resolved dynamically).
+        # After the loop completes, the output includes aggregated results.
+        return {"iterations": "integer", "loop_over": "string", "results": [{"item": "object", "output": "object"}]}
 
     if node_type == "data_transform":
         return {
@@ -216,7 +216,7 @@ def get_available_variables(workflow: Workflow, target_node_id: str) -> dict[str
     upstream_ordered.reverse()
 
     # Build variable tree
-    result: dict[str, Any] = {"trigger": {}, "nodes": {}, "utilities": UTILITY_VARIABLES}
+    result: dict[str, Any] = {"trigger": {}, "nodes": {}, "results": {}, "utilities": UTILITY_VARIABLES}
 
     node_map = {n.id: n for n in workflow.nodes}
     # Map node_id → key used in the variable tree (for resolving loop_over paths)
@@ -232,10 +232,11 @@ def get_available_variables(workflow: Workflow, target_node_id: str) -> dict[str
         if node.type in ("trigger", "subflow_input"):
             result["trigger"] = schema
         else:
-            base_key = node.name or node.type.replace("_", " ").title()
+            raw_name = node.name or node.type.replace("_", " ").title()
+            base_key = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name)
             if base_key in used_keys:
                 used_keys[base_key] += 1
-                key = f"{base_key} {used_keys[base_key]}"
+                key = f"{base_key}_{used_keys[base_key]}"
             else:
                 used_keys[base_key] = 1
                 key = base_key
@@ -250,6 +251,11 @@ def get_available_variables(workflow: Workflow, target_node_id: str) -> dict[str
             node_key_map[node.id] = key
             if node.name:
                 node_key_map[node.name] = key
+
+            # Expose set_variable results as top-level variables
+            if node.type == "set_variable":
+                var_name = node.config.get("variable_name", "value")
+                result["results"][var_name] = "expression result"
 
     return result
 
@@ -282,19 +288,12 @@ def _resolve_for_each_item_schema(
         cursor = current_tree.get("trigger", {})
         parts = parts[1:]
     elif parts[0] == "nodes" and len(parts) >= 2:
-        # Resolve node name which may contain spaces (e.g., "nodes.For Each Events.field")
-        # Try progressively longer node name segments
         nodes_tree = current_tree.get("nodes", {})
-        parts = parts[1:]  # remove "nodes"
-        matched = False
-        for end in range(1, len(parts) + 1):
-            candidate = ".".join(parts[:end])
-            if candidate in nodes_tree:
-                cursor = nodes_tree[candidate]
-                parts = parts[end:]
-                matched = True
-                break
-        if not matched:
+        node_key = parts[1]
+        if node_key in nodes_tree:
+            cursor = nodes_tree[node_key]
+            parts = parts[2:]
+        else:
             return None
     else:
         return None

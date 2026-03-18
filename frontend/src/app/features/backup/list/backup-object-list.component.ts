@@ -1,5 +1,5 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { NgClass } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, FormControl } from '@angular/forms';
 import { forkJoin } from 'rxjs';
@@ -32,7 +32,7 @@ import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import {
-  CHART_COLORS,
+  getChartColor,
   baseChartOptions,
   barDataset,
   lineDataset,
@@ -42,7 +42,7 @@ import {
   selector: 'app-backup-object-list',
   standalone: true,
   imports: [
-    CommonModule,
+    NgClass,
     RouterModule,
     ReactiveFormsModule,
     MatTableModule,
@@ -108,6 +108,7 @@ export class BackupObjectListComponent implements OnInit {
   });
 
   // ── Chart ────────────────────────────────────────────────────────────
+  @ViewChild(BaseChartDirective) private chartDirective?: BaseChartDirective;
   chartConfig = signal<ChartConfiguration<'bar'> | null>(null);
 
   ngOnInit(): void {
@@ -149,37 +150,43 @@ export class BackupObjectListComponent implements OnInit {
     });
   }
 
-  private loadCharts(): void {
+  private loadCharts(animate = true): void {
     forkJoin({
       objects: this.api.get<BackupObjectStatsResponse>('/backups/stats/objects'),
       jobs: this.api.get<BackupJobStatsResponse>('/backups/stats/jobs'),
     }).subscribe({
       next: ({ objects, jobs }) => {
         const labels = objects.days.map((d) => d.date.slice(5));
-        this.chartConfig.set({
-          type: 'bar',
-          data: {
-            labels,
-            datasets: [
-              barDataset(
-                'Jobs completed',
-                jobs.days.map((d) => d.completed),
-                CHART_COLORS.completed,
-              ),
-              barDataset(
-                'Jobs failed',
-                jobs.days.map((d) => d.failed),
-                CHART_COLORS.failed,
-              ),
-              lineDataset(
-                'Objects backed up',
-                objects.days.map((d) => d.object_count),
-                CHART_COLORS.objectsLine,
-              ),
-            ],
-          },
-          options: baseChartOptions('Jobs', 'Objects'),
-        });
+        const options = baseChartOptions('Jobs', 'Objects');
+        const data = {
+          labels,
+          datasets: [
+            barDataset(
+              'Jobs completed',
+              jobs.days.map((d) => d.completed),
+              getChartColor('completed'),
+            ),
+            barDataset(
+              'Jobs failed',
+              jobs.days.map((d) => d.failed),
+              getChartColor('failed'),
+            ),
+            lineDataset(
+              'Objects backed up',
+              objects.days.map((d) => d.object_count),
+              getChartColor('objects'),
+            ),
+          ],
+        };
+
+        if (!animate && this.chartDirective?.chart) {
+          const chart = this.chartDirective.chart;
+          chart.data = data;
+          chart.options = options as any;
+          chart.update('none');
+        } else {
+          this.chartConfig.set({ type: 'bar', data, options });
+        }
       },
     });
   }
@@ -270,7 +277,10 @@ export class BackupObjectListComponent implements OnInit {
     ref.afterClosed().subscribe((result) => {
       if (result) {
         this.snackBar.open('Backup job created', 'OK', { duration: 3000 });
-        setTimeout(() => this.loadObjects(), 2000);
+        setTimeout(() => {
+          this.loadObjects();
+          this.loadCharts(false);
+        }, 2000);
       }
     });
   }

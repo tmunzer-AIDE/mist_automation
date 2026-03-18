@@ -40,7 +40,11 @@ export class AuthService {
     return this.api.post<{ message: string }>('/auth/change-password', data);
   }
 
-  updateProfile(data: { timezone?: string }): Observable<UserResponse> {
+  updateProfile(data: {
+    first_name?: string;
+    last_name?: string;
+    timezone?: string;
+  }): Observable<UserResponse> {
     return this.api.put<UserResponse>('/auth/profile', data);
   }
 

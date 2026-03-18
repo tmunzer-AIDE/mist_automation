@@ -10,24 +10,23 @@
   }
   @if (workflowId()) {
     <span class="status-chip" [ngClass]="statusChipClass()">{{ workflowStatus() }}</span>
+    <button mat-icon-button (click)="toggleStatus()" [matTooltip]="workflowStatus() === 'enabled' ? 'Disable' : 'Enable'">
+      <mat-icon>{{ workflowStatus() === 'enabled' ? 'toggle_on' : 'toggle_off' }}</mat-icon>
+    </button>
+    <button mat-icon-button (click)="runWorkflow()" matTooltip="Run Now">
+      <mat-icon>play_arrow</mat-icon>
+    </button>
+    <button mat-icon-button (click)="openExecutions()" matTooltip="View Executions">
+      <mat-icon>history</mat-icon>
+    </button>
   }
-  <button mat-icon-button [matMenuTriggerFor]="editorMenu" matTooltip="More actions">
+  <button mat-icon-button [matMenuTriggerFor]="editorMenu" matTooltip="More">
     <mat-icon>more_vert</mat-icon>
   </button>
   <mat-menu #editorMenu>
     <button mat-menu-item (click)="openDescription()">
       <mat-icon>description</mat-icon> Edit Description
     </button>
-    @if (workflowId()) {
-      <button mat-menu-item (click)="toggleStatus()">
-        <mat-icon>{{ workflowStatus() === 'enabled' ? 'pause' : 'play_arrow' }}</mat-icon>
-        {{ workflowStatus() === 'enabled' ? 'Disable' : 'Enable' }}
-      </button>
-      <button mat-menu-item (click)="runWorkflow()"><mat-icon>play_arrow</mat-icon> Run Now</button>
-      <button mat-menu-item (click)="openExecutions()">
-        <mat-icon>history</mat-icon> View Executions
-      </button>
-    }
     <button mat-menu-item (click)="exportWorkflow()">
       <mat-icon>download</mat-icon> Export as JSON
     </button>
@@ -69,6 +68,8 @@
       <!-- Bottom: Simulation panel -->
       <app-simulation-panel
         [workflowId]="workflowId()"
+        [workflowType]="workflowType()"
+        [inputParameters]="inputParameters()"
         [simulationState]="simulationState()"
         (simulationStarted)="onSimulationStarted($event)"
         (simulationStepChanged)="onSimulationStepChanged($event)"

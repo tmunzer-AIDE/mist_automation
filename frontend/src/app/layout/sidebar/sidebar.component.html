@@ -1,30 +1,35 @@
 <div class="sidebar" [class.collapsed]="collapsed">
   <div class="sidebar-header">
-    <mat-icon class="logo-icon">hub</mat-icon>
+    <img src="logo.svg" class="logo-icon" alt="Logo" />
     @if (!collapsed) {
-      <span class="app-name">Mist Automation</span>
+      <div class="app-name">
+        <span class="app-name-main">Mist Automation</span>
+        <span class="app-name-sub">P L A T F O R M</span>
+      </div>
     }
   </div>
 
   <mat-nav-list>
-    @for (item of filteredNavItems$ | async; track item.route) {
+    @for (item of filteredNavItems$ | async; track item.route; let last = $last) {
       @if (item.children && !collapsed) {
         <mat-expansion-panel class="nav-group">
           <mat-expansion-panel-header>
             <mat-icon>{{ item.icon }}</mat-icon>
             <span class="nav-label">{{ item.label }}</span>
           </mat-expansion-panel-header>
-          @for (child of item.children; track child.route) {
-            <a
-              mat-list-item
-              [routerLink]="child.route"
-              routerLinkActive="active"
-              [routerLinkActiveOptions]="{ exact: child.route === item.route }"
-            >
-              <mat-icon matListItemIcon>{{ child.icon }}</mat-icon>
-              <span matListItemTitle>{{ child.label }}</span>
-            </a>
-          }
+          <div class="nav-group-children">
+            @for (child of item.children; track child.route) {
+              <a
+                mat-list-item
+                [routerLink]="child.route"
+                routerLinkActive="active"
+                [routerLinkActiveOptions]="{ exact: child.route === item.route }"
+              >
+                <mat-icon matListItemIcon>{{ child.icon }}</mat-icon>
+                <span matListItemTitle>{{ child.label }}</span>
+              </a>
+            }
+          </div>
         </mat-expansion-panel>
       } @else {
         <a
@@ -39,6 +44,9 @@
             <span matListItemTitle>{{ item.label }}</span>
           }
         </a>
+      }
+      @if (!last) {
+        <mat-divider class="nav-divider"></mat-divider>
       }
     }
   </mat-nav-list>

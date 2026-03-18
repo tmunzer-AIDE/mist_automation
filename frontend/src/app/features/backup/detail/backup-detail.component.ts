@@ -1,5 +1,4 @@
 import { Component, inject, OnInit, signal, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -22,7 +21,6 @@ import { RestoreDialogComponent } from './restore-dialog.component';
   selector: 'app-backup-detail',
   standalone: true,
   imports: [
-    CommonModule,
     RouterModule,
     MatButtonModule,
     MatIconModule,
@@ -61,7 +59,7 @@ export class BackupDetailComponent implements OnInit {
       this.api.get<BackupJobResponse>(`/backups/${id}`).subscribe({
         next: (b) => {
           this.backup.set(b);
-          this.topbarService.setTitle(`Backup: ${b.backup_type} — ${b.id.slice(0, 8)}`);
+          this.topbarService.setTitle(`Backup Job: ${b.backup_type} — ${b.id.slice(0, 8)}`);
           this.loading.set(false);
           this.loadLogs();
         },

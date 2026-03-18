@@ -17,7 +17,7 @@
   background: var(--mat-sys-surface, #fff);
   border-radius: 8px;
   padding: 2px 4px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--app-shadow-sm);
 
   .zoom-label {
     font-size: 12px;
@@ -41,7 +41,7 @@
 // ── Selection rectangle ──────────────────────────────────────────────────
 
 .selection-rect {
-  fill: rgba(25, 118, 210, 0.08);
+  fill: var(--app-canvas-selected-bg);
   stroke: var(--app-canvas-selected);
   stroke-width: 1;
   stroke-dasharray: 4 2;
@@ -104,7 +104,7 @@
   &.selected .node-card {
     stroke: var(--app-canvas-selected) !important;
     stroke-width: 2;
-    filter: drop-shadow(0 0 6px rgba(25, 118, 210, 0.3));
+    filter: drop-shadow(0 0 6px var(--app-canvas-selected-shadow));
   }
 
   &.disabled {
@@ -133,7 +133,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--app-canvas-node-icon-text);
 
   mat-icon {
     font-size: 18px;

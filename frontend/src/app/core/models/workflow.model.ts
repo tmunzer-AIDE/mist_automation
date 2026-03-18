@@ -253,6 +253,7 @@ export interface ApiCatalogEntry {
 export interface VariableTree {
   trigger: Record<string, unknown>;
   nodes: Record<string, Record<string, unknown>>;
+  results?: Record<string, unknown>;
   utilities: Record<string, string>;
 }
 

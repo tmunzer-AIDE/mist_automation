@@ -28,6 +28,8 @@ class UserResponse(BaseModel):
 
     id: str = Field(..., description="User ID")
     email: str = Field(..., description="User email")
+    first_name: str | None = Field(None, description="User first name")
+    last_name: str | None = Field(None, description="User last name")
     roles: list[str] = Field(..., description="User roles")
     timezone: str = Field(..., description="User timezone")
     is_active: bool = Field(..., description="Whether user is active")
@@ -44,6 +46,8 @@ class OnboardRequest(BaseModel):
 
     email: EmailStr = Field(..., description="Admin email address")
     password: str = Field(..., description="Admin password", min_length=1)
+    first_name: str | None = Field(None, description="Admin first name")
+    last_name: str | None = Field(None, description="Admin last name")
 
 
 class ChangePasswordRequest(BaseModel):
@@ -56,6 +60,8 @@ class ChangePasswordRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     """Update profile request schema."""
 
+    first_name: str | None = Field(None, description="User first name")
+    last_name: str | None = Field(None, description="User last name")
     timezone: str | None = Field(None, description="User timezone (IANA)")
 
 

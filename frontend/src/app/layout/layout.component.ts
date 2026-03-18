@@ -5,13 +5,12 @@ import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
-import { CommonModule } from '@angular/common';
 import { filter, map } from 'rxjs';
 
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, MatSidenavModule, SidebarComponent, TopbarComponent],
+  imports: [RouterOutlet, MatSidenavModule, SidebarComponent, TopbarComponent],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss',
 })

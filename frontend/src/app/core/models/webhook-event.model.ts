@@ -23,6 +23,7 @@ export interface WebhookEventSummary {
   device_name: string | null;
   device_mac: string | null;
   event_details: string | null;
+  event_timestamp: string | null;
 }
 
 export interface WebhookEventDetail extends WebhookEventSummary {

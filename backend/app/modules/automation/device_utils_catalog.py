@@ -36,7 +36,7 @@ _SIZE = DeviceUtilParam(name="size", description="Packet size in bytes", type="i
 _VRF = DeviceUtilParam(name="vrf", description="VRF name")
 _TIMEOUT = DeviceUtilParam(name="timeout", description="Command timeout in seconds", type="integer")
 _PORT_ID = DeviceUtilParam(name="port_id", description="Port ID", required=True)
-_PORT_IDS = DeviceUtilParam(name="port_ids", description="Comma-separated port IDs", required=True)
+_PORT_IDS = DeviceUtilParam(name="port_ids", description="Comma-separated port IDs", required=True, type="list")
 _NODE = DeviceUtilParam(name="node", description="Node (node0 or node1 for dual-node devices)")
 _IP = DeviceUtilParam(name="ip", description="IP address filter")
 

@@ -1,99 +1,145 @@
-
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 } @else {
-  <!-- System Health -->
-  @if (health(); as healthVal) {
-    <div class="health-bar">
-      <div class="health-indicator">
-        <app-status-badge [status]="healthVal.status"></app-status-badge>
-        <span class="health-meta"
-          >{{ healthVal.app }} v{{ healthVal.version }} &middot; {{ healthVal.environment }}</span
-        >
+  <!-- Hero Card -->
+  <div class="hero-card">
+    <div class="hero-accent"></div>
+    <div class="hero-body">
+      <div class="hero-top">
+        <div class="hero-primary">
+          <h2 class="hero-greeting">Welcome back, {{ displayName() }}</h2>
+          <p class="hero-sub">Here's your overview for the last {{ statsWindowDays() }} days.</p>
+        </div>
+        @if (health(); as h) {
+          <div class="hero-health">
+            <app-status-badge [status]="h.status"></app-status-badge>
+            <span class="hero-meta">v{{ h.version }}</span>
+            <span class="hero-env">{{ h.environment }}</span>
+          </div>
+        }
+      </div>
+
+      @if (hasAnyModuleRole() && stats(); as s) {
+        <div class="hero-stats">
+          @if (isAdmin() && s.users) {
+            <div class="hero-stat" (click)="navigateTo('/admin/users')">
+              <div class="hero-stat-number">{{ s.users.total }}</div>
+              <div class="hero-stat-label">Users</div>
+              <div class="hero-stat-detail">{{ s.users.active }} active</div>
+            </div>
+          }
+          @if (hasAutomation() && s.workflows) {
+            <div class="hero-stat" (click)="navigateTo('/workflows')">
+              <div class="hero-stat-number">{{ s.workflows.total }}</div>
+              <div class="hero-stat-label">Workflows</div>
+              <div class="hero-stat-detail">{{ s.workflows.enabled }} enabled</div>
+            </div>
+          }
+          @if (hasAutomation() && s.executions) {
+            <div class="hero-stat" (click)="navigateTo('/workflows')">
+              <div class="hero-stat-number">{{ s.executions.total }}</div>
+              <div class="hero-stat-label">Executions</div>
+              <div class="hero-stat-detail">
+                {{ s.executions.succeeded }} ok &middot; {{ s.executions.failed }} failed
+              </div>
+            </div>
+          }
+          @if (hasAutomation() && s.webhooks) {
+            <div class="hero-stat" (click)="navigateTo('/monitoring/webhooks')">
+              <div class="hero-stat-number">{{ s.webhooks.total }}</div>
+              <div class="hero-stat-label">Webhooks</div>
+              <div class="hero-stat-detail">{{ s.webhooks.processed }} processed</div>
+            </div>
+          }
+          @if (hasBackup() && s.backups) {
+            <div class="hero-stat" (click)="navigateTo('/backup')">
+              <div class="hero-stat-number">{{ s.backups.total }}</div>
+              <div class="hero-stat-label">Backups</div>
+              <div class="hero-stat-detail">
+                {{ s.backups.completed }} ok &middot; {{ s.backups.failed }} failed
+              </div>
+            </div>
+          }
+          @if (hasReports() && s.reports) {
+            <div class="hero-stat" (click)="navigateTo('/reports')">
+              <div class="hero-stat-number">{{ s.reports.total }}</div>
+              <div class="hero-stat-label">Reports</div>
+              <div class="hero-stat-detail">
+                {{ s.reports.completed }} ok &middot; {{ s.reports.failed }} failed
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Highlights -->
+  @if (highlights().length) {
+    <div class="highlights-section">
+      @for (h of highlights(); track h.message) {
+        <div class="highlight-card" [class]="h.level" (click)="navigateTo(h.route)">
+          <mat-icon>{{ h.icon }}</mat-icon>
+          <span class="highlight-message">{{ h.message }}</span>
+          <mat-icon class="highlight-arrow">chevron_right</mat-icon>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Activity Chart -->
+  @if (chartConfig(); as chart) {
+    <div class="dashboard-section">
+      <h3 class="section-title">Activity (14 days)</h3>
+      <div class="chart-card">
+        <div class="chart-container">
+          <canvas
+            baseChart
+            [datasets]="chart.data.datasets"
+            [labels]="chart.data.labels!"
+            [options]="chart.options!"
+            type="bar"
+          ></canvas>
+        </div>
       </div>
     </div>
   }
 
-  @if (stats(); as statsVal) {
-    <div class="stats-grid">
-      <div class="stat-card" (click)="navigateTo('/admin/users')">
-        <div class="stat-icon users">
-          <mat-icon>people</mat-icon>
-        </div>
-        <div class="stat-content">
-          <div class="stat-number">{{ statsVal.users.total }}</div>
-          <div class="stat-label">Users</div>
-          <div class="stat-detail">
-            {{ statsVal.users.active }} active &middot; {{ statsVal.users.admins }} admins
+  <!-- Recent Activity -->
+  @if (recentItems().length) {
+    <div class="dashboard-section">
+      <h3 class="section-title">Recent Activity</h3>
+      <div class="recent-list">
+        @for (item of recentItems(); track item.id) {
+          <div class="recent-item" (click)="recentRoute(item)">
+            <div class="recent-icon {{ item.type }}">
+              <mat-icon>{{ recentIcon(item) }}</mat-icon>
+            </div>
+            <div class="recent-content">
+              <div class="recent-title">{{ item.title }}</div>
+              <div class="recent-meta">
+                <app-status-badge [status]="item.status"></app-status-badge>
+                @if (item.detail) {
+                  <span class="recent-detail">&middot; {{ item.detail }}</span>
+                }
+              </div>
+            </div>
+            <div class="recent-time">{{ item.timestamp | dateTime: 'short' }}</div>
           </div>
-        </div>
-      </div>
-
-      <div class="stat-card" (click)="navigateTo('/backup')">
-        <div class="stat-icon backups">
-          <mat-icon>backup</mat-icon>
-        </div>
-        <div class="stat-content">
-          <div class="stat-number">{{ statsVal.backups.total }}</div>
-          <div class="stat-label">Backups</div>
-          <div class="stat-detail">
-            {{ statsVal.backups.completed }} completed &middot; {{ statsVal.backups.failed }} failed
-          </div>
-        </div>
-      </div>
-
-      <div class="stat-card" (click)="navigateTo('/workflows')">
-        <div class="stat-icon workflows">
-          <mat-icon>account_tree</mat-icon>
-        </div>
-        <div class="stat-content">
-          <div class="stat-number">{{ statsVal.workflows.total }}</div>
-          <div class="stat-label">Workflows</div>
-          <div class="stat-detail">
-            {{ statsVal.workflows.enabled }} enabled &middot; {{ statsVal.workflows.draft }} draft
-          </div>
-        </div>
-      </div>
-
-      <div class="stat-card" (click)="navigateTo('/workflows')">
-        <div class="stat-icon executions">
-          <mat-icon>play_circle</mat-icon>
-        </div>
-        <div class="stat-content">
-          <div class="stat-number">{{ statsVal.executions.total }}</div>
-          <div class="stat-label">Executions</div>
-          <div class="stat-detail">
-            {{ statsVal.executions.succeeded }} ok &middot; {{ statsVal.executions.failed }} failed
-          </div>
-        </div>
-      </div>
-
-      <div class="stat-card" (click)="navigateTo('/workflows/webhooks')">
-        <div class="stat-icon webhooks">
-          <mat-icon>webhook</mat-icon>
-        </div>
-        <div class="stat-content">
-          <div class="stat-number">{{ statsVal.webhooks.total }}</div>
-          <div class="stat-label">Webhooks</div>
-          <div class="stat-detail">
-            {{ statsVal.webhooks.processed }} processed &middot; {{ statsVal.webhooks.pending }} pending
-          </div>
-        </div>
+        }
       </div>
     </div>
-  } @else {
-    <!-- Non-admin welcome -->
-    @if (user$ | async; as user) {
-      <div class="welcome-card">
-        <div class="welcome-text">
-          <h2>Welcome, {{ user.email }}</h2>
-          <p>Use the sidebar to navigate to Backups or your Profile.</p>
-        </div>
-        <div class="welcome-actions">
-          <a mat-flat-button routerLink="/backup">View Backups</a>
-          <a mat-stroked-button routerLink="/profile">My Profile</a>
-        </div>
+  }
+
+  @if (!hasAnyModuleRole()) {
+    <!-- Fallback welcome for users with no module roles -->
+    <div class="welcome-card">
+      <div class="welcome-text">
+        <p>Use the sidebar to navigate or contact an admin for module access.</p>
       </div>
-    }
+      <div class="welcome-actions">
+        <a mat-stroked-button routerLink="/profile">My Profile</a>
+      </div>
+    </div>
   }
 }

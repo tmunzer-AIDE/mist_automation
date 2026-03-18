@@ -378,6 +378,43 @@ def _get_reference_field_index() -> dict[str, set[str]]:
     return _REFERENCE_FIELD_INDEX
 
 
+def _extract_type_from_message(
+    message: str,
+    org_objects: dict,
+    site_objects: dict,
+) -> str | None:
+    """Extract object type from audit message when no *_id fields matched.
+
+    Mist audit messages follow ``<Action> <ObjectType> "name"`` or
+    ``<Action> <ObjectType> ...``.  Returns the registry key if the type
+    word(s) match a known object type, else None.
+    """
+    import re as _re
+
+    match = _re.match(
+        r"^(?:Add|Update|Delete|Modify|Create|Remove)\s+(.+?)(?:\s+\".*\"|$)",
+        message,
+        _re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    raw_type = match.group(1).strip().lower()
+    # Build candidate registry keys:
+    # "site" → ["site", "sites"], "site group" → ["sitegroup", "sitegroups"]
+    no_space = raw_type.replace(" ", "")
+    candidates = [raw_type, raw_type + "s", no_space, no_space + "s"]
+    if raw_type.endswith("y"):
+        candidates.append(raw_type[:-1] + "ies")
+    if no_space.endswith("y"):
+        candidates.append(no_space[:-1] + "ies")
+
+    for candidate in candidates:
+        if candidate in org_objects or candidate in site_objects:
+            return candidate
+    return None
+
+
 def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | None]:
     """Extract (object_type, object_id, site_id) from a flat Mist audit event.
 
@@ -429,6 +466,14 @@ def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | Non
         # If we have an explicit "object" field (envelope format), use that
         if event.get("object"):
             return event["object"], event.get("id"), site_id
+
+        # Fallback: parse object type from the audit message.
+        # Mist audit messages follow the pattern: "<Action> <Type> ..."
+        # e.g. 'Add Site "MyCorp Office"', 'Delete PSK "guest"'
+        resolved = _extract_type_from_message(event.get("message", ""), ORG_OBJECTS, SITE_OBJECTS)
+        if resolved:
+            return resolved, None, site_id
+
         return None, None, site_id
 
     if len(matches) == 1:

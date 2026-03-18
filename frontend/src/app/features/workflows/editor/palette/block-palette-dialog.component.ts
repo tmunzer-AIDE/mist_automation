@@ -1,5 +1,4 @@
 import { Component, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -16,7 +15,7 @@ import { BLOCK_CATEGORIES, BlockCategory } from './block-categories';
 @Component({
   selector: 'app-block-palette-dialog',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, MatIconModule, MatButtonModule],
+  imports: [MatDialogModule, MatIconModule, MatButtonModule],
   templateUrl: './block-palette-dialog.component.html',
   styleUrl: './block-palette-dialog.component.scss',
 })

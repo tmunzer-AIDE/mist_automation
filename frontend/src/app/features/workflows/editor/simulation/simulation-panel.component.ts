@@ -9,10 +9,12 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -26,6 +28,8 @@ import {
   SimulationState,
   SimulationWsMessage,
   NodeSnapshot,
+  SubflowParameter,
+  WorkflowType,
 } from '../../../../core/models/workflow.model';
 import { WorkflowService } from '../../../../core/services/workflow.service';
 import { WebSocketService } from '../../../../core/services/websocket.service';
@@ -35,10 +39,12 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
   selector: 'app-simulation-panel',
   standalone: true,
   imports: [
-    CommonModule,
+    JsonPipe,
     FormsModule,
     MatButtonModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatTabsModule,
     MatSlideToggleModule,
     MatProgressBarModule,
@@ -67,29 +73,45 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
           <mat-tab-group animationDuration="0">
             <!-- Payload tab -->
             <mat-tab label="Payload">
-              <div class="tab-content">
-                <textarea
-                  class="payload-editor"
-                  [ngModel]="payloadJson()"
-                  (ngModelChange)="payloadJson.set($event)"
-                  placeholder='{"topic": "alarms", "events": [...]}'
-                  rows="8"
-                ></textarea>
-
-                @if (samplePayloads().length > 0) {
-                  <div class="samples-header">Recent Webhooks</div>
-                  <div class="samples-list">
-                    @for (sample of samplePayloads(); track sample.event_id) {
-                      <div
-                        class="sample-item"
-                        [class.selected]="selectedSampleId() === sample.event_id"
-                        (click)="selectSample(sample)"
-                      >
-                        <span class="sample-topic">{{ sample.webhook_type }}</span>
-                        <span class="sample-time">{{ sample.timestamp | dateTime:'short' }}</span>
-                      </div>
+              <div class="tab-content payload-tab">
+                @if (workflowType === 'subflow' && inputParameters.length > 0) {
+                  <!-- Structured form for subflow input parameters -->
+                  <div class="subflow-params-form">
+                    @for (param of inputParameters; track param.name) {
+                      <mat-form-field appearance="outline" class="param-field">
+                        <mat-label>{{ param.name }}{{ param.required ? ' *' : '' }} ({{ param.type }})</mat-label>
+                        <input matInput
+                          [value]="paramValues()[param.name] || ''"
+                          (input)="setParamValue(param.name, $any($event.target).value)"
+                          [placeholder]="param.description || param.type"
+                        />
+                      </mat-form-field>
                     }
                   </div>
+                } @else {
+                  <!-- JSON editor for standard workflows -->
+                  <textarea
+                    class="payload-editor"
+                    [ngModel]="payloadJson()"
+                    (ngModelChange)="payloadJson.set($event)"
+                    placeholder='{"topic": "alarms", "events": [...]}'
+                  ></textarea>
+
+                  @if (samplePayloads().length > 0) {
+                    <div class="samples-header">Recent Webhooks</div>
+                    <div class="samples-list">
+                      @for (sample of samplePayloads(); track sample.event_id) {
+                        <div
+                          class="sample-item"
+                          [class.selected]="selectedSampleId() === sample.event_id"
+                          (click)="selectSample(sample)"
+                        >
+                          <span class="sample-topic">{{ sample.webhook_type }}</span>
+                          <span class="sample-time">{{ sample.timestamp | dateTime:'short' }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
                 }
               </div>
             </mat-tab>
@@ -275,17 +297,34 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
       .tab-content {
         padding: 8px 12px;
         overflow-y: auto;
-        max-height: 280px;
+        height: 280px;
+      }
+
+      .payload-tab {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .subflow-params-form {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        .param-field {
+          width: 100%;
+        }
       }
 
       .payload-editor {
         width: 100%;
+        max-width: calc(100% - 20px);
+        flex: 1;
         font-family: monospace;
         font-size: 12px;
         border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
         border-radius: 4px;
         padding: 8px;
-        resize: vertical;
+        resize: none;
         background: var(--mat-sys-surface, #fff);
         color: var(--mat-sys-on-surface, #212121);
       }
@@ -447,6 +486,8 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
 })
 export class SimulationPanelComponent implements OnInit, OnDestroy {
   @Input() workflowId: string | null = null;
+  @Input() workflowType: WorkflowType = 'standard';
+  @Input() inputParameters: SubflowParameter[] = [];
   @Input() simulationState: SimulationState | null = null;
   @Output() simulationStarted = new EventEmitter<SimulationState>();
   @Output() simulationStepChanged = new EventEmitter<SimulationState>();
@@ -462,6 +503,7 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
 
   collapsed = signal(true);
   payloadJson = signal('');
+  paramValues = signal<Record<string, string>>({});
   dryRun = signal(true);
   isRunning = signal(false);
   samplePayloads = signal<SamplePayload[]>([]);
@@ -509,6 +551,10 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
     this.payloadJson.set(JSON.stringify(sample.payload, null, 2));
   }
 
+  setParamValue(name: string, value: string): void {
+    this.paramValues.update((v) => ({ ...v, [name]: value }));
+  }
+
   runSimulation(): void {
     if (!this.workflowId || this.isRunning()) return;
 
@@ -516,14 +562,25 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
     this.liveNodeStatuses = {};
     let payload: Record<string, unknown> | undefined;
 
-    try {
-      if (this.payloadJson().trim()) {
-        payload = JSON.parse(this.payloadJson());
+    if (this.workflowType === 'subflow' && this.inputParameters.length > 0) {
+      // Build payload from structured form fields
+      payload = {};
+      for (const param of this.inputParameters) {
+        const raw = this.paramValues()[param.name] ?? param.default_value ?? '';
+        payload[param.name] = param.type === 'number' ? Number(raw) || 0
+          : param.type === 'boolean' ? raw === 'true'
+          : raw;
       }
-    } catch {
-      this.snackBar.open('Invalid JSON payload', 'OK', { duration: 3000 });
-      this.isRunning.set(false);
-      return;
+    } else {
+      try {
+        if (this.payloadJson().trim()) {
+          payload = JSON.parse(this.payloadJson());
+        }
+      } catch {
+        this.snackBar.open('Invalid JSON payload', 'OK', { duration: 3000 });
+        this.isRunning.set(false);
+        return;
+      }
     }
 
     // Generate stream_id and subscribe to WS channel before HTTP call

@@ -1,8 +1,8 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -17,10 +17,10 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
   selector: 'app-general-profile',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatCardModule,
     MatFormFieldModule,
+    MatInputModule,
     MatSelectModule,
     MatButtonModule,
     MatIconModule,
@@ -33,6 +33,17 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
       </mat-card-header>
       <mat-card-content>
         <form [formGroup]="form" (ngSubmit)="onSubmit()" class="general-form">
+          <div class="name-row">
+            <mat-form-field appearance="outline">
+              <mat-label>First Name</mat-label>
+              <input matInput formControlName="first_name" />
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Last Name</mat-label>
+              <input matInput formControlName="last_name" />
+            </mat-form-field>
+          </div>
+
           <mat-form-field appearance="outline">
             <mat-label>Timezone</mat-label>
             <mat-select formControlName="timezone">
@@ -82,6 +93,13 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
         gap: 4px;
         padding-top: 16px;
       }
+      .name-row {
+        display: flex;
+        gap: 12px;
+      }
+      .name-row mat-form-field {
+        flex: 1;
+      }
       .appearance-card {
         margin-top: 24px;
       }
@@ -124,13 +142,19 @@ export class GeneralProfileComponent implements OnInit {
   ];
 
   form = this.fb.group({
+    first_name: [''],
+    last_name: [''],
     timezone: ['UTC'],
   });
 
   ngOnInit(): void {
     this.authService.me().subscribe({
       next: (user) => {
-        this.form.patchValue({ timezone: user.timezone });
+        this.form.patchValue({
+          first_name: user.first_name ?? '',
+          last_name: user.last_name ?? '',
+          timezone: user.timezone,
+        });
         this.form.markAsPristine();
       },
     });
@@ -140,7 +164,12 @@ export class GeneralProfileComponent implements OnInit {
     if (!this.form.dirty) return;
     this.saving.set(true);
 
-    this.authService.updateProfile({ timezone: this.form.value.timezone! }).subscribe({
+    const val = this.form.value;
+    this.authService.updateProfile({
+      first_name: val.first_name || undefined,
+      last_name: val.last_name || undefined,
+      timezone: val.timezone!,
+    }).subscribe({
       next: (user) => {
         this.store.dispatch(AuthActions.loadUserSuccess({ user }));
         this.saving.set(false);

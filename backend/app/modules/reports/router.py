@@ -2,13 +2,16 @@
 Reports API endpoints.
 """
 
+import asyncio
 import re
+from datetime import datetime, timezone
 
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 
+from app.core.exceptions import AuthorizationException
 from app.core.tasks import create_background_task
 from app.dependencies import require_reports_role
 from app.models.user import User
@@ -22,6 +25,25 @@ from app.modules.reports.schemas import (
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
+
+
+# ── Shared helpers ────────────────────────────────────────────────────────
+
+
+def _dict_to_response(item: dict) -> ReportJobResponse:
+    """Build a ReportJobResponse from a raw MongoDB aggregation dict."""
+    return ReportJobResponse(
+        id=str(item.get("_id", item.get("id", ""))),
+        report_type=item.get("report_type", ""),
+        site_id=item.get("site_id", ""),
+        site_name=item.get("site_name", ""),
+        status=item.get("status", ""),
+        progress=item.get("progress", {}),
+        error=item.get("error"),
+        created_by=str(item.get("created_by", "")),
+        created_at=item.get("created_at"),
+        completed_at=item.get("completed_at"),
+    )
 
 
 def _job_to_response(job: ReportJob) -> ReportJobResponse:
@@ -39,6 +61,28 @@ def _job_to_response(job: ReportJob) -> ReportJobResponse:
     )
 
 
+async def _get_report(report_id: str) -> ReportJob:
+    """Fetch a report by ID or raise 400/404."""
+    try:
+        job = await ReportJob.get(PydanticObjectId(report_id))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report ID") from exc
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    return job
+
+
+def _check_report_access(job: ReportJob, user: User) -> None:
+    """Verify the user owns the report or is an admin."""
+    if not user.is_admin() and job.created_by != user.id:
+        raise AuthorizationException("You do not have access to this report")
+
+
+def _safe_filename(name: str) -> str:
+    """Sanitize a string for use in filenames."""
+    return re.sub(r"[^a-zA-Z0-9\-_.]", "_", name).strip("_") or "site"
+
+
 # ── Sites (for site picker) ─────────────────────────────────────────────
 
 
@@ -53,9 +97,7 @@ async def list_sites(_current_user: User = Depends(require_reports_role)):
         return {"sites": [{"id": s.get("id"), "name": s.get("name", "")} for s in sites]}
     except Exception as e:
         logger.error("report_sites_fetch_failed", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch sites from Mist"
-        ) from e
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch sites from Mist") from e
 
 
 # ── Validation Reports ───────────────────────────────────────────────────
@@ -105,15 +147,29 @@ async def list_validation_reports(
     _current_user: User = Depends(require_reports_role),
 ):
     """List past validation reports."""
-    query: dict = {"report_type": ReportType.POST_DEPLOYMENT_VALIDATION.value}
+    match: dict = {"report_type": ReportType.POST_DEPLOYMENT_VALIDATION.value}
+    if not _current_user.is_admin():
+        match["created_by"] = _current_user.id
     if site_id:
-        query["site_id"] = site_id
+        match["site_id"] = site_id
 
-    total = await ReportJob.find(query).count()
-    jobs = await ReportJob.find(query).sort("-created_at").skip(skip).limit(limit).to_list()
+    pipeline: list[dict] = [{"$match": match}, {"$sort": {"created_at": -1}}]
+    facet_pipeline = pipeline + [
+        {
+            "$facet": {
+                "total": [{"$count": "n"}],
+                "items": [{"$skip": skip}, {"$limit": limit}],
+            }
+        }
+    ]
+
+    results = await ReportJob.aggregate(facet_pipeline).to_list()
+    row = results[0] if results else {}
+    total = row.get("total", [{}])[0].get("n", 0) if row.get("total") else 0
+    items = row.get("items", [])
 
     return ReportJobListResponse(
-        reports=[_job_to_response(j) for j in jobs],
+        reports=[_dict_to_response(item) for item in items],
         total=total,
     )
 
@@ -121,16 +177,11 @@ async def list_validation_reports(
 @router.get("/reports/validation/{report_id}", response_model=ReportJobDetailResponse, tags=["Reports"])
 async def get_validation_report(
     report_id: str,
-    _current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_reports_role),
 ):
     """Get a validation report with full results."""
-    try:
-        job = await ReportJob.get(PydanticObjectId(report_id))
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report ID") from exc
-
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    job = await _get_report(report_id)
+    _check_report_access(job, current_user)
 
     return ReportJobDetailResponse(
         id=str(job.id),
@@ -150,19 +201,14 @@ async def get_validation_report(
 @router.delete("/reports/validation/{report_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Reports"])
 async def delete_validation_report(
     report_id: str,
-    _current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_reports_role),
 ):
     """Delete a validation report."""
-    try:
-        job = await ReportJob.get(PydanticObjectId(report_id))
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report ID") from exc
-
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    job = await _get_report(report_id)
+    _check_report_access(job, current_user)
 
     await job.delete()
-    logger.info("validation_report_deleted", report_id=report_id, user_id=str(_current_user.id))
+    logger.info("validation_report_deleted", report_id=report_id, user_id=str(current_user.id))
 
 
 # ── Export ────────────────────────────────────────────────────────────────
@@ -171,16 +217,20 @@ async def delete_validation_report(
 @router.get("/reports/validation/{report_id}/export/pdf", tags=["Reports"])
 async def export_validation_pdf(
     report_id: str,
-    _current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_reports_role),
 ):
     """Export a completed validation report as PDF."""
-    job = await _get_completed_report(report_id)
+    job = await _get_report(report_id)
+    _check_report_access(job, current_user)
+    if job.status != ReportStatus.COMPLETED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Report is not completed yet")
 
     from app.modules.reports.services.export_service import generate_pdf
 
-    pdf_bytes = generate_pdf(job)
+    pdf_bytes = await asyncio.to_thread(generate_pdf, job)
     safe_name = _safe_filename(job.site_name)
-    filename = f"validation_{safe_name}_{job.completed_at:%Y%m%d}.pdf"
+    completed = job.completed_at or datetime.now(timezone.utc)
+    filename = f"validation_{safe_name}_{completed:%Y%m%d}.pdf"
 
     return Response(
         content=pdf_bytes,
@@ -192,43 +242,23 @@ async def export_validation_pdf(
 @router.get("/reports/validation/{report_id}/export/csv", tags=["Reports"])
 async def export_validation_csv(
     report_id: str,
-    _current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_reports_role),
 ):
     """Export a completed validation report as a ZIP of CSV files."""
-    job = await _get_completed_report(report_id)
+    job = await _get_report(report_id)
+    _check_report_access(job, current_user)
+    if job.status != ReportStatus.COMPLETED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Report is not completed yet")
 
     from app.modules.reports.services.export_service import generate_csv_zip
 
-    zip_bytes = generate_csv_zip(job)
+    zip_bytes = await asyncio.to_thread(generate_csv_zip, job)
     safe_name = _safe_filename(job.site_name)
-    filename = f"validation_{safe_name}_{job.completed_at:%Y%m%d}.zip"
+    completed = job.completed_at or datetime.now(timezone.utc)
+    filename = f"validation_{safe_name}_{completed:%Y%m%d}.zip"
 
     return Response(
         content=zip_bytes,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-def _safe_filename(name: str) -> str:
-    """Sanitize a string for use in filenames."""
-    return re.sub(r"[^\w\-.]", "_", name).strip("_") or "site"
-
-
-async def _get_completed_report(report_id: str) -> ReportJob:
-    """Fetch a report and verify it's completed."""
-    try:
-        job = await ReportJob.get(PydanticObjectId(report_id))
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report ID") from exc
-
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
-
-    if job.status != ReportStatus.COMPLETED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Report is not completed yet",
-        )
-
-    return job

@@ -8,6 +8,13 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
+  { label: 'Webhook Monitor', icon: 'webhook', route: '/monitoring' },
+  {
+    label: 'Reports',
+    icon: 'assessment',
+    route: '/reports',
+    roles: ['reports', 'admin'],
+  },
   {
     label: 'Backups',
     icon: 'backup',
@@ -17,13 +24,6 @@ export const NAV_ITEMS: NavItem[] = [
       { label: 'Jobs', icon: 'work_history', route: '/backup/jobs' },
     ],
   },
-  {
-    label: 'Reports',
-    icon: 'assessment',
-    route: '/reports',
-    roles: ['reports', 'admin'],
-  },
-  { label: 'Webhook Monitor', icon: 'webhook', route: '/monitoring' },
   {
     label: 'Workflows',
     icon: 'account_tree',

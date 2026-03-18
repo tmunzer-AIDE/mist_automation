@@ -34,6 +34,11 @@ logger = structlog.get_logger(__name__)
 ProgressCallback = Callable[[str, dict[str, Any]], Awaitable[None]] | None
 
 
+def _sanitize_name(name: str) -> str:
+    """Sanitize a node name for use as a variable key (non-alphanumeric → underscores)."""
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)
+
+
 class WorkflowExecutor:
     """Graph-based workflow executor."""
 
@@ -50,7 +55,6 @@ class WorkflowExecutor:
         self.variable_context: dict[str, Any] = {"trigger": {}, "nodes": {}, "results": {}}
         self._progress_callback = progress_callback
         self._cached_render_context: dict[str, Any] | None = None
-        self._node_name_patterns: list[tuple[re.Pattern, str]] | None = None
         self._recursion_depth = recursion_depth
         self._max_recursion_depth = max_recursion_depth
 
@@ -323,6 +327,7 @@ class WorkflowExecutor:
                 )
 
             snapshot_recorded = False
+            result: dict[str, Any] | None = None
 
             try:
                 node_start = datetime.now(timezone.utc)
@@ -347,9 +352,8 @@ class WorkflowExecutor:
                 # Store output in variable context and invalidate caches
                 self.variable_context["nodes"][node.id] = result
                 if node.name:
-                    self.variable_context["nodes"][node.name] = result
+                    self.variable_context["nodes"][_sanitize_name(node.name)] = result
                 self._invalidate_render_cache()
-                self._node_name_patterns = None
 
                 # Handle save_as bindings
                 if node.save_as and result:
@@ -398,45 +402,111 @@ class WorkflowExecutor:
                         max_iterations = config.get("max_iterations", 100)
                         items = collection[:max_iterations]
                         loop_variable = config.get("loop_variable", "item")
+                        parallel = config.get("parallel", False)
 
-                        for i, item in enumerate(items):
-                            self.variable_context["loop"] = {loop_variable: item, "index": i}
-                            self.variable_context["item"] = item
+                        collected_results: list[dict[str, Any]] = []
 
-                            # Expose the current item as the node's output so downstream
-                            # nodes can access fields via nodes.<for_each_name>.<field>
-                            item_output = item if isinstance(item, dict) else {"value": item}
-                            self.variable_context["nodes"][node.id] = item_output
-                            if node.name:
-                                self.variable_context["nodes"][node.name] = item_output
-                            self._invalidate_render_cache()
+                        if parallel:
+                            # ── Parallel iteration: isolated executor per item ────
+                            max_concurrent = config.get("max_concurrent", 5)
+                            sem = asyncio.Semaphore(max_concurrent)
 
-                            # Traverse loop body with fresh visited set each iteration
-                            body_visited: set[str] = {node.id}
-                            loop_success = await self._traverse_from(
-                                node.id,
-                                adjacency,
-                                node_map,
-                                execution,
-                                dry_run=dry_run,
-                                simulate=simulate,
-                                step_counter=step_counter,
-                                visited=body_visited,
-                                initial_port_filter="loop_body",
+                            async def _run_iteration(i: int, item: Any) -> tuple[bool, dict[str, Any]]:
+                                async with sem:
+                                    iter_executor = WorkflowExecutor(mist_service=self.mist_service)
+                                    iter_executor.variable_context = copy.deepcopy(self.variable_context)
+                                    iter_executor.variable_context["loop"] = {loop_variable: item, "index": i}
+                                    iter_executor.variable_context["item"] = item
+                                    item_output = item if isinstance(item, dict) else {"value": item}
+                                    iter_executor.variable_context["nodes"][node.id] = item_output
+                                    if node.name:
+                                        iter_executor.variable_context["nodes"][
+                                            _sanitize_name(node.name)
+                                        ] = item_output
+
+                                    body_visited: set[str] = {node.id}
+                                    success = await iter_executor._traverse_from(
+                                        node.id,
+                                        adjacency,
+                                        node_map,
+                                        execution,
+                                        dry_run=dry_run,
+                                        simulate=simulate,
+                                        step_counter=step_counter,
+                                        visited=body_visited,
+                                        initial_port_filter="loop_body",
+                                    )
+                                    # Collect last body node output + iteration item
+                                    last_output: dict[str, Any] = {}
+                                    for nid in body_visited:
+                                        if nid != node.id and nid in execution.node_results:
+                                            last_output = execution.node_results[nid].output_data or {}
+                                    return success, {"item": item, "output": last_output}
+
+                            iteration_results = await asyncio.gather(
+                                *[_run_iteration(i, item) for i, item in enumerate(items)],
+                                return_exceptions=True,
                             )
-                            if not loop_success:
-                                all_success = False
-                                if not node.continue_on_error:
-                                    break
+                            for r in iteration_results:
+                                if isinstance(r, Exception):
+                                    all_success = False
+                                else:
+                                    success, entry = r
+                                    collected_results.append(entry)
+                                    if not success:
+                                        all_success = False
 
-                        # Clean up loop context and restore metadata as node output
+                        else:
+                            # ── Sequential iteration (default) ────────────────────
+                            for i, item in enumerate(items):
+                                self.variable_context["loop"] = {loop_variable: item, "index": i}
+                                self.variable_context["item"] = item
+
+                                item_output = item if isinstance(item, dict) else {"value": item}
+                                self.variable_context["nodes"][node.id] = item_output
+                                if node.name:
+                                    self.variable_context["nodes"][
+                                        _sanitize_name(node.name)
+                                    ] = item_output
+                                self._invalidate_render_cache()
+
+                                body_visited: set[str] = {node.id}
+                                loop_success = await self._traverse_from(
+                                    node.id,
+                                    adjacency,
+                                    node_map,
+                                    execution,
+                                    dry_run=dry_run,
+                                    simulate=simulate,
+                                    step_counter=step_counter,
+                                    visited=body_visited,
+                                    initial_port_filter="loop_body",
+                                )
+
+                                # Collect last body node output + iteration item
+                                last_output: dict[str, Any] = {}
+                                for nid in body_visited:
+                                    if nid != node.id and nid in execution.node_results:
+                                        last_output = execution.node_results[nid].output_data or {}
+                                collected_results.append({"item": item, "output": last_output})
+
+                                if not loop_success:
+                                    all_success = False
+                                    if not node.continue_on_error:
+                                        break
+
+                        # Clean up loop context and store aggregated results
                         self.variable_context.pop("loop", None)
                         self.variable_context.pop("item", None)
+                        result = {
+                            "iterations": len(items),
+                            "loop_over": loop_over,
+                            "results": collected_results,
+                        }
                         self.variable_context["nodes"][node.id] = result
                         if node.name:
-                            self.variable_context["nodes"][node.name] = result
+                            self.variable_context["nodes"][_sanitize_name(node.name)] = result
                         self._invalidate_render_cache()
-                        self._node_name_patterns = None
 
                 # Determine which edges to follow based on node type
                 next_edges = self._resolve_output_edges(node, result, adjacency)
@@ -647,25 +717,11 @@ class WorkflowExecutor:
         """Invalidate the cached render context (call after each node execution)."""
         self._cached_render_context = None
 
-    def _rebuild_node_name_patterns(self) -> None:
-        """Rebuild compiled regex patterns for node names with spaces."""
-        nodes = self.variable_context.get("nodes", {})
-        names_with_spaces = sorted(
-            [name for name in nodes if " " in name],
-            key=len,
-            reverse=True,
-        )
-        self._node_name_patterns = []
-        for name in names_with_spaces:
-            pattern = re.compile(r"nodes\." + re.escape(name) + r"((?:\.\w+)*)")
-            safe_name = name.replace("\\", "\\\\").replace('"', '\\"')
-            self._node_name_patterns.append((pattern, safe_name))
-
     def _build_render_context(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Build a Jinja2 rendering context from the full variable context.
 
-        Includes trigger, results, nodes (with sanitized name aliases), loop/item,
+        Includes trigger, results, nodes, loop/item,
         and utility values (now, now_iso, etc.). Uses cached base context when possible.
         """
         if self._cached_render_context is None:
@@ -683,15 +739,8 @@ class WorkflowExecutor:
                 for key, value in results.items():
                     context[key] = value
 
-            # Add nodes with sanitized name aliases (spaces → underscores)
-            nodes = self.variable_context.get("nodes", {})
-            sanitized_nodes: dict[str, Any] = {}
-            for key, value in nodes.items():
-                sanitized_nodes[key] = value
-                sanitized = key.replace(" ", "_")
-                if sanitized != key:
-                    sanitized_nodes[sanitized] = value
-            context["nodes"] = sanitized_nodes
+            # Node names are already sanitized (spaces → underscores) at storage time
+            context["nodes"] = self.variable_context.get("nodes", {})
 
             # Add loop context
             if "loop" in self.variable_context:
@@ -713,41 +762,11 @@ class WorkflowExecutor:
 
         return result
 
-    def _normalize_template(self, template: str) -> str:
-        """
-        Pre-process a template to convert node name references with spaces
-        into bracket notation that Jinja2 can parse.
-
-        Converts:  {{ nodes.For Each Events.site_id }}
-        To:        {{ nodes["For Each Events"]["site_id"] }}
-        """
-        if "nodes." not in template:
-            return template
-
-        # Build patterns once per execution, reuse across all templates
-        if self._node_name_patterns is None:
-            self._rebuild_node_name_patterns()
-
-        if not self._node_name_patterns:
-            return template
-
-        for pattern, safe_name in self._node_name_patterns:
-
-            def _replace(m: re.Match, _safe=safe_name) -> str:
-                suffix = m.group(1)  # e.g. ".site_id" or ".foo.bar" or ""
-                parts = [f'["{seg}"]' for seg in suffix.split(".") if seg]
-                return f'nodes["{_safe}"]' + "".join(parts)
-
-            template = pattern.sub(_replace, template)
-
-        return template
-
     def _render_template(self, template: str) -> str:
         """Render a Jinja2 template using the full variable context."""
         if not template:
             return template
 
-        template = self._normalize_template(template)
         context = self._build_render_context()
 
         try:
@@ -874,7 +893,11 @@ class WorkflowExecutor:
         for key, val in (config.get("params", {}) or {}).items():
             if val is not None and val != "":
                 rendered = self._render_template(str(val)) if isinstance(val, str) else val
-                params[key] = rendered
+                # List-typed params (e.g., port_ids): split comma-separated strings into lists
+                if isinstance(rendered, str) and key.endswith("_ids"):
+                    params[key] = [s.strip() for s in rendered.split(",")]
+                else:
+                    params[key] = rendered
 
         try:
             response = func(self.mist_service.get_session(), site_id, device_id, **params)
@@ -1156,7 +1179,7 @@ class WorkflowExecutor:
         iteration_count = min(len(collection), max_iterations)
 
         logger.info("for_each_executed", node_id=node.id, iterations=iteration_count)
-        return {"iterations": iteration_count, "loop_over": loop_over}
+        return {"iterations": iteration_count, "loop_over": loop_over, "results": []}
 
     # ── Data processing ────────────────────────────────────────────────────
 

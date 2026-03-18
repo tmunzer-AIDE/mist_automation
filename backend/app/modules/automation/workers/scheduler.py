@@ -10,8 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 
-from app.modules.automation.models.workflow import Workflow, WorkflowStatus, TriggerType
-from app.config import settings
+from app.modules.automation.models.workflow import Workflow, WorkflowStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -90,58 +89,38 @@ class WorkflowScheduler:
     async def _load_cron_workflows(self):
         """Load all enabled cron workflows from database."""
         try:
-            # Find all enabled workflows with cron triggers
             workflows = await Workflow.find(
                 Workflow.status == WorkflowStatus.ENABLED,
-                Workflow.trigger.type == TriggerType.CRON
+                {"nodes": {"$elemMatch": {"type": "trigger", "config.trigger_type": "cron"}}},
             ).to_list()
 
             for workflow in workflows:
                 await self.add_workflow(workflow)
 
-            logger.info(
-                "cron_workflows_loaded",
-                count=len(workflows)
-            )
+            logger.info("cron_workflows_loaded", count=len(workflows))
 
         except Exception as e:
-            logger.error(
-                "failed_to_load_cron_workflows",
-                error=str(e)
-            )
+            logger.error("failed_to_load_cron_workflows", error=str(e))
 
     async def add_workflow(self, workflow: Workflow):
-        """
-        Add or update a cron workflow in the scheduler.
-
-        Args:
-            workflow: Workflow to schedule
-
-        Raises:
-            ValueError: If workflow trigger is not cron type or invalid cron expression
-        """
-        if not workflow.trigger or workflow.trigger.type != TriggerType.CRON:
+        """Add or update a cron workflow in the scheduler."""
+        trigger_node = workflow.get_trigger_node()
+        if not trigger_node or trigger_node.config.get("trigger_type") != "cron":
             raise ValueError(f"Workflow {workflow.id} is not a cron workflow")
 
-        if not workflow.trigger.cron_expression:
+        cron_expr = trigger_node.config.get("cron_expression")
+        if not cron_expr:
             raise ValueError(f"Workflow {workflow.id} missing cron expression")
 
         if workflow.status != WorkflowStatus.ENABLED:
-            logger.debug(
-                "skipping_disabled_workflow",
-                workflow_id=str(workflow.id)
-            )
+            logger.debug("skipping_disabled_workflow", workflow_id=str(workflow.id))
             return
 
         job_id = f"workflow_{workflow.id}"
 
         try:
-            # Remove existing job if present
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
-
-            # Parse cron expression
-            cron_expr = workflow.trigger.cron_expression
             # APScheduler expects: minute hour day month day_of_week
             parts = cron_expr.split()
             if len(parts) != 5:

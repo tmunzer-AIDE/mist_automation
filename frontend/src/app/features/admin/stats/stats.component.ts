@@ -1,5 +1,4 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -11,7 +10,6 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
   selector: 'app-stats',
   standalone: true,
   imports: [
-    CommonModule,
     MatCardModule,
     MatIconModule,
     MatProgressBarModule,
@@ -42,7 +40,8 @@ export class StatsComponent implements OnInit {
 
     this.api.get<WorkerStatus>('/admin/workers/status').subscribe({
       next: (w) => {
-        this.workerStatus.set(w);
+        if (w.scheduler.status == "running") w.scheduler.status = "active";
+        this.workerStatus.set(w)
       },
       error: () => {},
     });

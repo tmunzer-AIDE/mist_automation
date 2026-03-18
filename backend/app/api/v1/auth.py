@@ -40,6 +40,8 @@ def _user_to_response(user: User) -> UserResponse:
     return UserResponse(
         id=str(user.id),
         email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
         roles=user.roles,
         timezone=user.timezone,
         is_active=user.is_active,
@@ -213,6 +215,10 @@ async def update_profile(
     """
     Update current user's profile settings (e.g. timezone).
     """
+    if data.first_name is not None:
+        current_user.first_name = data.first_name
+    if data.last_name is not None:
+        current_user.last_name = data.last_name
     if data.timezone is not None:
         current_user.timezone = data.timezone
     await current_user.save()
@@ -239,6 +245,8 @@ async def onboard(request: Request, data: OnboardRequest):
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
+        first_name=data.first_name,
+        last_name=data.last_name,
         roles=["admin", "automation", "backup", "reports"],
     )
     try:

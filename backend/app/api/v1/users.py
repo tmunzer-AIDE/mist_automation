@@ -19,6 +19,8 @@ def _user_to_response(user: User) -> UserResponse:
     return UserResponse(
         id=str(user.id),
         email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
         roles=user.roles,
         timezone=user.timezone,
         is_active=user.is_active,
@@ -87,9 +89,11 @@ async def create_user(
     user = User(
         email=user_data.email,
         password_hash=password_hash,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
         roles=user_data.roles,
         timezone=user_data.timezone,
-        is_active=True
+        is_active=True,
     )
     await user.insert()
     
@@ -156,7 +160,12 @@ async def update_user(
                 detail="Email already in use"
             )
         user.email = user_data.email
-    
+
+    if user_data.first_name is not None:
+        user.first_name = user_data.first_name
+    if user_data.last_name is not None:
+        user.last_name = user_data.last_name
+
     if user_data.roles is not None:
         user.roles = user_data.roles
     

@@ -1,5 +1,4 @@
 import { Component, inject, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -21,7 +20,6 @@ import {
   selector: 'app-onboard',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatCardModule,
     MatFormFieldModule,
@@ -46,6 +44,8 @@ export class OnboardComponent implements OnInit {
   hideConfirm = true;
 
   form = this.fb.group({
+    firstName: [''],
+    lastName: [''],
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required, passwordValidator()]],
     confirmPassword: ['', [Validators.required, matchPasswordValidator('password')]],
@@ -69,8 +69,15 @@ export class OnboardComponent implements OnInit {
     this.loading = true;
     this.error = null;
 
-    const { email, password } = this.form.getRawValue();
-    this.authService.onboard({ email: email!, password: password! }).subscribe({
+    const { firstName, lastName, email, password } = this.form.getRawValue();
+    this.authService
+      .onboard({
+        email: email!,
+        password: password!,
+        first_name: firstName || undefined,
+        last_name: lastName || undefined,
+      })
+      .subscribe({
       next: (response) => {
         this.loading = false;
         this.tokenService.setToken(response.access_token, response.expires_in);

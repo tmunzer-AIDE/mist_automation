@@ -75,7 +75,8 @@ For simple fire-and-forget async work, use `create_background_task(coro, name)` 
 
 Workflow actions use Jinja2 `SandboxedEnvironment` with `ChainableUndefined` for safe nesting. Key functions:
 - `substitute_variables(template_string, context)` — resolves `{{variable}}` expressions
-- `substitute_in_dict(data, context)` — recursively substitutes in nested dicts/lists
+- `_substitute_value(value, **kwargs)` — core recursive dispatcher for str/dict/list types
+- `substitute_in_dict(data, context)` / `substitute_in_list(data, context)` — thin wrappers around `_substitute_value`
 - `build_context()` — combines webhook data, API results, workflow context, and allowed env vars
 - `get_nested_value(data, dotted_path)` — dot-notation access like `event.device.name`
 
@@ -120,6 +121,8 @@ Always instantiate via `create_mist_service()` from `app.services.mist_service_f
 - **Template braces**: Use `strip_template_braces()` from `app/utils/variables.py` for `{{ }}` stripping.
 - **API methods**: `MistService._api_call()` is the single implementation; thin wrappers for each HTTP verb.
 - **Shared helpers**: Extract common field construction into helpers (e.g., `_event_fields()`, `_user_to_response()`).
+- **Variable substitution dispatch**: `_substitute_value()` is the single recursive dispatcher; `substitute_in_dict`/`substitute_in_list` are thin wrappers.
+- **Report response helpers**: `_dict_to_response()` for raw aggregation dicts, `_job_to_response()` for `ReportJob` documents — never inline `ReportJobResponse(...)` construction.
 
 ## Testing
 

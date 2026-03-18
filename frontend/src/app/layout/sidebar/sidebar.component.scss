@@ -22,17 +22,40 @@
 }
 
 .logo-icon {
-  color: var(--mat-sys-primary);
-  font-size: 24px;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .app-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.app-name-main {
+  font-family: 'Outfit', sans-serif;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 500;
+  letter-spacing: -0.3px;
   white-space: nowrap;
-  letter-spacing: -0.5px;
+}
+
+.app-name-sub {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--mat-sys-primary);
+  text-align: justify;
+  word-spacing: -0.1em;
+  height: 1.2em;
+  overflow: hidden;
+
+  &::after {
+    content: '';
+    display: inline-block;
+    width: 100%;
+  }
 }
 
 mat-nav-list {
@@ -47,6 +70,14 @@ mat-nav-list {
   margin: 2px 8px !important;
 }
 
+// ── Dividers between top-level sections ──────────────────────────────────
+.nav-divider {
+  margin: 4px 16px;
+  border-color: var(--mat-sys-outline-variant);
+  opacity: 0.5;
+}
+
+// ── Expandable group (folder) styling ────────────────────────────────────
 .nav-group {
   box-shadow: none !important;
   background: transparent !important;
@@ -57,11 +88,31 @@ mat-nav-list {
 
     mat-icon {
       margin-right: 12px;
+      color: var(--mat-sys-on-surface-variant);
+      font-size: 20px;
+      width: 20px;
+      height: 20px;
     }
   }
-}
 
-.nav-label {
-  margin-left: 6px;
-  font-size: 14px;
+  // Group label — section-header style
+  .nav-label {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  // Children container with left accent border
+  .nav-group-children {
+    border-left: 2px solid var(--mat-sys-outline-variant);
+    margin-left: 28px;
+    padding-left: 4px;
+
+    a[mat-list-item] {
+      font-size: 14px;
+    }
+  }
 }

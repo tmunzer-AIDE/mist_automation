@@ -17,13 +17,16 @@
     align-items: center;
     text-align: center;
     margin-bottom: 24px;
+
+    mat-card-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 500;
+    }
   }
 
   .onboard-icon {
-    font-size: 48px;
-    width: 48px;
-    height: 48px;
-    color: var(--mat-sys-primary);
+    width: 56px;
+    height: 56px;
     margin-bottom: 8px;
   }
 }
@@ -32,6 +35,11 @@ form {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.name-row {
+  display: flex;
+  gap: 12px;
 }
 
 mat-form-field {

@@ -5,8 +5,8 @@
     }
 
     <mat-card-header>
-      <mat-icon class="login-icon">hub</mat-icon>
-      <mat-card-title>Mist Automation</mat-card-title>
+      <img src="logo.svg" class="login-icon" alt="Logo" />
+      <mat-card-title>Mist Automation Platform</mat-card-title>
       <mat-card-subtitle>Sign in to your account</mat-card-subtitle>
     </mat-card-header>
 
@@ -49,7 +49,6 @@
           mat-flat-button
           type="submit"
           class="login-button"
-          [disabled]="loginForm.invalid || (loading$ | async)"
         >
           Sign In
         </button>

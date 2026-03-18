@@ -145,9 +145,36 @@ a {
 
   // Chart
   --app-chart-grid: #e2e8f0;
+  --app-chart-text: #64748b;
+  --app-chart-legend: #475569;
+  --app-chart-completed: #60a5fa;
+  --app-chart-failed: #f87171;
+  --app-chart-webhooks: #a78bfa;
+  --app-chart-duration: #fbbf24;
+  --app-chart-objects: #34d399;
+  --app-chart-backup-fail: #fb923c;
+  --app-chart-topic-0: #60a5fa;
+  --app-chart-topic-1: #a78bfa;
+  --app-chart-topic-2: #f87171;
+  --app-chart-topic-3: #fbbf24;
+  --app-chart-topic-4: #34d399;
+  --app-chart-topic-5: #f9a8d4;
+  --app-chart-topic-6: #22d3ee;
+  --app-chart-topic-7: #a3e635;
+  --app-chart-topic-8: #fb923c;
+  --app-chart-topic-9: #a5b4fc;
 
   // Trigger node
   --app-trigger: #6a1b9a;
+
+  // Subflow badge
+  --app-subflow-bg: #e0f2f1;
+  --app-subflow: #00695c;
+
+  // Canvas extras
+  --app-canvas-selected-bg: rgba(25, 118, 210, 0.08);
+  --app-canvas-selected-shadow: rgba(25, 118, 210, 0.3);
+  --app-canvas-node-icon-text: #fff;
 }
 
 .dark-theme {
@@ -247,9 +274,36 @@ a {
 
   // Chart
   --app-chart-grid: #334155;
+  --app-chart-text: #94a3b8;
+  --app-chart-legend: #cbd5e1;
+  --app-chart-completed: #93c5fd;
+  --app-chart-failed: #fca5a5;
+  --app-chart-webhooks: #c4b5fd;
+  --app-chart-duration: #fde68a;
+  --app-chart-objects: #6ee7b7;
+  --app-chart-backup-fail: #fdba74;
+  --app-chart-topic-0: #93c5fd;
+  --app-chart-topic-1: #c4b5fd;
+  --app-chart-topic-2: #fca5a5;
+  --app-chart-topic-3: #fde68a;
+  --app-chart-topic-4: #6ee7b7;
+  --app-chart-topic-5: #f9a8d4;
+  --app-chart-topic-6: #67e8f9;
+  --app-chart-topic-7: #bef264;
+  --app-chart-topic-8: #fdba74;
+  --app-chart-topic-9: #c7d2fe;
 
   // Trigger node
   --app-trigger: #ce93d8;
+
+  // Subflow badge
+  --app-subflow-bg: rgba(0, 105, 92, 0.15);
+  --app-subflow: #80cbc4;
+
+  // Canvas extras
+  --app-canvas-selected-bg: rgba(66, 165, 245, 0.1);
+  --app-canvas-selected-shadow: rgba(66, 165, 245, 0.35);
+  --app-canvas-node-icon-text: #fff;
 }
 
 // Global scrollbar styling
@@ -358,4 +412,10 @@ mat-toolbar.mat-toolbar {
 
 .nav-group .mat-expansion-panel-body {
   padding: 0;
+}
+
+// Device detail dialog — override Material's default 560px max-width
+.device-detail-dialog-panel {
+  --mat-dialog-container-max-width: 1200px;
+  --mat-dialog-container-min-width: 600px;
 }

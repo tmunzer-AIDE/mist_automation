@@ -1,5 +1,4 @@
 import { Component, Input, Output, EventEmitter, ViewChild } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MatTableModule, MatTableDataSource } from '@angular/material/table';
 import { MatPaginatorModule, MatPaginator, PageEvent } from '@angular/material/paginator';
 import { MatSortModule, MatSort, Sort } from '@angular/material/sort';
@@ -14,7 +13,7 @@ export interface TableColumn {
 @Component({
   selector: 'app-data-table',
   standalone: true,
-  imports: [CommonModule, MatTableModule, MatPaginatorModule, MatSortModule, MatProgressBarModule],
+  imports: [MatTableModule, MatPaginatorModule, MatSortModule, MatProgressBarModule],
   template: `
     @if (loading) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>

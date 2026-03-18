@@ -21,6 +21,7 @@ import {
   SimulateRequest,
   SamplePayload,
   SubflowSchemaResponse,
+  SubflowParameter,
   WorkflowType,
 } from '../models/workflow.model';
 import { ACTION_META, DEFAULT_ACTION_META } from '../models/workflow-meta';
@@ -128,9 +129,14 @@ export class WorkflowService {
   computeAvailableVariables(
     nodeId: string,
     nodes: WorkflowNode[],
-    edges: WorkflowEdge[]
+    edges: WorkflowEdge[],
+    inputParameters?: SubflowParameter[],
   ): Observable<VariableTree> {
-    return this.api.post<VariableTree>(`/workflows/available-variables/${nodeId}`, { nodes, edges });
+    return this.api.post<VariableTree>(`/workflows/available-variables/${nodeId}`, {
+      nodes,
+      edges,
+      input_parameters: inputParameters || [],
+    });
   }
 
   getEndpointSchema(
@@ -291,7 +297,7 @@ export class WorkflowService {
       return {
         id,
         type: 'trigger',
-        name: 'Webhook Trigger',
+        name: 'Trigger',
         position,
         config: { trigger_type: 'webhook' },
         output_ports: [{ id: 'default', label: '', type: 'default' }],

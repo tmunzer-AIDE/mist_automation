@@ -1,10 +1,11 @@
 import { Component, Input, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { AsyncPipe } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatDividerModule } from '@angular/material/divider';
 import { Store } from '@ngrx/store';
 import { selectUserRoles } from '../../core/state/auth/auth.selectors';
 import { NAV_ITEMS, NavItem } from './nav-items.config';
@@ -14,12 +15,13 @@ import { Observable, map } from 'rxjs';
   selector: 'app-sidebar',
   standalone: true,
   imports: [
-    CommonModule,
+    AsyncPipe,
     RouterModule,
     MatListModule,
     MatIconModule,
     MatExpansionModule,
     MatTooltipModule,
+    MatDividerModule,
   ],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',

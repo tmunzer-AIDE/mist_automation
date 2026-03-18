@@ -1,5 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -23,7 +22,7 @@ import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import {
-  CHART_COLORS,
+  getChartColor,
   baseChartOptions,
   barDataset,
   lineDataset,
@@ -33,7 +32,6 @@ import {
   selector: 'app-backup-job-list',
   standalone: true,
   imports: [
-    CommonModule,
     RouterModule,
     MatTableModule,
     MatPaginatorModule,
@@ -67,6 +65,7 @@ export class BackupJobListComponent implements OnInit {
   jobColumns = ['status', 'backup_type', 'object_count', 'size', 'created_at'];
 
   // ── Chart ────────────────────────────────────────────────────────────
+  @ViewChild(BaseChartDirective) private chartDirective?: BaseChartDirective;
   chartConfig = signal<ChartConfiguration<'bar'> | null>(null);
 
   ngOnInit(): void {
@@ -95,40 +94,45 @@ export class BackupJobListComponent implements OnInit {
     });
   }
 
-  private loadCharts(): void {
+  private loadCharts(animate = true): void {
     this.api.get<BackupJobStatsResponse>('/backups/stats/jobs').subscribe({
       next: (res) => {
         const labels = res.days.map((d) => d.date.slice(5));
+        const options = baseChartOptions('Count', 'Duration (s)');
+        const data = {
+          labels,
+          datasets: [
+            barDataset(
+              'Webhook events',
+              res.days.map((d) => d.webhook_events),
+              getChartColor('webhooks'),
+            ),
+            barDataset(
+              'Completed',
+              res.days.map((d) => d.completed),
+              getChartColor('completed'),
+            ),
+            barDataset(
+              'Failed',
+              res.days.map((d) => d.failed),
+              getChartColor('failed'),
+            ),
+            lineDataset(
+              'Avg duration (s)',
+              res.days.map((d) => d.avg_duration_seconds ?? 0),
+              getChartColor('duration'),
+            ),
+          ],
+        };
 
-        this.chartConfig.set({
-          type: 'bar',
-          data: {
-            labels,
-            datasets: [
-              barDataset(
-                'Webhook events',
-                res.days.map((d) => d.webhook_events),
-                CHART_COLORS.webhooks,
-              ),
-              barDataset(
-                'Completed',
-                res.days.map((d) => d.completed),
-                CHART_COLORS.completed,
-              ),
-              barDataset(
-                'Failed',
-                res.days.map((d) => d.failed),
-                CHART_COLORS.failed,
-              ),
-              lineDataset(
-                'Avg duration (s)',
-                res.days.map((d) => d.avg_duration_seconds ?? 0),
-                CHART_COLORS.durationLine,
-              ),
-            ],
-          },
-          options: baseChartOptions('Count', 'Duration (s)'),
-        });
+        if (!animate && this.chartDirective?.chart) {
+          const chart = this.chartDirective.chart;
+          chart.data = data;
+          chart.options = options as any;
+          chart.update('none');
+        } else {
+          this.chartConfig.set({ type: 'bar', data, options });
+        }
       },
     });
   }
@@ -156,7 +160,10 @@ export class BackupJobListComponent implements OnInit {
     ref.afterClosed().subscribe((result) => {
       if (result) {
         this.snackBar.open('Backup job created', 'OK', { duration: 3000 });
-        setTimeout(() => this.loadJobs(), 2000);
+        setTimeout(() => {
+          this.loadJobs();
+          this.loadCharts(false);
+        }, 2000);
       }
     });
   }

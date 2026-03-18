@@ -1,5 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { JsonPipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -19,7 +19,7 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
   selector: 'app-backup-compare',
   standalone: true,
   imports: [
-    CommonModule,
+    JsonPipe,
     ReactiveFormsModule,
     MatCardModule,
     MatFormFieldModule,

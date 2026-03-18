@@ -1,5 +1,4 @@
 import { Component, inject, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -41,7 +40,6 @@ const TIMEZONES = [
   selector: 'app-user-dialog',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatDialogModule,
     MatFormFieldModule,
@@ -55,6 +53,17 @@ const TIMEZONES = [
     <h2 mat-dialog-title>{{ data.mode === 'create' ? 'Create User' : 'Edit User' }}</h2>
     <mat-dialog-content>
       <form [formGroup]="form" class="dialog-form">
+        <div class="name-row">
+          <mat-form-field appearance="outline">
+            <mat-label>First Name</mat-label>
+            <input matInput formControlName="first_name" />
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Last Name</mat-label>
+            <input matInput formControlName="last_name" />
+          </mat-form-field>
+        </div>
+
         <mat-form-field appearance="outline">
           <mat-label>Email</mat-label>
           <input matInput type="email" formControlName="email" />
@@ -108,6 +117,13 @@ const TIMEZONES = [
         min-width: 380px;
         gap: 4px;
       }
+      .name-row {
+        display: flex;
+        gap: 12px;
+      }
+      .name-row mat-form-field {
+        flex: 1;
+      }
       mat-form-field {
         width: 100%;
       }
@@ -127,6 +143,8 @@ export class UserDialogComponent implements OnInit {
   saving = false;
 
   form = this.fb.group({
+    first_name: [this.data.user?.first_name || ''],
+    last_name: [this.data.user?.last_name || ''],
     email: [this.data.user?.email || '', [Validators.required, Validators.email]],
     password: [''],
     confirmPassword: [''],
@@ -161,21 +179,38 @@ export class UserDialogComponent implements OnInit {
     if (this.form.invalid) return;
     this.saving = true;
 
-    const { email, password, roles, timezone } = this.form.getRawValue();
+    const { first_name, last_name, email, password, roles, timezone } = this.form.getRawValue();
 
     if (this.data.mode === 'create') {
-      this.api.post('/users', { email, password, roles, timezone }).subscribe({
-        next: () => {
-          this.snackBar.open('User created', 'OK', { duration: 3000 });
-          this.dialogRef.close(true);
-        },
-        error: (err) => {
-          this.saving = false;
-          this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
-        },
-      });
+      this.api
+        .post('/users', {
+          email,
+          password,
+          first_name: first_name || undefined,
+          last_name: last_name || undefined,
+          roles,
+          timezone,
+        })
+        .subscribe({
+          next: () => {
+            this.snackBar.open('User created', 'OK', { duration: 3000 });
+            this.dialogRef.close(true);
+          },
+          error: (err) => {
+            this.saving = false;
+            this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
+          },
+        });
     } else {
-      this.api.put(`/users/${this.data.user!.id}`, { email, roles, timezone }).subscribe({
+      this.api
+        .put(`/users/${this.data.user!.id}`, {
+          email,
+          first_name: first_name || undefined,
+          last_name: last_name || undefined,
+          roles,
+          timezone,
+        })
+        .subscribe({
         next: () => {
           this.snackBar.open('User updated', 'OK', { duration: 3000 });
           this.dialogRef.close(true);

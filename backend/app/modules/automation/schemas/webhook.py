@@ -35,6 +35,7 @@ class WebhookEventResponse(BaseModel):
     device_name: str | None = Field(None, description="Device name")
     device_mac: str | None = Field(None, description="Device MAC address")
     event_details: str | None = Field(None, description="Event summary text")
+    event_timestamp: datetime | None = Field(None, description="Event timestamp from Mist payload")
 
     class Config:
         from_attributes = True

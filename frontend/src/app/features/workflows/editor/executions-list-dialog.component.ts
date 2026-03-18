@@ -1,5 +1,4 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,7 +14,6 @@ import { ExecutionDetailDialogComponent } from './execution-detail-dialog.compon
   selector: 'app-executions-list-dialog',
   standalone: true,
   imports: [
-    CommonModule,
     MatDialogModule,
     MatTableModule,
     MatButtonModule,

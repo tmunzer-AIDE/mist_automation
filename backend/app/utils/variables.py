@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+import structlog
 from jinja2 import (
     ChainableUndefined,
     StrictUndefined,
@@ -19,6 +20,10 @@ from jinja2 import (
     UndefinedError,
 )
 from jinja2.sandbox import SandboxedEnvironment
+
+from app.utils.cable_test import parse_cable_test_filter
+
+logger = structlog.get_logger(__name__)
 
 # ── Custom Jinja2 filters ───────────────────────────────────────────────────
 
@@ -46,6 +51,7 @@ def create_jinja_env(strict: bool = False) -> SandboxedEnvironment:
     else:
         env = SandboxedEnvironment(undefined=ChainableUndefined)
     env.filters["datetimeformat"] = _datetimeformat
+    env.filters["parse_cable_test"] = parse_cable_test_filter
     return env
 
 
@@ -201,7 +207,33 @@ def substitute_variables(
     except UndefinedError as e:
         raise VariableSubstitutionError(f"Undefined variable in template: {e.message}") from e
     except Exception as e:
-        raise VariableSubstitutionError(f"Error substituting variables: {str(e)}") from e
+        logger.error("variable_substitution_failed", error=str(e))
+        raise VariableSubstitutionError("Template rendering failed") from e
+
+
+def _substitute_value(
+    value: Any,
+    webhook_data: dict[str, Any] | None = None,
+    api_results: dict[str, Any] | None = None,
+    workflow_context: dict[str, Any] | None = None,
+    include_env: bool = False,
+    strict: bool = False,
+) -> Any:
+    """Recursively substitute variables in a value of any type (str, dict, list, or passthrough)."""
+    kwargs = {
+        "webhook_data": webhook_data,
+        "api_results": api_results,
+        "workflow_context": workflow_context,
+        "include_env": include_env,
+        "strict": strict,
+    }
+    if isinstance(value, str):
+        return substitute_variables(value, **kwargs)
+    if isinstance(value, dict):
+        return {k: _substitute_value(v, **kwargs) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_substitute_value(item, **kwargs) for item in value]
+    return value
 
 
 def substitute_in_dict(
@@ -214,17 +246,6 @@ def substitute_in_dict(
 ) -> dict[str, Any]:
     """
     Recursively substitute variables in dictionary values.
-
-    Args:
-        data: Dictionary with potential template strings
-        webhook_data: Webhook payload data
-        api_results: Results from API calls
-        workflow_context: Workflow execution context
-        include_env: Whether to include environment variables
-        strict: If True, raise error on undefined variables
-
-    Returns:
-        Dictionary with variables substituted
 
     Example:
         >>> data = {
@@ -239,44 +260,14 @@ def substitute_in_dict(
         >>> result["message"]
         "Device AP-01 failed"
     """
-    result = {}
-
-    for key, value in data.items():
-        if isinstance(value, str):
-            # Substitute variables in string
-            result[key] = substitute_variables(
-                value,
-                webhook_data=webhook_data,
-                api_results=api_results,
-                workflow_context=workflow_context,
-                include_env=include_env,
-                strict=strict,
-            )
-        elif isinstance(value, dict):
-            # Recursively process nested dictionaries
-            result[key] = substitute_in_dict(
-                value,
-                webhook_data=webhook_data,
-                api_results=api_results,
-                workflow_context=workflow_context,
-                include_env=include_env,
-                strict=strict,
-            )
-        elif isinstance(value, list):
-            # Process lists
-            result[key] = substitute_in_list(
-                value,
-                webhook_data=webhook_data,
-                api_results=api_results,
-                workflow_context=workflow_context,
-                include_env=include_env,
-                strict=strict,
-            )
-        else:
-            # Keep other types as-is
-            result[key] = value
-
-    return result
+    return _substitute_value(
+        data,
+        webhook_data=webhook_data,
+        api_results=api_results,
+        workflow_context=workflow_context,
+        include_env=include_env,
+        strict=strict,
+    )
 
 
 def substitute_in_list(
@@ -287,64 +278,15 @@ def substitute_in_list(
     include_env: bool = False,
     strict: bool = False,
 ) -> list:
-    """
-    Recursively substitute variables in list items.
-
-    Args:
-        data: List with potential template strings
-        webhook_data: Webhook payload data
-        api_results: Results from API calls
-        workflow_context: Workflow execution context
-        include_env: Whether to include environment variables
-        strict: If True, raise error on undefined variables
-
-    Returns:
-        List with variables substituted
-    """
-    result = []
-
-    for item in data:
-        if isinstance(item, str):
-            # Substitute variables in string
-            result.append(
-                substitute_variables(
-                    item,
-                    webhook_data=webhook_data,
-                    api_results=api_results,
-                    workflow_context=workflow_context,
-                    include_env=include_env,
-                    strict=strict,
-                )
-            )
-        elif isinstance(item, dict):
-            # Recursively process dictionaries
-            result.append(
-                substitute_in_dict(
-                    item,
-                    webhook_data=webhook_data,
-                    api_results=api_results,
-                    workflow_context=workflow_context,
-                    include_env=include_env,
-                    strict=strict,
-                )
-            )
-        elif isinstance(item, list):
-            # Recursively process nested lists
-            result.append(
-                substitute_in_list(
-                    item,
-                    webhook_data=webhook_data,
-                    api_results=api_results,
-                    workflow_context=workflow_context,
-                    include_env=include_env,
-                    strict=strict,
-                )
-            )
-        else:
-            # Keep other types as-is
-            result.append(item)
-
-    return result
+    """Recursively substitute variables in list items."""
+    return _substitute_value(
+        data,
+        webhook_data=webhook_data,
+        api_results=api_results,
+        workflow_context=workflow_context,
+        include_env=include_env,
+        strict=strict,
+    )
 
 
 def extract_variables(template: str) -> list[str]:
@@ -407,7 +349,8 @@ def validate_template(template: str) -> tuple[bool, str | None]:
     except TemplateSyntaxError as e:
         return False, f"Syntax error at line {e.lineno}: {e.message}"
     except Exception as e:
-        return False, str(e)
+        logger.error("template_validation_failed", error=str(e))
+        return False, "Template validation failed"
 
 
 def preview_substitution(template: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -451,4 +394,5 @@ def preview_substitution(template: str, context: dict[str, Any]) -> dict[str, An
 
         return {"valid": True, "result": result, "variables": variables, "variable_values": variable_values}
     except Exception as e:
-        return {"valid": False, "error": str(e), "variables": variables}
+        logger.error("template_preview_failed", error=str(e))
+        return {"valid": False, "error": "Template rendering failed", "variables": variables}

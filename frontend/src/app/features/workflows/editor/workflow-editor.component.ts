@@ -8,7 +8,7 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -46,7 +46,7 @@ import { Subject, debounceTime, takeUntil } from 'rxjs';
   selector: 'app-workflow-editor',
   standalone: true,
   imports: [
-    CommonModule,
+    NgClass,
     RouterModule,
     MatButtonModule,
     MatIconModule,
@@ -402,7 +402,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   private refreshVariables(nodeId: string): void {
     const g = this.graph();
     this.workflowService
-      .computeAvailableVariables(nodeId, g.nodes, g.edges)
+      .computeAvailableVariables(nodeId, g.nodes, g.edges, this.inputParameters())
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (tree) => this.variableTree.set(tree),

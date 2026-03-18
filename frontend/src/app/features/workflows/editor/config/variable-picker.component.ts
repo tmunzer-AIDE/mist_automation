@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { NgTemplateOutlet } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -25,7 +25,7 @@ interface FilterDef {
   selector: 'app-variable-picker',
   standalone: true,
   imports: [
-    CommonModule,
+    NgTemplateOutlet,
     MatIconModule,
     MatButtonModule,
     MatTooltipModule,
@@ -368,14 +368,26 @@ export class VariablePickerComponent implements OnChanges {
     // Node sections
     if (this.variableTree.nodes) {
       for (const [nodeName, schema] of Object.entries(this.variableTree.nodes)) {
+        const sanitizedName = nodeName.replace(/[^a-zA-Z0-9_]/g, '_');
         const nodeNodes = this.objectToVarNodes(
           schema as Record<string, unknown>,
-          `nodes.${nodeName}`
+          `nodes.${sanitizedName}`
         );
         this.sections.push({ name: nodeName, children: nodeNodes });
         this.flatNodes.push(...nodeNodes);
         this.expandedSections.add(nodeName);
       }
+    }
+
+    // Variables section (top-level variables from set_variable nodes)
+    if (this.variableTree.results && Object.keys(this.variableTree.results).length > 0) {
+      const resultNodes: VarNode[] = [];
+      for (const [name, desc] of Object.entries(this.variableTree.results)) {
+        resultNodes.push({ name, path: name, type: String(desc) });
+      }
+      this.sections.push({ name: 'Variables', children: resultNodes });
+      this.flatNodes.push(...resultNodes);
+      this.expandedSections.add('Variables');
     }
 
     // Utilities

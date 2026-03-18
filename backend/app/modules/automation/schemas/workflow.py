@@ -83,6 +83,7 @@ class InlineGraphRequest(BaseModel):
 
     nodes: list[dict[str, Any]] = Field(..., description="Graph nodes")
     edges: list[dict[str, Any]] = Field(default_factory=list, description="Graph edges")
+    input_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Subflow input parameters")
 
 
 class SimulateRequest(BaseModel):

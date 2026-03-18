@@ -36,7 +36,7 @@ celery_app.conf.update(
 
 
 @celery_app.task(name="process_webhook", bind=True, max_retries=3)
-def process_webhook_task(self, webhook_id: str, webhook_type: str, payload: dict):
+def process_webhook_task(self, webhook_id: str, webhook_type: str, payload: dict, event_type: str | None = None):
     """
     Celery task to process a webhook and trigger matching workflows.
 
@@ -44,16 +44,23 @@ def process_webhook_task(self, webhook_id: str, webhook_type: str, payload: dict
         webhook_id: WebhookEvent ID
         webhook_type: Type of webhook
         payload: Webhook payload dict
+        event_type: Specific event type within the webhook topic (e.g. "ap_offline")
 
     Returns:
         dict: Processing result
     """
     import asyncio
 
-    return asyncio.run(process_webhook(webhook_id, webhook_type, payload))
+    return asyncio.run(process_webhook(webhook_id, webhook_type, payload, event_type=event_type))
 
 
-async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+async def process_webhook(
+    webhook_id: str,
+    webhook_type: str,
+    payload: dict[str, Any],
+    *,
+    event_type: str | None = None,
+) -> dict[str, Any]:
     """
     Process a webhook and trigger matching workflows.
 
@@ -61,11 +68,13 @@ async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str,
         webhook_id: WebhookEvent ID
         webhook_type: Type of webhook
         payload: Webhook payload
+        event_type: Specific event type within the webhook topic (e.g. "ap_offline")
 
     Returns:
         dict: Processing result with matched workflows and executions
     """
     start_time = datetime.now(timezone.utc)
+    webhook_event = None
 
     try:
         # Get webhook event record
@@ -93,8 +102,30 @@ async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str,
             }
         ).to_list()
 
+        # Post-filter by event_type if the trigger has an event_type_filter
+        if event_type:
+            filtered = []
+            for wf in matching_workflows:
+                trigger = next((n for n in wf.nodes if n.type == "trigger"), None)
+                if trigger:
+                    filter_val = (trigger.config or {}).get("event_type_filter", "")
+                    if filter_val and filter_val != event_type:
+                        logger.debug(
+                            "workflow_skipped_event_type",
+                            workflow_id=str(wf.id),
+                            event_type=event_type,
+                            event_type_filter=filter_val,
+                        )
+                        continue
+                filtered.append(wf)
+            matching_workflows = filtered
+
         logger.info(
-            "workflows_matched", webhook_id=webhook_id, webhook_type=webhook_type, matched_count=len(matching_workflows)
+            "workflows_matched",
+            webhook_id=webhook_id,
+            webhook_type=webhook_type,
+            event_type=event_type,
+            matched_count=len(matching_workflows),
         )
 
         execution_results = []
@@ -120,7 +151,7 @@ async def process_webhook(webhook_id: str, webhook_type: str, payload: dict[str,
                         "workflow_id": str(workflow.id),
                         "workflow_name": workflow.name,
                         "status": "failed",
-                        "error": str(e),
+                        "error": "Workflow execution failed",
                     }
                 )
 
@@ -237,7 +268,7 @@ async def execute_workflow_for_webhook(
             status=result.status,
             duration_ms=result.duration_ms,
             trigger_condition_passed=result.trigger_condition_passed,
-            actions_executed=result.actions_executed,
+            nodes_executed=result.nodes_executed,
         )
 
         return {
@@ -256,8 +287,8 @@ async def execute_workflow_for_webhook(
         # Mark execution as failed if the executor hasn't already done so
         # (e.g. MistService init failure happens before the executor runs)
         if execution.status == ExecutionStatus.RUNNING:
-            execution.mark_completed(ExecutionStatus.FAILED, error=str(e))
-            execution.add_log(f"Workflow execution error: {e}", "error")
+            execution.mark_completed(ExecutionStatus.FAILED, error="Workflow execution failed")
+            execution.add_log("Workflow execution error", "error")
             await execution.save()
 
         logger.error(
@@ -269,24 +300,5 @@ async def execute_workflow_for_webhook(
             "workflow_name": workflow.name,
             "execution_id": str(execution.id),
             "status": "failed",
-            "error": str(e),
+            "error": "Workflow execution failed",
         }
-
-
-def queue_webhook_processing(webhook_id: str, webhook_type: str, payload: dict) -> str:
-    """
-    Queue a webhook for asynchronous processing.
-
-    Args:
-        webhook_id: WebhookEvent ID
-        webhook_type: Type of webhook
-        payload: Webhook payload
-
-    Returns:
-        str: Celery task ID
-    """
-    task = process_webhook_task.delay(webhook_id, webhook_type, payload)
-
-    logger.info("webhook_queued", webhook_id=webhook_id, webhook_type=webhook_type, task_id=task.id)
-
-    return task.id

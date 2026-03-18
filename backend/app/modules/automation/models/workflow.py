@@ -32,12 +32,6 @@ class SharingPermission(str, Enum):
     READ_WRITE = "read-write"
 
 
-class TriggerType(str, Enum):
-    """Trigger type enumeration."""
-    WEBHOOK = "webhook"
-    CRON = "cron"
-    MANUAL = "manual"
-
 
 class ActionType(str, Enum):
     """Action type enumeration."""
@@ -238,7 +232,7 @@ class Workflow(TimestampMixin, Document):
                     {
                         "id": "trigger-1",
                         "type": "trigger",
-                        "name": "Webhook Trigger",
+                        "name": "Trigger",
                         "position": {"x": 400, "y": 80},
                         "config": {
                             "trigger_type": "webhook",

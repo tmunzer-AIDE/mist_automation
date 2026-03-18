@@ -2,7 +2,7 @@
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 } @else if (backup(); as backup) {
   <div class="page-actions">
-    <a mat-stroked-button routerLink="/backup"> <mat-icon>arrow_back</mat-icon> Back </a>
+    <a mat-stroked-button routerLink="/backup/jobs"> <mat-icon>arrow_back</mat-icon> Back </a>
     <button mat-flat-button (click)="openRestore()" [disabled]="backup.status !== 'completed'">
       <mat-icon>restore</mat-icon> Restore
     </button>

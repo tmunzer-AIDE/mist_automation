@@ -11,7 +11,6 @@ import {
   ViewChild,
   inject,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatButtonModule } from '@angular/material/button';
@@ -46,7 +45,7 @@ const DRAG_THRESHOLD = 4; // pixels before rubber-band starts
 @Component({
   selector: 'app-graph-canvas',
   standalone: true,
-  imports: [CommonModule, MatIconModule, MatTooltipModule, MatButtonModule],
+  imports: [MatIconModule, MatTooltipModule, MatButtonModule],
   templateUrl: './graph-canvas.component.html',
   styleUrl: './graph-canvas.component.scss',
 })

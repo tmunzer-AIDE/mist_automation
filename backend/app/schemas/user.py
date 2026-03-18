@@ -14,6 +14,8 @@ class UserCreate(BaseModel):
 
     email: EmailStr = Field(..., description="User email address")
     password: str = Field(..., description="User password", min_length=1)
+    first_name: str | None = Field(None, description="User first name")
+    last_name: str | None = Field(None, description="User last name")
     roles: list[str] = Field(default_factory=list, description="User roles")
     timezone: str = Field(default="UTC", description="User timezone")
 
@@ -30,6 +32,8 @@ class UserUpdate(BaseModel):
     """User update schema."""
 
     email: EmailStr | None = Field(None, description="User email address")
+    first_name: str | None = Field(None, description="User first name")
+    last_name: str | None = Field(None, description="User last name")
     roles: list[str] | None = Field(None, description="User roles")
     timezone: str | None = Field(None, description="User timezone")
     is_active: bool | None = Field(None, description="Whether user is active")
@@ -49,6 +53,8 @@ class UserResponse(BaseModel):
 
     id: str = Field(..., description="User ID")
     email: str = Field(..., description="User email")
+    first_name: str | None = Field(None, description="User first name")
+    last_name: str | None = Field(None, description="User last name")
     roles: list[str] = Field(..., description="User roles")
     timezone: str = Field(..., description="User timezone")
     is_active: bool = Field(..., description="Whether user is active")

@@ -46,10 +46,10 @@ import { Component, Input } from '@angular/core';
       .badge-draft,
       .badge-in_progress,
       .badge-running {
-        background: var(--app-success-bg);
-        color: var(--app-success);
+        background: var(--app-warning-bg);
+        color: var(--app-warning);
         .dot {
-          background: var(--app-success);
+          background: var(--app-warning);
         }
       }
       .badge-failed,
