@@ -42,6 +42,14 @@
     [active]="t6.isActive"
     >Integrations</a
   >
+  <a
+    mat-tab-link
+    routerLink="llm"
+    routerLinkActive
+    #t7="routerLinkActive"
+    [active]="t7.isActive"
+    >AI / LLM</a
+  >
 </nav>
 <mat-tab-nav-panel #tabPanel>
   <router-outlet></router-outlet>

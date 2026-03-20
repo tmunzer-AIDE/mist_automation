@@ -161,6 +161,19 @@ export class WorkflowListComponent implements OnInit {
     });
   }
 
+  duplicateWorkflow(event: Event, workflow: WorkflowResponse): void {
+    event.stopPropagation();
+    this.workflowService.duplicate(workflow.id).subscribe({
+      next: (response) => {
+        this.snackBar.open(`Workflow duplicated as "${response.name}"`, 'OK', { duration: 3000 });
+        this.loadWorkflows();
+      },
+      error: () => {
+        this.snackBar.open('Failed to duplicate workflow', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
   exportWorkflow(event: Event, workflow: WorkflowResponse): void {
     event.stopPropagation();
     this.workflowService.exportWorkflow(workflow);

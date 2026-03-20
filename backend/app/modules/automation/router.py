@@ -35,6 +35,10 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
+# ── Node types whose configs may contain encrypted OAuth / auth secrets ────────
+_OAUTH_NODE_TYPES = {"webhook", "servicenow"}
+
+
 # ── Response construction helpers ─────────────────────────────────────────────
 
 
@@ -68,12 +72,14 @@ def _node_result_to_dict(r, full: bool = False) -> dict:
         "output_data": r.output_data,
     }
     if full:
-        d.update({
-            "started_at": r.started_at,
-            "completed_at": r.completed_at,
-            "input_snapshot": r.input_snapshot,
-            "retry_count": r.retry_count,
-        })
+        d.update(
+            {
+                "started_at": r.started_at,
+                "completed_at": r.completed_at,
+                "input_snapshot": r.input_snapshot,
+                "retry_count": r.retry_count,
+            }
+        )
     return d
 
 
@@ -92,7 +98,35 @@ def _snapshot_to_dict(s) -> dict:
     }
 
 
+def _mask_workflow_secrets(wf: Workflow) -> None:
+    """Mask sensitive fields in OAuth-capable nodes before returning to client."""
+    from app.modules.automation.services.oauth_secrets import mask_node_secrets
+
+    for node in wf.nodes:
+        if node.type in _OAUTH_NODE_TYPES:
+            mask_node_secrets(node.config)
+
+
+def _encrypt_workflow_secrets(
+    new_nodes: list[WorkflowNode],
+    existing_nodes: list[WorkflowNode] | None = None,
+) -> None:
+    """Encrypt sensitive fields in OAuth-capable nodes before persisting."""
+    from app.modules.automation.services.oauth_secrets import encrypt_node_secrets, merge_node_secrets
+
+    existing_map: dict[str, dict] = {}
+    if existing_nodes:
+        existing_map = {n.id: n.config for n in existing_nodes if n.type in _OAUTH_NODE_TYPES}
+
+    for node in new_nodes:
+        if node.type in _OAUTH_NODE_TYPES:
+            if node.id in existing_map:
+                merge_node_secrets(node.config, existing_map[node.id])
+            encrypt_node_secrets(node.config)
+
+
 def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
+    _mask_workflow_secrets(wf)
     return WorkflowResponse(
         id=str(wf.id),
         name=wf.name,
@@ -181,6 +215,8 @@ async def create_workflow(
 
     await validate_no_circular_subflow_references(None, nodes)
 
+    _encrypt_workflow_secrets(nodes)
+
     input_params = [SubflowParameter(**p) for p in workflow_data.input_parameters]
     output_params = [SubflowParameter(**p) for p in workflow_data.output_parameters]
 
@@ -200,6 +236,75 @@ async def create_workflow(
     await workflow.insert()
 
     logger.info("workflow_created", workflow_id=str(workflow.id), user_id=str(current_user.id))
+    return _workflow_to_response(workflow)
+
+
+@router.post(
+    "/workflows/{workflow_id}/duplicate",
+    response_model=WorkflowResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Workflows"],
+)
+async def duplicate_workflow(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Duplicate an existing workflow."""
+    import uuid
+
+    try:
+        source = await Workflow.get(PydanticObjectId(workflow_id))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid workflow ID format") from exc
+
+    if not source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not source.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    # Build old→new node ID mapping
+    id_map = {node.id: str(uuid.uuid4()) for node in source.nodes}
+
+    # Copy nodes with new IDs
+    nodes = []
+    for node in source.nodes:
+        data = node.model_dump()
+        data["id"] = id_map[node.id]
+        nodes.append(WorkflowNode(**data))
+
+    # Copy edges with updated references
+    edges = []
+    for edge in source.edges:
+        data = edge.model_dump()
+        data["id"] = str(uuid.uuid4())
+        data["source_node_id"] = id_map.get(edge.source_node_id, edge.source_node_id)
+        data["target_node_id"] = id_map.get(edge.target_node_id, edge.target_node_id)
+        edges.append(WorkflowEdge(**data))
+
+    _encrypt_workflow_secrets(nodes)
+
+    workflow = Workflow(
+        name=f"{source.name} (copy)",
+        description=source.description,
+        workflow_type=source.workflow_type,
+        created_by=current_user.id,
+        status=WorkflowStatus.DRAFT,
+        timeout_seconds=source.timeout_seconds,
+        nodes=nodes,
+        edges=edges,
+        viewport=source.viewport,
+        input_parameters=list(source.input_parameters),
+        output_parameters=list(source.output_parameters),
+    )
+    await workflow.insert()
+
+    logger.info(
+        "workflow_duplicated",
+        source_id=str(source.id),
+        new_id=str(workflow.id),
+        user_id=str(current_user.id),
+    )
     return _workflow_to_response(workflow)
 
 
@@ -356,6 +461,7 @@ async def update_workflow(
         from app.modules.automation.services.graph_validator import validate_no_circular_subflow_references
 
         await validate_no_circular_subflow_references(str(workflow.id), nodes)
+        _encrypt_workflow_secrets(nodes, existing_nodes=workflow.nodes)
         workflow.nodes = nodes
         workflow.edges = edges
     if workflow_data.edges is not None and workflow_data.nodes is None:

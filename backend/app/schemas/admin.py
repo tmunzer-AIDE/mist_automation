@@ -55,6 +55,15 @@ class SystemSettingsUpdate(BaseModel):
     servicenow_password: str | None = None
     pagerduty_api_key: str | None = None
 
+    # LLM Configuration
+    llm_enabled: bool | None = None
+    llm_provider: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+    llm_base_url: str | None = None
+    llm_temperature: float | None = Field(None, ge=0.0, le=2.0)
+    llm_max_tokens_per_request: int | None = Field(None, ge=100, le=32000)
+
     @field_validator("backup_full_schedule_cron")
     @classmethod
     def validate_cron(cls, v: str | None) -> str | None:
@@ -66,7 +75,9 @@ class SystemSettingsUpdate(BaseModel):
             raise ValueError(f"Invalid cron expression: {e}") from e
         return v
 
-    @field_validator("backup_git_repo_url", "slack_webhook_url", "servicenow_instance_url", "smee_channel_url")
+    @field_validator(
+        "backup_git_repo_url", "slack_webhook_url", "servicenow_instance_url", "smee_channel_url", "llm_base_url"
+    )
     @classmethod
     def validate_url(cls, v: str | None) -> str | None:
         if v is None or v == "":

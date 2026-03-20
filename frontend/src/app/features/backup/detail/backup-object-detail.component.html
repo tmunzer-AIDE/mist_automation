@@ -28,34 +28,163 @@
               v{{ compareVersions[0]!.version }} → v{{ compareVersions[1]!.version }}
             </mat-card-title>
             <span class="diff-summary">
-              {{ diffEntries.length }} difference{{ diffEntries.length === 1 ? '' : 's' }}
+              {{ filteredCount() }} difference{{ filteredCount() === 1 ? '' : 's' }}
             </span>
+            @if (llmAvailable() && diffEntries().length > 0) {
+              <button
+                mat-icon-button
+                matTooltip="AI Summary"
+                (click)="summarizeChanges()"
+              >
+                <mat-icon>smart_toy</mat-icon>
+              </button>
+            }
           </mat-card-header>
           <mat-card-content>
-            @if (diffEntries.length === 0) {
+            @if (diffEntries().length === 0) {
               <p class="no-diff">No differences found between these versions.</p>
             } @else {
+              <!-- Toolbar: filter chips + expand/collapse all -->
+              <div class="diff-toolbar">
+                <div class="diff-filter-chips">
+                  @for (type of ['added', 'removed', 'modified']; track type) {
+                    @if (diffTypeCounts()[type]) {
+                      <button
+                        class="filter-chip"
+                        [class.filter-active]="activeFilters().has(type)"
+                        [ngClass]="'filter-' + type"
+                        (click)="toggleFilter(type)"
+                      >
+                        <span class="filter-label">{{ type }}</span>
+                        <span class="filter-count">{{ diffTypeCounts()[type] }}</span>
+                      </button>
+                    }
+                  }
+                </div>
+                <button
+                  mat-icon-button
+                  class="expand-all-btn"
+                  (click)="toggleExpandAll()"
+                  [matTooltip]="allExpanded() ? 'Collapse all' : 'Expand all'"
+                >
+                  <mat-icon>{{ allExpanded() ? 'unfold_less' : 'unfold_more' }}</mat-icon>
+                </button>
+              </div>
+
+              <!-- Grouped diff list -->
               <div class="diff-list">
-                @for (d of diffEntries; track d.path) {
-                  <div class="diff-entry" [ngClass]="'diff-' + d.type">
-                    <div class="diff-header">
-                      <code class="diff-path">{{ d.path }}</code>
-                      <span class="diff-type-badge">{{ d.type }}</span>
-                    </div>
-                    <div class="diff-values">
-                      @if (d.type === 'removed' || d.type === 'modified') {
-                        <pre class="diff-old">{{ formatValue(d.oldValue) }}</pre>
+                @for (group of filteredGroups(); track group.key) {
+                  @if (group.isGroup) {
+                    <div class="diff-group">
+                      <div class="diff-group-header" (click)="toggleGroup(group.key)">
+                        <mat-icon class="group-chevron">
+                          {{ isGroupExpanded(group.key) ? 'expand_more' : 'chevron_right' }}
+                        </mat-icon>
+                        <code class="diff-group-key">{{ group.key }}</code>
+                        <span class="diff-group-count">{{ group.entries.length }}</span>
+                        <span class="diff-group-badges">
+                          @for (t of ['added', 'removed', 'modified']; track t) {
+                            @if (group.typeCounts[t]) {
+                              <span class="diff-type-badge mini" [ngClass]="'badge-' + t">
+                                {{ group.typeCounts[t] }} {{ t }}
+                              </span>
+                            }
+                          }
+                        </span>
+                      </div>
+                      @if (isGroupExpanded(group.key)) {
+                        <div class="diff-group-body">
+                          @for (d of group.entries; track d.path) {
+                            <div class="diff-entry" [ngClass]="'diff-' + d.type">
+                              <div class="diff-header" (click)="toggleEntry(d.path)">
+                                <div class="diff-header-left">
+                                  <mat-icon class="entry-chevron">
+                                    {{ isEntryExpanded(d.path) ? 'expand_more' : 'chevron_right' }}
+                                  </mat-icon>
+                                  <code class="diff-path">
+                                    {{ stripGroupPrefix(d.path, group.key) }}
+                                  </code>
+                                </div>
+                                <span class="diff-type-badge">{{ d.type }}</span>
+                              </div>
+                              @if (isEntryExpanded(d.path)) {
+                                <div class="diff-values">
+                                  @if (d.type === 'removed' || d.type === 'modified') {
+                                    <pre class="diff-old">{{ formatValue(d.oldValue) }}</pre>
+                                  }
+                                  @if (d.type === 'added' || d.type === 'modified') {
+                                    <pre class="diff-new">{{ formatValue(d.newValue) }}</pre>
+                                  }
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
                       }
-                      @if (d.type === 'added' || d.type === 'modified') {
-                        <pre class="diff-new">{{ formatValue(d.newValue) }}</pre>
+                    </div>
+                  } @else {
+                    <div class="diff-entry standalone" [ngClass]="'diff-' + group.entries[0].type">
+                      <div class="diff-header" (click)="toggleEntry(group.entries[0].path)">
+                        <div class="diff-header-left">
+                          <mat-icon class="entry-chevron">
+                            {{
+                              isEntryExpanded(group.entries[0].path)
+                                ? 'expand_more'
+                                : 'chevron_right'
+                            }}
+                          </mat-icon>
+                          <code class="diff-path">{{ group.entries[0].path }}</code>
+                        </div>
+                        <span class="diff-type-badge">{{ group.entries[0].type }}</span>
+                      </div>
+                      @if (isEntryExpanded(group.entries[0].path)) {
+                        <div class="diff-values">
+                          @if (
+                            group.entries[0].type === 'removed' ||
+                            group.entries[0].type === 'modified'
+                          ) {
+                            <pre class="diff-old">{{ formatValue(group.entries[0].oldValue) }}</pre>
+                          }
+                          @if (
+                            group.entries[0].type === 'added' ||
+                            group.entries[0].type === 'modified'
+                          ) {
+                            <pre class="diff-new">{{ formatValue(group.entries[0].newValue) }}</pre>
+                          }
+                        </div>
                       }
                     </div>
-                  </div>
+                  }
                 }
               </div>
             }
           </mat-card-content>
         </mat-card>
+
+        @if (aiPanelOpen()) {
+          <mat-card class="ai-summary-card">
+            <mat-card-header>
+              <mat-card-title>AI Summary</mat-card-title>
+              <button mat-icon-button matTooltip="Close" (click)="aiPanelOpen.set(false)">
+                <mat-icon>close</mat-icon>
+              </button>
+            </mat-card-header>
+            @if (aiLoading()) {
+              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+              <mat-card-content>
+                <div class="ai-loading-hint">Generating summary...</div>
+              </mat-card-content>
+            } @else {
+              <mat-card-content>
+                <app-ai-chat-panel
+                [threadId]="aiThreadId()"
+                [initialSummary]="aiSummary()"
+                [errorMessage]="aiError()"
+              ></app-ai-chat-panel>
+              </mat-card-content>
+            }
+          </mat-card>
+        }
       }
     </section>
   }

@@ -109,6 +109,9 @@
             <button mat-menu-item (click)="exportWorkflow($event, wf)">
               <mat-icon>download</mat-icon> Export
             </button>
+            <button mat-menu-item (click)="duplicateWorkflow($event, wf)">
+              <mat-icon>content_copy</mat-icon> Duplicate
+            </button>
             <button mat-menu-item (click)="deleteWorkflow($event, wf)" class="danger">
               <mat-icon>delete</mat-icon> Delete
             </button>

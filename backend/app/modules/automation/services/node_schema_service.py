@@ -150,7 +150,10 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
     if node_type == "email":
         return {"status": "string", "platform": "string", "to": ["string"], "subject": "string"}
 
-    if node_type in ("slack", "servicenow", "pagerduty"):
+    if node_type == "servicenow":
+        return {"status_code": "integer", "response": "string"}
+
+    if node_type in ("slack", "pagerduty"):
         return {"status": "string", "response": "string"}
 
     if node_type == "device_utils":

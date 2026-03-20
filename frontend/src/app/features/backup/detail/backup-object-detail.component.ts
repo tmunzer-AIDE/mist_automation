@@ -14,11 +14,14 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { ObjectDependencyResponse } from '../../../core/models/backup.model';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
+import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { JsonViewDialogComponent } from './json-view-dialog.component';
 import { CascadeRestoreDialogComponent } from './cascade-restore-dialog.component';
 
@@ -36,6 +39,20 @@ interface ObjectVersion {
   backed_up_by: string | null;
   is_deleted: boolean;
   configuration: Record<string, unknown>;
+}
+
+interface DiffEntry {
+  path: string;
+  type: string;
+  oldValue?: unknown;
+  newValue?: unknown;
+}
+
+interface DiffGroup {
+  key: string;
+  entries: DiffEntry[];
+  typeCounts: Record<string, number>;
+  isGroup: boolean;
 }
 
 @Component({
@@ -58,6 +75,7 @@ interface ObjectVersion {
     MatSnackBarModule,
     EmptyStateComponent,
     StatusBadgeComponent,
+    AiChatPanelComponent,
     DateTimePipe,
   ],
   templateUrl: './backup-object-detail.component.html',
@@ -65,6 +83,7 @@ interface ObjectVersion {
 })
 export class BackupObjectDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly llmService = inject(LlmService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
@@ -75,6 +94,14 @@ export class BackupObjectDetailComponent implements OnInit {
   objectId = '';
   versions = signal<ObjectVersion[]>([]);
   loading = signal(true);
+
+  // AI Summary
+  llmAvailable = signal(false);
+  aiThreadId = signal<string | null>(null);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
   selectedVersionId: string | null = null;
   dependencies = signal<ObjectDependencyResponse | null>(null);
   depsLoading = signal(true);
@@ -82,7 +109,89 @@ export class BackupObjectDetailComponent implements OnInit {
   // Compare mode
   compareMode = false;
   compareVersions: [ObjectVersion | null, ObjectVersion | null] = [null, null];
-  diffEntries: { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] = [];
+  diffEntries = signal<DiffEntry[]>([]);
+  activeFilters = signal<Set<string>>(new Set());
+  expandedGroups = signal<Set<string>>(new Set());
+  expandedEntries = signal<Set<string>>(new Set());
+
+  diffTypeCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = { added: 0, removed: 0, modified: 0 };
+    for (const entry of this.diffEntries()) {
+      counts[entry.type] = (counts[entry.type] ?? 0) + 1;
+    }
+    return counts;
+  });
+
+  diffGroups = computed<DiffGroup[]>(() => {
+    const entries = this.diffEntries();
+    if (entries.length === 0) return [];
+
+    const groupMap = new Map<string, DiffEntry[]>();
+    for (const entry of entries) {
+      const dotIndex = entry.path.indexOf('.');
+      const key = dotIndex === -1 ? entry.path : entry.path.substring(0, dotIndex);
+      const list = groupMap.get(key) ?? [];
+      list.push(entry);
+      groupMap.set(key, list);
+    }
+
+    const result: DiffGroup[] = [];
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      const dotIndex = entry.path.indexOf('.');
+      const key = dotIndex === -1 ? entry.path : entry.path.substring(0, dotIndex);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const groupEntries = groupMap.get(key)!;
+      const typeCounts: Record<string, number> = {};
+      for (const e of groupEntries) {
+        typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1;
+      }
+      result.push({
+        key,
+        entries: groupEntries,
+        typeCounts,
+        isGroup: groupEntries.length > 1 || (groupEntries.length === 1 && groupEntries[0].path.includes('.')),
+      });
+    }
+    return result;
+  });
+
+  filteredGroups = computed<DiffGroup[]>(() => {
+    const filters = this.activeFilters();
+    const groups = this.diffGroups();
+    if (filters.size === 0) return groups;
+
+    return groups
+      .map((group) => {
+        const filtered = group.entries.filter((e) => filters.has(e.type));
+        if (filtered.length === 0) return null;
+        const typeCounts: Record<string, number> = {};
+        for (const e of filtered) {
+          typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1;
+        }
+        return { ...group, entries: filtered, typeCounts };
+      })
+      .filter((g): g is DiffGroup => g !== null);
+  });
+
+  filteredCount = computed(() =>
+    this.filteredGroups().reduce((sum, g) => sum + g.entries.length, 0),
+  );
+
+  allExpanded = computed(() => {
+    const groups = this.filteredGroups();
+    if (groups.length === 0) return false;
+    const expandedG = this.expandedGroups();
+    const expandedE = this.expandedEntries();
+    return groups.every((g) => {
+      if (g.isGroup) {
+        if (!expandedG.has(g.key)) return false;
+        return g.entries.every((e) => expandedE.has(e.path));
+      }
+      return expandedE.has(g.entries[0].path);
+    });
+  });
 
   versionColumns = ['version', 'date', 'admin', 'event_type', 'changed_fields', 'actions'];
 
@@ -98,6 +207,10 @@ export class BackupObjectDetailComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Object Detail');
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => this.llmAvailable.set(false),
+    });
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const id = params.get('objectId') || '';
       if (id !== this.objectId) {
@@ -117,7 +230,12 @@ export class BackupObjectDetailComponent implements OnInit {
     this.depsLoading.set(true);
     this.compareMode = false;
     this.compareVersions = [null, null];
-    this.diffEntries = [];
+    this.aiThreadId.set(null);
+    this.aiPanelOpen.set(false);
+    this.diffEntries.set([]);
+    this.activeFilters.set(new Set());
+    this.expandedGroups.set(new Set());
+    this.expandedEntries.set(new Set());
   }
 
   eventLabel(eventType: string): string {
@@ -176,7 +294,10 @@ export class BackupObjectDetailComponent implements OnInit {
     this.compareMode = !this.compareMode;
     if (!this.compareMode) {
       this.compareVersions = [null, null];
-      this.diffEntries = [];
+      this.diffEntries.set([]);
+      this.activeFilters.set(new Set());
+      this.expandedGroups.set(new Set());
+      this.expandedEntries.set(new Set());
     }
   }
 
@@ -186,12 +307,12 @@ export class BackupObjectDetailComponent implements OnInit {
     // If already selected, deselect
     if (this.compareVersions[0]?.id === v.id) {
       this.compareVersions = [this.compareVersions[1], null];
-      this.diffEntries = [];
+      this.diffEntries.set([]);
       return;
     }
     if (this.compareVersions[1]?.id === v.id) {
       this.compareVersions = [this.compareVersions[0], null];
-      this.diffEntries = [];
+      this.diffEntries.set([]);
       return;
     }
 
@@ -221,15 +342,18 @@ export class BackupObjectDetailComponent implements OnInit {
     const older = a.version < b.version ? a : b;
     const newer = a.version < b.version ? b : a;
     this.compareVersions = [older, newer];
-    this.diffEntries = this.deepDiff(older.configuration, newer.configuration);
+    this.diffEntries.set(this.deepDiff(older.configuration, newer.configuration));
+    this.activeFilters.set(new Set());
+    this.expandedGroups.set(new Set());
+    this.expandedEntries.set(new Set());
   }
 
   private deepDiff(
     a: Record<string, unknown>,
     b: Record<string, unknown>,
     path = '',
-  ): { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] {
-    const result: { path: string; type: string; oldValue?: unknown; newValue?: unknown }[] = [];
+  ): DiffEntry[] {
+    const result: DiffEntry[] = [];
     const allKeys = new Set([...Object.keys(a), ...Object.keys(b)]);
 
     for (const key of allKeys) {
@@ -254,6 +378,60 @@ export class BackupObjectDetailComponent implements OnInit {
       }
     }
     return result;
+  }
+
+  toggleFilter(type: string): void {
+    const current = new Set(this.activeFilters());
+    if (current.has(type)) {
+      current.delete(type);
+    } else {
+      current.add(type);
+    }
+    this.activeFilters.set(current);
+  }
+
+  toggleGroup(key: string): void {
+    const current = new Set(this.expandedGroups());
+    if (current.has(key)) {
+      current.delete(key);
+    } else {
+      current.add(key);
+    }
+    this.expandedGroups.set(current);
+  }
+
+  toggleEntry(path: string): void {
+    const current = new Set(this.expandedEntries());
+    if (current.has(path)) {
+      current.delete(path);
+    } else {
+      current.add(path);
+    }
+    this.expandedEntries.set(current);
+  }
+
+  toggleExpandAll(): void {
+    if (this.allExpanded()) {
+      this.expandedGroups.set(new Set());
+      this.expandedEntries.set(new Set());
+    } else {
+      const groups = new Set(this.filteredGroups().map((g) => g.key));
+      const entries = new Set(this.filteredGroups().flatMap((g) => g.entries.map((e) => e.path)));
+      this.expandedGroups.set(groups);
+      this.expandedEntries.set(entries);
+    }
+  }
+
+  isGroupExpanded(key: string): boolean {
+    return this.expandedGroups().has(key);
+  }
+
+  isEntryExpanded(path: string): boolean {
+    return this.expandedEntries().has(path);
+  }
+
+  stripGroupPrefix(path: string, groupKey: string): string {
+    return path.startsWith(groupKey + '.') ? path.substring(groupKey.length + 1) : path;
   }
 
   formatValue(val: unknown): string {
@@ -293,5 +471,30 @@ export class BackupObjectDetailComponent implements OnInit {
           this.loading.set(false);
         },
       });
+  }
+
+  // ── AI Summary ──────────────────────────────────────────────────────────
+
+  summarizeChanges(): void {
+    const v0 = this.compareVersions[0];
+    const v1 = this.compareVersions[1];
+    if (!v0 || !v1) return;
+
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    this.llmService.summarizeDiff(v0.id, v1.id).subscribe({
+      next: (res) => {
+        this.aiThreadId.set(res.thread_id);
+        this.aiSummary.set(res.summary);
+        this.aiLoading.set(false);
+      },
+      error: (err) => {
+        this.aiError.set(extractErrorMessage(err));
+        this.aiLoading.set(false);
+      },
+    });
   }
 }

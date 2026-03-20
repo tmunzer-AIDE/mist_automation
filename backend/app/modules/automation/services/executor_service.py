@@ -420,9 +420,7 @@ class WorkflowExecutor:
                                     item_output = item if isinstance(item, dict) else {"value": item}
                                     iter_executor.variable_context["nodes"][node.id] = item_output
                                     if node.name:
-                                        iter_executor.variable_context["nodes"][
-                                            _sanitize_name(node.name)
-                                        ] = item_output
+                                        iter_executor.variable_context["nodes"][_sanitize_name(node.name)] = item_output
 
                                     body_visited: set[str] = {node.id}
                                     success = await iter_executor._traverse_from(
@@ -465,9 +463,7 @@ class WorkflowExecutor:
                                 item_output = item if isinstance(item, dict) else {"value": item}
                                 self.variable_context["nodes"][node.id] = item_output
                                 if node.name:
-                                    self.variable_context["nodes"][
-                                        _sanitize_name(node.name)
-                                    ] = item_output
+                                    self.variable_context["nodes"][_sanitize_name(node.name)] = item_output
                                 self._invalidate_render_cache()
 
                                 body_visited: set[str] = {node.id}
@@ -647,7 +643,11 @@ class WorkflowExecutor:
 
         if node_type == "webhook":
             if dry_run:
-                return {"status": "mocked", "url": config.get("webhook_url", "")}
+                return {
+                    "status": "mocked",
+                    "url": config.get("webhook_url", ""),
+                    "auth_type": config.get("webhook_auth_type", "none"),
+                }
             return await self._execute_webhook(config)
 
         if node_type == "delay":
@@ -671,7 +671,17 @@ class WorkflowExecutor:
         if node_type == "format_report":
             return await self._execute_format_report(config)
 
-        if node_type in ("slack", "servicenow", "pagerduty", "email"):
+        if node_type == "servicenow":
+            if dry_run:
+                return {
+                    "status": "mocked",
+                    "instance_url": config.get("servicenow_instance_url", ""),
+                    "method": config.get("servicenow_method", "POST"),
+                    "table": config.get("servicenow_table", "incident"),
+                }
+            return await self._execute_servicenow(config)
+
+        if node_type in ("slack", "pagerduty", "email"):
             if dry_run:
                 return {"status": "mocked", "channel": config.get("notification_channel", "")}
             return await self._execute_notification(node_type, config)
@@ -841,7 +851,7 @@ class WorkflowExecutor:
         return {"status_code": 200, "body": {"mocked": True}}
 
     async def _execute_webhook(self, config: dict) -> dict[str, Any]:
-        """Execute webhook action."""
+        """Execute webhook action with optional OAuth 2.0 token acquisition."""
         url = self._render_template(config.get("webhook_url", ""))
 
         from app.utils.url_safety import validate_outbound_url
@@ -851,12 +861,122 @@ class WorkflowExecutor:
         headers = self._render_dict(config.get("webhook_headers", {}) or {})
         body = self._render_dict(config.get("webhook_body", {}) or {})
 
+        # OAuth 2.0 Password Grant — acquire bearer token
+        if config.get("webhook_auth_type") == "oauth2_password":
+            token = await self._acquire_oauth2_token(config)
+            headers["Authorization"] = f"Bearer {token}"
+
         async with httpx.AsyncClient(timeout=30.0, verify=self._resolve_verify()) as client:
             response = await client.post(url, json=body, headers=headers)
             response.raise_for_status()
 
         logger.info("webhook_executed", url=url, status_code=response.status_code)
         return {"status_code": response.status_code, "response": response.text[:1000]}
+
+    async def _execute_servicenow(self, config: dict) -> dict[str, Any]:
+        """Execute ServiceNow API action with method selection and OAuth/basic auth."""
+        from app.config import settings
+        from app.utils.url_safety import validate_outbound_url
+
+        method = (config.get("servicenow_method") or "POST").upper()
+        instance_url = (
+            config.get("servicenow_instance_url")
+            or config.get("notification_channel")  # backward compat
+            or settings.servicenow_instance_url
+            or ""
+        )
+        table = config.get("servicenow_table") or "incident"
+        custom_path = config.get("servicenow_path")
+
+        if custom_path:
+            endpoint = f"{instance_url.rstrip('/')}/{custom_path.lstrip('/')}"
+        else:
+            endpoint = f"{instance_url.rstrip('/')}/api/now/table/{table}"
+
+        endpoint = self._render_template(endpoint)
+        validate_outbound_url(endpoint)
+
+        body = self._render_dict(config.get("servicenow_body", {}) or {})
+        query_params = self._render_dict(config.get("servicenow_query_params", {}) or {})
+
+        # Auth dispatch
+        auth_type = config.get("servicenow_auth_type", "basic")
+        auth = None
+        extra_headers: dict[str, str] = {"Content-Type": "application/json", "Accept": "application/json"}
+
+        if auth_type == "oauth2_password":
+            token = await self._acquire_oauth2_token(config)
+            extra_headers["Authorization"] = f"Bearer {token}"
+        elif auth_type == "basic":
+            from app.modules.automation.services.oauth_secrets import decrypt_node_secrets
+
+            secrets = decrypt_node_secrets(config)
+            username = secrets.get("servicenow_username") or settings.servicenow_username or ""
+            password = secrets.get("servicenow_password") or settings.servicenow_password or ""
+            if username and password:
+                auth = (username, password)
+
+        async with httpx.AsyncClient(timeout=30.0, verify=self._resolve_verify()) as client:
+            kwargs: dict[str, Any] = {"headers": extra_headers}
+            if auth:
+                kwargs["auth"] = auth
+            if method in ("POST", "PUT", "PATCH") and body:
+                kwargs["json"] = body
+            if method == "GET" and query_params:
+                kwargs["params"] = query_params
+
+            response = await client.request(method, endpoint, **kwargs)
+            response.raise_for_status()
+
+        logger.info("servicenow_executed", endpoint=endpoint, method=method, status_code=response.status_code)
+        return {"status_code": response.status_code, "response": response.text[:1000]}
+
+    async def _acquire_oauth2_token(self, config: dict) -> str:
+        """Acquire an OAuth 2.0 access token using the Password Grant (ROPC).
+
+        Credentials are decrypted from the node config. The token URL is
+        SSRF-validated. Credentials are NOT Jinja2-rendered to prevent
+        leaking secrets into the template context.
+        """
+        from app.modules.automation.services.oauth_secrets import decrypt_node_secrets
+        from app.utils.url_safety import validate_outbound_url
+
+        secrets = decrypt_node_secrets(config)
+
+        token_url = secrets.get("oauth2_token_url", "")
+        if not token_url:
+            raise WorkflowExecutionError("OAuth2 token URL is required")
+        validate_outbound_url(token_url)
+
+        client_id = secrets.get("oauth2_client_id", "")
+        client_secret = secrets.get("oauth2_client_secret", "")
+        username = secrets.get("oauth2_username", "")
+        password = secrets.get("oauth2_password", "")
+
+        if not all((client_id, client_secret, username, password)):
+            raise WorkflowExecutionError("OAuth2 credentials are incomplete")
+
+        async with httpx.AsyncClient(timeout=15.0, verify=self._resolve_verify()) as client:
+            response = await client.post(
+                token_url,
+                data={
+                    "grant_type": "password",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "username": username,
+                    "password": password,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise WorkflowExecutionError("OAuth2 token response missing access_token")
+
+        logger.info("oauth2_token_acquired", token_url=token_url)
+        return access_token
 
     async def _execute_device_utils(self, config: dict) -> dict[str, Any]:
         """Execute a mistapi.device_utils diagnostic command.
@@ -981,9 +1101,7 @@ class WorkflowExecutor:
 
         # Check recursion depth
         if self._recursion_depth >= self._max_recursion_depth:
-            raise WorkflowExecutionError(
-                f"Maximum sub-flow recursion depth ({self._max_recursion_depth}) exceeded"
-            )
+            raise WorkflowExecutionError(f"Maximum sub-flow recursion depth ({self._max_recursion_depth}) exceeded")
 
         # Fetch target workflow
         target_wf_id = config.get("target_workflow_id")
@@ -1013,9 +1131,7 @@ class WorkflowExecutor:
                 if param.default_value is not None:
                     resolved_inputs[param.name] = param.default_value
                 else:
-                    raise WorkflowExecutionError(
-                        f"Required sub-flow input parameter '{param.name}' not provided"
-                    )
+                    raise WorkflowExecutionError(f"Required sub-flow input parameter '{param.name}' not provided")
             elif param.default_value is not None:
                 resolved_inputs[param.name] = param.default_value
 
@@ -1060,9 +1176,7 @@ class WorkflowExecutor:
         # Extract outputs from child execution variables
         output = child_execution.variables or {}
 
-        execution.add_log(
-            f"Sub-flow '{target_workflow.name}' completed with status {child_execution.status.value}"
-        )
+        execution.add_log(f"Sub-flow '{target_workflow.name}' completed with status {child_execution.status.value}")
 
         if child_execution.status not in (ExecutionStatus.SUCCESS, ExecutionStatus.PARTIAL):
             raise WorkflowExecutionError(
@@ -1103,13 +1217,6 @@ class WorkflowExecutor:
             if node_type == "slack":
                 blocks = self._build_slack_message_blocks(config, message)
                 return await ns.send_slack_notification(webhook_url=channel, message=message, blocks=blocks)
-            elif node_type == "servicenow":
-                return await ns.send_servicenow_notification(
-                    instance_url=channel,
-                    username=config.get("servicenow_username"),
-                    password=config.get("servicenow_password"),
-                    short_description=message,
-                )
             elif node_type == "pagerduty":
                 return await ns.send_pagerduty_alert(
                     integration_key=channel,

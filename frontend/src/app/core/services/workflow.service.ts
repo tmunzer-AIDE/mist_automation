@@ -70,6 +70,10 @@ export class WorkflowService {
     return this.api.delete<void>(`/workflows/${id}`);
   }
 
+  duplicate(id: string): Observable<WorkflowResponse> {
+    return this.api.post<WorkflowResponse>(`/workflows/${id}/duplicate`, {});
+  }
+
   execute(id: string): Observable<{ execution_id: string; status: string; message: string }> {
     return this.api.post(`/workflows/${id}/execute`);
   }

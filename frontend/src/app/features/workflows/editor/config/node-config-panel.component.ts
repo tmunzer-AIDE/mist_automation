@@ -118,7 +118,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             <mat-form-field appearance="outline">
               <mat-label>Condition (optional)</mat-label>
               <textarea matInput formControlName="condition" rows="2"
-                placeholder="{{ '{{' }} events[0].type == 'ap_offline' {{ '}}' }}"></textarea>
+                placeholder="{{ '{{' }} type == 'ap_offline' {{ '}}' }}"></textarea>
             </mat-form-field>
 
             <mat-checkbox formControlName="skip_if_running">Skip if already running</mat-checkbox>
@@ -230,7 +230,69 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-form-field appearance="outline">
                 <mat-label>Webhook URL</mat-label>
                 <input matInput formControlName="webhook_url" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="webhookUrlVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #webhookUrlVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('webhook_url')!, $event)"
+                  />
+                </mat-menu>
               </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Authentication</mat-label>
+                <mat-select formControlName="webhook_auth_type">
+                  <mat-option value="none">None</mat-option>
+                  <mat-option value="oauth2_password">OAuth 2.0 Password Grant</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              @if (form.get('webhook_auth_type')?.value === 'oauth2_password') {
+                <div class="section-title">OAuth 2.0 Credentials</div>
+                <mat-form-field appearance="outline">
+                  <mat-label>Token URL</mat-label>
+                  <input
+                    matInput
+                    formControlName="oauth2_token_url"
+                    placeholder="https://instance.service-now.com/oauth_token.do"
+                  />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Client ID</mat-label>
+                  <input matInput formControlName="oauth2_client_id" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Client Secret</mat-label>
+                  <input
+                    matInput
+                    type="password"
+                    formControlName="oauth2_client_secret"
+                    [placeholder]="
+                      node.config['oauth2_client_secret_set']
+                        ? 'Leave empty to keep current'
+                        : ''
+                    "
+                  />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Username</mat-label>
+                  <input matInput formControlName="oauth2_username" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Password</mat-label>
+                  <input
+                    matInput
+                    type="password"
+                    formControlName="oauth2_password"
+                    [placeholder]="
+                      node.config['oauth2_password_set'] ? 'Leave empty to keep current' : ''
+                    "
+                  />
+                </mat-form-field>
+              }
+
               <mat-form-field appearance="outline">
                 <mat-label>Headers (JSON)</mat-label>
                 <textarea matInput formControlName="webhook_headers" rows="2"></textarea>
@@ -239,6 +301,151 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                 <mat-label>Body (JSON)</mat-label>
                 <textarea matInput formControlName="webhook_body" rows="3"></textarea>
               </mat-form-field>
+            }
+
+            <!-- ServiceNow fields -->
+            @if (node.type === 'servicenow') {
+              <mat-form-field appearance="outline">
+                <mat-label>HTTP Method</mat-label>
+                <mat-select formControlName="servicenow_method">
+                  <mat-option value="GET">GET</mat-option>
+                  <mat-option value="POST">POST</mat-option>
+                  <mat-option value="PUT">PUT</mat-option>
+                  <mat-option value="DELETE">DELETE</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Instance URL</mat-label>
+                <input
+                  matInput
+                  formControlName="servicenow_instance_url"
+                  placeholder="https://instance.service-now.com"
+                />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Table</mat-label>
+                <input matInput formControlName="servicenow_table" placeholder="incident" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Authentication</mat-label>
+                <mat-select formControlName="servicenow_auth_type">
+                  <mat-option value="basic">Basic Auth</mat-option>
+                  <mat-option value="oauth2_password">OAuth 2.0 Password Grant</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              @if (form.get('servicenow_auth_type')?.value === 'basic') {
+                <mat-form-field appearance="outline">
+                  <mat-label>Username</mat-label>
+                  <input matInput formControlName="servicenow_username" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Password</mat-label>
+                  <input
+                    matInput
+                    type="password"
+                    formControlName="servicenow_password"
+                    [placeholder]="
+                      node.config['servicenow_password_set']
+                        ? 'Leave empty to keep current'
+                        : ''
+                    "
+                  />
+                </mat-form-field>
+              }
+
+              @if (form.get('servicenow_auth_type')?.value === 'oauth2_password') {
+                <div class="section-title">OAuth 2.0 Credentials</div>
+                <mat-form-field appearance="outline">
+                  <mat-label>Token URL</mat-label>
+                  <input
+                    matInput
+                    formControlName="oauth2_token_url"
+                    placeholder="https://instance.service-now.com/oauth_token.do"
+                  />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Client ID</mat-label>
+                  <input matInput formControlName="oauth2_client_id" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Client Secret</mat-label>
+                  <input
+                    matInput
+                    type="password"
+                    formControlName="oauth2_client_secret"
+                    [placeholder]="
+                      node.config['oauth2_client_secret_set']
+                        ? 'Leave empty to keep current'
+                        : ''
+                    "
+                  />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Username</mat-label>
+                  <input matInput formControlName="oauth2_username" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Password</mat-label>
+                  <input
+                    matInput
+                    type="password"
+                    formControlName="oauth2_password"
+                    [placeholder]="
+                      node.config['oauth2_password_set']
+                        ? 'Leave empty to keep current'
+                        : ''
+                    "
+                  />
+                </mat-form-field>
+              }
+
+              @if (
+                form.get('servicenow_method')?.value === 'POST' ||
+                form.get('servicenow_method')?.value === 'PUT'
+              ) {
+                <mat-form-field appearance="outline">
+                  <mat-label>Body (JSON)</mat-label>
+                  <textarea matInput formControlName="servicenow_body" rows="3"></textarea>
+                  <button mat-icon-button matSuffix [matMenuTriggerFor]="snowBodyVarMenu">
+                    <mat-icon>data_object</mat-icon>
+                  </button>
+                  <mat-menu #snowBodyVarMenu="matMenu">
+                    <app-variable-picker
+                      [variableTree]="variableTree"
+                      (variableSelected)="
+                        insertIntoControl(form.get('servicenow_body')!, $event)
+                      "
+                    />
+                  </mat-menu>
+                </mat-form-field>
+              }
+
+              @if (form.get('servicenow_method')?.value === 'GET') {
+                <mat-form-field appearance="outline">
+                  <mat-label>Query Params (JSON)</mat-label>
+                  <textarea
+                    matInput
+                    formControlName="servicenow_query_params"
+                    rows="2"
+                    placeholder='{"sysparm_query": "active=true", "sysparm_limit": "10"}'
+                  ></textarea>
+                  <button mat-icon-button matSuffix [matMenuTriggerFor]="snowQueryVarMenu">
+                    <mat-icon>data_object</mat-icon>
+                  </button>
+                  <mat-menu #snowQueryVarMenu="matMenu">
+                    <app-variable-picker
+                      [variableTree]="variableTree"
+                      (variableSelected)="
+                        insertIntoControl(form.get('servicenow_query_params')!, $event)
+                      "
+                    />
+                  </mat-menu>
+                </mat-form-field>
+              }
             }
 
             <!-- Notification fields -->
@@ -1199,6 +1406,26 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         config['webhook_headers'] ? JSON.stringify(config['webhook_headers'], null, 2) : '',
       ],
       webhook_body: [config['webhook_body'] ? JSON.stringify(config['webhook_body'], null, 2) : ''],
+      webhook_auth_type: [config['webhook_auth_type'] || 'none'],
+      oauth2_token_url: [config['oauth2_token_url'] || ''],
+      oauth2_client_id: [config['oauth2_client_id'] || ''],
+      oauth2_client_secret: [''],
+      oauth2_username: [config['oauth2_username'] || ''],
+      oauth2_password: [''],
+      servicenow_method: [config['servicenow_method'] || 'POST'],
+      servicenow_instance_url: [config['servicenow_instance_url'] || config['notification_channel'] || ''],
+      servicenow_table: [config['servicenow_table'] || 'incident'],
+      servicenow_auth_type: [config['servicenow_auth_type'] || 'basic'],
+      servicenow_username: [config['servicenow_username'] || ''],
+      servicenow_password: [''],
+      servicenow_body: [
+        config['servicenow_body'] ? JSON.stringify(config['servicenow_body'], null, 2) : '',
+      ],
+      servicenow_query_params: [
+        config['servicenow_query_params']
+          ? JSON.stringify(config['servicenow_query_params'], null, 2)
+          : '',
+      ],
       notification_template: [config['notification_template'] || ''],
       notification_channel: [config['notification_channel'] || ''],
       branches: this.fb.array(branchControls),
@@ -1514,11 +1741,55 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
       if (this.node.type === 'webhook') {
         config['webhook_url'] = raw.webhook_url;
+        config['webhook_auth_type'] = raw.webhook_auth_type || 'none';
+        if (raw.webhook_auth_type === 'oauth2_password') {
+          config['oauth2_token_url'] = raw.oauth2_token_url || '';
+          config['oauth2_client_id'] = raw.oauth2_client_id || '';
+          config['oauth2_username'] = raw.oauth2_username || '';
+          if (raw.oauth2_client_secret) {
+            config['oauth2_client_secret'] = raw.oauth2_client_secret;
+          }
+          if (raw.oauth2_password) {
+            config['oauth2_password'] = raw.oauth2_password;
+          }
+        }
         if (raw.webhook_headers) {
           try { config['webhook_headers'] = JSON.parse(raw.webhook_headers); } catch { /* */ }
         }
         if (raw.webhook_body) {
           try { config['webhook_body'] = JSON.parse(raw.webhook_body); } catch { /* */ }
+        }
+      }
+
+      if (this.node.type === 'servicenow') {
+        config['servicenow_method'] = raw.servicenow_method || 'POST';
+        config['servicenow_instance_url'] = raw.servicenow_instance_url || '';
+        config['servicenow_table'] = raw.servicenow_table || 'incident';
+        config['servicenow_auth_type'] = raw.servicenow_auth_type || 'basic';
+        if (raw.servicenow_auth_type === 'basic') {
+          config['servicenow_username'] = raw.servicenow_username || '';
+          if (raw.servicenow_password) {
+            config['servicenow_password'] = raw.servicenow_password;
+          }
+        }
+        if (raw.servicenow_auth_type === 'oauth2_password') {
+          config['oauth2_token_url'] = raw.oauth2_token_url || '';
+          config['oauth2_client_id'] = raw.oauth2_client_id || '';
+          config['oauth2_username'] = raw.oauth2_username || '';
+          if (raw.oauth2_client_secret) {
+            config['oauth2_client_secret'] = raw.oauth2_client_secret;
+          }
+          if (raw.oauth2_password) {
+            config['oauth2_password'] = raw.oauth2_password;
+          }
+        }
+        if (raw.servicenow_body) {
+          try { config['servicenow_body'] = JSON.parse(raw.servicenow_body); } catch { /* */ }
+        }
+        if (raw.servicenow_query_params) {
+          try {
+            config['servicenow_query_params'] = JSON.parse(raw.servicenow_query_params);
+          } catch { /* */ }
         }
       }
 
@@ -1764,7 +2035,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   }
 
   get isNotificationAction(): boolean {
-    return ['slack', 'servicenow', 'pagerduty', 'email'].includes(this.node.type);
+    return ['slack', 'pagerduty', 'email'].includes(this.node.type);
   }
 
   get hasOutput(): boolean {
@@ -1772,6 +2043,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       this.isApiAction ||
       this.isDeviceUtilAction ||
       this.node.type === 'webhook' ||
+      this.node.type === 'servicenow' ||
       this.node.type === 'data_transform' ||
       this.node.type === 'format_report'
     );
@@ -1782,6 +2054,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     if (this.isApiAction) return 'output.status_code, output.body';
     if (this.isDeviceUtilAction) return 'output.status, output.device_type, output.function, output.data';
     if (t === 'webhook') return 'output.status_code, output.response';
+    if (t === 'servicenow') return 'output.status_code, output.response';
     if (t === 'data_transform') return 'output.rows, output.columns, output.row_count';
     if (t === 'format_report') return 'output.report, output.format, output.row_count';
     return '';

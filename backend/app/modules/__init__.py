@@ -111,6 +111,15 @@ MODULES: list[AppModule] = [
         ],
         tags=["Admin"],
     ),
+    AppModule(
+        name="llm",
+        router_module="app.modules.llm.router",
+        model_imports=[
+            ("app.modules.llm.models", "LLMUsageLog"),
+            ("app.modules.llm.models", "ConversationThread"),
+        ],
+        tags=["LLM"],
+    ),
 ]
 
 

@@ -68,6 +68,15 @@ class SystemConfig(TimestampMixin, Document):
 
     pagerduty_api_key: str | None = Field(default=None, description="Encrypted PagerDuty API key")
     
+    # LLM Configuration
+    llm_enabled: bool = Field(default=False, description="Enable LLM integration")
+    llm_provider: str | None = Field(default=None, description="LLM provider (openai, anthropic, ollama, etc.)")
+    llm_api_key: str | None = Field(default=None, description="Encrypted LLM API key")
+    llm_model: str | None = Field(default=None, description="LLM model name")
+    llm_base_url: str | None = Field(default=None, description="Custom LLM API base URL (for Ollama, etc.)")
+    llm_temperature: float = Field(default=0.3, description="LLM temperature (0.0-2.0)")
+    llm_max_tokens_per_request: int = Field(default=4096, description="Max output tokens per request")
+
     # System Status
     is_initialized: bool = Field(default=False, description="Whether initial setup is complete")
     maintenance_mode: bool = Field(default=False, description="Whether system is in maintenance mode")

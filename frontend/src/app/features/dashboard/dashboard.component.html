@@ -45,7 +45,7 @@
             </div>
           }
           @if (hasAutomation() && s.webhooks) {
-            <div class="hero-stat" (click)="navigateTo('/monitoring/webhooks')">
+            <div class="hero-stat" (click)="navigateTo('/monitoring')">
               <div class="hero-stat-number">{{ s.webhooks.total }}</div>
               <div class="hero-stat-label">Webhooks</div>
               <div class="hero-stat-detail">{{ s.webhooks.processed }} processed</div>

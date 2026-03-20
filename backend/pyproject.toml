@@ -53,6 +53,7 @@ dependencies = [
     "reportlab>=4.0",
     "structlog>=24.4.0",
     "python-json-logger>=2.0.7",
+    "litellm>=1.40.0",
 ]
 
 [project.optional-dependencies]
@@ -170,6 +171,7 @@ module = [
     "celery.*",
     "apscheduler.*",
     "git.*",
+    "litellm.*",
 ]
 ignore_missing_imports = true
 

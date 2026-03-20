@@ -69,6 +69,14 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "servicenow_username": config.servicenow_username,
         "servicenow_password_set": bool(config.servicenow_password),
         "pagerduty_api_key_set": bool(config.pagerduty_api_key),
+        # LLM Configuration
+        "llm_enabled": config.llm_enabled,
+        "llm_provider": config.llm_provider,
+        "llm_api_key_set": bool(config.llm_api_key),
+        "llm_model": config.llm_model,
+        "llm_base_url": config.llm_base_url,
+        "llm_temperature": config.llm_temperature,
+        "llm_max_tokens_per_request": config.llm_max_tokens_per_request,
         "updated_at": config.updated_at,
     }
 
@@ -87,7 +95,7 @@ async def update_system_settings(
     updates = settings.model_dump(exclude_unset=True)
 
     # Encrypt sensitive fields
-    sensitive_encrypt = {"mist_api_token", "webhook_secret", "servicenow_password", "pagerduty_api_key"}
+    sensitive_encrypt = {"mist_api_token", "webhook_secret", "servicenow_password", "pagerduty_api_key", "llm_api_key"}
     for field, value in updates.items():
         if field in sensitive_encrypt:
             setattr(config, field, encrypt_sensitive_data(value))

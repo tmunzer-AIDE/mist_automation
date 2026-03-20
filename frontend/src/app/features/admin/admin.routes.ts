@@ -51,6 +51,11 @@ const routes: Routes = [
             (m) => m.SettingsIntegrationsComponent,
           ),
       },
+      {
+        path: 'llm',
+        loadComponent: () =>
+          import('./settings/llm/settings-llm.component').then((m) => m.SettingsLlmComponent),
+      },
     ],
   },
   {
