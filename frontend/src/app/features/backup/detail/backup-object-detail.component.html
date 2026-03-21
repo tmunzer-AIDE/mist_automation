@@ -162,28 +162,23 @@
         </mat-card>
 
         @if (aiPanelOpen()) {
-          <mat-card class="ai-summary-card">
-            <mat-card-header>
-              <mat-card-title>AI Summary</mat-card-title>
+          <div class="ai-chat-container">
+            <div class="ai-chat-topbar">
+              <div class="ai-chat-title">
+                <mat-icon class="ai-chat-title-icon">smart_toy</mat-icon>
+                <span>AI Assistant</span>
+              </div>
               <button mat-icon-button matTooltip="Close" (click)="aiPanelOpen.set(false)">
                 <mat-icon>close</mat-icon>
               </button>
-            </mat-card-header>
-            @if (aiLoading()) {
-              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-              <mat-card-content>
-                <div class="ai-loading-hint">Generating summary...</div>
-              </mat-card-content>
-            } @else {
-              <mat-card-content>
-                <app-ai-chat-panel
-                [threadId]="aiThreadId()"
-                [initialSummary]="aiSummary()"
-                [errorMessage]="aiError()"
-              ></app-ai-chat-panel>
-              </mat-card-content>
-            }
-          </mat-card>
+            </div>
+            <app-ai-chat-panel
+              [threadId]="aiThreadId()"
+              [initialSummary]="aiSummary()"
+              [errorMessage]="aiError()"
+              [parentLoading]="aiLoading()"
+            ></app-ai-chat-panel>
+          </div>
         }
       }
     </section>

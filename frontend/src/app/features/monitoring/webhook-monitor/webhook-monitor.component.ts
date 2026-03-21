@@ -29,8 +29,11 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { WebhookEventDetailDialogComponent } from '../../../shared/components/webhook-event-detail-dialog/webhook-event-detail-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { MonitorEvent } from '../../../core/models/webhook-event.model';
 import {
@@ -73,6 +76,7 @@ interface ChartRange {
     BaseChartDirective,
     EmptyStateComponent,
     StatusBadgeComponent,
+    AiChatPanelComponent,
     DateTimePipe,
   ],
   templateUrl: './webhook-monitor.component.html',
@@ -81,12 +85,21 @@ interface ChartRange {
 export class WebhookMonitorComponent implements OnInit, OnDestroy {
   private readonly webhookEventService = inject(WebhookEventService);
   private readonly wsService = inject(WebSocketService);
+  private readonly llmService = inject(LlmService);
   private readonly dialog = inject(MatDialog);
   private readonly topbarService = inject(TopbarService);
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('topbarActions', { static: true }) topbarActions!: TemplateRef<unknown>;
   @ViewChild(BaseChartDirective) private chartDirective?: BaseChartDirective;
+
+  // AI Summary
+  llmAvailable = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
 
   events = signal<MonitorEvent[]>([]);
   paused = signal(false);
@@ -190,6 +203,10 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.topbarService.setTitle('Webhook Monitor');
     this.topbarService.setActions(this.topbarActions);
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => this.llmAvailable.set(false),
+    });
 
     // Wire filter FormControls → signals
     this.wireFilter(this.topicFilter, this.topicValue);
@@ -320,6 +337,25 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     this.events.set([]);
     this.pauseBuffer.set([]);
     this.pageIndex.set(0);
+  }
+
+  summarizeWithAI(): void {
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    this.llmService.summarizeWebhooks(this.chartHours()).subscribe({
+      next: (res) => {
+        this.aiThreadId.set(res.thread_id);
+        this.aiSummary.set(res.summary);
+        this.aiLoading.set(false);
+      },
+      error: (err) => {
+        this.aiError.set(extractErrorMessage(err));
+        this.aiLoading.set(false);
+      },
+    });
   }
 
   onPage(event: PageEvent): void {

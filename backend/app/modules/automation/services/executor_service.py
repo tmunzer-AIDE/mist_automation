@@ -702,6 +702,16 @@ class WorkflowExecutor:
                 }
             return await self._execute_device_utils(config)
 
+        if node_type == "ai_agent":
+            if dry_run:
+                return {
+                    "status": "mocked",
+                    "task": config.get("agent_task", ""),
+                    "iterations": 0,
+                    "tool_calls": [],
+                }
+            return await self._execute_ai_agent(node, execution)
+
         raise NotImplementedError(f"Node type '{node_type}' not implemented")
 
     # ── TLS ────────────────────────────────────────────────────────────────────
@@ -1036,6 +1046,58 @@ class WorkflowExecutor:
             "function": func_name,
             "data": response.ws_data,
         }
+
+    async def _execute_ai_agent(
+        self, node: WorkflowNode, execution: WorkflowExecution
+    ) -> dict[str, Any]:
+        """Execute an AI agent node: LLM + MCP tool-calling loop."""
+        from app.modules.llm.services.agent_service import AIAgentService
+        from app.modules.llm.services.llm_service_factory import create_llm_service
+        from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPServerConfig
+
+        config = node.config
+        task = self._render_template(config.get("agent_task", ""))
+        system_prompt = self._render_template(config.get("agent_system_prompt", ""))
+        max_iterations = min(int(config.get("max_iterations", 10)), 25)
+        mcp_configs = config.get("mcp_servers", [])
+
+        if not task:
+            raise WorkflowExecutionError("AI agent task is empty")
+
+        llm = await create_llm_service()
+
+        # Connect to configured MCP servers (validate URLs, then connect in parallel)
+        from app.utils.url_safety import validate_outbound_url
+
+        for srv in mcp_configs:
+            validate_outbound_url(srv.get("url", ""))
+
+        pending = [
+            MCPClientWrapper(MCPServerConfig(
+                name=srv.get("name", "unnamed"),
+                url=srv.get("url", ""),
+                headers=srv.get("headers") or None,
+                ssl_verify=srv.get("ssl_verify", True),
+            ))
+            for srv in mcp_configs
+        ]
+        clients = pending
+        try:
+            await asyncio.gather(*(c.connect() for c in clients))
+
+            agent = AIAgentService(llm=llm, mcp_clients=clients, max_iterations=max_iterations)
+            result = await agent.run(
+                task=task,
+                system_prompt=system_prompt,
+                context=self.variable_context,
+            )
+
+            execution.add_log(f"AI agent completed: {result.status} ({result.iterations} iterations)")
+            return result.to_dict()
+
+        finally:
+            for client in clients:
+                await client.disconnect()
 
     def _build_slack_message_blocks(self, config: dict, message: str) -> list[dict[str, Any]] | None:
         """Assemble Slack Block Kit blocks from node config + upstream data.

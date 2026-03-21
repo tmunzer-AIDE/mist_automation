@@ -38,6 +38,13 @@ async def create_llm_service():
     if config.llm_provider == "lm_studio" and not base_url:
         base_url = "http://localhost:1234/v1"
 
+    # SSRF check on base_url — skip for local providers (they run on localhost by design)
+    _local_providers = {"lm_studio", "ollama"}
+    if base_url and config.llm_provider not in _local_providers:
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(base_url)
+
     return LLMService(
         provider=config.llm_provider,
         api_key=api_key,

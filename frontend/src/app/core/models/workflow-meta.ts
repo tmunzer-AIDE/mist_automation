@@ -25,6 +25,7 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   invoke_subflow: { label: 'Sub-Flow', icon: 'account_tree', color: '#00695c' },
   subflow_output: { label: 'Return Output', icon: 'output', color: '#00695c' },
   device_utils: { label: 'Device Utility', icon: 'terminal', color: '#00897b' },
+  ai_agent: { label: 'AI Agent', icon: 'smart_toy', color: '#7c4dff' },
 };
 
 export const DEFAULT_ACTION_META: ActionMeta = {

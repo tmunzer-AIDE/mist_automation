@@ -35,6 +35,7 @@ from app.modules.backup.schemas import (
     ObjectDependencyResponse,
     ParentReference,
 )
+from app.modules.backup.utils import deep_diff as _deep_diff
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -99,21 +100,6 @@ class BackupCreateRequest(BaseModel):
         default=None, description="Object type in 'org:key' or 'site:key' format (for manual backup)"
     )
     object_ids: list[str] | None = Field(default=None, description="Object IDs to backup (for manual list-type backup)")
-
-
-def _deep_diff(a: dict, b: dict, path: str = "") -> list[dict]:
-    changes, all_keys = [], set(a) | set(b)
-    for key in all_keys:
-        p = f"{path}.{key}" if path else key
-        if key not in a:
-            changes.append({"path": p, "type": "added", "value": b[key]})
-        elif key not in b:
-            changes.append({"path": p, "type": "removed", "value": a[key]})
-        elif isinstance(a[key], dict) and isinstance(b[key], dict):
-            changes.extend(_deep_diff(a[key], b[key], p))
-        elif a[key] != b[key]:
-            changes.append({"path": p, "type": "modified", "old": a[key], "new": b[key]})
-    return changes
 
 
 @router.get("/backups", response_model=BackupJobListResponse, tags=["Backups"])

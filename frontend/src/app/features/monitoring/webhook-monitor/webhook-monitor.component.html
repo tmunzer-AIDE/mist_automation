@@ -20,10 +20,33 @@
   >
     <mat-icon>{{ paused() ? 'play_arrow' : 'pause' }}</mat-icon>
   </button>
+  @if (llmAvailable()) {
+    <button mat-icon-button (click)="summarizeWithAI()" matTooltip="AI Summary" [disabled]="aiLoading()">
+      <mat-icon>smart_toy</mat-icon>
+    </button>
+  }
   <button mat-icon-button (click)="clearEvents()" matTooltip="Clear events">
     <mat-icon>delete_sweep</mat-icon>
   </button>
 </ng-template>
+
+@if (aiPanelOpen()) {
+  <div class="ai-summary-container">
+    <div class="ai-summary-topbar">
+      <div class="ai-summary-title">
+        <mat-icon>smart_toy</mat-icon>
+        <span>AI Event Summary</span>
+      </div>
+      <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
+    </div>
+    <app-ai-chat-panel
+      [initialSummary]="aiSummary()"
+      [errorMessage]="aiError()"
+      [parentLoading]="aiLoading()"
+      [threadId]="aiThreadId()"
+    ></app-ai-chat-panel>
+  </div>
+}
 
 <!-- Chart -->
 <div class="chart-section">

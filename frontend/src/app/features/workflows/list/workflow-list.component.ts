@@ -14,8 +14,10 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { WorkflowService } from '../../../core/services/workflow.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { WorkflowResponse, WorkflowType } from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { WorkflowAiDialogComponent } from './workflow-ai-dialog.component';
 
 @Component({
   selector: 'app-workflow-list',
@@ -40,11 +42,13 @@ import { TopbarService } from '../../../core/services/topbar.service';
 })
 export class WorkflowListComponent implements OnInit {
   private readonly workflowService = inject(WorkflowService);
+  private readonly llmService = inject(LlmService);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
 
+  llmAvailable = signal(false);
   workflows = signal<WorkflowResponse[]>([]);
   total = signal(0);
   pageSize = signal(25);
@@ -56,6 +60,10 @@ export class WorkflowListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Workflows');
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => this.llmAvailable.set(false),
+    });
     this.loadWorkflows();
   }
 
@@ -93,6 +101,14 @@ export class WorkflowListComponent implements OnInit {
 
   createSubflow(): void {
     this.router.navigate(['/workflows/new'], { queryParams: { type: 'subflow' } });
+  }
+
+  createWithAI(): void {
+    const ref = this.dialog.open(WorkflowAiDialogComponent, {
+      width: '600px',
+      maxHeight: '80vh',
+    });
+    ref.afterClosed().subscribe(() => this.loadWorkflows());
   }
 
   editWorkflow(workflow: WorkflowResponse): void {

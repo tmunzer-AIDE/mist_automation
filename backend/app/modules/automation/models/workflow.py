@@ -53,6 +53,7 @@ class ActionType(str, Enum):
     INVOKE_SUBFLOW = "invoke_subflow"
     SUBFLOW_OUTPUT = "subflow_output"
     DEVICE_UTILS = "device_utils"
+    AI_AGENT = "ai_agent"
 
 
 class SubflowParameter(BaseModel):

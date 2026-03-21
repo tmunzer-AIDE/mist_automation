@@ -20,7 +20,8 @@ export type ActionType =
   | 'email'
   | 'invoke_subflow'
   | 'subflow_output'
-  | 'device_utils';
+  | 'device_utils'
+  | 'ai_agent';
 export type WorkflowType = 'standard' | 'subflow';
 
 export interface DeviceUtilParam {

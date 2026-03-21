@@ -23,8 +23,10 @@ _OPENAI_COMPAT_PROVIDERS = {"openai", "lm_studio", "azure_openai"}
 class LLMMessage:
     """A single message for the LLM API."""
 
-    role: str  # "system", "user", "assistant"
+    role: str  # "system", "user", "assistant", "tool"
     content: str
+    tool_call_id: str | None = None  # Required for role="tool" messages
+    tool_calls: list | None = None  # Raw tool_calls from assistant response
 
 
 @dataclass
@@ -45,6 +47,7 @@ class LLMResponse:
     usage: LLMUsage = field(default_factory=LLMUsage)
     finish_reason: str = ""
     duration_ms: int = 0
+    tool_calls: list | None = None
 
 
 class LLMService:
@@ -117,14 +120,27 @@ class LLMService:
             "max_tokens": self.max_tokens,
         }
         if json_mode:
+            # Some OpenAI-compat servers (LM Studio) reject json_object.
+            # Try it, fall back to no response_format if it fails.
             kwargs["response_format"] = {"type": "json_object"}
 
         start = monotonic()
         try:
             response = await client.chat.completions.create(**kwargs)
         except Exception:
-            logger.exception("llm_completion_failed", model=self.model, provider=self.provider)
-            raise
+            if json_mode:
+                # Retry without response_format — the system prompt already
+                # instructs the model to return JSON.
+                logger.info("json_mode_unsupported_retrying", model=self.model, provider=self.provider)
+                kwargs.pop("response_format", None)
+                try:
+                    response = await client.chat.completions.create(**kwargs)
+                except Exception:
+                    logger.exception("llm_completion_failed", model=self.model, provider=self.provider)
+                    raise
+            else:
+                logger.exception("llm_completion_failed", model=self.model, provider=self.provider)
+                raise
         finally:
             await client.close()
 
@@ -168,7 +184,7 @@ class LLMService:
 
         result = self._parse_openai_response(response, self.model, start)
         choices = response.choices or []
-        result._tool_calls = choices[0].message.tool_calls if choices and choices[0].message else None  # type: ignore[attr-defined]
+        result.tool_calls = choices[0].message.tool_calls if choices and choices[0].message else None
         return result
 
     # ------------------------------------------------------------------
@@ -200,6 +216,25 @@ class LLMService:
             kwargs["response_format"] = {"type": "json_object"}
         return kwargs
 
+    @staticmethod
+    def _parse_litellm_response(response, model_fallback: str, start: float) -> LLMResponse:
+        """Extract an LLMResponse from a litellm response object."""
+        duration_ms = int((monotonic() - start) * 1000)
+        usage = LLMUsage(
+            prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
+            completion_tokens=response.usage.completion_tokens if response.usage else 0,
+            total_tokens=response.usage.total_tokens if response.usage else 0,
+        )
+        choice = response.choices[0]
+        return LLMResponse(
+            content=choice.message.content or "",
+            model=response.model or model_fallback,
+            usage=usage,
+            finish_reason=choice.finish_reason or "",
+            duration_ms=duration_ms,
+            tool_calls=choice.message.tool_calls if hasattr(choice.message, "tool_calls") else None,
+        )
+
     async def _complete_litellm(self, messages: list[LLMMessage], json_mode: bool = False) -> LLMResponse:
         import litellm
 
@@ -213,19 +248,7 @@ class LLMService:
             logger.exception("llm_completion_failed", model=self.model, provider=self.provider)
             raise
 
-        duration_ms = int((monotonic() - start) * 1000)
-        usage = LLMUsage(
-            prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-            completion_tokens=response.usage.completion_tokens if response.usage else 0,
-            total_tokens=response.usage.total_tokens if response.usage else 0,
-        )
-        return LLMResponse(
-            content=response.choices[0].message.content or "",
-            model=response.model or self.model,
-            usage=usage,
-            finish_reason=response.choices[0].finish_reason or "",
-            duration_ms=duration_ms,
-        )
+        return self._parse_litellm_response(response, self.model, start)
 
     async def _stream_litellm(self, messages: list[LLMMessage]) -> AsyncGenerator[str, None]:
         import litellm
@@ -258,30 +281,23 @@ class LLMService:
             logger.exception("llm_tool_completion_failed", model=self.model, provider=self.provider)
             raise
 
-        duration_ms = int((monotonic() - start) * 1000)
-        usage = LLMUsage(
-            prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-            completion_tokens=response.usage.completion_tokens if response.usage else 0,
-            total_tokens=response.usage.total_tokens if response.usage else 0,
-        )
-        choice = response.choices[0]
-        result = LLMResponse(
-            content=choice.message.content or "",
-            model=response.model or self.model,
-            usage=usage,
-            finish_reason=choice.finish_reason or "",
-            duration_ms=duration_ms,
-        )
-        result._tool_calls = choice.message.tool_calls  # type: ignore[attr-defined]
-        return result
+        return self._parse_litellm_response(response, self.model, start)
 
     # ------------------------------------------------------------------
     # Public API — dispatches to the correct backend
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _messages_to_dicts(messages: list[LLMMessage]) -> list[dict[str, str]]:
-        return [{"role": m.role, "content": m.content} for m in messages]
+    def _messages_to_dicts(messages: list[LLMMessage]) -> list[dict]:
+        result = []
+        for m in messages:
+            d: dict = {"role": m.role, "content": m.content}
+            if m.tool_call_id:
+                d["tool_call_id"] = m.tool_call_id
+            if m.tool_calls:
+                d["tool_calls"] = m.tool_calls
+            result.append(d)
+        return result
 
     def _is_openai_compat(self) -> bool:
         return self.provider in _OPENAI_COMPAT_PROVIDERS

@@ -159,6 +159,14 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
     if node_type == "device_utils":
         return {"status": "string", "device_type": "string", "function": "string", "data": {}}
 
+    if node_type == "ai_agent":
+        return {
+            "status": "string",
+            "result": "string",
+            "tool_calls": [{"tool": "string", "arguments": "object", "result": "string"}],
+            "iterations": "integer",
+        }
+
     return {"status": "string", "result": "unknown"}
 
 

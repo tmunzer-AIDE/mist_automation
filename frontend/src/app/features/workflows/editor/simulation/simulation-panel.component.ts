@@ -32,7 +32,10 @@ import {
   WorkflowType,
 } from '../../../../core/models/workflow.model';
 import { WorkflowService } from '../../../../core/services/workflow.service';
+import { LlmService } from '../../../../core/services/llm.service';
 import { WebSocketService } from '../../../../core/services/websocket.service';
+import { AiChatPanelComponent } from '../../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
 
 @Component({
@@ -50,6 +53,7 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
     MatProgressBarModule,
     MatTooltipModule,
     MatSnackBarModule,
+    AiChatPanelComponent,
     DateTimePipe,
   ],
   template: `
@@ -203,6 +207,22 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
             </mat-tab>
           </mat-tab-group>
 
+          @if (aiPanelOpen()) {
+            <div class="ai-debug-section">
+              <div class="ai-debug-header">
+                <mat-icon>smart_toy</mat-icon>
+                <span>AI Debug Analysis</span>
+                <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
+              </div>
+              <app-ai-chat-panel
+                [initialSummary]="aiSummary()"
+                [errorMessage]="aiError()"
+                [parentLoading]="aiLoading()"
+                [threadId]="aiThreadId()"
+              ></app-ai-chat-panel>
+            </div>
+          }
+
           <!-- Run controls -->
           <div class="run-controls">
             <mat-slide-toggle
@@ -212,6 +232,15 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
             >
               Dry Run
             </mat-slide-toggle>
+            @if (hasFailedNodes() && llmAvailable()) {
+              <button
+                mat-stroked-button
+                (click)="debugWithAI()"
+                [disabled]="aiLoading()"
+              >
+                <mat-icon>smart_toy</mat-icon> Debug
+              </button>
+            }
             <button
               mat-raised-button
               color="primary"
@@ -481,6 +510,18 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
       .dry-run-toggle {
         font-size: 13px;
       }
+
+      .ai-debug-section {
+        border-top: 1px solid var(--mat-sys-outline-variant);
+        border-bottom: 1px solid var(--mat-sys-outline-variant);
+      }
+      .ai-debug-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 6px 6px 12px;
+        font-size: 13px; font-weight: 600;
+        mat-icon { color: var(--app-purple, #7c3aed); font-size: 18px; width: 18px; height: 18px; }
+        button { margin-left: auto; }
+      }
     `,
   ],
 })
@@ -494,6 +535,7 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
   @Output() simulationProgress = new EventEmitter<SimulationState>();
 
   private readonly workflowService = inject(WorkflowService);
+  private readonly llmService = inject(LlmService);
   private readonly wsService = inject(WebSocketService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly destroyRef = inject(DestroyRef);
@@ -506,6 +548,15 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
   paramValues = signal<Record<string, string>>({});
   dryRun = signal(true);
   isRunning = signal(false);
+
+  // AI Debug
+  llmAvailable = signal(false);
+  hasFailedNodes = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
   samplePayloads = signal<SamplePayload[]>([]);
   selectedSampleId = signal<string | null>(null);
 
@@ -522,6 +573,10 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.loadSamplePayloads();
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => this.llmAvailable.set(false),
+    });
   }
 
   ngOnDestroy(): void {
@@ -652,6 +707,8 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
         activeEdges: new Set(),
       };
 
+      this.hasFailedNodes.set(snapshots.some((s) => s.status === 'failed'));
+      this.aiPanelOpen.set(false);
       this.simulationStarted.emit(state);
     }
   }
@@ -703,6 +760,28 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
       ...this.simulationState,
       currentStep: step,
       nodeStatuses,
+    });
+  }
+
+  debugWithAI(): void {
+    const executionId = this.simulationState?.execution?.id;
+    if (!executionId) return;
+
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    this.llmService.debugExecution(executionId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.aiThreadId.set(res.thread_id);
+        this.aiSummary.set(res.analysis);
+        this.aiLoading.set(false);
+      },
+      error: (err) => {
+        this.aiError.set(extractErrorMessage(err));
+        this.aiLoading.set(false);
+      },
     });
   }
 }

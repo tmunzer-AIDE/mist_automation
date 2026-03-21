@@ -54,6 +54,7 @@ dependencies = [
     "structlog>=24.4.0",
     "python-json-logger>=2.0.7",
     "litellm>=1.40.0",
+    "fastmcp>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -172,6 +173,8 @@ module = [
     "apscheduler.*",
     "git.*",
     "litellm.*",
+    "fastmcp.*",
+    "mcp.*",
 ]
 ignore_missing_imports = true
 

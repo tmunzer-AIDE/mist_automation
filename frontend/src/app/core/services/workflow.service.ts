@@ -404,6 +404,8 @@ export class WorkflowService {
         return { target_workflow_id: '', input_mappings: {}, _output_schema: {} };
       case 'subflow_output':
         return { outputs: {} };
+      case 'ai_agent':
+        return { agent_task: '', agent_system_prompt: '', max_iterations: 10, mcp_servers: [] };
       default:
         return {};
     }

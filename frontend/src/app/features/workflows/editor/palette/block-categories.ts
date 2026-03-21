@@ -68,6 +68,10 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
       blockOption('email', 'Send email notification'),
     ],
   },
+  {
+    name: 'AI',
+    options: [blockOption('ai_agent', 'Autonomous AI agent with MCP tool access')],
+  },
 ];
 
 /** Sub-flow-only block: shown in palette only when editing a subflow workflow. */

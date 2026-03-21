@@ -1,13 +1,17 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { JsonPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
+import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
 import { WorkflowService } from '../../../core/services/workflow.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/workflow.model';
 import { DurationPipe } from '../../../shared/pipes/duration.pipe';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 @Component({
   selector: 'app-execution-detail-dialog',
@@ -19,6 +23,7 @@ import { DurationPipe } from '../../../shared/pipes/duration.pipe';
     MatTabsModule,
     MatDialogModule,
     StatusBadgeComponent,
+    AiChatPanelComponent,
     DurationPipe,
   ],
   template: `
@@ -123,10 +128,31 @@ import { DurationPipe } from '../../../shared/pipes/duration.pipe';
             </div>
           </mat-tab>
         </mat-tab-group>
+
+        @if (aiPanelOpen()) {
+          <div class="ai-debug-panel">
+            <div class="ai-debug-header">
+              <mat-icon>smart_toy</mat-icon>
+              <span>AI Debug Analysis</span>
+              <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
+            </div>
+            <app-ai-chat-panel
+              [initialSummary]="aiSummary()"
+              [errorMessage]="aiError()"
+              [parentLoading]="aiLoading()"
+              [threadId]="aiThreadId()"
+            ></app-ai-chat-panel>
+          </div>
+        }
       }
     </mat-dialog-content>
 
     <mat-dialog-actions align="end">
+      @if (hasFailedNodes() && llmAvailable()) {
+        <button mat-stroked-button (click)="debugWithAI()" [disabled]="aiLoading()">
+          <mat-icon>smart_toy</mat-icon> Debug with AI
+        </button>
+      }
       <button mat-flat-button mat-dialog-close>Close</button>
     </mat-dialog-actions>
   `,
@@ -253,6 +279,22 @@ import { DurationPipe } from '../../../shared/pipes/duration.pipe';
         color: var(--app-error-status);
       }
 
+      /* AI Debug */
+      .ai-debug-panel {
+        margin-top: 16px;
+        border: 1px solid var(--mat-sys-outline-variant);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .ai-debug-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 8px 8px 16px;
+        border-bottom: 1px solid var(--mat-sys-outline-variant);
+        font-size: 14px; font-weight: 600;
+        mat-icon { color: var(--app-purple, #7c3aed); font-size: 20px; width: 20px; height: 20px; }
+        button { margin-left: auto; }
+      }
+
       /* JSON */
       .json-pre {
         background: var(--mat-sys-surface-container);
@@ -273,21 +315,41 @@ export class ExecutionDetailDialogComponent implements OnInit {
     inject(MAT_DIALOG_DATA);
   private readonly dialogRef = inject(MatDialogRef<ExecutionDetailDialogComponent>);
   private readonly workflowService = inject(WorkflowService);
+  private readonly llmService = inject(LlmService);
+  private readonly destroyRef = inject(DestroyRef);
 
   execution = signal<WorkflowExecution | null>(null);
   loading = signal(true);
   nodeResultsList = signal<NodeExecutionResult[]>([]);
 
+  // AI Debug
+  llmAvailable = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
+
+  hasFailedNodes = signal(false);
+
   ngOnInit(): void {
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => this.llmAvailable.set(false),
+    });
     this.workflowService.getExecution(this.data.workflowId, this.data.execution.id).subscribe({
       next: (ex) => {
         this.execution.set(ex);
-        this.nodeResultsList.set(Object.values(ex.node_results || {}));
+        const results = Object.values(ex.node_results || {});
+        this.nodeResultsList.set(results);
+        this.hasFailedNodes.set(results.some((r) => r.status === 'failed'));
         this.loading.set(false);
       },
       error: () => {
         this.execution.set(this.data.execution);
-        this.nodeResultsList.set(Object.values(this.data.execution.node_results || {}));
+        const results = Object.values(this.data.execution.node_results || {});
+        this.nodeResultsList.set(results);
+        this.hasFailedNodes.set(results.some((r) => r.status === 'failed'));
         this.loading.set(false);
       },
     });
@@ -301,5 +363,27 @@ export class ExecutionDetailDialogComponent implements OnInit {
 
   isEmptyObj(obj: Record<string, unknown>): boolean {
     return Object.keys(obj).length === 0;
+  }
+
+  debugWithAI(): void {
+    const ex = this.execution();
+    if (!ex) return;
+
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    this.llmService.debugExecution(ex.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.aiThreadId.set(res.thread_id);
+        this.aiSummary.set(res.analysis);
+        this.aiLoading.set(false);
+      },
+      error: (err) => {
+        this.aiError.set(extractErrorMessage(err));
+        this.aiLoading.set(false);
+      },
+    });
   }
 }

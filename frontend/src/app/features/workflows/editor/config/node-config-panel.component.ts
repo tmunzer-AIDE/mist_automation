@@ -845,6 +845,71 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               }
             }
 
+            <!-- AI Agent -->
+            @if (isAiAgentAction) {
+              <mat-form-field appearance="outline">
+                <mat-label>Task</mat-label>
+                <textarea matInput formControlName="agent_task" rows="3"
+                  placeholder="Describe what the agent should accomplish..."></textarea>
+                <mat-hint>Supports Jinja2 variables</mat-hint>
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="agentTaskVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #agentTaskVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('agent_task')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>System Prompt (optional)</mat-label>
+                <textarea matInput formControlName="agent_system_prompt" rows="2"
+                  placeholder="Custom instructions for the agent..."></textarea>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Max Iterations</mat-label>
+                <input matInput type="number" formControlName="agent_max_iterations" />
+                <mat-hint>1 - 50</mat-hint>
+              </mat-form-field>
+
+              <div class="section-title">
+                MCP Servers
+                <button mat-icon-button (click)="addMcpServer()">
+                  <mat-icon>add</mat-icon>
+                </button>
+              </div>
+              @for (srv of mcpServersArray.controls; track $index; let i = $index) {
+                <div class="mcp-server-row" [formGroupName]="'mcp_servers'">
+                  <div [formGroupName]="i" class="mcp-server-fields">
+                    <mat-form-field appearance="outline">
+                      <mat-label>Name</mat-label>
+                      <input matInput formControlName="name" placeholder="my-server" />
+                    </mat-form-field>
+                    <mat-form-field appearance="outline">
+                      <mat-label>URL</mat-label>
+                      <input matInput formControlName="url"
+                        placeholder="http://localhost:8080/mcp" />
+                    </mat-form-field>
+                    <mat-form-field appearance="outline">
+                      <mat-label>Headers (JSON)</mat-label>
+                      <input matInput formControlName="headers"
+                        placeholder='{"Authorization": "Bearer ..."}' />
+                    </mat-form-field>
+                    <mat-slide-toggle formControlName="ssl_verify">SSL Verify</mat-slide-toggle>
+                    <button mat-icon-button (click)="removeMcpServer(i)" matTooltip="Remove">
+                      <mat-icon>delete</mat-icon>
+                    </button>
+                  </div>
+                </div>
+              }
+              @if (mcpServersArray.length === 0) {
+                <p class="empty-hint">No MCP servers configured. Add one to give the agent access to tools.</p>
+              }
+            }
+
             <!-- Sub-Flow Input: parameter list editor -->
             @if (node.type === 'subflow_input') {
               <div class="section-title">Input Parameters</div>
@@ -1465,6 +1530,20 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       du_function: [config['function'] || ''],
       du_site_id: [config['site_id'] || ''],
       du_device_id: [config['device_id'] || ''],
+      agent_task: [config['agent_task'] || ''],
+      agent_system_prompt: [config['agent_system_prompt'] || ''],
+      agent_max_iterations: [config['max_iterations'] ?? 10],
+      mcp_servers: this.fb.array(
+        ((config['mcp_servers'] as { name: string; url: string; headers: Record<string, string>; ssl_verify: boolean }[]) || []).map(
+          (s) =>
+            this.fb.group({
+              name: [s.name || ''],
+              url: [s.url || ''],
+              headers: [s.headers ? JSON.stringify(s.headers, null, 2) : ''],
+              ssl_verify: [s.ssl_verify ?? true],
+            })
+        )
+      ),
       max_retries: [this.node.max_retries ?? 3],
       retry_delay: [this.node.retry_delay ?? 5],
       continue_on_error: [this.node.continue_on_error ?? false],
@@ -1869,6 +1948,30 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         }
       }
 
+      if (this.node.type === 'ai_agent') {
+        config['agent_task'] = raw.agent_task || '';
+        config['agent_system_prompt'] = raw.agent_system_prompt || '';
+        config['max_iterations'] = raw.agent_max_iterations ?? 10;
+        config['mcp_servers'] = (raw.mcp_servers || [])
+          .filter((s: Record<string, unknown>) => s['name'] || s['url'])
+          .map((s: Record<string, unknown>) => {
+            const srv: Record<string, unknown> = {
+              name: s['name'],
+              url: s['url'],
+              ssl_verify: s['ssl_verify'] ?? true,
+            };
+            const hdrs = s['headers'] as string | undefined;
+            if (hdrs?.trim()) {
+              try {
+                srv['headers'] = JSON.parse(hdrs);
+              } catch {
+                srv['headers'] = {};
+              }
+            }
+            return srv;
+          });
+      }
+
       updatedNode.config = config;
     }
 
@@ -2038,10 +2141,29 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     return ['slack', 'pagerduty', 'email'].includes(this.node.type);
   }
 
+  get isAiAgentAction(): boolean {
+    return this.node.type === 'ai_agent';
+  }
+
+  get mcpServersArray(): FormArray {
+    return this.form.get('mcp_servers') as FormArray;
+  }
+
+  addMcpServer(): void {
+    this.mcpServersArray.push(this.fb.group({ name: [''], url: [''], headers: [''], ssl_verify: [true] }));
+    this.emitChanges();
+  }
+
+  removeMcpServer(index: number): void {
+    this.mcpServersArray.removeAt(index);
+    this.emitChanges();
+  }
+
   get hasOutput(): boolean {
     return (
       this.isApiAction ||
       this.isDeviceUtilAction ||
+      this.isAiAgentAction ||
       this.node.type === 'webhook' ||
       this.node.type === 'servicenow' ||
       this.node.type === 'data_transform' ||
@@ -2053,6 +2175,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     const t = this.node.type;
     if (this.isApiAction) return 'output.status_code, output.body';
     if (this.isDeviceUtilAction) return 'output.status, output.device_type, output.function, output.data';
+    if (this.isAiAgentAction) return 'output.status, output.result, output.tool_calls, output.iterations';
     if (t === 'webhook') return 'output.status_code, output.response';
     if (t === 'servicenow') return 'output.status_code, output.response';
     if (t === 'data_transform') return 'output.rows, output.columns, output.row_count';

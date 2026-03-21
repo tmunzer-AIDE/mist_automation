@@ -22,6 +22,7 @@ const PROVIDER_OPTIONS = [
   { value: 'lm_studio', label: 'LM Studio (Local)' },
   { value: 'azure_openai', label: 'Azure OpenAI' },
   { value: 'bedrock', label: 'AWS Bedrock' },
+  { value: 'vertex', label: 'Google Vertex AI' },
 ];
 
 const MODEL_HINTS: Record<string, string> = {
@@ -31,6 +32,7 @@ const MODEL_HINTS: Record<string, string> = {
   lm_studio: 'Use the model name loaded in LM Studio',
   azure_openai: 'gpt-4o (deployment name)',
   bedrock: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  vertex: 'gemini-2.0-flash',
 };
 
 @Component({

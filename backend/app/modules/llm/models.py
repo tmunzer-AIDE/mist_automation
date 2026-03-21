@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from beanie import Document, Indexed, PydanticObjectId
 from pydantic import BaseModel, Field
+from pymongo import IndexModel
 
 
 class LLMUsageLog(Document):
@@ -24,9 +25,9 @@ class LLMUsageLog(Document):
     class Settings:
         name = "llm_usage_logs"
         indexes = [
-            [("timestamp", -1)],
-            "user_id",
+            IndexModel([("user_id", 1), ("timestamp", -1)]),
             "feature",
+            IndexModel([("timestamp", 1)], expireAfterSeconds=365 * 24 * 3600),
         ]
 
 
@@ -54,6 +55,7 @@ class ConversationThread(Document):
         indexes = [
             [("user_id", 1), ("created_at", -1)],
             "feature",
+            IndexModel([("updated_at", 1)], expireAfterSeconds=90 * 24 * 3600),
         ]
 
     def add_message(self, role: str, content: str) -> None:
@@ -61,6 +63,18 @@ class ConversationThread(Document):
         self.messages.append(ConversationMessage(role=role, content=content))
         self.updated_at = datetime.now(timezone.utc)
 
-    def get_messages_for_llm(self) -> list[dict[str, str]]:
-        """Return messages in the format expected by LLM APIs."""
-        return [{"role": m.role, "content": m.content} for m in self.messages]
+    def get_messages_for_llm(self, max_turns: int = 20) -> list[dict[str, str]]:
+        """Return messages for the LLM, capped with a sliding window.
+
+        Keeps all system messages + the last ``max_turns`` non-system messages
+        to avoid exceeding the model's context window on long threads.
+        """
+        system = [{"role": m.role, "content": m.content} for m in self.messages if m.role == "system"]
+        non_system = [{"role": m.role, "content": m.content} for m in self.messages if m.role != "system"]
+        return system + non_system[-max_turns:]
+
+    def to_llm_messages(self, max_turns: int = 20):
+        """Return messages as LLMMessage objects ready for the LLM service."""
+        from app.modules.llm.services.llm_service import LLMMessage
+
+        return [LLMMessage(role=m["role"], content=m["content"]) for m in self.get_messages_for_llm(max_turns)]
