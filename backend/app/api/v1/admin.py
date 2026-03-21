@@ -69,6 +69,7 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "servicenow_username": config.servicenow_username,
         "servicenow_password_set": bool(config.servicenow_password),
         "pagerduty_api_key_set": bool(config.pagerduty_api_key),
+        "slack_signing_secret_set": bool(config.slack_signing_secret),
         # LLM (global toggle — configs managed via /llm/configs)
         "llm_enabled": config.llm_enabled,
         "updated_at": config.updated_at,
@@ -89,7 +90,13 @@ async def update_system_settings(
     updates = settings.model_dump(exclude_unset=True)
 
     # Encrypt sensitive fields
-    sensitive_encrypt = {"mist_api_token", "webhook_secret", "servicenow_password", "pagerduty_api_key"}
+    sensitive_encrypt = {
+        "mist_api_token",
+        "webhook_secret",
+        "servicenow_password",
+        "pagerduty_api_key",
+        "slack_signing_secret",
+    }
     for field, value in updates.items():
         if field in sensitive_encrypt:
             setattr(config, field, encrypt_sensitive_data(value))

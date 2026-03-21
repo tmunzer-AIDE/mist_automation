@@ -12,12 +12,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import get_current_user_from_token, require_admin, require_automation_role, require_backup_role
 from app.models.user import User
+from fastapi import Query
+
 from app.modules.llm.schemas import (
     CategorySelectionRequest,
     CategorySelectionResponse,
     ChatResponse,
+    ConversationMessageResponse,
+    ConversationThreadDetail,
+    ConversationThreadListResponse,
+    ConversationThreadSummary,
     DebugExecutionRequest,
     DebugExecutionResponse,
+    ElicitationResponseRequest,
     FieldAssistRequest,
     FieldAssistResponse,
     FollowUpRequest,
@@ -34,6 +41,7 @@ from app.modules.llm.schemas import (
     MCPConfigResponse,
     MCPConfigUpdate,
     MCPConnectionTestRequest,
+    McpToolCallRequest,
     SummarizeDiffRequest,
     SummaryResponse,
     WebhookSummaryRequest,
@@ -68,20 +76,54 @@ def _check_llm_rate_limit(user_id: str) -> None:
     _llm_requests[user_id].append(now)
 
 
+async def _load_external_mcp_clients(config_ids: list[str]) -> list:
+    """Load external MCP clients, wrapping SSRF errors as HTTP 400."""
+    from app.modules.llm.services.mcp_client import load_external_mcp_clients
+
+    try:
+        return await load_external_mcp_clients(config_ids)
+    except ValueError as e:
+        logger.warning("mcp_ssrf_blocked", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"MCP server URL blocked by security policy: {e}",
+        ) from None
+
+
 @asynccontextmanager
-async def _mcp_user_session(user_id: str):
-    """Context manager that sets MCP user context, connects a client, and cleans up."""
+async def _mcp_user_session(
+    user_id: str,
+    elicitation_channel: str | None = None,
+    extra_clients: list | None = None,
+):
+    """Context manager that sets MCP user context, connects clients, and cleans up.
+
+    Always includes the local in-process MCP server. ``extra_clients`` are
+    additional (external) MCPClientWrapper instances to connect alongside.
+    """
+    import asyncio
+
     from app.modules.llm.services.mcp_client import create_local_mcp_client
+    from app.modules.mcp_server.helpers import elicitation_channel_var
     from app.modules.mcp_server.server import mcp_user_id_var
 
     mcp_user_id_var.set(str(user_id))
-    client = create_local_mcp_client()
-    await client.connect()
+    elicitation_channel_var.set(elicitation_channel)
+
+    local = create_local_mcp_client()
+    all_clients = [local] + (extra_clients or [])
     try:
-        yield client
+        await asyncio.gather(*(c.connect() for c in all_clients))
+    except Exception:
+        await asyncio.gather(*(c.disconnect() for c in all_clients), return_exceptions=True)
+        raise
+    try:
+        yield all_clients
     finally:
-        await client.disconnect()
+        for c in all_clients:
+            await c.disconnect()
         mcp_user_id_var.set(None)
+        elicitation_channel_var.set(None)
 
 
 # ── Status & Test ─────────────────────────────────────────────────────────────
@@ -514,16 +556,20 @@ async def test_mcp_config(
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
 
+    from app.utils.url_safety import validate_outbound_url
+
+    validate_outbound_url(cfg.url)
     headers = json_mod.loads(decrypt_sensitive_data(cfg.headers)) if cfg.headers else None
     client = MCPClientWrapper(MCPServerConfig(name=cfg.name, url=cfg.url, headers=headers, ssl_verify=cfg.ssl_verify))
     try:
         await client.connect()
         tools = await client.list_tools()
-        await client.disconnect()
         return {"status": "connected", "tools": len(tools), "tool_names": [t.name for t in tools[:20]]}
     except Exception as e:
         logger.warning("mcp_config_test_failed", config_id=config_id, error=str(e))
         return {"status": "error", "error": "Connection test failed. Check URL and credentials."}
+    finally:
+        await client.disconnect()
 
 
 @router.get("/mcp/configs/available", tags=["MCP"])
@@ -554,17 +600,118 @@ async def test_mcp_connection_anonymous(
         if cfg and cfg.headers:
             headers = json_mod.loads(decrypt_sensitive_data(cfg.headers))
 
+    from app.utils.url_safety import validate_outbound_url
+
+    validate_outbound_url(request.url)
     client = MCPClientWrapper(
         MCPServerConfig(name="test", url=request.url, headers=headers, ssl_verify=request.ssl_verify)
     )
     try:
         await client.connect()
         tools = await client.list_tools()
-        await client.disconnect()
         return {"status": "connected", "tools": len(tools), "tool_names": [t.name for t in tools[:20]]}
     except Exception as e:
         logger.warning("mcp_test_connection_failed", error=str(e))
         return {"status": "error", "error": "Connection test failed. Check URL and credentials."}
+    finally:
+        await client.disconnect()
+
+
+# ── MCP Tool Browser & Test ──────────────────────────────────────────────────
+
+
+@router.get("/mcp/configs/{config_id}/tools", tags=["MCP"])
+async def list_mcp_config_tools(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """List all tools from an external MCP server with full schemas."""
+    clients = await _load_external_mcp_clients([config_id])
+    if not clients:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found or disabled")
+
+    client = clients[0]
+    try:
+        await client.connect()
+        tools = await client.list_tools()
+        return [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
+    except Exception as e:
+        logger.warning("mcp_list_tools_failed", config_id=config_id, error=str(e))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to connect to MCP server") from None
+    finally:
+        await client.disconnect()
+
+
+@router.post("/mcp/configs/{config_id}/tools/{tool_name}/call", tags=["MCP"])
+async def call_mcp_config_tool(
+    config_id: str,
+    tool_name: str,
+    request: McpToolCallRequest,
+    _current_user: User = Depends(require_admin),
+):
+    """Call a specific tool on an external MCP server. Admin only."""
+    clients = await _load_external_mcp_clients([config_id])
+    if not clients:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found or disabled")
+
+    client = clients[0]
+    try:
+        await client.connect()
+        result = await client.call_tool(tool_name, request.arguments)
+        return {"result": result}
+    except Exception as e:
+        logger.warning("mcp_tool_call_failed", config_id=config_id, tool=tool_name, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Tool call failed. Check server connection and arguments.",
+        ) from None
+    finally:
+        await client.disconnect()
+
+
+@router.get("/mcp/local/tools", tags=["MCP"])
+async def list_local_mcp_tools(
+    current_user: User = Depends(require_admin),
+):
+    """List all tools from the local in-process MCP server."""
+    from app.modules.llm.services.mcp_client import create_local_mcp_client
+    from app.modules.mcp_server.server import mcp_user_id_var
+
+    mcp_user_id_var.set(str(current_user.id))
+    client = create_local_mcp_client()
+    try:
+        await client.connect()
+        tools = await client.list_tools()
+        return [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
+    finally:
+        await client.disconnect()
+        mcp_user_id_var.set(None)
+
+
+@router.post("/mcp/local/tools/{tool_name}/call", tags=["MCP"])
+async def call_local_mcp_tool(
+    tool_name: str,
+    request: McpToolCallRequest,
+    current_user: User = Depends(require_admin),
+):
+    """Call a specific tool on the local MCP server. Admin only."""
+    from app.modules.llm.services.mcp_client import create_local_mcp_client
+    from app.modules.mcp_server.server import mcp_user_id_var
+
+    mcp_user_id_var.set(str(current_user.id))
+    client = create_local_mcp_client()
+    try:
+        await client.connect()
+        result = await client.call_tool(tool_name, request.arguments)
+        return {"result": result}
+    except Exception as e:
+        logger.warning("mcp_local_tool_call_failed", tool=tool_name, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Tool call failed.",
+        ) from None
+    finally:
+        await client.disconnect()
+        mcp_user_id_var.set(None)
 
 
 # ── Backup Summarization ─────────────────────────────────────────────────────
@@ -662,7 +809,7 @@ async def continue_conversation(
     await thread.save()
 
     if thread.feature in _MCP_ENABLED_FEATURES:
-        reply = await _continue_with_mcp(thread, request.message, current_user)
+        reply = await _continue_with_mcp(thread, request.message, current_user, stream_id=request.stream_id)
     else:
         llm = await create_llm_service()
         llm_messages = thread.to_llm_messages()
@@ -681,7 +828,9 @@ async def continue_conversation(
     )
 
 
-async def _continue_with_mcp(thread, message: str, current_user: User) -> str:
+async def _continue_with_mcp(
+    thread, message: str, current_user: User, stream_id: str | None = None
+) -> str:
     """Run a follow-up message through the MCP agent loop with conversation history."""
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
@@ -704,8 +853,12 @@ async def _continue_with_mcp(thread, message: str, current_user: User) -> str:
     if len(prior_turns) > 1:
         context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[:-1][-8:])
 
-    async with _mcp_user_session(current_user.id) as mcp_client:
-        agent = AIAgentService(llm=llm, mcp_clients=[mcp_client], max_iterations=5)
+    external = await _load_external_mcp_clients(thread.mcp_config_ids)
+    elicit_channel = f"llm:{stream_id}" if stream_id else None
+    async with _mcp_user_session(
+        current_user.id, elicitation_channel=elicit_channel, extra_clients=external,
+    ) as all_clients:
+        agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=5)
         result = await agent.run(
             task=message,
             system_prompt=system_prompt + context_summary,
@@ -1080,9 +1233,19 @@ async def global_chat(
     thread.add_message("user", request.message)
     await thread.save()
 
-    # Run agent with local MCP server
-    async with _mcp_user_session(current_user.id) as mcp_client:
-        agent = AIAgentService(llm=llm, mcp_clients=[mcp_client], max_iterations=10)
+    # Load external MCP clients — validate SSRF before persisting
+    mcp_ids = request.mcp_config_ids if request.mcp_config_ids else thread.mcp_config_ids
+    external = await _load_external_mcp_clients(mcp_ids)
+    if request.mcp_config_ids is not None and request.mcp_config_ids != thread.mcp_config_ids:
+        thread.mcp_config_ids = request.mcp_config_ids
+        await thread.save()
+
+    # Run agent with local + external MCP servers
+    elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
+    async with _mcp_user_session(
+        current_user.id, elicitation_channel=elicit_channel, extra_clients=external,
+    ) as all_clients:
+        agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=10)
 
         # Include recent conversation history as context for multi-turn
         history = thread.get_messages_for_llm(max_turns=10)
@@ -1112,3 +1275,131 @@ async def global_chat(
         tool_calls=tool_calls_summary,
         usage=_usage_dict_from_agent(result),
     )
+
+
+@router.post("/llm/elicitation/{request_id}/respond", tags=["LLM"])
+async def respond_to_elicitation(
+    request_id: str,
+    request: ElicitationResponseRequest,
+    _current_user: User = Depends(get_current_user_from_token),
+):
+    """Respond to a tool elicitation prompt (accept or reject)."""
+    from app.modules.mcp_server.helpers import resolve_elicitation
+
+    found = resolve_elicitation(request_id, request.accepted)
+    if not found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Elicitation request not found or already resolved",
+        )
+    return {"status": "resolved", "accepted": request.accepted}
+
+
+# ── Conversation Thread History ─────────────────────────────────────────────
+
+
+def _thread_to_summary(thread) -> ConversationThreadSummary:
+    """Build a ConversationThreadSummary from a ConversationThread document or aggregation dict."""
+    if isinstance(thread, dict):
+        messages = thread.get("messages", [])
+        first_user = next((m["content"] for m in messages if m.get("role") == "user"), "")
+        return ConversationThreadSummary(
+            id=str(thread["_id"]),
+            feature=thread.get("feature", ""),
+            context_ref=thread.get("context_ref"),
+            message_count=len(messages),
+            preview=first_user[:100] if first_user else "",
+            created_at=thread["created_at"],
+            updated_at=thread["updated_at"],
+        )
+    # Document instance
+    first_user = next((m.content for m in thread.messages if m.role == "user"), "")
+    return ConversationThreadSummary(
+        id=str(thread.id),
+        feature=thread.feature,
+        context_ref=thread.context_ref,
+        message_count=len(thread.messages),
+        preview=first_user[:100] if first_user else "",
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
+
+
+@router.get("/llm/threads", response_model=ConversationThreadListResponse, tags=["LLM"])
+async def list_threads(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    feature: str | None = Query(None),
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """List the current user's conversation threads (newest first)."""
+    from app.modules.llm.models import ConversationThread
+
+    match: dict = {"user_id": current_user.id}
+    if feature:
+        match["feature"] = feature
+
+    pipeline = [
+        {"$match": match},
+        {"$sort": {"updated_at": -1}},
+        {
+            "$facet": {
+                "total": [{"$count": "n"}],
+                "items": [{"$skip": skip}, {"$limit": limit}],
+            }
+        },
+    ]
+    results = await ConversationThread.aggregate(pipeline).to_list()
+    row = results[0] if results else {}
+    total = row.get("total", [{}])[0].get("n", 0) if row.get("total") else 0
+    items = row.get("items", [])
+
+    return ConversationThreadListResponse(
+        threads=[_thread_to_summary(item) for item in items],
+        total=total,
+    )
+
+
+@router.get("/llm/threads/{thread_id}", response_model=ConversationThreadDetail, tags=["LLM"])
+async def get_thread(
+    thread_id: str,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Get a conversation thread with full message history."""
+    from app.modules.llm.models import ConversationThread
+
+    thread = await ConversationThread.get(PydanticObjectId(thread_id))
+    if not thread:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
+    if thread.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    return ConversationThreadDetail(
+        id=str(thread.id),
+        feature=thread.feature,
+        context_ref=thread.context_ref,
+        messages=[
+            ConversationMessageResponse(role=m.role, content=m.content, timestamp=m.timestamp) for m in thread.messages
+        ],
+        mcp_config_ids=thread.mcp_config_ids,
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
+
+
+@router.delete("/llm/threads/{thread_id}", tags=["LLM"])
+async def delete_thread(
+    thread_id: str,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Delete a conversation thread."""
+    from app.modules.llm.models import ConversationThread
+
+    thread = await ConversationThread.get(PydanticObjectId(thread_id))
+    if not thread:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
+    if thread.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    await thread.delete()
+    return {"status": "deleted"}

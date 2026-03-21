@@ -17,6 +17,7 @@ import {
   ActionType,
   ApiCatalogEntry,
   DeviceUtilEntry,
+  EventPair,
   VariableTree,
   SimulateRequest,
   SamplePayload,
@@ -31,6 +32,7 @@ export class WorkflowService {
   private readonly api = inject(ApiService);
   private catalogCache$: Observable<ApiCatalogEntry[]> | null = null;
   private deviceUtilsCatalogCache$: Observable<DeviceUtilEntry[]> | null = null;
+  private eventPairsCache$: Observable<EventPair[]> | null = null;
 
   // ── CRUD ──────────────────────────────────────────────────────────────
 
@@ -126,6 +128,15 @@ export class WorkflowService {
         .pipe(shareReplay(1));
     }
     return this.deviceUtilsCatalogCache$;
+  }
+
+  getEventPairs(): Observable<EventPair[]> {
+    if (!this.eventPairsCache$) {
+      this.eventPairsCache$ = this.api
+        .get<EventPair[]>('/workflows/event-pairs')
+        .pipe(shareReplay(1));
+    }
+    return this.eventPairsCache$;
   }
 
   // ── Variable autocomplete ─────────────────────────────────────────────

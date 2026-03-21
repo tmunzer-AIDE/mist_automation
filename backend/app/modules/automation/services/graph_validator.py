@@ -130,7 +130,12 @@ def _require_single_node(nodes: list[WorkflowNode], node_type: str, label: str) 
 
 def _validate_standard_entry(nodes: list[WorkflowNode]) -> None:
     """Validate entry node rules for standard workflows."""
-    _require_single_node(nodes, "trigger", "trigger node")
+    trigger = _require_single_node(nodes, "trigger", "trigger node")
+
+    # Validate aggregated_webhook trigger config
+    trigger_type = (trigger.config or {}).get("trigger_type", "")
+    if trigger_type == "aggregated_webhook":
+        _validate_aggregated_webhook_config(trigger)
 
     for node in nodes:
         if node.type in ("subflow_input", "subflow_output"):
@@ -151,6 +156,26 @@ def _validate_subflow_entry(nodes: list[WorkflowNode]) -> None:
     for node in nodes:
         if node.type == "trigger":
             raise ValidationError("Sub-flow workflows cannot contain trigger nodes. Use subflow_input instead.")
+
+
+def _validate_aggregated_webhook_config(trigger: WorkflowNode) -> None:
+    """Validate config fields specific to aggregated_webhook triggers."""
+    cfg = trigger.config or {}
+
+    window_seconds = cfg.get("window_seconds")
+    if not window_seconds or (isinstance(window_seconds, (int, float)) and window_seconds <= 0):
+        raise ValidationError("Aggregated webhook trigger requires 'window_seconds' > 0")
+
+    group_by = cfg.get("group_by")
+    if not group_by:
+        raise ValidationError("Aggregated webhook trigger requires a non-empty 'group_by' field")
+
+    event_type_filter = cfg.get("event_type_filter")
+    if not event_type_filter:
+        raise ValidationError("Aggregated webhook trigger requires 'event_type_filter' (the opening event type)")
+
+    # closing_event_type is optional
+    # device_key is optional (defaults to device_mac)
 
 
 async def validate_no_circular_subflow_references(

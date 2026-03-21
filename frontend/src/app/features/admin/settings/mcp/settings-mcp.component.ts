@@ -10,6 +10,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { LlmService } from '../../../../core/services/llm.service';
 import { McpConfig } from '../../../../core/models/llm.model';
 import { McpConfigDialogComponent } from './mcp-config-dialog.component';
+import { McpToolsDialogComponent } from './mcp-tools-dialog.component';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
 @Component({
@@ -29,13 +30,18 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
     @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
-      <div class="tab-form">
+      <div class="tab-form wide">
         <mat-card>
           <mat-card-header>
             <mat-card-title>MCP Servers</mat-card-title>
-            <button mat-flat-button (click)="addConfig()">
-              <mat-icon>add</mat-icon> Add Server
-            </button>
+            <div style="display: flex; gap: 8px">
+              <button mat-stroked-button (click)="browseLocalTools()">
+                <mat-icon>build</mat-icon> Local Server
+              </button>
+              <button mat-flat-button (click)="addConfig()">
+                <mat-icon>add</mat-icon> Add Server
+              </button>
+            </div>
           </mat-card-header>
           <mat-card-content>
             @if (configs().length === 0) {
@@ -62,6 +68,9 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
                   <th mat-header-cell *matHeaderCellDef></th>
                   <td mat-cell *matCellDef="let c">
                     <div class="inline-actions">
+                      <button mat-icon-button matTooltip="Browse Tools" (click)="browseTools(c)">
+                        <mat-icon>build</mat-icon>
+                      </button>
                       <button mat-icon-button matTooltip="Test Connection" (click)="testConfig(c)">
                         <mat-icon>wifi_tethering</mat-icon>
                       </button>
@@ -86,7 +95,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
   styles: [
     `
       .empty-hint { color: var(--mat-sys-on-surface-variant); font-size: 13px; padding: 16px; text-align: center; }
-      .config-table { width: 100%; }
+      .config-table { width: 100%; background: transparent; }
       .url-cell { font-family: var(--app-font-mono); font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
       .status-dot {
         font-size: 12px; font-weight: 500;
@@ -139,6 +148,14 @@ export class SettingsMcpComponent implements OnInit {
       },
       error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
     });
+  }
+
+  browseTools(c: McpConfig): void {
+    this.dialog.open(McpToolsDialogComponent, { width: '700px', data: { configId: c.id, name: c.name } });
+  }
+
+  browseLocalTools(): void {
+    this.dialog.open(McpToolsDialogComponent, { width: '700px', data: { configId: null, name: 'Local Server' } });
   }
 
   deleteConfig(c: McpConfig): void {

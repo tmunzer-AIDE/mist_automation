@@ -126,6 +126,19 @@ class SmeeClient:
         logger.warning("smee_ssl_all_failed", msg="All TLS options failed; disabling verification")
         return False
 
+    def _detect_target(self, body) -> str:
+        """Determine the forwarding target URL based on payload content.
+
+        Slack interactive payloads (button clicks) are routed to the Slack
+        interactive endpoint; everything else goes to the Mist webhook
+        endpoint (default).
+        """
+        if isinstance(body, dict) and body.get("type") in ("block_actions", "interactive_message"):
+            return self.target_url.replace("/webhooks/mist", "/webhooks/slack/interactive")
+        if isinstance(body, str) and "payload=" in body:
+            return self.target_url.replace("/webhooks/mist", "/webhooks/slack/interactive")
+        return self.target_url
+
     async def _forward(self, raw: str, client: httpx.AsyncClient) -> None:
         """Forward an SSE event payload to the local webhook endpoint."""
         try:
@@ -140,6 +153,9 @@ class SmeeClient:
             return
 
         body = data["body"]
+
+        # Route to the correct endpoint based on payload content
+        target = self._detect_target(body)
 
         # Build forwarding headers (keep content-type and Mist signature).
         # Mark the request as smee-forwarded so the webhook endpoint can
@@ -167,17 +183,18 @@ class SmeeClient:
 
         try:
             resp = await client.post(
-                self.target_url,
+                target,
                 content=content,
                 headers=forward_headers,
             )
             logger.debug(
                 "smee_event_forwarded",
                 status=resp.status_code,
+                target=target,
                 topic=body.get("topic", "unknown") if isinstance(body, dict) else "unknown",
             )
         except Exception as exc:
-            logger.warning("smee_forward_failed", error=str(exc))
+            logger.warning("smee_forward_failed", error=str(exc), target=target)
 
 
 # ── Singleton manager ────────────────────────────────────────────────────────

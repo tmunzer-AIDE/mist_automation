@@ -54,6 +54,7 @@ class SystemSettingsUpdate(BaseModel):
     # Sensitive integration fields
     servicenow_password: str | None = None
     pagerduty_api_key: str | None = None
+    slack_signing_secret: str | None = None
 
     # LLM (global toggle only — individual configs managed via /llm/configs)
     llm_enabled: bool | None = None

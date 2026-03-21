@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
 import { ApiService } from './api.service';
 import {
+  ConversationThreadDetail,
+  ConversationThreadListResponse,
   GlobalChatResponse,
   LlmConfig,
   LlmConfigAvailable,
@@ -11,6 +13,7 @@ import {
   McpConfig,
   McpConfigAvailable,
   McpTestResult,
+  McpTool,
 } from '../models/llm.model';
 
 interface SummaryResponse {
@@ -122,12 +125,25 @@ export class LlmService {
   }
 
   /** Global chat with MCP tool access */
-  globalChat(message: string, threadId?: string, pageContext?: string): Observable<GlobalChatResponse> {
+  globalChat(
+    message: string,
+    threadId?: string,
+    pageContext?: string,
+    streamId?: string,
+    mcpConfigIds?: string[],
+  ): Observable<GlobalChatResponse> {
     return this.api.post<GlobalChatResponse>('/llm/chat', {
       message,
       thread_id: threadId ?? null,
       page_context: pageContext ?? null,
+      stream_id: streamId ?? null,
+      mcp_config_ids: mcpConfigIds ?? [],
     });
+  }
+
+  /** Respond to a tool elicitation prompt */
+  respondToElicitation(requestId: string, accepted: boolean): Observable<{ status: string }> {
+    return this.api.post<{ status: string }>(`/llm/elicitation/${requestId}/respond`, { accepted });
   }
 
   /** Summarize changes between two backup object versions */
@@ -199,6 +215,22 @@ export class LlmService {
     });
   }
 
+  // ── Conversation Threads ─────────────────────────────────────────────────
+
+  listThreads(skip = 0, limit = 25, feature?: string): Observable<ConversationThreadListResponse> {
+    const params: Record<string, string | number> = { skip, limit };
+    if (feature) params['feature'] = feature;
+    return this.api.get<ConversationThreadListResponse>('/llm/threads', params);
+  }
+
+  getThread(id: string): Observable<ConversationThreadDetail> {
+    return this.api.get<ConversationThreadDetail>(`/llm/threads/${id}`);
+  }
+
+  deleteThread(id: string): Observable<void> {
+    return this.api.delete<void>(`/llm/threads/${id}`);
+  }
+
   // ── MCP Config CRUD ──────────────────────────────────────────────────────
 
   listMcpConfigs(): Observable<McpConfig[]> {
@@ -227,5 +259,23 @@ export class LlmService {
 
   testMcpConnectionAnonymous(data: Record<string, unknown>): Observable<McpTestResult> {
     return this.api.post<McpTestResult>('/mcp/test-connection', data);
+  }
+
+  // ── MCP Tool Browser ──────────────────────────────────────────────────────
+
+  listMcpTools(configId: string): Observable<McpTool[]> {
+    return this.api.get<McpTool[]>(`/mcp/configs/${configId}/tools`);
+  }
+
+  callMcpTool(configId: string, toolName: string, args: Record<string, unknown>): Observable<{ result: string }> {
+    return this.api.post<{ result: string }>(`/mcp/configs/${configId}/tools/${toolName}/call`, { arguments: args });
+  }
+
+  listLocalMcpTools(): Observable<McpTool[]> {
+    return this.api.get<McpTool[]>('/mcp/local/tools');
+  }
+
+  callLocalMcpTool(toolName: string, args: Record<string, unknown>): Observable<{ result: string }> {
+    return this.api.post<{ result: string }>(`/mcp/local/tools/${toolName}/call`, { arguments: args });
   }
 }

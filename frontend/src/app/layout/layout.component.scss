@@ -31,5 +31,6 @@
   &.full-width {
     max-width: none;
     padding: 0;
+    height: calc(100vh - 64px);
   }
 }

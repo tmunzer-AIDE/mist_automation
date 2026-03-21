@@ -42,6 +42,7 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
     name: 'Flow Control',
     options: [
       blockOption('delay', 'Wait for a specified duration'),
+      blockOption('wait_for_callback', 'Send Slack message and pause until button clicked'),
       blockOption('condition', 'Branch based on a condition'),
       blockOption('set_variable', 'Compute and store a variable'),
       blockOption('for_each', 'Iterate over a list with nested actions'),

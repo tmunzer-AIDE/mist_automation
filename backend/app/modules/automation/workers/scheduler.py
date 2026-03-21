@@ -318,6 +318,30 @@ class WorkflowScheduler:
         except Exception as e:
             logger.error("scheduled_backup_failed", error=str(e))
 
+    def schedule_aggregation_fire(self, window_id: str, fire_at: datetime) -> None:
+        """Schedule a one-shot job to fire an aggregation window."""
+        from apscheduler.triggers.date import DateTrigger
+
+        job_id = f"aggregation_{window_id}"
+        self.scheduler.add_job(
+            _fire_aggregation_job,
+            trigger=DateTrigger(run_date=fire_at),
+            id=job_id,
+            replace_existing=True,
+            coalesce=True,
+            kwargs={"window_id": window_id},
+        )
+        logger.info("aggregation_fire_scheduled", window_id=window_id, fire_at=fire_at.isoformat())
+
+    def cancel_aggregation_fire(self, window_id: str) -> None:
+        """Cancel a scheduled aggregation fire job."""
+        job_id = f"aggregation_{window_id}"
+        try:
+            self.scheduler.remove_job(job_id)
+            logger.info("aggregation_fire_cancelled", window_id=window_id)
+        except Exception:
+            pass  # Job may not exist
+
     def get_scheduled_workflows(self) -> list[dict]:
         """
         Get list of all scheduled workflows.
@@ -338,6 +362,14 @@ class WorkflowScheduler:
             })
 
         return jobs
+
+
+def _fire_aggregation_job(window_id: str) -> None:
+    """APScheduler callback — fires an aggregation window."""
+    from app.core.tasks import create_background_task
+    from app.modules.automation.workers.aggregation_worker import fire_aggregation_window
+
+    create_background_task(fire_aggregation_window(window_id), name=f"fire-aggregation-{window_id}")
 
 
 # Global scheduler instance

@@ -26,6 +26,7 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   subflow_output: { label: 'Return Output', icon: 'output', color: '#00695c' },
   device_utils: { label: 'Device Utility', icon: 'terminal', color: '#00897b' },
   ai_agent: { label: 'AI Agent', icon: 'smart_toy', color: '#7c4dff' },
+  wait_for_callback: { label: 'Wait for Callback', icon: 'hourglass_top', color: '#f4511e' },
 };
 
 export const DEFAULT_ACTION_META: ActionMeta = {

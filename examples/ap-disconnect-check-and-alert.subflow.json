@@ -1,0 +1,181 @@
+{
+  "_format": "mist-automation-workflow",
+  "_version": 1,
+  "_exported_at": "2026-03-21T00:00:00.000Z",
+  "_notes": "Create this subflow FIRST, then use its ID in the AP Disconnect Aggregator workflow's invoke_subflow nodes.",
+  "name": "Check & Alert",
+  "description": "Subflow: queries Mist audit logs for recent config changes, sends Slack alert with rollback/acknowledge buttons using wait_for_callback. If rollback is clicked, updates the Slack message — all within one execution.",
+  "workflow_type": "subflow",
+  "timeout_seconds": 3600,
+  "input_parameters": [
+    { "name": "scope", "type": "string", "description": "Impact scope: single_ap or multi_ap", "required": true },
+    { "name": "site_id", "type": "string", "description": "Mist site UUID", "required": true },
+    { "name": "site_name", "type": "string", "description": "Human-readable site name", "required": true },
+    { "name": "affected_devices", "type": "string", "description": "Comma-separated list of affected AP names", "required": true },
+    { "name": "event_count", "type": "number", "description": "Number of APs still disconnected", "required": true }
+  ],
+  "output_parameters": [
+    { "name": "changes_found", "type": "boolean", "description": "Whether recent config changes were detected" },
+    { "name": "action_taken", "type": "string", "description": "What the user chose: rollback, acknowledge, or none" }
+  ],
+  "nodes": [
+    {
+      "id": "input-1",
+      "type": "subflow_input",
+      "name": "Input",
+      "position": { "x": 400, "y": 60 },
+      "config": {},
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true, "continue_on_error": false, "max_retries": 0, "retry_delay": 0
+    },
+    {
+      "id": "api-audits",
+      "type": "mist_api_get",
+      "name": "Get Site Audit Logs",
+      "position": { "x": 400, "y": 210 },
+      "config": {
+        "api_endpoint": "/api/v1/sites/{{ trigger.site_id }}/devices/events/search",
+        "api_params": {
+          "type": "SW_CONFIGURED,GW_CONFIGURED,AP_CONFIGURED,SW_CONFIG_CHANGED_BY_USER,GW_CONFIG_CHANGED_BY_USER,AP_CONFIG_CHANGED_BY_USER",
+          "duration": "2h"
+        }
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true, "continue_on_error": false, "max_retries": 2, "retry_delay": 5,
+      "save_as": [{ "name": "config_changes", "expression": "{{ nodes.Get_Site_Audit_Logs.body.results | default([]) }}" }]
+    },
+    {
+      "id": "condition-changes",
+      "type": "condition",
+      "name": "Config Changes Found?",
+      "position": { "x": 400, "y": 360 },
+      "config": {
+        "branches": [
+          { "condition": "{{ results.config_changes | length > 0 }}" }
+        ]
+      },
+      "output_ports": [
+        { "id": "branch_0", "label": "Changes found", "type": "branch" },
+        { "id": "else", "label": "No changes", "type": "branch" }
+      ],
+      "enabled": true, "continue_on_error": false, "max_retries": 0, "retry_delay": 0
+    },
+    {
+      "id": "wait-callback",
+      "type": "wait_for_callback",
+      "name": "Alert & Wait for Decision",
+      "position": { "x": 150, "y": 510 },
+      "config": {
+        "notification_channel": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+        "notification_template": "{{ trigger.event_count }} AP(s) disconnected at *{{ trigger.site_name }}*. Recent config changes detected — this may be the cause.",
+        "slack_header": "AP Disconnect — Config Changes Detected",
+        "slack_actions": [
+          { "text": "Rollback Config", "action_id": "rollback", "style": "danger" },
+          { "text": "Acknowledge", "action_id": "acknowledge", "style": "primary" }
+        ]
+      },
+      "output_ports": [
+        { "id": "rollback", "label": "Rollback", "type": "branch" },
+        { "id": "acknowledge", "label": "Acknowledge", "type": "branch" }
+      ],
+      "enabled": true, "continue_on_error": false, "max_retries": 0, "retry_delay": 0
+    },
+    {
+      "id": "webhook-rollback",
+      "type": "webhook",
+      "name": "Update Slack: Rolling Back",
+      "position": { "x": 0, "y": 660 },
+      "config": {
+        "webhook_url": "{{ callback.response_url }}",
+        "webhook_body": {
+          "replace_original": true,
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Config rollback initiated by {{ callback.user.name | default(callback.user.username) }}.\nCheck the Mist dashboard for restore status."
+              }
+            }
+          ]
+        }
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true, "continue_on_error": true, "max_retries": 1, "retry_delay": 3
+    },
+    {
+      "id": "webhook-ack",
+      "type": "webhook",
+      "name": "Update Slack: Acknowledged",
+      "position": { "x": 300, "y": 660 },
+      "config": {
+        "webhook_url": "{{ callback.response_url }}",
+        "webhook_body": {
+          "replace_original": true,
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Alert acknowledged by {{ callback.user.name | default(callback.user.username) }}. No rollback performed."
+              }
+            }
+          ]
+        }
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true, "continue_on_error": true, "max_retries": 1, "retry_delay": 3
+    },
+    {
+      "id": "slack-info",
+      "type": "slack",
+      "name": "Info Notification",
+      "position": { "x": 650, "y": 510 },
+      "config": {
+        "notification_channel": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+        "notification_template": "{{ trigger.event_count }} AP(s) disconnected at *{{ trigger.site_name }}*. No recent config changes detected.",
+        "slack_header": "AP Disconnect — No Config Changes"
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true, "continue_on_error": false, "max_retries": 1, "retry_delay": 5
+    },
+    {
+      "id": "output-rollback",
+      "type": "subflow_output",
+      "name": "Output (rollback)",
+      "position": { "x": 0, "y": 810 },
+      "config": { "output_expressions": { "changes_found": "true", "action_taken": "rollback" } },
+      "output_ports": [],
+      "enabled": true, "continue_on_error": false, "max_retries": 0, "retry_delay": 0
+    },
+    {
+      "id": "output-ack",
+      "type": "subflow_output",
+      "name": "Output (acknowledged)",
+      "position": { "x": 300, "y": 810 },
+      "config": { "output_expressions": { "changes_found": "true", "action_taken": "acknowledge" } },
+      "output_ports": [],
+      "enabled": true, "continue_on_error": false, "max_retries": 0, "retry_delay": 0
+    },
+    {
+      "id": "output-no-changes",
+      "type": "subflow_output",
+      "name": "Output (no changes)",
+      "position": { "x": 650, "y": 660 },
+      "config": { "output_expressions": { "changes_found": "false", "action_taken": "none" } },
+      "output_ports": [],
+      "enabled": true, "continue_on_error": false, "max_retries": 0, "retry_delay": 0
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source_node_id": "input-1", "source_port_id": "default", "target_node_id": "api-audits", "target_port_id": "input" },
+    { "id": "e2", "source_node_id": "api-audits", "source_port_id": "default", "target_node_id": "condition-changes", "target_port_id": "input" },
+    { "id": "e3", "source_node_id": "condition-changes", "source_port_id": "branch_0", "target_node_id": "wait-callback", "target_port_id": "input" },
+    { "id": "e4", "source_node_id": "condition-changes", "source_port_id": "else", "target_node_id": "slack-info", "target_port_id": "input" },
+    { "id": "e5", "source_node_id": "wait-callback", "source_port_id": "rollback", "target_node_id": "webhook-rollback", "target_port_id": "input" },
+    { "id": "e6", "source_node_id": "wait-callback", "source_port_id": "acknowledge", "target_node_id": "webhook-ack", "target_port_id": "input" },
+    { "id": "e7", "source_node_id": "webhook-rollback", "source_port_id": "default", "target_node_id": "output-rollback", "target_port_id": "input" },
+    { "id": "e8", "source_node_id": "webhook-ack", "source_port_id": "default", "target_node_id": "output-ack", "target_port_id": "input" },
+    { "id": "e9", "source_node_id": "slack-info", "source_port_id": "default", "target_node_id": "output-no-changes", "target_port_id": "input" }
+  ]
+}

@@ -1,7 +1,7 @@
 // ── Enums ────────────────────────────────────────────────────────────────────
 
 export type WorkflowStatus = 'enabled' | 'disabled' | 'draft';
-export type TriggerType = 'webhook' | 'cron' | 'manual';
+export type TriggerType = 'webhook' | 'aggregated_webhook' | 'cron' | 'manual';
 export type ActionType =
   | 'mist_api_get'
   | 'mist_api_post'
@@ -21,7 +21,8 @@ export type ActionType =
   | 'invoke_subflow'
   | 'subflow_output'
   | 'device_utils'
-  | 'ai_agent';
+  | 'ai_agent'
+  | 'wait_for_callback';
 export type WorkflowType = 'standard' | 'subflow';
 
 export interface DeviceUtilParam {
@@ -235,6 +236,14 @@ export interface QueryParam {
   description: string;
   required: boolean;
   type: string;
+}
+
+export interface EventPair {
+  topic: string;
+  opening: string;
+  closing: string;
+  device_key: string;
+  label: string;
 }
 
 export interface ApiCatalogEntry {

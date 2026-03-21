@@ -129,9 +129,21 @@ class WorkflowExecutionException(MistAutomationException):
 
 class WorkflowTimeoutException(WorkflowExecutionException):
     """Raised when workflow execution times out."""
-    
+
     def __init__(self, timeout_seconds: int):
         super().__init__(f"Workflow execution timed out after {timeout_seconds} seconds")
+
+
+class WorkflowPausedException(MistAutomationException):
+    """Workflow paused at a wait_for_callback node."""
+
+    def __init__(self, node_id: str, message: str = ""):
+        self.node_id = node_id
+        super().__init__(
+            message=message or f"Workflow paused at node '{node_id}', awaiting callback",
+            status_code=202,
+            details={"node_id": node_id},
+        )
 
 
 # Webhook Exceptions
@@ -257,6 +269,7 @@ ValidationError = ValidationException
 # For executor_service
 WorkflowExecutionError = WorkflowExecutionException
 WorkflowTimeoutError = WorkflowTimeoutException
+WorkflowPausedError = WorkflowPausedException
 
 # For mist_service
 MistAPIError = MistAPIException

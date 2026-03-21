@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 import structlog
 
-from app.core.exceptions import WorkflowExecutionError, WorkflowTimeoutError
+from app.core.exceptions import WorkflowExecutionError, WorkflowPausedException, WorkflowTimeoutError
 from app.modules.automation.models.execution import (
     ExecutionStatus,
     NodeExecutionResult,
@@ -81,6 +81,125 @@ async def _update_workflow_stats_atomic(
         set_fields["last_failure"] = timestamp
 
     await Workflow.find_one(Workflow.id == workflow.id).update({"$inc": inc_fields, "$set": set_fields})
+
+
+async def resume_from_callback(
+    execution: WorkflowExecution,
+    workflow: Workflow,
+    callback_data: dict[str, Any],
+) -> WorkflowExecution:
+    """Resume a paused execution from a wait_for_callback node."""
+    if execution.status != ExecutionStatus.WAITING or not execution.paused_node_id:
+        raise WorkflowExecutionError("Execution is not in a paused/waiting state")
+
+    start_time = datetime.now(timezone.utc)
+    paused_node_id = execution.paused_node_id
+    action_id = callback_data.get("action_id", "default")
+
+    # Restore executor state
+    from app.services.mist_service_factory import create_mist_service
+
+    mist_service = await create_mist_service()
+    executor = WorkflowExecutor(mist_service=mist_service)
+    executor.variable_context = execution.paused_variable_context or {"trigger": {}, "nodes": {}, "results": {}}
+
+    # Inject callback data into variable context — both at root and under the paused node
+    executor.variable_context["callback"] = callback_data
+
+    # Store callback data as the wait_for_callback node's output so downstream
+    # nodes can reference it via {{ nodes.<node_name>.callback.action_id }}
+    node_output = {"callback": callback_data}
+    executor.variable_context["nodes"][paused_node_id] = node_output
+    paused_node = next((n for n in workflow.nodes if n.id == paused_node_id), None)
+    if paused_node and paused_node.name:
+        executor.variable_context["nodes"][_sanitize_name(paused_node.name)] = node_output
+
+    # Record the node result for the wait_for_callback node
+    node_result = NodeExecutionResult(
+        node_id=paused_node_id,
+        node_name=paused_node.name if paused_node else "",
+        node_type="wait_for_callback",
+        status="success",
+        started_at=start_time,
+        completed_at=start_time,
+        duration_ms=0,
+        output_data=node_output,
+    )
+    execution.add_node_result(node_result)
+
+    # Capture visited set before clearing pause state
+    saved_visited = set(execution.paused_visited or [])
+
+    # Clear pause state, set RUNNING
+    execution.status = ExecutionStatus.RUNNING
+    execution.callback_data = callback_data
+    execution.paused_at = None
+    execution.paused_variable_context = None
+    execution.paused_visited = None
+    execution.add_log(f"Execution resumed — callback action: {action_id}", "info")
+    await execution.save()
+
+    try:
+        # Build adjacency map from workflow graph
+        node_map = {n.id: n for n in workflow.nodes}
+        adjacency: dict[str, list[tuple[str, str, str]]] = {}
+        for edge in workflow.edges:
+            adjacency.setdefault(edge.source_node_id, []).append(
+                (edge.source_port_id, edge.target_node_id, edge.target_port_id)
+            )
+
+        # Resume traversal from the paused node, filtering output edges by action_id.
+        # _traverse_from treats start_node_id as already executed and follows its edges.
+        visited = saved_visited
+
+        # Try action_id as port filter, fall back to "default" if no matching edges
+        port_filter = action_id
+        matching_edges = [e for e in adjacency.get(paused_node_id, []) if e[0] == action_id]
+        if not matching_edges:
+            port_filter = "default"
+
+        all_success = await executor._traverse_from(
+            paused_node_id,
+            adjacency,
+            node_map,
+            execution,
+            visited=visited,
+            initial_port_filter=port_filter,
+        )
+
+        # Finalize
+        if all_success:
+            execution.mark_completed(ExecutionStatus.SUCCESS)
+        else:
+            execution.mark_completed(ExecutionStatus.PARTIAL)
+
+        end_time = datetime.now(timezone.utc)
+        execution.duration_ms = (execution.duration_ms or 0) + int(
+            (end_time - start_time).total_seconds() * 1000
+        )
+        await execution.save()
+
+        # Update workflow stats
+        await _update_workflow_stats_atomic(
+            workflow, success=(execution.status == ExecutionStatus.SUCCESS), timestamp=start_time
+        )
+
+    except WorkflowPausedException:
+        # Execution paused again at another wait_for_callback — already saved
+        logger.info(
+            "workflow_execution_paused_again",
+            execution_id=str(execution.id),
+        )
+
+    except Exception as e:
+        logger.error("workflow_resume_failed", execution_id=str(execution.id), error=str(e))
+        execution.status = ExecutionStatus.FAILED
+        execution.error = _sanitize_execution_error(e)
+        execution.add_log("Execution resume failed", "error")
+        await execution.save()
+        await _update_workflow_stats_atomic(workflow, success=False, timestamp=start_time)
+
+    return execution
 
 
 class WorkflowExecutor:
@@ -158,6 +277,15 @@ class WorkflowExecutor:
                 self._execute_graph(workflow, execution, simulate=simulate, dry_run=dry_run),
                 timeout=workflow.timeout_seconds,
             )
+
+        except WorkflowPausedException:
+            # Execution paused — don't update workflow stats (not finished yet)
+            logger.info(
+                "workflow_execution_paused",
+                workflow_id=str(workflow.id),
+                execution_id=str(execution.id),
+            )
+            return execution
 
         except asyncio.CancelledError:
             execution.mark_completed(ExecutionStatus.CANCELLED)
@@ -552,6 +680,19 @@ class WorkflowExecutor:
                     if edge_info[1] not in visited:
                         queue.append(edge_info)
 
+            except WorkflowPausedException:
+                # Serialize state for later resumption
+                execution.status = ExecutionStatus.WAITING
+                execution.paused_at = datetime.now(timezone.utc)
+                execution.paused_node_id = node.id
+                execution.paused_variable_context = copy.deepcopy(self.variable_context)
+                execution.paused_visited = list(visited)
+                execution.add_log(
+                    f"Execution paused at node '{node.name or node.id}' — awaiting callback", "info"
+                )
+                await execution.save()
+                raise  # Re-raise to break out of _execute_graph → execute_workflow
+
             except Exception as e:
                 logger.error("node_execution_failed", node_id=node.id, error=str(e))
                 safe_err = _sanitize_execution_error(e)
@@ -639,6 +780,10 @@ class WorkflowExecutor:
             # only follow the "done" edge after loop completes
             return [e for e in all_edges if e[0] == "done"]
 
+        if node.type == "wait_for_callback":
+            # Edges are followed on resume via resume_from_callback(), not here
+            return []
+
         # Default: follow all "default" edges
         return [e for e in all_edges if e[0] == "default"]
 
@@ -661,6 +806,9 @@ class WorkflowExecutor:
                     await asyncio.sleep(node.retry_delay)
 
                 return await self._execute_node_by_type(node, execution, dry_run=dry_run, simulate=simulate)
+
+            except WorkflowPausedException:
+                raise  # Never retry pause — propagate immediately
 
             except Exception as e:
                 last_error = e
@@ -728,7 +876,7 @@ class WorkflowExecutor:
         if node_type in ("slack", "pagerduty", "email"):
             if dry_run:
                 return {"status": "mocked", "channel": config.get("notification_channel", "")}
-            return await self._execute_notification(node_type, config)
+            return await self._execute_notification(node_type, config, node=node, execution=execution)
 
         if node_type == "invoke_subflow":
             return await self._execute_invoke_subflow(node, execution, dry_run=dry_run, simulate=simulate)
@@ -755,6 +903,9 @@ class WorkflowExecutor:
                     "tool_calls": [],
                 }
             return await self._execute_ai_agent(node, execution)
+
+        if node_type == "wait_for_callback":
+            return await self._execute_wait_for_callback(node, execution, dry_run=dry_run)
 
         raise NotImplementedError(f"Node type '{node_type}' not implemented")
 
@@ -1114,28 +1265,13 @@ class WorkflowExecutor:
         llm = await create_llm_service(config_id=llm_config_id)
 
         # Build MCP clients — from global config IDs or inline config (backward compat)
+        from app.modules.llm.services.mcp_client import load_external_mcp_clients
         from app.utils.url_safety import validate_outbound_url
 
-        pending: list[MCPClientWrapper] = []
         mcp_config_ids = config.get("mcp_config_ids", [])
 
         if mcp_config_ids:
-            # New path: load from global MCPConfig collection
-            import json as json_mod
-
-            from beanie import PydanticObjectId
-            from app.core.security import decrypt_sensitive_data
-            from app.modules.llm.models import MCPConfig as MCPConfigModel
-
-            for cid in mcp_config_ids:
-                mcp_cfg = await MCPConfigModel.get(PydanticObjectId(cid))
-                if not mcp_cfg or not mcp_cfg.enabled:
-                    continue
-                validate_outbound_url(mcp_cfg.url)
-                headers = json_mod.loads(decrypt_sensitive_data(mcp_cfg.headers)) if mcp_cfg.headers else None
-                pending.append(MCPClientWrapper(MCPServerConfig(
-                    name=mcp_cfg.name, url=mcp_cfg.url, headers=headers, ssl_verify=mcp_cfg.ssl_verify,
-                )))
+            pending = await load_external_mcp_clients(mcp_config_ids)
         else:
             # Backward compat: inline mcp_servers config
             mcp_configs = config.get("mcp_servers", [])
@@ -1369,7 +1505,65 @@ class WorkflowExecutor:
 
         return rendered_outputs
 
-    async def _execute_notification(self, node_type: str, config: dict) -> dict[str, Any]:
+    async def _execute_wait_for_callback(
+        self, node: WorkflowNode, execution: WorkflowExecution, *, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """Send Slack message with buttons and pause execution."""
+        config = node.config
+
+        if dry_run:
+            return {"status": "paused", "message": "Would send Slack message and wait for callback"}
+
+        # Build and send Slack message
+        template = config.get("notification_template", "")
+        message = self._render_template(template) if template else "Action required"
+
+        # Build action buttons with execution context in value
+        actions: list[dict[str, Any]] = []
+        for act in config.get("slack_actions", []):
+            actions.append(
+                {
+                    "text": act.get("text", "Click"),
+                    "action_id": act.get("action_id", ""),
+                    "style": act.get("style"),
+                    "value": json.dumps(
+                        {
+                            "execution_id": str(execution.id),
+                            "node_id": node.id,
+                            "workflow_id": str(execution.workflow_id),
+                            "action_id": act.get("action_id", ""),
+                        }
+                    ),
+                }
+            )
+
+        if not actions:
+            raise WorkflowExecutionError("wait_for_callback node requires at least one action button")
+
+        # Send Slack notification with blocks and action buttons
+        webhook_url = self._render_template(config.get("notification_channel", ""))
+        blocks = self._build_slack_message_blocks(config, message) if config.get("slack_header") else None
+
+        from app.services.notification_service import NotificationService
+
+        async with NotificationService() as ns:
+            await ns.send_slack_notification(
+                message=message,
+                webhook_url=webhook_url or None,
+                blocks=blocks,
+                actions=actions,
+            )
+
+        # Raise to pause execution — caught by _traverse_from and execute_workflow
+        raise WorkflowPausedException(node_id=node.id)
+
+    async def _execute_notification(
+        self,
+        node_type: str,
+        config: dict,
+        node: WorkflowNode | None = None,
+        execution: WorkflowExecution | None = None,
+    ) -> dict[str, Any]:
         """Execute a notification action (slack, servicenow, pagerduty)."""
         from app.services.notification_service import NotificationService
 
@@ -1380,7 +1574,30 @@ class WorkflowExecutor:
         async with NotificationService() as ns:
             if node_type == "slack":
                 blocks = self._build_slack_message_blocks(config, message)
-                return await ns.send_slack_notification(webhook_url=channel, message=message, blocks=blocks)
+
+                # Build interactive action buttons when configured
+                actions: list[dict[str, Any]] | None = None
+                slack_actions_cfg = config.get("slack_actions")
+                if slack_actions_cfg and node and execution:
+                    actions = []
+                    for act_cfg in slack_actions_cfg:
+                        value_data = {
+                            "execution_id": str(execution.id),
+                            "node_id": node.id,
+                            "workflow_id": str(execution.workflow_id),
+                        }
+                        actions.append(
+                            {
+                                "text": act_cfg.get("text", "Click"),
+                                "action_id": act_cfg.get("action_id", "callback"),
+                                "value": json.dumps(value_data),
+                                "style": act_cfg.get("style"),
+                            }
+                        )
+
+                return await ns.send_slack_notification(
+                    webhook_url=channel, message=message, blocks=blocks, actions=actions
+                )
             elif node_type == "pagerduty":
                 return await ns.send_pagerduty_alert(
                     integration_key=channel,
@@ -1408,13 +1625,9 @@ class WorkflowExecutor:
                 logger.info("condition_branch_matched", node_id=node.id, branch_index=i)
                 return {"matched_branch": i, "condition": condition_expr}
 
-        # Check for else
-        if node.config.get("else_actions"):
-            logger.info("condition_else_branch", node_id=node.id)
-            return {"matched_branch": "else"}
-
-        logger.info("condition_no_match", node_id=node.id)
-        return {"matched_branch": None}
+        # No branch matched — fall through to else port
+        logger.info("condition_else_branch", node_id=node.id)
+        return {"matched_branch": "else"}
 
     async def _execute_set_variable(self, config: dict) -> dict[str, Any]:
         """Execute a set_variable node."""

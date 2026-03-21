@@ -67,6 +67,10 @@ class SystemConfig(TimestampMixin, Document):
     servicenow_password: str | None = Field(default=None, description="Encrypted ServiceNow password")
 
     pagerduty_api_key: str | None = Field(default=None, description="Encrypted PagerDuty API key")
+
+    slack_signing_secret: str | None = Field(
+        default=None, description="Encrypted Slack signing secret for interactive callbacks"
+    )
     
     # LLM Configuration (individual configs stored in LLMConfig collection)
     llm_enabled: bool = Field(default=False, description="Global LLM kill switch")

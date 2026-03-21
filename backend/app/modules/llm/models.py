@@ -84,6 +84,7 @@ class ConversationThread(Document):
     feature: str = Field(..., description="Feature context (backup_summary, workflow_assist, etc.)")
     context_ref: str | None = Field(default=None, description="Reference to related object (backup_id, workflow_id)")
     messages: list[ConversationMessage] = Field(default_factory=list, description="Conversation messages")
+    mcp_config_ids: list[str] = Field(default_factory=list, description="External MCP server IDs for this thread")
     is_archived: bool = Field(default=False, description="Whether the thread is archived")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

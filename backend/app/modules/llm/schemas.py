@@ -2,6 +2,8 @@
 LLM request/response schemas.
 """
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 # ── LLM Config CRUD ──────────────────────────────────────────────────────────
@@ -268,6 +270,20 @@ class GlobalChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000, description="User message")
     thread_id: str | None = Field(None, description="Existing conversation thread ID for follow-up")
     page_context: str | None = Field(None, max_length=2000, description="Current page context for the LLM")
+    stream_id: str | None = Field(None, description="WebSocket stream ID for elicitation prompts")
+    mcp_config_ids: list[str] | None = Field(None, description="External MCP server config IDs; None = use thread default")
+
+
+class McpToolCallRequest(BaseModel):
+    """Request to call a specific MCP tool."""
+
+    arguments: dict = Field(default_factory=dict, description="Tool arguments")
+
+
+class ElicitationResponseRequest(BaseModel):
+    """User response to a tool elicitation prompt."""
+
+    accepted: bool = Field(..., description="True if user accepted the action")
 
 
 class GlobalChatResponse(BaseModel):
@@ -277,3 +293,45 @@ class GlobalChatResponse(BaseModel):
     thread_id: str
     tool_calls: list[dict] = Field(default_factory=list)
     usage: dict = Field(default_factory=dict)
+
+
+# ── Conversation Threads ────────────────────────────────────────────────────
+
+
+class ConversationMessageResponse(BaseModel):
+    """A single message in a conversation thread."""
+
+    role: str
+    content: str
+    timestamp: datetime
+
+
+class ConversationThreadSummary(BaseModel):
+    """Thread summary for list views (no full message content)."""
+
+    id: str
+    feature: str
+    context_ref: str | None = None
+    message_count: int = 0
+    preview: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationThreadDetail(BaseModel):
+    """Full thread with all messages."""
+
+    id: str
+    feature: str
+    context_ref: str | None = None
+    messages: list[ConversationMessageResponse] = Field(default_factory=list)
+    mcp_config_ids: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationThreadListResponse(BaseModel):
+    """Paginated list of conversation threads."""
+
+    threads: list[ConversationThreadSummary]
+    total: int

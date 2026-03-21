@@ -68,6 +68,15 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("scheduler_start_failed", error=str(e))
 
+        # Recover aggregation windows
+        try:
+            from app.modules.automation.workers.aggregation_worker import recover_aggregation_windows
+
+            await recover_aggregation_windows()
+            logger.info("aggregation_windows_recovered")
+        except Exception as e:
+            logger.warning("aggregation_recovery_failed", error=str(e))
+
         # Start WebSocket heartbeat
         from app.core.websocket import ws_manager
 

@@ -181,6 +181,11 @@
           }
         }
 
+        <!-- Validation error indicator (flat red dot, top-right) -->
+        @if (nodeRenderData.get(node.id)?.hasErrors && !nodeRenderData.get(node.id)?.simStatus) {
+          <circle [attr.cx]="NODE_WIDTH - 14" cy="14" r="5" fill="var(--app-error)" />
+        }
+
         <!-- Color accent bar -->
         <rect
           width="4"

@@ -5,13 +5,39 @@ Provides data pruning, truncation, and elicitation helpers to keep
 tool responses compact for small LLM context windows.
 """
 
+import asyncio
+import contextvars
 import json
+import uuid
 from datetime import datetime
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+# ── Elicitation bridge ──────────────────────────────────────────────────────
+
+# Set by the caller (e.g., _mcp_user_session) to indicate which WS channel
+# to broadcast elicitation requests on. When unset, elicitation auto-approves.
+elicitation_channel_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "elicitation_channel", default=None
+)
+
+# Pending elicitations awaiting user response, keyed by request_id.
+_pending_elicitations: dict[str, asyncio.Future[bool]] = {}
+
+
+def resolve_elicitation(request_id: str, accepted: bool) -> bool:
+    """Resolve a pending elicitation request with the user's decision.
+
+    Returns True if the request was found and resolved.
+    """
+    future = _pending_elicitations.pop(request_id, None)
+    if future and not future.done():
+        future.set_result(accepted)
+        return True
+    return False
 
 MAX_VALUE_LEN = 500
 MAX_DIFF_ENTRIES = 50
@@ -91,20 +117,43 @@ def extract_fields(config: dict, fields: list[str]) -> dict:
     return result
 
 
-async def elicit_confirmation(ctx: Any, description: str) -> bool:
+async def elicit_confirmation(ctx: Any, description: str, timeout: float = 120.0) -> bool:
     """Ask user for confirmation via MCP elicitation.
 
-    Returns True if accepted. For in-process transports (where elicitation is
-    not supported), auto-approves since the user already initiated the action
-    via the UI.
+    When a WebSocket elicitation channel is set (by the LLM router), broadcasts
+    the confirmation request to the frontend and waits for the user's response.
+    Otherwise auto-approves (e.g., for workflow AI agent nodes without a UI).
     """
-    try:
-        result = await ctx.elicit(description)
-        if result.action == "accept":
-            return True
-        raise ValueError(f"Action cancelled by user ({result.action})")
-    except NotImplementedError:
-        # In-process MCP transport does not support elicitation —
-        # auto-approve since the user already triggered this via the UI
-        logger.debug("elicitation_not_supported", description=description)
+    channel = elicitation_channel_var.get()
+    if channel:
+        # Bridge to frontend via WebSocket
+        from app.core.websocket import ws_manager
+
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[bool] = loop.create_future()
+        _pending_elicitations[request_id] = future
+
+        await ws_manager.broadcast(channel, {
+            "type": "elicitation",
+            "request_id": request_id,
+            "description": description,
+        })
+        logger.debug("elicitation_sent", request_id=request_id, channel=channel, description=description)
+
+        try:
+            accepted = await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            _pending_elicitations.pop(request_id, None)
+            raise ValueError("Confirmation timed out — user did not respond") from None
+        except BaseException:
+            _pending_elicitations.pop(request_id, None)
+            raise
+
+        if not accepted:
+            raise ValueError(f"Action declined by user: {description}")
         return True
+
+    # No UI channel — auto-approve (backward compat for workflow AI agent nodes)
+    logger.debug("elicitation_auto_approved", description=description)
+    return True

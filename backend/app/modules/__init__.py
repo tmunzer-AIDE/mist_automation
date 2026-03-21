@@ -63,6 +63,7 @@ MODULES: list[AppModule] = [
             ("app.modules.automation.models.workflow", "Workflow"),
             ("app.modules.automation.models.execution", "WorkflowExecution"),
             ("app.modules.automation.models.webhook", "WebhookEvent"),
+            ("app.modules.automation.models.aggregation", "AggregationWindow"),
         ],
         tags=["Workflows"],
     ),
@@ -110,6 +111,12 @@ MODULES: list[AppModule] = [
             ("app.models.system", "AuditLog"),
         ],
         tags=["Admin"],
+    ),
+    AppModule(
+        name="slack_interactive",
+        router_module="app.api.v1.slack",
+        model_imports=[],
+        tags=["Slack"],
     ),
     AppModule(
         name="llm",

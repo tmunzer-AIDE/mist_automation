@@ -50,6 +50,10 @@ export const routes: Routes = [
         path: 'workflows',
         loadChildren: () => import('./features/workflows/workflow.routes'),
       },
+      {
+        path: 'ai-chats',
+        loadChildren: () => import('./features/ai-chats/ai-chats.routes'),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

@@ -58,6 +58,7 @@ class NotificationService:
         color: str = "good",
         fields: list[dict[str, Any]] | None = None,
         blocks: list[dict[str, Any]] | None = None,
+        actions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Send notification to Slack.
@@ -71,6 +72,8 @@ class NotificationService:
             color: Message color (good, warning, danger, or hex)
             fields: Optional list of attachment fields
             blocks: Optional Block Kit blocks (rich_text tables, etc.)
+            actions: Optional list of interactive button dicts
+                (each: {text, action_id, value, style?})
 
         Returns:
             Response data
@@ -113,6 +116,30 @@ class NotificationService:
                 if fields:
                     payload["attachments"][0]["fields"] = fields
 
+            # Append interactive action buttons if provided
+            if actions:
+                action_elements = []
+                for act in actions:
+                    btn: dict[str, Any] = {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": act["text"]},
+                        "action_id": act["action_id"],
+                        "value": act.get("value", ""),
+                    }
+                    if act.get("style"):
+                        btn["style"] = act["style"]  # "primary" or "danger"
+                    action_elements.append(btn)
+
+                actions_block = {"type": "actions", "elements": action_elements}
+                if "blocks" in payload:
+                    payload["blocks"].append(actions_block)
+                else:
+                    # Promote to blocks-based payload so actions render
+                    payload["blocks"] = [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": message}},
+                        actions_block,
+                    ]
+
             # Add channel override if provided
             if channel:
                 payload["channel"] = channel
@@ -121,6 +148,7 @@ class NotificationService:
                 "slack_payload",
                 has_blocks=bool(blocks),
                 block_count=len(blocks) if blocks else 0,
+                has_actions=bool(actions),
                 message_length=len(message),
             )
 

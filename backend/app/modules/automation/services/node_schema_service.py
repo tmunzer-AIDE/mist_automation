@@ -93,6 +93,34 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
         return {}  # Terminal node, no downstream outputs
 
     if node_type == "trigger":
+        trigger_type = node.config.get("trigger_type", "")
+
+        # Aggregated webhook trigger — expose aggregation metadata, events list, and first/last event
+        if trigger_type == "aggregated_webhook":
+            event_fields = {
+                "type": "string",
+                "device_name": "string",
+                "device_mac": "string",
+                "site_id": "string",
+                "site_name": "string",
+                "org_id": "string",
+                "timestamp": "number",
+            }
+            return {
+                "aggregation": {
+                    "event_count": "integer",
+                    "group_key": "string",
+                    "site_id": "string",
+                    "site_name": "string",
+                    "window_seconds": "integer",
+                    "window_start": "string",
+                    "window_end": "string",
+                },
+                "events": [event_fields],
+                "first_event": {**event_fields},
+                "last_event": {**event_fields},
+            }
+
         # Use hardcoded webhook topic schema (support both new and legacy field names)
         webhook_topic = node.config.get("webhook_topic") or node.config.get("webhook_type", "")
         if webhook_topic in TRIGGER_SCHEMAS:
@@ -165,6 +193,16 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
             "result": "string",
             "tool_calls": [{"tool": "string", "arguments": "object", "result": "string"}],
             "iterations": "integer",
+        }
+
+    if node_type == "wait_for_callback":
+        return {
+            "callback": {
+                "action_id": "string",
+                "user": {"name": "string", "username": "string"},
+                "channel": {"id": "string", "name": "string"},
+                "response_url": "string",
+            },
         }
 
     return {"status": "string", "result": "unknown"}

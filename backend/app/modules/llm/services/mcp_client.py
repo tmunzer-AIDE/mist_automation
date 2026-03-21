@@ -186,6 +186,43 @@ class InProcessMCPClient:
         return str(result) if result else ""
 
 
+async def load_external_mcp_clients(config_ids: list[str]) -> list[MCPClientWrapper]:
+    """Load external MCP clients from global MCPConfig documents.
+
+    Returns a list of *unconnected* MCPClientWrapper instances — caller must
+    connect and disconnect them. Raises ``ValueError`` on SSRF violations.
+    """
+    if not config_ids:
+        return []
+
+    import json as json_mod
+
+    from beanie import PydanticObjectId
+
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import MCPConfig
+    from app.utils.url_safety import validate_outbound_url
+
+    try:
+        id_list = [PydanticObjectId(cid) for cid in config_ids]
+    except Exception:
+        return []
+    configs = await MCPConfig.find({"_id": {"$in": id_list}, "enabled": True}).to_list()
+    cfg_map = {str(c.id): c for c in configs}
+
+    clients: list[MCPClientWrapper] = []
+    for cid in config_ids:
+        cfg = cfg_map.get(cid)
+        if not cfg:
+            continue
+        validate_outbound_url(cfg.url)
+        headers = json_mod.loads(decrypt_sensitive_data(cfg.headers)) if cfg.headers else None
+        clients.append(MCPClientWrapper(MCPServerConfig(
+            name=cfg.name, url=cfg.url, headers=headers, ssl_verify=cfg.ssl_verify,
+        )))
+    return clients
+
+
 def create_local_mcp_client() -> InProcessMCPClient:
     """Create an in-process MCP client connected to the local FastMCP server.
 

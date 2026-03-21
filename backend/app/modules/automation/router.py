@@ -171,6 +171,16 @@ async def get_device_utils_catalog(
     return [entry.model_dump() for entry in DEVICE_UTILS_CATALOG]
 
 
+@router.get("/workflows/event-pairs", tags=["Workflows"])
+async def get_event_pairs(
+    _current_user: User = Depends(require_automation_role),
+):
+    """Return the event pairs catalog for aggregated webhook trigger config."""
+    from app.modules.automation.event_pairs import EVENT_PAIRS
+
+    return EVENT_PAIRS
+
+
 @router.get("/workflows", response_model=WorkflowListResponse, tags=["Workflows"])
 async def list_workflows(
     skip: int = Query(0, ge=0, description="Number of workflows to skip"),
@@ -836,6 +846,26 @@ async def simulate_workflow(
         if not event:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook event not found")
         trigger_data = event.payload
+
+    # Wrap payload in aggregation structure for aggregated_webhook triggers
+    trigger_node = workflow.get_trigger_node()
+    if trigger_node and trigger_node.config.get("trigger_type") == "aggregated_webhook":
+        raw_event = trigger_data
+        trigger_data = {
+            "aggregation": {
+                "window_id": "simulation",
+                "group_key": f"site:{raw_event.get('site_id', 'unknown')}",
+                "event_count": 1,
+                "window_seconds": trigger_node.config.get("window_seconds", 120),
+                "window_start": datetime.now(timezone.utc).isoformat(),
+                "window_end": datetime.now(timezone.utc).isoformat(),
+                "site_id": raw_event.get("site_id", ""),
+                "site_name": raw_event.get("site_name", ""),
+            },
+            "events": [raw_event],
+            "first_event": raw_event,
+            "last_event": raw_event,
+        }
 
     # If stream_id is provided, run asynchronously with WS progress
     if request.stream_id:

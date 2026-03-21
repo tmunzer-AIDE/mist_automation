@@ -1,0 +1,117 @@
+{
+  "_format": "mist-automation-workflow",
+  "_version": 1,
+  "_exported_at": "2026-03-21T00:00:00.000Z",
+  "_notes": "Create this workflow LAST — it references 'Check & Alert' subflow by ID. Replace <SUBFLOW_CHECK_ALERT_ID> with the actual workflow ID after creating it.",
+  "name": "AP Disconnect Aggregator",
+  "description": "Collects AP_DISCONNECTED events over 2 minutes per site. If an AP reconnects (AP_CONNECTED) within the window, it is removed. After the window, classifies the pattern and delegates to the Check & Alert subflow.",
+  "workflow_type": "standard",
+  "timeout_seconds": 300,
+  "nodes": [
+    {
+      "id": "trigger-1",
+      "type": "trigger",
+      "name": "AP Disconnects (Aggregated)",
+      "position": { "x": 400, "y": 60 },
+      "config": {
+        "trigger_type": "aggregated_webhook",
+        "webhook_topic": "device-events",
+        "event_type_filter": "AP_DISCONNECTED",
+        "closing_event_type": "AP_CONNECTED",
+        "device_key": "device_mac",
+        "window_seconds": 120,
+        "group_by": "site_id",
+        "min_events": 1
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 0,
+      "retry_delay": 0
+    },
+    {
+      "id": "set-var-1",
+      "type": "set_variable",
+      "name": "Extract AP Names",
+      "position": { "x": 400, "y": 210 },
+      "config": {
+        "variable_name": "affected_aps",
+        "variable_expression": "{{ trigger.events | map(attribute='device_name') | list | join(', ') }}"
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 0,
+      "retry_delay": 0
+    },
+    {
+      "id": "condition-1",
+      "type": "condition",
+      "name": "Single or Multiple APs?",
+      "position": { "x": 400, "y": 360 },
+      "config": {
+        "branches": [
+          { "condition": "{{ trigger.aggregation.event_count == 1 }}" }
+        ]
+      },
+      "output_ports": [
+        { "id": "branch_0", "label": "Single AP", "type": "branch" },
+        { "id": "else", "label": "Multiple APs", "type": "branch" }
+      ],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 0,
+      "retry_delay": 0
+    },
+    {
+      "id": "subflow-single",
+      "type": "invoke_subflow",
+      "name": "Check Single AP",
+      "position": { "x": 150, "y": 510 },
+      "config": {
+        "target_workflow_id": "<SUBFLOW_CHECK_ALERT_ID>",
+        "input_mappings": {
+          "scope": "single_ap",
+          "site_id": "{{ trigger.aggregation.site_id }}",
+          "site_name": "{{ trigger.aggregation.site_name }}",
+          "affected_devices": "{{ results.affected_aps }}",
+          "event_count": "{{ trigger.aggregation.event_count }}",
+          "events": "{{ trigger.events }}"
+        }
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 0,
+      "retry_delay": 0
+    },
+    {
+      "id": "subflow-multi",
+      "type": "invoke_subflow",
+      "name": "Check Multiple APs",
+      "position": { "x": 650, "y": 510 },
+      "config": {
+        "target_workflow_id": "<SUBFLOW_CHECK_ALERT_ID>",
+        "input_mappings": {
+          "scope": "multi_ap",
+          "site_id": "{{ trigger.aggregation.site_id }}",
+          "site_name": "{{ trigger.aggregation.site_name }}",
+          "affected_devices": "{{ results.affected_aps }}",
+          "event_count": "{{ trigger.aggregation.event_count }}",
+          "events": "{{ trigger.events }}"
+        }
+      },
+      "output_ports": [{ "id": "default", "label": "", "type": "default" }],
+      "enabled": true,
+      "continue_on_error": false,
+      "max_retries": 0,
+      "retry_delay": 0
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source_node_id": "trigger-1", "source_port_id": "default", "target_node_id": "set-var-1", "target_port_id": "input" },
+    { "id": "e2", "source_node_id": "set-var-1", "source_port_id": "default", "target_node_id": "condition-1", "target_port_id": "input" },
+    { "id": "e3", "source_node_id": "condition-1", "source_port_id": "branch_0", "target_node_id": "subflow-single", "target_port_id": "input" },
+    { "id": "e4", "source_node_id": "condition-1", "source_port_id": "else", "target_node_id": "subflow-multi", "target_port_id": "input" }
+  ]
+}

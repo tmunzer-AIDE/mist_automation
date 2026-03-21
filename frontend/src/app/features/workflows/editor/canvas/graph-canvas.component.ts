@@ -20,6 +20,7 @@ import {
   SimulationState,
 } from '../../../../core/models/workflow.model';
 import { ACTION_META, DEFAULT_ACTION_META } from '../../../../core/models/workflow-meta';
+import { isNodeConfigValid } from '../utils/node-validation';
 import {
   buildEdgePath,
   getInputPortPosition,
@@ -79,7 +80,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   // Pre-computed per-node render data (rebuilt in ngOnChanges)
   nodeRenderData = new Map<
     string,
-    { color: string; icon: string; label: string; simStatus: string | null; simColor: string }
+    { color: string; icon: string; label: string; simStatus: string | null; simColor: string; hasErrors: boolean }
   >();
 
   // Computed edge paths
@@ -147,6 +148,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       const tt = node.config?.['trigger_type'];
       if (tt === 'cron') return 'schedule';
       if (tt === 'manual') return 'play_circle';
+      if (tt === 'aggregated_webhook') return 'layers';
       return 'webhook';
     }
     if (node.type === 'subflow_input') return 'input';
@@ -171,6 +173,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
         label: this.getNodeLabel(node),
         simStatus,
         simColor: this.getSimColor(simStatus),
+        hasErrors: !isNodeConfigValid(node),
       });
     }
   }

@@ -20,6 +20,7 @@ class ExecutionStatus(str, Enum):
     CANCELLED = "cancelled"
     FILTERED = "filtered"
     PARTIAL = "partial"
+    WAITING = "waiting"
 
 
 class NodeExecutionResult(BaseModel):
@@ -90,6 +91,13 @@ class WorkflowExecution(Document):
     parent_execution_id: PydanticObjectId | None = Field(default=None, description="Parent execution ID if sub-flow")
     parent_workflow_id: PydanticObjectId | None = Field(default=None, description="Parent workflow ID if sub-flow")
     child_execution_ids: list[PydanticObjectId] = Field(default_factory=list, description="Child sub-flow execution IDs")
+
+    # Pause/resume state for wait_for_callback nodes
+    paused_at: datetime | None = Field(default=None, description="When execution was paused")
+    paused_node_id: str | None = Field(default=None, description="Node ID where execution paused")
+    paused_variable_context: dict | None = Field(default=None, description="Serialized variable context at pause point")
+    paused_visited: list[str] | None = Field(default=None, description="Node IDs already executed before pause")
+    callback_data: dict | None = Field(default=None, description="Data injected by external callback on resume")
 
     # Error handling
     error: str | None = Field(default=None, description="Error message if execution failed")

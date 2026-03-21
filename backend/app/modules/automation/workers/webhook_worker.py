@@ -112,12 +112,76 @@ async def process_webhook(
                 filtered.append(wf)
             matching_workflows = filtered
 
+        # ── Find matching aggregated_webhook workflows ──────────────────────
+        aggregated_workflows: list[Workflow] = []
+        if event_type:
+            aggregated_workflows = await Workflow.find(
+                {
+                    "status": WorkflowStatus.ENABLED,
+                    "nodes": {
+                        "$elemMatch": {
+                            "type": "trigger",
+                            "config.trigger_type": "aggregated_webhook",
+                            "$or": [
+                                {"config.webhook_topic": webhook_type},
+                                {"config.webhook_type": webhook_type},
+                            ],
+                        }
+                    },
+                }
+            ).to_list()
+
+            # Filter: keep workflows where event_type matches either the opening event or closing event
+            filtered_agg = []
+            for wf in aggregated_workflows:
+                trigger = next((n for n in wf.nodes if n.type == "trigger"), None)
+                if not trigger:
+                    continue
+                cfg = trigger.config or {}
+                opening = cfg.get("event_type_filter", "")
+                closing = cfg.get("closing_event_type", "")
+                if event_type == opening or event_type == closing:
+                    filtered_agg.append(wf)
+                else:
+                    logger.debug(
+                        "aggregated_workflow_skipped_event_type",
+                        workflow_id=str(wf.id),
+                        event_type=event_type,
+                        opening_filter=opening,
+                        closing_filter=closing,
+                    )
+            aggregated_workflows = filtered_agg
+
+        # Route aggregated workflows to the aggregation buffer
+        if aggregated_workflows:
+            from app.modules.automation.workers.aggregation_worker import buffer_event_for_aggregation
+
+            for wf in aggregated_workflows:
+                try:
+                    await buffer_event_for_aggregation(wf, webhook_event, payload)
+                except Exception as e:
+                    logger.error(
+                        "aggregation_buffer_failed",
+                        workflow_id=str(wf.id),
+                        webhook_id=webhook_id,
+                        error=str(e),
+                    )
+
+            logger.info(
+                "aggregated_workflows_matched",
+                webhook_id=webhook_id,
+                webhook_type=webhook_type,
+                event_type=event_type,
+                matched_count=len(aggregated_workflows),
+            )
+
         logger.info(
             "workflows_matched",
             webhook_id=webhook_id,
             webhook_type=webhook_type,
             event_type=event_type,
             matched_count=len(matching_workflows),
+            aggregated_count=len(aggregated_workflows),
         )
 
         execution_results = []
@@ -150,7 +214,9 @@ async def process_webhook(
         # Update webhook event with results
         webhook_event.processed = True
         webhook_event.processed_at = datetime.now(timezone.utc)
-        webhook_event.matched_workflows = [workflow.id for workflow in matching_workflows]
+        webhook_event.matched_workflows = [workflow.id for workflow in matching_workflows] + [
+            wf.id for wf in aggregated_workflows
+        ]
         webhook_event.executions_triggered = [
             PydanticObjectId(r["execution_id"]) for r in execution_results if r.get("execution_id")
         ]

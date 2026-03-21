@@ -66,6 +66,12 @@ export interface McpTestResult {
   error?: string;
 }
 
+export interface McpTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -76,4 +82,29 @@ export interface LlmUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+}
+
+export interface ConversationThreadSummary {
+  id: string;
+  feature: string;
+  context_ref: string | null;
+  message_count: number;
+  preview: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationThreadDetail {
+  id: string;
+  feature: string;
+  context_ref: string | null;
+  messages: ChatMessage[];
+  mcp_config_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationThreadListResponse {
+  threads: ConversationThreadSummary[];
+  total: number;
 }

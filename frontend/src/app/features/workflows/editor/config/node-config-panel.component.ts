@@ -33,6 +33,7 @@ import {
   ActionType,
   ApiCatalogEntry,
   DeviceUtilEntry,
+  EventPair,
   VariableBinding,
   VariableTree,
   WorkflowType,
@@ -82,6 +83,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-label>Trigger Type</mat-label>
               <mat-select formControlName="trigger_type">
                 <mat-option value="webhook">Webhook</mat-option>
+                <mat-option value="aggregated_webhook">Aggregated Webhook</mat-option>
                 <mat-option value="cron">Cron Schedule</mat-option>
                 <mat-option value="manual">Manual</mat-option>
               </mat-select>
@@ -103,6 +105,63 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-form-field appearance="outline">
                 <mat-label>Event Type Filter (optional)</mat-label>
                 <input matInput formControlName="event_type_filter" />
+              </mat-form-field>
+            }
+
+            @if (form.get('trigger_type')?.value === 'aggregated_webhook') {
+              <mat-form-field appearance="outline">
+                <mat-label>Event Pair</mat-label>
+                <mat-select (selectionChange)="onEventPairSelected($event.value)">
+                  <mat-option value="">Custom</mat-option>
+                  @for (pair of eventPairs(); track pair.opening) {
+                    <mat-option [value]="pair.opening">{{ pair.label }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Webhook Topic</mat-label>
+                <mat-select formControlName="webhook_topic">
+                  <mat-option value="device-events">Device Events</mat-option>
+                  <mat-option value="mxedge-events">Mist Edge Events</mat-option>
+                  <mat-option value="nac-events">NAC Events</mat-option>
+                  <mat-option value="alarms">Alarms</mat-option>
+                  <mat-option value="device-updowns">Device Up/Downs</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Opening Event Type</mat-label>
+                <input matInput formControlName="event_type_filter" placeholder="e.g. AP_DISCONNECTED" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Closing Event Type (optional)</mat-label>
+                <input matInput formControlName="closing_event_type" placeholder="e.g. AP_CONNECTED" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Device Key</mat-label>
+                <input matInput formControlName="device_key" placeholder="device_mac" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Window Duration (seconds)</mat-label>
+                <input matInput type="number" formControlName="window_seconds" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Group By</mat-label>
+                <mat-select formControlName="group_by">
+                  <mat-option value="site_id">Site</mat-option>
+                  <mat-option value="org_id">Organization</mat-option>
+                  <mat-option value="device_mac">Device</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Min Events</mat-label>
+                <input matInput type="number" formControlName="min_events" />
               </mat-form-field>
             }
 
@@ -549,6 +608,67 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                   included below the message.
                 </div>
               }
+            }
+
+            <!-- Wait for Callback -->
+            @if (node.type === 'wait_for_callback') {
+              <mat-form-field appearance="outline">
+                <mat-label>Slack Webhook URL</mat-label>
+                <input matInput formControlName="notification_channel" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Header (optional)</mat-label>
+                <input matInput formControlName="slack_header" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Message Template</mat-label>
+                <textarea matInput formControlName="notification_template" rows="3"></textarea>
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="waitVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #waitVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('notification_template')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              <div class="section-label">Action Buttons</div>
+              @for (action of waitActionsArray.controls; track action; let i = $index) {
+                <div class="inline-row">
+                  <mat-form-field appearance="outline" class="flex-1">
+                    <mat-label>Button Text</mat-label>
+                    <input matInput [formControl]="$any(action).controls.text" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline" class="flex-1">
+                    <mat-label>Action ID</mat-label>
+                    <input matInput [formControl]="$any(action).controls.action_id" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline" style="width: 120px">
+                    <mat-label>Style</mat-label>
+                    <mat-select [formControl]="$any(action).controls.style">
+                      <mat-option value="">Default</mat-option>
+                      <mat-option value="primary">Primary</mat-option>
+                      <mat-option value="danger">Danger</mat-option>
+                    </mat-select>
+                  </mat-form-field>
+                  <button mat-icon-button color="warn" (click)="removeWaitAction(i)">
+                    <mat-icon>delete</mat-icon>
+                  </button>
+                </div>
+              }
+              <button mat-stroked-button (click)="addWaitAction()">
+                <mat-icon>add</mat-icon> Add Button
+              </button>
+
+              <mat-form-field appearance="outline" style="margin-top: 16px">
+                <mat-label>Timeout (seconds, optional)</mat-label>
+                <input matInput type="number" formControlName="timeout_seconds" />
+                <mat-hint>Auto-fail if no response within this time (0 = no timeout)</mat-hint>
+              </mat-form-field>
             }
 
             <!-- Delay -->
@@ -1323,6 +1443,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   private readonly llmService = inject(LlmService);
   availableLlmConfigs = signal<LlmConfigAvailable[]>([]);
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
+  eventPairs = signal<EventPair[]>([]);
   private readonly destroyRef = inject(DestroyRef);
   private readonly rebuild$ = new Subject<void>();
 
@@ -1382,6 +1503,11 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
           this.tryAutoSelectDeviceUtil();
         },
       });
+
+    this.workflowService
+      .getEventPairs()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (pairs) => this.eventPairs.set(pairs) });
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -1445,6 +1571,13 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       trigger_type: [config['trigger_type'] || 'webhook'],
       webhook_topic: [(config['webhook_topic'] || config['webhook_type'] || '') as string],
       event_type_filter: [(config['event_type_filter'] || config['webhook_topic'] || '') as string],
+      // Aggregated webhook fields
+      closing_event_type: [(config['closing_event_type'] || '') as string],
+      device_key: [(config['device_key'] || 'device_mac') as string],
+      window_seconds: [config['window_seconds'] || 120],
+      group_by: [(config['group_by'] || 'site_id') as string],
+      min_events: [config['min_events'] || 1],
+      // Cron fields
       cron_expression: [config['cron_expression'] || ''],
       timezone: [config['timezone'] || 'UTC'],
       skip_if_running: [config['skip_if_running'] ?? true],
@@ -1541,6 +1674,20 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       agent_max_iterations: [config['max_iterations'] ?? 10],
       llm_config_id: [config['llm_config_id'] || ''],
       mcp_config_ids: [(config['mcp_config_ids'] as string[]) || []],
+      // Wait for callback
+      wait_actions: this.fb.array(
+        ((config['slack_actions'] as { text: string; action_id: string; style: string }[]) || [
+          { text: 'Approve', action_id: 'approve', style: 'primary' },
+          { text: 'Reject', action_id: 'reject', style: 'danger' },
+        ]).map((a) =>
+          this.fb.group({
+            text: [a.text || ''],
+            action_id: [a.action_id || ''],
+            style: [a.style || ''],
+          })
+        )
+      ),
+      timeout_seconds: [config['timeout_seconds'] || 0],
       max_retries: [this.node.max_retries ?? 3],
       retry_delay: [this.node.retry_delay ?? 5],
       continue_on_error: [this.node.continue_on_error ?? false],
@@ -1788,6 +1935,16 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         timezone: raw.timezone || 'UTC',
         skip_if_running: raw.skip_if_running,
         condition: raw.condition || undefined,
+        // Aggregated webhook fields (only included when relevant)
+        ...(raw.trigger_type === 'aggregated_webhook'
+          ? {
+              closing_event_type: raw.closing_event_type || undefined,
+              device_key: raw.device_key || 'device_mac',
+              window_seconds: raw.window_seconds || 120,
+              group_by: raw.group_by || 'site_id',
+              min_events: raw.min_events || 1,
+            }
+          : {}),
       };
       updatedNode.save_as = (raw.save_as || []).filter((b: VariableBinding) => b.name);
     } else {
@@ -1880,6 +2037,24 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
           config['slack_footer'] = raw.slack_footer || undefined;
           config['slack_json_variable'] = raw.slack_json_variable || undefined;
         }
+      }
+
+      if (this.node.type === 'wait_for_callback') {
+        config['notification_channel'] = raw.notification_channel;
+        config['notification_template'] = raw.notification_template;
+        config['slack_header'] = raw.slack_header || undefined;
+        config['slack_actions'] = (raw.wait_actions || []).filter(
+          (a: { text: string; action_id: string }) => a.text && a.action_id
+        );
+        config['timeout_seconds'] = raw.timeout_seconds || undefined;
+        // Generate output ports from actions
+        updatedNode.output_ports = (config['slack_actions'] as { action_id: string; text: string }[]).map(
+          (a: { action_id: string; text: string }) => ({
+            id: a.action_id,
+            label: a.text,
+            type: 'branch' as const,
+          })
+        );
       }
 
       if (this.node.type === 'delay') {
@@ -2044,6 +2219,18 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       });
   }
 
+  onEventPairSelected(opening: string): void {
+    const pair = this.eventPairs().find((p) => p.opening === opening);
+    if (pair) {
+      this.form.patchValue({
+        webhook_topic: pair.topic,
+        event_type_filter: pair.opening,
+        closing_event_type: pair.closing,
+        device_key: pair.device_key,
+      });
+    }
+  }
+
   onSubflowTargetChanged(targetId: string): void {
     this.loadSubflowSchema(targetId);
     this.emitChanges();
@@ -2126,19 +2313,6 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     return this.node.type === 'ai_agent';
   }
 
-  get mcpServersArray(): FormArray {
-    return this.form.get('mcp_servers') as FormArray;
-  }
-
-  addMcpServer(): void {
-    this.mcpServersArray.push(this.fb.group({ name: [''], url: [''], headers: [''], ssl_verify: [true] }));
-    this.emitChanges();
-  }
-
-  removeMcpServer(index: number): void {
-    this.mcpServersArray.removeAt(index);
-    this.emitChanges();
-  }
 
   get hasOutput(): boolean {
     return (
@@ -2247,6 +2421,20 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
   get slackFieldsArray(): FormArray {
     return this.form?.get('slack_fields') as FormArray;
+  }
+
+  get waitActionsArray(): FormArray {
+    return this.form?.get('wait_actions') as FormArray;
+  }
+
+  addWaitAction(): void {
+    this.waitActionsArray.push(
+      this.fb.group({ text: [''], action_id: [''], style: [''] })
+    );
+  }
+
+  removeWaitAction(index: number): void {
+    this.waitActionsArray.removeAt(index);
   }
 
   addSlackField(): void {

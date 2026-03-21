@@ -34,7 +34,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
     @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
-      <div class="tab-form">
+      <div class="tab-form wide">
         <mat-card>
           <mat-card-header>
             <mat-card-title>LLM Integration</mat-card-title>
@@ -129,7 +129,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
     `
       .toggle-row { margin-bottom: 8px; }
       .empty-hint { color: var(--mat-sys-on-surface-variant); font-size: 13px; padding: 16px; text-align: center; }
-      .config-table { width: 100%; }
+      .config-table { width: 100%; background: transparent; }
       .default-badge {
         font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
         background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container);

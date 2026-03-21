@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
 import DOMPurify from 'dompurify';
@@ -36,7 +37,7 @@ function renderMarkdown(md: string): string {
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
-  imports: [ReactiveFormsModule, MatIconModule, AiIconComponent],
+  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, AiIconComponent],
   template: `
     <div class="ai-chat-panel">
       <div class="chat-messages" #chatMessages>
@@ -88,6 +89,22 @@ function renderMarkdown(md: string): string {
           </div>
         }
 
+        @if (pendingElicitation()) {
+          <div class="elicitation-card">
+            <div class="elicitation-icon">
+              <mat-icon>verified_user</mat-icon>
+            </div>
+            <div class="elicitation-body">
+              <div class="elicitation-label">Tool confirmation</div>
+              <div class="elicitation-desc">{{ pendingElicitation()!.description }}</div>
+              <div class="elicitation-actions">
+                <button mat-flat-button color="primary" (click)="respondElicitation(true)">Accept</button>
+                <button mat-stroked-button (click)="respondElicitation(false)">Decline</button>
+              </div>
+            </div>
+          </div>
+        }
+
         @if (error()) {
           <div class="chat-error">
             <mat-icon>error_outline</mat-icon>
@@ -120,7 +137,10 @@ function renderMarkdown(md: string): string {
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
         overflow: hidden;
         border-radius: inherit;
       }
@@ -130,13 +150,14 @@ function renderMarkdown(md: string): string {
         flex-direction: column;
         overflow: hidden;
         border-radius: inherit;
+        height: 100%;
       }
 
       .chat-messages {
         display: flex;
         flex-direction: column;
         gap: 16px;
-        max-height: 500px;
+        flex: 1;
         overflow-y: auto;
         padding: 16px;
         border-radius: inherit;
@@ -195,6 +216,9 @@ function renderMarkdown(md: string): string {
       }
 
       .message-bubble {
+        min-width: 0;
+        overflow: hidden;
+
         .user & {
           background: var(--mat-sys-primary-container, #e3f2fd);
           color: var(--mat-sys-on-primary-container, #1565c0);
@@ -213,6 +237,7 @@ function renderMarkdown(md: string): string {
       .message-content {
         font-size: 14px;
         line-height: 1.6;
+        overflow-x: auto;
       }
 
       .typing-bubble {
@@ -297,6 +322,85 @@ function renderMarkdown(md: string): string {
           font-size: 15px;
           font-weight: 600;
         }
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          font-size: 13px;
+          margin: 8px 0;
+          border-radius: 6px;
+          overflow: hidden;
+          border: 1px solid rgba(128, 128, 128, 0.25);
+        }
+        th,
+        td {
+          padding: 8px 12px;
+          border: 1px solid rgba(128, 128, 128, 0.25);
+          text-align: left;
+        }
+        th {
+          font-weight: 600;
+          background: rgba(128, 128, 128, 0.12);
+        }
+        tr:nth-child(even) td {
+          background: rgba(128, 128, 128, 0.05);
+        }
+      }
+
+      .elicitation-card {
+        display: flex;
+        gap: 12px;
+        padding: 14px 16px;
+        margin: 0 4px;
+        border-radius: 12px;
+        border: 1px solid var(--app-warning-bg, #fff3cd);
+        background: var(--mat-sys-surface-container, #f5f5f5);
+        animation: elicit-in 200ms ease-out;
+      }
+
+      @keyframes elicit-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .elicitation-icon {
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--app-warning-bg, #fff3cd);
+        color: var(--app-warning, #e65100);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        mat-icon { font-size: 18px; width: 18px; height: 18px; }
+      }
+
+      .elicitation-body {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .elicitation-label {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--app-warning, #e65100);
+        margin-bottom: 4px;
+      }
+
+      .elicitation-desc {
+        font-size: 14px;
+        line-height: 1.5;
+        margin-bottom: 10px;
+      }
+
+      .elicitation-actions {
+        display: flex;
+        gap: 8px;
+
+        button { font-size: 13px; height: 32px; }
       }
 
       .chat-error {
@@ -322,6 +426,7 @@ function renderMarkdown(md: string): string {
         gap: 8px;
         padding: 12px 16px;
         border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+        flex-shrink: 0;
       }
 
       .chat-textarea {
@@ -404,6 +509,9 @@ export class AiChatPanelComponent {
   /** Label shown during initial loading (default: "Thinking...") */
   loadingLabel = input('Thinking...');
 
+  /** Pre-loaded messages (for loading existing threads). Takes priority over initialSummary. */
+  initialMessages = input<ChatMessage[]>([]);
+
   /** Emits when a follow-up is sent */
   followUpSent = output<void>();
 
@@ -416,6 +524,7 @@ export class AiChatPanelComponent {
   messages = signal<ChatMessage[]>([]);
   loading = signal(false);
   error = signal<string | null>(null);
+  pendingElicitation = signal<{ requestId: string; description: string } | null>(null);
   followUpText = new FormControl('');
 
   isLoading = computed(() => this.loading() || this.parentLoading());
@@ -435,6 +544,20 @@ export class AiChatPanelComponent {
       const summary = this.initialSummary();
       if (summary) {
         this.messages.set([{ role: 'assistant', content: summary, html: renderMarkdown(summary) }]);
+        this.scrollToBottom();
+      }
+    });
+    // Load pre-existing messages (thread history)
+    effect(() => {
+      const msgs = this.initialMessages();
+      if (msgs.length > 0) {
+        this.streamSub?.unsubscribe();
+        this.streamSub = null;
+        this.loading.set(false);
+        this.error.set(null);
+        this.pendingElicitation.set(null);
+        this.followUpText.reset();
+        this.messages.set(msgs);
         this.scrollToBottom();
       }
     });
@@ -477,11 +600,10 @@ export class AiChatPanelComponent {
 
     this.streamSub?.unsubscribe();
     this.streamSub = this.wsService
-      .subscribe<{ type: string; content: string }>(channel)
+      .subscribe<{ type: string; content?: string; request_id?: string; description?: string }>(channel)
       .subscribe((msg) => {
         if (msg.type === 'token') {
-          streamedContent += msg.content;
-          // Update the last message (or add a new streaming one)
+          streamedContent += msg.content ?? '';
           this.messages.update((msgs) => {
             const last = msgs[msgs.length - 1];
             if (last?.role === 'assistant') {
@@ -489,6 +611,9 @@ export class AiChatPanelComponent {
             }
             return [...msgs, { role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) }];
           });
+          this.scrollToBottom();
+        } else if (msg.type === 'elicitation' && msg.request_id && msg.description) {
+          this.pendingElicitation.set({ requestId: msg.request_id, description: msg.description });
           this.scrollToBottom();
         } else if (msg.type === 'done') {
           this.streamSub?.unsubscribe();
@@ -515,6 +640,13 @@ export class AiChatPanelComponent {
         this.loading.set(false);
       },
     });
+  }
+
+  respondElicitation(accepted: boolean): void {
+    const elicit = this.pendingElicitation();
+    if (!elicit) return;
+    this.pendingElicitation.set(null);
+    this.llmService.respondToElicitation(elicit.requestId, accepted).subscribe();
   }
 
   private scrollToBottom(): void {

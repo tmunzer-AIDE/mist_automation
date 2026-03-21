@@ -1,18 +1,28 @@
 import { Component, DestroyRef, inject, OnInit, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
+import { MatBadgeModule } from '@angular/material/badge';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { Subscription } from 'rxjs';
+import { McpConfigAvailable } from '../../../core/models/llm.model';
 import { AiChatPanelComponent } from '../ai-chat-panel/ai-chat-panel.component';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
 import { LlmService } from '../../../core/services/llm.service';
+import { WebSocketService } from '../../../core/services/websocket.service';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { extractErrorMessage } from '../../utils/error.utils';
 
 @Component({
   selector: 'app-global-chat',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatTooltipModule, AiChatPanelComponent, AiIconComponent],
+  imports: [
+    MatBadgeModule, MatButtonModule, MatCheckboxModule, MatIconModule, MatMenuModule, MatTooltipModule,
+    AiChatPanelComponent, AiIconComponent,
+  ],
   template: `
     @if (!isOpen()) {
       <button
@@ -34,6 +44,30 @@ import { extractErrorMessage } from '../../utils/error.utils';
             <span>AI Assistant</span>
           </div>
           <div class="header-actions">
+            @if (availableMcpConfigs().length > 0) {
+              <button
+                mat-icon-button
+                [matMenuTriggerFor]="mcpMenu"
+                matTooltip="External MCP Servers"
+                [matBadge]="selectedMcpIds().length || null"
+                matBadgeSize="small"
+                matBadgeColor="primary"
+              >
+                <mat-icon>hub</mat-icon>
+              </button>
+              <mat-menu #mcpMenu="matMenu">
+                @for (cfg of availableMcpConfigs(); track cfg.id) {
+                  <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
+                    <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()">
+                      {{ cfg.name }}
+                    </mat-checkbox>
+                  </button>
+                }
+              </mat-menu>
+            }
+            <button mat-icon-button matTooltip="Open full page" (click)="openFullPage()">
+              <mat-icon>open_in_full</mat-icon>
+            </button>
             <button mat-icon-button matTooltip="New Chat" (click)="resetChat()">
               <mat-icon>add_comment</mat-icon>
             </button>
@@ -268,8 +302,11 @@ import { extractErrorMessage } from '../../utils/error.utils';
 })
 export class GlobalChatComponent implements OnInit {
   private readonly llmService = inject(LlmService);
+  private readonly wsService = inject(WebSocketService);
   private readonly globalChatService = inject(GlobalChatService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private elicitSub: Subscription | null = null;
 
   isOpen = signal(false);
   showPulse = signal(true);
@@ -278,6 +315,9 @@ export class GlobalChatComponent implements OnInit {
   initialReply = signal<string | null>(null);
   chatError = signal<string | null>(null);
   inputText = '';
+  availableMcpConfigs = signal<McpConfigAvailable[]>([]);
+  selectedMcpIds = signal<string[]>([]);
+  private chatPanel = viewChild<AiChatPanelComponent>('chatPanel');
 
   ngOnInit(): void {
     // Listen for external open requests (from dashboard, webhook monitor, etc.)
@@ -297,17 +337,39 @@ export class GlobalChatComponent implements OnInit {
   open(): void {
     this.isOpen.set(true);
     this.showPulse.set(false);
+    // Load available MCP configs (lazy, only when panel opens)
+    if (this.availableMcpConfigs().length === 0) {
+      this.llmService.listAvailableMcpConfigs().subscribe({
+        next: (configs) => this.availableMcpConfigs.set(configs),
+      });
+    }
   }
 
   close(): void {
     this.isOpen.set(false);
   }
 
+  openFullPage(): void {
+    const threadId = this.threadId();
+    this.close();
+    this.router.navigate(['/ai-chats'], threadId ? { queryParams: { thread: threadId } } : {});
+  }
+
   resetChat(): void {
+    this.elicitSub?.unsubscribe();
+    this.elicitSub = null;
+    this.chatPanel()?.pendingElicitation.set(null);
     this.threadId.set(null);
     this.initialReply.set(null);
     this.chatError.set(null);
+    this.selectedMcpIds.set([]);
     this.inputText = '';
+  }
+
+  toggleMcp(id: string): void {
+    this.selectedMcpIds.update((ids) =>
+      ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id],
+    );
   }
 
   onEnter(event: Event): void {
@@ -326,16 +388,35 @@ export class GlobalChatComponent implements OnInit {
     this.loading.set(true);
     this.chatError.set(null);
 
+    // Subscribe to WS channel for elicitation prompts during agent execution
+    const streamId = crypto.randomUUID();
+    const channel = `llm:${streamId}`;
+    this.elicitSub?.unsubscribe();
+    this.elicitSub = this.wsService
+      .subscribe<{ type: string; request_id?: string; description?: string }>(channel)
+      .subscribe((msg) => {
+        if (msg.type === 'elicitation' && msg.request_id && msg.description) {
+          this.chatPanel()?.pendingElicitation.set({
+            requestId: msg.request_id,
+            description: msg.description,
+          });
+        }
+      });
+
     this.llmService
-      .globalChat(text, this.threadId() || undefined, this.globalChatService.buildContextString() || undefined)
+      .globalChat(text, this.threadId() || undefined, this.globalChatService.buildContextString() || undefined, streamId, this.selectedMcpIds())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          this.elicitSub?.unsubscribe();
+          this.elicitSub = null;
           this.threadId.set(res.thread_id);
           this.initialReply.set(res.reply);
           this.loading.set(false);
         },
         error: (err) => {
+          this.elicitSub?.unsubscribe();
+          this.elicitSub = null;
           this.chatError.set(extractErrorMessage(err));
           this.loading.set(false);
         },
