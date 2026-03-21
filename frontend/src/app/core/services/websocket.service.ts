@@ -55,9 +55,6 @@ export class WebSocketService {
         if (refs <= 0) {
           this.channelRefs.delete(channel);
           this.sendUnsubscribe(channel);
-          if (this.channelRefs.size === 0) {
-            this.closeConnection();
-          }
         } else {
           this.channelRefs.set(channel, refs);
         }

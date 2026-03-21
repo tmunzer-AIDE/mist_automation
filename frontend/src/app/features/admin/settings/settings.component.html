@@ -50,6 +50,14 @@
     [active]="t7.isActive"
     >AI / LLM</a
   >
+  <a
+    mat-tab-link
+    routerLink="mcp"
+    routerLinkActive
+    #t8="routerLinkActive"
+    [active]="t8.isActive"
+    >MCP Servers</a
+  >
 </nav>
 <mat-tab-nav-panel #tabPanel>
   <router-outlet></router-outlet>

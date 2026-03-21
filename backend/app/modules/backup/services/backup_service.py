@@ -253,6 +253,7 @@ class BackupService:
                 return "unchanged"
 
             changed_fields = self._find_changed_fields(existing.configuration, config)
+            next_ver = await BackupObject.next_version(object_id)
 
             new_backup = BackupObject(
                 object_type=object_type,
@@ -262,7 +263,7 @@ class BackupService:
                 site_id=site_id,
                 configuration=config,
                 configuration_hash=config_hash,
-                version=existing.version + 1,
+                version=next_ver,
                 previous_version_id=existing.id,
                 event_type=BackupEventType.UPDATED,
                 changed_fields=changed_fields,
@@ -293,6 +294,14 @@ class BackupService:
             return "updated"
 
         else:
+            # Check if a deleted version exists (object was deleted then re-created)
+            latest_any = await BackupObject.find(
+                BackupObject.object_id == object_id,
+            ).sort([("version", -1)]).first_or_none()
+
+            next_ver_new = (latest_any.version + 1) if latest_any else 1
+            prev_id = latest_any.id if latest_any else None
+
             new_backup = BackupObject(
                 object_type=object_type,
                 object_id=object_id,
@@ -301,7 +310,8 @@ class BackupService:
                 site_id=site_id,
                 configuration=config,
                 configuration_hash=config_hash,
-                version=1,
+                version=next_ver_new,
+                previous_version_id=prev_id,
                 event_type=event_type_if_new,
                 changed_fields=[],
                 backed_up_at=now,
@@ -472,6 +482,8 @@ class BackupService:
             logger.warning("object_not_found_for_deletion", object_id=object_id)
             return None
 
+        next_ver = await BackupObject.next_version(object_id)
+
         deletion_backup = BackupObject(
             object_type=existing.object_type,
             object_id=object_id,
@@ -480,7 +492,7 @@ class BackupService:
             site_id=existing.site_id,
             configuration=existing.configuration,
             configuration_hash=existing.configuration_hash,
-            version=existing.version + 1,
+            version=next_ver,
             previous_version_id=existing.id,
             event_type=BackupEventType.DELETED,
             changed_fields=[],

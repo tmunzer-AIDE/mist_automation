@@ -17,6 +17,8 @@ import { WorkflowService } from '../../../core/services/workflow.service';
 import { LlmService } from '../../../core/services/llm.service';
 import { WorkflowResponse, WorkflowType } from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { WorkflowAiDialogComponent } from './workflow-ai-dialog.component';
 
 @Component({
@@ -35,6 +37,7 @@ import { WorkflowAiDialogComponent } from './workflow-ai-dialog.component';
     MatProgressBarModule,
     EmptyStateComponent,
     StatusBadgeComponent,
+    AiIconComponent,
     DateTimePipe,
   ],
   templateUrl: './workflow-list.component.html',
@@ -47,6 +50,7 @@ export class WorkflowListComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
+  private readonly globalChatService = inject(GlobalChatService);
 
   llmAvailable = signal(false);
   workflows = signal<WorkflowResponse[]>([]);
@@ -60,6 +64,7 @@ export class WorkflowListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Workflows');
+    this.globalChatService.setContext({ page: 'Workflow List', details: { view: 'All workflows' } });
     this.llmService.getStatus().subscribe({
       next: (s) => this.llmAvailable.set(s.enabled),
       error: () => this.llmAvailable.set(false),

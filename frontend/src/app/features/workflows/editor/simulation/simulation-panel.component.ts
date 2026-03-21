@@ -24,6 +24,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import {
   WorkflowExecution,
+  NodeExecutionResult,
   SamplePayload,
   SimulationState,
   SimulationWsMessage,
@@ -35,6 +36,7 @@ import { WorkflowService } from '../../../../core/services/workflow.service';
 import { LlmService } from '../../../../core/services/llm.service';
 import { WebSocketService } from '../../../../core/services/websocket.service';
 import { AiChatPanelComponent } from '../../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { AiIconComponent } from '../../../../shared/components/ai-icon/ai-icon.component';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
 
@@ -54,6 +56,7 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
     MatTooltipModule,
     MatSnackBarModule,
     AiChatPanelComponent,
+    AiIconComponent,
     DateTimePipe,
   ],
   template: `
@@ -111,6 +114,9 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
                           (click)="selectSample(sample)"
                         >
                           <span class="sample-topic">{{ sample.webhook_type }}</span>
+                          @if (sample.event_type) {
+                            <span class="sample-event-type">{{ sample.event_type }}</span>
+                          }
                           <span class="sample-time">{{ sample.timestamp | dateTime:'short' }}</span>
                         </div>
                       }
@@ -121,10 +127,28 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
             </mat-tab>
 
             <!-- Results tab -->
-            <mat-tab label="Results" [disabled]="!simulationState?.execution">
+            <mat-tab label="Results" [disabled]="!simulationState?.execution && liveNodeResults().length === 0">
               <div class="tab-content">
-                @if (simulationState?.execution; as exec) {
-                  <!-- Step-through controls -->
+                @if (isRunning() && liveNodeResults().length > 0) {
+                  <!-- Live results during execution -->
+                  <div class="action-list">
+                    @for (result of liveNodeResults(); track result.node_id) {
+                      <div class="live-result-item">
+                        <span class="snap-status" [class.success]="result.status === 'success'" [class.failed]="result.status === 'failed'">
+                          {{ result.status }}
+                        </span>
+                        <span class="snap-name">{{ result.node_name }}</span>
+                        @if (result.duration_ms) {
+                          <span class="snap-duration">{{ result.duration_ms }}ms</span>
+                        }
+                        @if (result.error) {
+                          <div class="snap-error">{{ result.error }}</div>
+                        }
+                      </div>
+                    }
+                  </div>
+                } @else if (simulationState?.execution; as exec) {
+                  <!-- Step-through controls (after completion) -->
                   <div class="step-controls">
                     <button
                       mat-icon-button
@@ -188,9 +212,9 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
             </mat-tab>
 
             <!-- Logs tab -->
-            <mat-tab label="Logs" [disabled]="!simulationState?.execution">
+            <mat-tab label="Logs" [disabled]="!simulationState?.execution && !isRunning()">
               <div class="tab-content">
-                @if (simulationState?.execution?.logs; as logs) {
+                @if ((isRunning() ? liveLogs() : simulationState?.execution?.logs); as logs) {
                   <div class="log-viewer">
                     @for (line of logs; track $index) {
                       <div
@@ -210,7 +234,7 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
           @if (aiPanelOpen()) {
             <div class="ai-debug-section">
               <div class="ai-debug-header">
-                <mat-icon>smart_toy</mat-icon>
+                <app-ai-icon [size]="18" [animated]="false"></app-ai-icon>
                 <span>AI Debug Analysis</span>
                 <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
               </div>
@@ -219,6 +243,7 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
                 [errorMessage]="aiError()"
                 [parentLoading]="aiLoading()"
                 [threadId]="aiThreadId()"
+                loadingLabel="Analyzing execution..."
               ></app-ai-chat-panel>
             </div>
           }
@@ -238,7 +263,7 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
                 (click)="debugWithAI()"
                 [disabled]="aiLoading()"
               >
-                <mat-icon>smart_toy</mat-icon> Debug
+                <app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Debug
               </button>
             }
             <button
@@ -254,6 +279,15 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
               }
               {{ isRunning() ? 'Running...' : 'Simulate' }}
             </button>
+            @if (isRunning()) {
+              <button
+                mat-stroked-button
+                (click)="cancelSimulation()"
+                class="cancel-button"
+              >
+                <mat-icon>stop</mat-icon> Stop
+              </button>
+            }
           </div>
         </div>
 
@@ -393,6 +427,15 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
         font-weight: 500;
       }
 
+      .sample-event-type {
+        font-size: 10px;
+        font-family: var(--app-font-mono);
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--mat-sys-surface-variant);
+        color: var(--mat-sys-on-surface-variant);
+      }
+
       .sample-time {
         color: var(--mat-sys-on-surface-variant, #999);
       }
@@ -510,6 +553,16 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
       .dry-run-toggle {
         font-size: 13px;
       }
+      .cancel-button {
+        color: var(--app-error, #f44336);
+      }
+      .action-list { display: flex; flex-direction: column; gap: 6px; }
+      .live-result-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 10px; border-radius: 6px;
+        border: 1px solid var(--mat-sys-outline-variant);
+        font-size: 13px;
+      }
 
       .ai-debug-section {
         border-top: 1px solid var(--mat-sys-outline-variant);
@@ -548,6 +601,9 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
   paramValues = signal<Record<string, string>>({});
   dryRun = signal(true);
   isRunning = signal(false);
+  executionId = signal<string | null>(null);
+  liveLogs = signal<string[]>([]);
+  liveNodeResults = signal<NodeExecutionResult[]>([]);
 
   // AI Debug
   llmAvailable = signal(false);
@@ -615,6 +671,9 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
 
     this.isRunning.set(true);
     this.liveNodeStatuses = {};
+    this.liveLogs.set([]);
+    this.liveNodeResults.set([]);
+    this.executionId.set(null);
     let payload: Record<string, unknown> | undefined;
 
     if (this.workflowType === 'subflow' && this.inputParameters.length > 0) {
@@ -659,8 +718,8 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
-          // Backend accepted; progress comes via WS
+        next: (res) => {
+          this.executionId.set(res.execution_id);
         },
         error: (err) => {
           this.isRunning.set(false);
@@ -683,9 +742,29 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
       this.emitProgress();
     } else if (msg.type === 'node_completed') {
       const nodeId = data['node_id'] as string;
-      const status = data['status'] as string;
-      this.liveNodeStatuses[nodeId] = status === 'success' ? 'success' : 'failed';
+      const nodeStatus = data['status'] as string;
+      this.liveNodeStatuses[nodeId] = nodeStatus === 'success' ? 'success' : 'failed';
       this.emitProgress();
+
+      // Update live node results
+      this.liveNodeResults.update((results) => [
+        ...results,
+        {
+          node_id: nodeId,
+          node_name: (data['node_name'] as string) || nodeId,
+          node_type: '',
+          status: nodeStatus,
+          duration_ms: (data['duration_ms'] as number) || 0,
+          error: (data['error'] as string) || null,
+          output_data: data['output_data'] as Record<string, unknown> | null,
+          retry_count: 0,
+        } as NodeExecutionResult,
+      ]);
+
+      // Update live logs from the full logs array sent with each node_completed
+      if (data['logs']) {
+        this.liveLogs.set(data['logs'] as string[]);
+      }
     } else if (msg.type === 'simulation_completed') {
       this.isRunning.set(false);
       this.cleanupWs();
@@ -761,6 +840,15 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
       currentStep: step,
       nodeStatuses,
     });
+  }
+
+  cancelSimulation(): void {
+    const execId = this.executionId();
+    if (!execId || !this.workflowId) return;
+    this.workflowService
+      .cancelSimulation(this.workflowId, execId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe();
   }
 
   debugWithAI(): void {

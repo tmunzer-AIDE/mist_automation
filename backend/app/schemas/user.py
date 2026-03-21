@@ -67,6 +67,23 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+def user_to_response(user) -> UserResponse:
+    """Build a UserResponse from a User document."""
+    return UserResponse(
+        id=str(user.id),
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        roles=user.roles,
+        timezone=user.timezone,
+        is_active=user.is_active,
+        totp_enabled=user.totp_enabled,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        last_login=user.last_login,
+    )
+
+
 class UserListResponse(BaseModel):
     """User list response schema."""
 

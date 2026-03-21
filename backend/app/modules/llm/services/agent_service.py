@@ -124,7 +124,12 @@ class AIAgentService:
                 try:
                     arguments = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
                 except json.JSONDecodeError:
-                    arguments = {}
+                    messages.append(LLMMessage(
+                        role="tool",
+                        content="Error: tool arguments were not valid JSON",
+                        tool_call_id=tc.id,
+                    ))
+                    continue
 
                 client = tool_server_map.get(tool_name)
                 if not client:

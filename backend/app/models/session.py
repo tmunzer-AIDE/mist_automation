@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from beanie import Document, PydanticObjectId
 from pydantic import BaseModel, Field
+from pymongo import ASCENDING, IndexModel
 
 from app.config import settings
 
@@ -42,7 +43,7 @@ class UserSession(Document):
             "user_id",
             "token_jti",
             "last_activity",
-            [("expires_at", 1)],  # TTL index for auto-cleanup
+            IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
         ]
 
     @classmethod

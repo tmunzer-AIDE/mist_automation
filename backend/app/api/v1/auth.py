@@ -14,7 +14,7 @@ from app.config import settings
 from app.core.security import (
     create_access_token,
     hash_password,
-    validate_password_strength,
+    validate_password_with_policy,
     verify_password,
 )
 from app.dependencies import get_current_user_from_token
@@ -37,18 +37,9 @@ logger = structlog.get_logger(__name__)
 
 def _user_to_response(user: User) -> UserResponse:
     """Build a UserResponse from a User document."""
-    return UserResponse(
-        id=str(user.id),
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        roles=user.roles,
-        timezone=user.timezone,
-        is_active=user.is_active,
-        totp_enabled=user.totp_enabled,
-        created_at=user.created_at,
-        last_login=user.last_login,
-    )
+    from app.schemas.user import user_to_response
+
+    return user_to_response(user)
 
 
 # ── In-memory rate limiter for login ──────────────────────────────────────────
@@ -61,8 +52,13 @@ def _check_login_rate_limit(key: str) -> None:
     """Raise 429 if the key has exceeded the login rate limit."""
     now = time.monotonic()
     # Prune old entries
-    _login_attempts[key] = [t for t in _login_attempts[key] if now - t < _RATE_LIMIT_WINDOW]
-    if len(_login_attempts[key]) >= _RATE_LIMIT_MAX:
+    recent = [t for t in _login_attempts[key] if now - t < _RATE_LIMIT_WINDOW]
+    if not recent:
+        # Remove empty keys to prevent unbounded dict growth
+        _login_attempts.pop(key, None)
+    else:
+        _login_attempts[key] = recent
+    if len(recent) >= _RATE_LIMIT_MAX:
         logger.warning("login_rate_limited", key=key)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -109,18 +105,9 @@ async def login(request: Request, login_data: LoginRequest):
 
     access_token, token_jti = create_access_token(data=token_data, expires_delta=expires_delta)
 
-    # Enforce max concurrent sessions
+    # Create session record first, then trim excess (insert-then-trim is race-safe)
     from app.models.system import SystemConfig
 
-    sys_config = await SystemConfig.get_config()
-    max_sessions = sys_config.max_concurrent_sessions or 5
-    session_count = await UserSession.find(UserSession.user_id == user.id).count()
-    if session_count >= max_sessions:
-        oldest = await UserSession.find(UserSession.user_id == user.id).sort("last_activity").first_or_none()
-        if oldest:
-            await oldest.delete()
-
-    # Create session record
     ip_address = request.client.host if request.client else "unknown"
     user_agent = request.headers.get("user-agent", "")
 
@@ -132,6 +119,18 @@ async def login(request: Request, login_data: LoginRequest):
         trusted_device=login_data.remember_me,
     )
     await session.insert()
+
+    # Enforce max concurrent sessions by trimming oldest
+    sys_config = await SystemConfig.get_config()
+    max_sessions = sys_config.max_concurrent_sessions or 5
+    excess = (
+        await UserSession.find(UserSession.user_id == user.id)
+        .sort("last_activity")
+        .to_list()
+    )
+    if len(excess) > max_sessions:
+        for old_session in excess[: len(excess) - max_sessions]:
+            await old_session.delete()
 
     # Update last login
     user.update_last_login()
@@ -238,7 +237,7 @@ async def onboard(request: Request, data: OnboardRequest):
     if user_count > 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="System is already initialized")
 
-    is_valid, error_msg = validate_password_strength(data.password)
+    is_valid, error_msg = await validate_password_with_policy(data.password)
     if not is_valid:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
 
@@ -295,7 +294,7 @@ async def change_password(
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
 
-    is_valid, error_msg = validate_password_strength(data.new_password)
+    is_valid, error_msg = await validate_password_with_policy(data.new_password)
     if not is_valid:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
 

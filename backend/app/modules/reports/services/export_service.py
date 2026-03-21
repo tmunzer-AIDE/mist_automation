@@ -199,7 +199,7 @@ def generate_pdf(report) -> bytes:
         if gw_f:
             extra_styles.append(("BACKGROUND", (3, 3), (3, 3), _LIGHT_RED))
         if extra_styles:
-            summary_table.setStyle(TableStyle(extra_styles))
+            summary_table.setStyle(TableStyle(_BASE_TABLE_STYLE + extra_styles))
         elements.append(summary_table)
         elements.append(Spacer(1, 0.5 * cm))
 

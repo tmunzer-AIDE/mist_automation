@@ -13,9 +13,11 @@ import { selectCurrentUser } from '../../core/state/auth/auth.selectors';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { TopbarService } from '../../core/services/topbar.service';
+import { GlobalChatService } from '../../core/services/global-chat.service';
 import { HealthResponse } from '../../core/models/session.model';
 import { UserResponse } from '../../core/models/user.model';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { AiIconComponent } from '../../shared/components/ai-icon/ai-icon.component';
 import { DateTimePipe } from '../../shared/pipes/date-time.pipe';
 import {
   DashboardStats,
@@ -39,6 +41,7 @@ import {
     MatProgressBarModule,
     BaseChartDirective,
     StatusBadgeComponent,
+    AiIconComponent,
     DateTimePipe,
   ],
   templateUrl: './dashboard.component.html',
@@ -51,6 +54,7 @@ export class DashboardComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly topbarService = inject(TopbarService);
+  private readonly globalChat = inject(GlobalChatService);
 
   user = signal<UserResponse | null>(null);
   stats = signal<DashboardStats | null>(null);
@@ -86,6 +90,7 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Dashboard');
+    this.globalChat.setContext({ page: 'Dashboard', details: { view: 'System overview' } });
     this.authService.checkHealth().subscribe({
       next: (h) => this.health.set(h),
     });
@@ -196,5 +201,14 @@ export class DashboardComponent implements OnInit {
     }
 
     this.chartConfig.set({ type: 'bar', data: { labels, datasets }, options });
+  }
+
+  analyzeIncident(): void {
+    this.globalChat.open(
+      'Analyze recent incidents in the last 24 hours. ' +
+        'Check for device events (offline, config failures, port issues), ' +
+        'recent configuration changes in backups, and any active alarms. ' +
+        'Summarize findings and highlight anything that needs attention.'
+    );
   }
 }

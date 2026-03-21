@@ -6,8 +6,8 @@ import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.security import hash_password, validate_password_strength
-from app.dependencies import get_current_user_from_token, require_admin
+from app.core.security import hash_password, validate_password_with_policy
+from app.dependencies import require_admin
 from app.models.user import User
 from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
 
@@ -16,19 +16,9 @@ logger = structlog.get_logger(__name__)
 
 
 def _user_to_response(user: User) -> UserResponse:
-    return UserResponse(
-        id=str(user.id),
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        roles=user.roles,
-        timezone=user.timezone,
-        is_active=user.is_active,
-        totp_enabled=user.totp_enabled,
-        created_at=user.created_at,
-        updated_at=user.updated_at,
-        last_login=user.last_login,
-    )
+    from app.schemas.user import user_to_response
+
+    return user_to_response(user)
 
 
 @router.get("/users", response_model=UserListResponse, tags=["Users"])
@@ -67,7 +57,7 @@ async def create_user(
     Create a new user (admin only).
     """
     # Validate password strength
-    is_valid, error_msg = validate_password_strength(user_data.password)
+    is_valid, error_msg = await validate_password_with_policy(user_data.password)
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

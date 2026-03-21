@@ -39,7 +39,7 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "mist_api_token_set": bool(config.mist_api_token),
         "mist_org_id": config.mist_org_id,
         "mist_cloud_region": config.mist_cloud_region,
-        "webhook_secret": decrypt_sensitive_data(config.webhook_secret) if config.webhook_secret else None,
+        "webhook_secret_set": bool(config.webhook_secret),
         # Smee.io
         "smee_enabled": config.smee_enabled,
         "smee_channel_url": config.smee_channel_url,
@@ -69,14 +69,8 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "servicenow_username": config.servicenow_username,
         "servicenow_password_set": bool(config.servicenow_password),
         "pagerduty_api_key_set": bool(config.pagerduty_api_key),
-        # LLM Configuration
+        # LLM (global toggle — configs managed via /llm/configs)
         "llm_enabled": config.llm_enabled,
-        "llm_provider": config.llm_provider,
-        "llm_api_key_set": bool(config.llm_api_key),
-        "llm_model": config.llm_model,
-        "llm_base_url": config.llm_base_url,
-        "llm_temperature": config.llm_temperature,
-        "llm_max_tokens_per_request": config.llm_max_tokens_per_request,
         "updated_at": config.updated_at,
     }
 
@@ -95,7 +89,7 @@ async def update_system_settings(
     updates = settings.model_dump(exclude_unset=True)
 
     # Encrypt sensitive fields
-    sensitive_encrypt = {"mist_api_token", "webhook_secret", "servicenow_password", "pagerduty_api_key", "llm_api_key"}
+    sensitive_encrypt = {"mist_api_token", "webhook_secret", "servicenow_password", "pagerduty_api_key"}
     for field, value in updates.items():
         if field in sensitive_encrypt:
             setattr(config, field, encrypt_sensitive_data(value))
@@ -104,6 +98,13 @@ async def update_system_settings(
 
     config.update_timestamp()
     await config.save()
+
+    # Invalidate cached Mist config so next API call picks up changes
+    mist_config_fields = {"mist_api_token", "mist_org_id", "mist_cloud_region"}
+    if mist_config_fields & set(updates.keys()):
+        from app.services.mist_service_factory import invalidate_mist_config_cache
+
+        invalidate_mist_config_cache()
 
     logger.info("system_settings_updated", user_id=str(current_user.id))
 
@@ -307,7 +308,8 @@ async def test_mist_connection(
         connected, error = await service.test_connection()
         return {"status": "connected" if connected else "failed", "error": error}
     except Exception as e:
-        return {"status": "failed", "error": str(e)}
+        logger.warning("mist_connection_test_failed", error=str(e))
+        return {"status": "failed", "error": "Connection test failed. Check your credentials and configuration."}
 
 
 @router.get("/admin/mist/sites", tags=["Admin"])

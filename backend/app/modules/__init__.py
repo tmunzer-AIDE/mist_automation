@@ -115,6 +115,8 @@ MODULES: list[AppModule] = [
         name="llm",
         router_module="app.modules.llm.router",
         model_imports=[
+            ("app.modules.llm.models", "LLMConfig"),
+            ("app.modules.llm.models", "MCPConfig"),
             ("app.modules.llm.models", "LLMUsageLog"),
             ("app.modules.llm.models", "ConversationThread"),
         ],

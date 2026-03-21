@@ -16,13 +16,22 @@ from app.core.exceptions import MistAutomationException
 logger = structlog.get_logger(__name__)
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Log all HTTP requests and responses."""
+class _SkipWebSocketMiddleware(BaseHTTPMiddleware):
+    """Base middleware that skips WebSocket connections (BaseHTTPMiddleware is incompatible with them)."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip WebSocket connections — BaseHTTPMiddleware is incompatible with them
         if request.scope.get("type") == "websocket":
             return await call_next(request)
+        return await self.process_request(request, call_next)
+
+    async def process_request(self, request: Request, call_next: Callable) -> Response:
+        raise NotImplementedError
+
+
+class RequestLoggingMiddleware(_SkipWebSocketMiddleware):
+    """Log all HTTP requests and responses."""
+
+    async def process_request(self, request: Request, call_next: Callable) -> Response:
         # Generate request ID
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
@@ -62,13 +71,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class ExceptionHandlerMiddleware(BaseHTTPMiddleware):
+class ExceptionHandlerMiddleware(_SkipWebSocketMiddleware):
     """Handle exceptions and return standardized error responses."""
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip WebSocket connections — BaseHTTPMiddleware is incompatible with them
-        if request.scope.get("type") == "websocket":
-            return await call_next(request)
+    async def process_request(self, request: Request, call_next: Callable) -> Response:
         try:
             return await call_next(request)
         except MistAutomationException as e:
@@ -113,13 +119,10 @@ class ExceptionHandlerMiddleware(BaseHTTPMiddleware):
             )
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware(_SkipWebSocketMiddleware):
     """Add security headers to all responses."""
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip WebSocket connections — BaseHTTPMiddleware is incompatible with them
-        if request.scope.get("type") == "websocket":
-            return await call_next(request)
+    async def process_request(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
 
         # Add security headers

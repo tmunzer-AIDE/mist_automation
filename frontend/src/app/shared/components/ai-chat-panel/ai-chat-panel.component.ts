@@ -14,9 +14,12 @@ import {
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
 import { MatIconModule } from '@angular/material/icon';
+import { AiIconComponent } from '../ai-icon/ai-icon.component';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import { Subscription } from 'rxjs';
 import { LlmService } from '../../../core/services/llm.service';
+import { WebSocketService } from '../../../core/services/websocket.service';
 import { extractErrorMessage } from '../../utils/error.utils';
 
 export interface ChatMessage {
@@ -33,7 +36,7 @@ function renderMarkdown(md: string): string {
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
-  imports: [ReactiveFormsModule, MatIconModule],
+  imports: [ReactiveFormsModule, MatIconModule, AiIconComponent],
   template: `
     <div class="ai-chat-panel">
       <div class="chat-messages" #chatMessages>
@@ -42,7 +45,7 @@ function renderMarkdown(md: string): string {
             <div class="typing-indicator">
               <span></span><span></span><span></span>
             </div>
-            <span>Generating summary...</span>
+            <span>{{ loadingLabel() }}</span>
           </div>
         }
 
@@ -54,7 +57,7 @@ function renderMarkdown(md: string): string {
           >
             @if (msg.role === 'assistant') {
               <div class="avatar assistant-avatar">
-                <mat-icon>smart_toy</mat-icon>
+                <app-ai-icon [size]="16"></app-ai-icon>
               </div>
             }
             <div class="message-bubble">
@@ -75,7 +78,7 @@ function renderMarkdown(md: string): string {
         @if (isLoading() && messages().length > 0) {
           <div class="chat-message assistant">
             <div class="avatar assistant-avatar">
-              <mat-icon>smart_toy</mat-icon>
+              <app-ai-icon [size]="16"></app-ai-icon>
             </div>
             <div class="message-bubble typing-bubble">
               <div class="typing-indicator">
@@ -398,12 +401,17 @@ export class AiChatPanelComponent {
   /** Loading state from parent (initial summary generation) */
   parentLoading = input(false);
 
+  /** Label shown during initial loading (default: "Thinking...") */
+  loadingLabel = input('Thinking...');
+
   /** Emits when a follow-up is sent */
   followUpSent = output<void>();
 
   private readonly llmService = inject(LlmService);
+  private readonly wsService = inject(WebSocketService);
   private readonly injector = inject(Injector);
   private readonly chatMessagesEl = viewChild<ElementRef<HTMLDivElement>>('chatMessages');
+  private streamSub: Subscription | null = null;
 
   messages = signal<ChatMessage[]>([]);
   loading = signal(false);
@@ -462,17 +470,47 @@ export class AiChatPanelComponent {
     this.error.set(null);
     this.scrollToBottom();
 
-    this.llmService.followUp(thread, text).subscribe({
+    // Subscribe to streaming tokens via WebSocket
+    const streamId = crypto.randomUUID();
+    const channel = `llm:${streamId}`;
+    let streamedContent = '';
+
+    this.streamSub?.unsubscribe();
+    this.streamSub = this.wsService
+      .subscribe<{ type: string; content: string }>(channel)
+      .subscribe((msg) => {
+        if (msg.type === 'token') {
+          streamedContent += msg.content;
+          // Update the last message (or add a new streaming one)
+          this.messages.update((msgs) => {
+            const last = msgs[msgs.length - 1];
+            if (last?.role === 'assistant') {
+              return [...msgs.slice(0, -1), { ...last, content: streamedContent, html: renderMarkdown(streamedContent) }];
+            }
+            return [...msgs, { role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) }];
+          });
+          this.scrollToBottom();
+        } else if (msg.type === 'done') {
+          this.streamSub?.unsubscribe();
+          this.streamSub = null;
+        }
+      });
+
+    // Send API request with stream_id
+    this.llmService.followUp(thread, text, streamId).subscribe({
       next: (res) => {
-        this.messages.update((msgs) => [
-          ...msgs,
-          { role: 'assistant', content: res.reply, html: renderMarkdown(res.reply) },
-        ]);
+        // Final response — replace streaming content with the complete version
+        this.messages.update((msgs) => {
+          const withoutLast = msgs.filter((m, i) => !(i === msgs.length - 1 && m.role === 'assistant'));
+          return [...withoutLast, { role: 'assistant', content: res.reply, html: renderMarkdown(res.reply) }];
+        });
         this.loading.set(false);
         this.followUpSent.emit();
         this.scrollToBottom();
       },
       error: (err) => {
+        this.streamSub?.unsubscribe();
+        this.streamSub = null;
         this.error.set(extractErrorMessage(err));
         this.loading.set(false);
       },

@@ -194,6 +194,15 @@ for _module in MODULES:
 
 logger.info("api_routers_registered")
 
+# Mount MCP server
+try:
+    from app.modules.mcp_server.server import mcp as _mcp_server
+
+    app.mount("/mcp", _mcp_server.http_app(path="/"))
+    logger.info("mcp_server_mounted", path="/mcp")
+except Exception as e:
+    logger.warning("mcp_server_mount_failed", error=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

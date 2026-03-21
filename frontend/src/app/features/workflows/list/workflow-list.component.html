@@ -7,7 +7,7 @@
   <span class="spacer"></span>
   <button mat-stroked-button (click)="importWorkflow()"><mat-icon>upload</mat-icon> Import</button>
   @if (llmAvailable()) {
-    <button mat-stroked-button (click)="createWithAI()"><mat-icon>auto_awesome</mat-icon> Create with AI</button>
+    <button mat-stroked-button (click)="createWithAI()"><app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Create with AI</button>
   }
   <button mat-stroked-button (click)="createSubflow()"><mat-icon>account_tree</mat-icon> New Sub-Flow</button>
   <button mat-flat-button (click)="createWorkflow()"><mat-icon>add</mat-icon> New Workflow</button>

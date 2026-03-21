@@ -120,10 +120,39 @@ Most complex feature, spanning both backend and frontend:
 - **SVG graph canvas** (`canvas/graph-canvas.component`): Raw SVG with pan/zoom/drag, cubic Bezier edges, `foreignObject` for Material node rendering, snap-to-grid.
 - **Node config panel** with emit guard pattern (`private emitting = false`) to prevent form rebuild loops.
 - **Variable picker**: Tree view of upstream node outputs with click-to-insert `{{ variable.path }}`. Node names are sanitized (spaces→underscores) for valid Jinja2 dot notation. `set_variable` results appear in a "Variables" section as top-level variables (e.g., `{{ site_id }}`).
-- **Simulation panel**: Bottom panel for dry-run and step-by-step replay with visual execution status on canvas.
+- **Simulation panel**: Bottom panel for dry-run and step-by-step replay with visual execution status on canvas. Real-time logs (`liveLogs` signal from `node_completed` WS messages) and live node results during execution. Cancel button calls `POST /workflows/{id}/simulate/{execution_id}/cancel` (backend tracks `asyncio.Task` in `_simulation_tasks` dict, calls `task.cancel()`).
+- **AI Agent node** (`ai_agent` ActionType): Autonomous LLM + MCP tool-calling node. Config: `agent_task` (Jinja2 template), `agent_system_prompt`, `max_iterations`, `mcp_servers` (name, URL, headers JSON, SSL verify toggle), `llm_config_id` (selects which LLM to use). Executor: `_execute_ai_agent()` validates MCP URLs via `validate_outbound_url()`, connects in parallel via `asyncio.gather()`, runs `AIAgentService` loop.
 - **Palette sidebar**: Native HTML drag-and-drop (not CDK), emits action type string.
 - **Port-based branching**: Condition nodes → `branch_0`/`branch_1`/`else` ports; for-each → `loop_body`/`done` ports.
 - **Sub-flows**: Workflows can be `standard` (trigger-based) or `subflow` (callable from other workflows). Sub-flows use `subflow_input` entry node + `subflow_output` terminal node with explicit `input_parameters`/`output_parameters`. Standard workflows call sub-flows via `invoke_subflow` action nodes with input mappings.
+
+### LLM Module
+
+**Backend** (`app/modules/llm/`):
+- **Multi-LLM config**: `LLMConfig` Beanie Document stores named provider configs (provider, api_key encrypted, model, base_url, temperature, max_tokens). `SystemConfig.llm_enabled` is the global kill switch. Individual configs managed via `/llm/configs` CRUD endpoints.
+- **LLM service factory**: `create_llm_service(config_id=None)` from `app.modules.llm.services.llm_service_factory` — loads default or specific config. Uses openai SDK for OpenAI-compatible providers (openai, lm_studio, azure_openai), litellm for others (anthropic, ollama, bedrock, vertex).
+- **SSRF on LLM base_url**: Skip `validate_outbound_url()` for local providers (`lm_studio`, `ollama`) since they run on localhost by design.
+- **Agent service** (`services/agent_service.py`): LLM + MCP tool-calling loop with `max_iterations` cap (server-side max 25). Returns `AgentResult` with status, result text, tool_calls log.
+- **MCP client** (`services/mcp_client.py`): `MCPClientWrapper` for remote HTTP MCP servers (streamable HTTP only, with SSL verify toggle + custom headers). `InProcessMCPClient` for the local FastMCP server (memory transport, ContextVars propagate). `create_local_mcp_client()` factory.
+- **Prompt builders** (`services/prompt_builders.py`): Per-feature prompt constructors. Webhook payload schemas with domain descriptions in the workflow assist system prompt. API endpoints go in system message (not user message).
+- **Context service** (`services/context_service.py`): Gathers data from other modules for prompts. `get_webhook_summary_context()` returns `(summary_text, event_count)` tuple.
+- **Conversation threads**: `ConversationThread` with `to_llm_messages(max_turns=20)` sliding window. TTL index (90 days). `_load_or_create_thread()` helper raises 400/404/403 on invalid/missing/unauthorized thread IDs (never silently creates new).
+- **Router helpers**: `_usage_dict(response)`, `_log_llm_usage()`, `_stream_or_complete()` (WebSocket token streaming when `stream_id` provided), `_mcp_user_session()` context manager, `_check_llm_rate_limit()`.
+- **Model discovery**: `/llm/configs/{id}/models` and `/llm/discover-models` (anonymous, pre-save). OpenAI-compat uses `client.models.list()`, Anthropic uses `GET /v1/models`.
+- **Slack Block Kit extraction**: `_extract_slack_blocks()` uses `json.JSONDecoder().raw_decode()` to find Block Kit JSON in AI Agent text responses. Falls back to `mrkdwn` sections for plain text, code blocks for structured data.
+
+**MCP Server** (`app/modules/mcp_server/`):
+- FastMCP server exposing app data as MCP tools (backups, workflows, executions, webhook events, reports, system stats)
+- Mounted in-process — no HTTP round-trip for internal LLM features
+- `mcp_user_id_var` ContextVar for user context in tool handlers
+
+**Frontend**:
+- **Global floating chat** (`shared/components/global-chat/`): Bottom-right FAB with glass style, expands to 420x560 chat panel. Uses `GlobalChatService` for open/pre-fill from any page. Passes `page_context` (current page + details) to the LLM.
+- **AI icon** (`shared/components/ai-icon/`): Animated Network Pulse SVG icon (nodes drift + green pulses). `[animated]="false"` for toolbar buttons (static, lighter). `vertical-align: middle` for button text alignment.
+- **AiChatPanel** (`shared/components/ai-chat-panel/`): Reusable chat component with markdown rendering (marked + DOMPurify), WebSocket token streaming, auto-scroll, multiline input. Input-signal-driven (not ViewChild methods). `loadingLabel` input for contextual loading text.
+- **Multi-LLM admin** (`features/admin/settings/llm/`): Config list table + add/edit dialog with connection-first flow (test + fetch models before save).
+- **LlmService**: `getStatus()` cached with `shareReplay(1)`. `globalChat()`, `followUp()`, config CRUD, `testConnectionAnonymous()`, `discoverModels()`.
+- **Page context**: Components call `globalChatService.setContext({page, details})` on init so the global chat LLM knows what the user is viewing.
 
 ## Code Style
 
@@ -142,6 +171,17 @@ Most complex feature, spanning both backend and frontend:
 - **Input validation**: Admin settings use `SystemSettingsUpdate` Pydantic model (`app/schemas/admin.py`) with field validators for cron expressions, URLs, and numeric bounds. Never accept raw `dict = Body(...)`.
 - **CSP & security headers**: `SecurityHeadersMiddleware` in `app/core/middleware.py` adds CSP, Permissions-Policy, HSTS, X-Frame-Options, X-Content-Type-Options.
 - **CORS**: Restricted to specific methods (`GET, POST, PUT, DELETE, OPTIONS`) and headers (`Authorization, Content-Type, X-Request-ID`).
+- **LLM API keys**: Stored encrypted in `LLMConfig.api_key` via `encrypt_sensitive_data()`. Admin API returns `api_key_set: bool`. Anonymous test/discover endpoints accept raw key or `config_id` to use stored key.
+- **MCP server URLs**: Must pass `validate_outbound_url()` before connecting (SSRF protection). Exception: local providers (lm_studio, ollama) skip validation.
+- **XSS on LLM output**: All LLM markdown rendered via `marked.parse()` + `DOMPurify.sanitize()` before `[innerHTML]` binding.
+- **Agent tool errors**: Sanitize `str(e)` — log full error server-side, send generic message to LLM ("Error: tool 'X' failed to execute").
+- **Execution ownership**: `debug_execution` endpoint verifies `workflow.can_be_accessed_by(current_user)` before exposing execution data.
+- **`max_iterations` cap**: AI Agent node config `max_iterations` clamped to 25 server-side regardless of user input.
+- **Conversation thread ownership**: `_load_or_create_thread()` raises 403 if thread belongs to another user. Raises 404 if thread_id provided but not found (never silently creates new).
+- **Password policy**: Use `validate_password_with_policy()` from `app/core/security.py` (reads policy from `SystemConfig` at runtime) instead of `validate_password_strength()` (reads from env only) in all endpoint code.
+- **Prompt safety**: Use `_sanitize_for_prompt()` from `app/modules/llm/services/prompt_builders.py` for all user-sourced values injected into LLM prompts (strips markdown control chars, truncates).
+- **MCP tool access control**: MCP write tools (workflow update, backup trigger) must check user roles/permissions via `mcp_user_id_var` — mirrors REST API enforcement. Read-only tools (search, details) do not need role checks.
+- **Error sanitization**: Use `_sanitize_execution_error()` from `executor_service.py` for all exception messages stored in execution/node results. Never store raw `str(e)` in client-visible fields.
 
 ### KISS (Keep It Simple)
 
@@ -153,6 +193,10 @@ Most complex feature, spanning both backend and frontend:
 ### DRY (Don't Repeat Yourself)
 
 - **MistService instantiation**: Always use `create_mist_service()` from `app.services.mist_service_factory` — never manually create MistService with config+decrypt inline.
+- **LLM service instantiation**: Always use `create_llm_service(config_id=None)` from `app.modules.llm.services.llm_service_factory` — never manually create LLMService.
+- **LLM router helpers**: `_usage_dict(response)` for API response usage dicts, `_log_llm_usage()` for DB logging, `_load_or_create_thread()` for conversation thread lifecycle, `_mcp_user_session()` for MCP client connect/disconnect.
+- **Deep diff utility**: Use `deep_diff()` from `app.modules.backup.utils` — not from `backup/router.py` (moved to shared utility).
+- **Conversation thread messages**: Use `thread.to_llm_messages()` — not inline list comprehension converting dicts to LLMMessage objects.
 - **Template brace stripping**: Use `strip_template_braces()` from `app/utils/variables.py` instead of inline `{{ }}` removal.
 - **MistService API methods**: `_api_call()` is the single implementation for GET/POST/PUT/DELETE; thin wrappers (`api_get`, `api_post`, etc.) delegate to it.
 - **Webhook response helpers**: `_event_fields()` in `webhooks.py` provides shared fields used by both REST responses and WebSocket monitor dicts.
@@ -160,6 +204,9 @@ Most complex feature, spanning both backend and frontend:
 - **Node name sanitization**: Use `_sanitize_name()` from `executor_service.py` (spaces→underscores) when storing or referencing node names as variable keys. The schema service, executor, and frontend variable picker all use the same convention.
 - **Workflow execution response helpers**: `_execution_summary()`, `_node_result_to_dict()`, and `_snapshot_to_dict()` in `automation/router.py` build response dicts from aggregation results, `NodeExecutionResult`, and `NodeSnapshot` objects respectively — never inline these dict comprehensions.
 - **Report response construction**: `_dict_to_response()` in `reports/router.py` builds `ReportJobResponse` from raw MongoDB aggregation dicts; `_job_to_response()` builds from `ReportJob` documents.
+- **Celery app**: Import `celery_app` from `app.core.celery_app` — never create Celery instances in module workers directly.
+- **User response construction**: Use `user_to_response()` from `app.schemas.user` — single canonical User→UserResponse builder used by both `auth.py` and `users.py`.
+- **MCP paginated search**: Use `_paginated_query()` from `app/modules/mcp_server/tools/search.py` for `$facet`-based MongoDB aggregations with pagination.
 
 ### Efficiency
 
@@ -168,6 +215,11 @@ Most complex feature, spanning both backend and frontend:
 - **Render context caching**: Executor service caches the Jinja2 render context per node execution (`_cached_render_context`), invalidated after each node completes.
 - **Batch gateway API calls**: Validation service pre-fetches all gateway device configs (`listSiteDevices`) and port stats (`searchSiteSwOrGwPorts`) in a single parallel call, then distributes to per-gateway validators — avoids N+1 API calls.
 - **Parallel template fetching**: `_fetch_all_templates` uses `asyncio.gather` to fetch all 6 derived template types concurrently instead of sequentially.
+- **WebSocket connection reuse**: `WebSocketService` is a singleton that multiplexes channels over one connection. Do NOT close the connection when the last channel unsubscribes — keep it alive for reuse.
+- **LLM status caching**: `LlmService.getStatus()` uses `shareReplay(1)` — all components share one cached HTTP call. Do NOT call `getStatus()` independently per component.
+- **MCP connections in parallel**: AI Agent node connects to multiple MCP servers via `asyncio.gather()`, not sequentially.
+- **Simulation task tracking**: Running simulation `asyncio.Task` objects tracked in module-level `_simulation_tasks` dict for cancellation support.
+- **MistService config caching**: Factory caches resolved config (token, region, org_id) with 30s TTL. Call `invalidate_mist_config_cache()` from `app.services.mist_service_factory` when admin updates Mist settings.
 
 ## Mist Cloud Object Model
 

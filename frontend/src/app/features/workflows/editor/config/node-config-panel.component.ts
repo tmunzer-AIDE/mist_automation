@@ -8,6 +8,7 @@ import {
   Output,
   SimpleChanges,
   inject,
+  signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -39,6 +40,8 @@ import {
   WorkflowResponse,
   SubflowSchemaResponse,
 } from '../../../../core/models/workflow.model';
+import { LlmService } from '../../../../core/services/llm.service';
+import { LlmConfigAvailable, McpConfigAvailable } from '../../../../core/models/llm.model';
 import { WorkflowService } from '../../../../core/services/workflow.service';
 import { VariablePickerComponent } from './variable-picker.component';
 import { JsonSectionToggleComponent } from './json-section-toggle.component';
@@ -848,6 +851,20 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             <!-- AI Agent -->
             @if (isAiAgentAction) {
               <mat-form-field appearance="outline">
+                <mat-label>LLM Configuration</mat-label>
+                <mat-select formControlName="llm_config_id">
+                  <mat-option value="">Default</mat-option>
+                  @for (cfg of availableLlmConfigs(); track cfg.id) {
+                    <mat-option [value]="cfg.id">
+                      {{ cfg.name }} ({{ cfg.provider }})
+                      @if (cfg.is_default) { — Default }
+                    </mat-option>
+                  }
+                </mat-select>
+                <mat-hint>Select which LLM to use for this agent</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
                 <mat-label>Task</mat-label>
                 <textarea matInput formControlName="agent_task" rows="3"
                   placeholder="Describe what the agent should accomplish..."></textarea>
@@ -875,39 +892,15 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                 <mat-hint>1 - 50</mat-hint>
               </mat-form-field>
 
-              <div class="section-title">
-                MCP Servers
-                <button mat-icon-button (click)="addMcpServer()">
-                  <mat-icon>add</mat-icon>
-                </button>
-              </div>
-              @for (srv of mcpServersArray.controls; track $index; let i = $index) {
-                <div class="mcp-server-row" [formGroupName]="'mcp_servers'">
-                  <div [formGroupName]="i" class="mcp-server-fields">
-                    <mat-form-field appearance="outline">
-                      <mat-label>Name</mat-label>
-                      <input matInput formControlName="name" placeholder="my-server" />
-                    </mat-form-field>
-                    <mat-form-field appearance="outline">
-                      <mat-label>URL</mat-label>
-                      <input matInput formControlName="url"
-                        placeholder="http://localhost:8080/mcp" />
-                    </mat-form-field>
-                    <mat-form-field appearance="outline">
-                      <mat-label>Headers (JSON)</mat-label>
-                      <input matInput formControlName="headers"
-                        placeholder='{"Authorization": "Bearer ..."}' />
-                    </mat-form-field>
-                    <mat-slide-toggle formControlName="ssl_verify">SSL Verify</mat-slide-toggle>
-                    <button mat-icon-button (click)="removeMcpServer(i)" matTooltip="Remove">
-                      <mat-icon>delete</mat-icon>
-                    </button>
-                  </div>
-                </div>
-              }
-              @if (mcpServersArray.length === 0) {
-                <p class="empty-hint">No MCP servers configured. Add one to give the agent access to tools.</p>
-              }
+              <mat-form-field appearance="outline">
+                <mat-label>MCP Servers</mat-label>
+                <mat-select formControlName="mcp_config_ids" multiple>
+                  @for (cfg of availableMcpConfigs(); track cfg.id) {
+                    <mat-option [value]="cfg.id">{{ cfg.name }}</mat-option>
+                  }
+                </mat-select>
+                <mat-hint>Select MCP servers for tool access (configure in Admin > MCP Servers)</mat-hint>
+              </mat-form-field>
             }
 
             <!-- Sub-Flow Input: parameter list editor -->
@@ -1327,6 +1320,9 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 export class NodeConfigPanelComponent implements OnChanges, OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly workflowService = inject(WorkflowService);
+  private readonly llmService = inject(LlmService);
+  availableLlmConfigs = signal<LlmConfigAvailable[]>([]);
+  availableMcpConfigs = signal<McpConfigAvailable[]>([]);
   private readonly destroyRef = inject(DestroyRef);
   private readonly rebuild$ = new Subject<void>();
 
@@ -1419,6 +1415,16 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     // Load subflow list when configuring invoke_subflow
     if (this.node.type === 'invoke_subflow') {
       this.loadAvailableSubflows();
+    }
+
+    // Load available LLM and MCP configs when configuring ai_agent
+    if (this.node.type === 'ai_agent') {
+      this.llmService.listAvailableConfigs().pipe(takeUntil(this.rebuild$)).subscribe({
+        next: (configs) => this.availableLlmConfigs.set(configs),
+      });
+      this.llmService.listAvailableMcpConfigs().pipe(takeUntil(this.rebuild$)).subscribe({
+        next: (configs) => this.availableMcpConfigs.set(configs),
+      });
     }
   }
 
@@ -1533,17 +1539,8 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       agent_task: [config['agent_task'] || ''],
       agent_system_prompt: [config['agent_system_prompt'] || ''],
       agent_max_iterations: [config['max_iterations'] ?? 10],
-      mcp_servers: this.fb.array(
-        ((config['mcp_servers'] as { name: string; url: string; headers: Record<string, string>; ssl_verify: boolean }[]) || []).map(
-          (s) =>
-            this.fb.group({
-              name: [s.name || ''],
-              url: [s.url || ''],
-              headers: [s.headers ? JSON.stringify(s.headers, null, 2) : ''],
-              ssl_verify: [s.ssl_verify ?? true],
-            })
-        )
-      ),
+      llm_config_id: [config['llm_config_id'] || ''],
+      mcp_config_ids: [(config['mcp_config_ids'] as string[]) || []],
       max_retries: [this.node.max_retries ?? 3],
       retry_delay: [this.node.retry_delay ?? 5],
       continue_on_error: [this.node.continue_on_error ?? false],
@@ -1952,24 +1949,8 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         config['agent_task'] = raw.agent_task || '';
         config['agent_system_prompt'] = raw.agent_system_prompt || '';
         config['max_iterations'] = raw.agent_max_iterations ?? 10;
-        config['mcp_servers'] = (raw.mcp_servers || [])
-          .filter((s: Record<string, unknown>) => s['name'] || s['url'])
-          .map((s: Record<string, unknown>) => {
-            const srv: Record<string, unknown> = {
-              name: s['name'],
-              url: s['url'],
-              ssl_verify: s['ssl_verify'] ?? true,
-            };
-            const hdrs = s['headers'] as string | undefined;
-            if (hdrs?.trim()) {
-              try {
-                srv['headers'] = JSON.parse(hdrs);
-              } catch {
-                srv['headers'] = {};
-              }
-            }
-            return srv;
-          });
+        config['llm_config_id'] = raw.llm_config_id || null;
+        config['mcp_config_ids'] = raw.mcp_config_ids || [];
       }
 
       updatedNode.config = config;

@@ -15,11 +15,13 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { LlmService } from '../../../core/services/llm.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { ObjectDependencyResponse } from '../../../core/models/backup.model';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { JsonViewDialogComponent } from './json-view-dialog.component';
@@ -76,6 +78,7 @@ interface DiffGroup {
     EmptyStateComponent,
     StatusBadgeComponent,
     AiChatPanelComponent,
+    AiIconComponent,
     DateTimePipe,
   ],
   templateUrl: './backup-object-detail.component.html',
@@ -84,6 +87,7 @@ interface DiffGroup {
 export class BackupObjectDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly llmService = inject(LlmService);
+  private readonly globalChatService = inject(GlobalChatService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
@@ -466,6 +470,19 @@ export class BackupObjectDetailComponent implements OnInit {
         next: (res) => {
           this.versions.set(res.versions);
           this.loading.set(false);
+          const latest = res.versions[0];
+          if (latest) {
+            this.globalChatService.setContext({
+              page: 'Backup Object Detail',
+              details: {
+                object_type: latest.object_type,
+                object_name: latest.object_name,
+                object_id: latest.object_id,
+                versions: res.total,
+                scope: latest.site_id ? 'site' : 'org',
+              },
+            });
+          }
         },
         error: () => {
           this.loading.set(false);

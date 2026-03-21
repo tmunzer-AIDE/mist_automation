@@ -2,11 +2,15 @@
 LLM API endpoints.
 """
 
+import time
+from collections import defaultdict
+from contextlib import asynccontextmanager
+
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.dependencies import get_current_user_from_token, require_automation_role, require_backup_role
+from app.dependencies import get_current_user_from_token, require_admin, require_automation_role, require_backup_role
 from app.models.user import User
 from app.modules.llm.schemas import (
     CategorySelectionRequest,
@@ -17,6 +21,19 @@ from app.modules.llm.schemas import (
     FieldAssistRequest,
     FieldAssistResponse,
     FollowUpRequest,
+    GlobalChatRequest,
+    GlobalChatResponse,
+    LLMConfigAvailable,
+    LLMConfigCreate,
+    LLMConfigResponse,
+    LLMConfigUpdate,
+    LLMConnectionTestRequest,
+    LLMModelDiscoveryRequest,
+    MCPConfigAvailable,
+    MCPConfigCreate,
+    MCPConfigResponse,
+    MCPConfigUpdate,
+    MCPConnectionTestRequest,
     SummarizeDiffRequest,
     SummaryResponse,
     WebhookSummaryRequest,
@@ -29,22 +46,65 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
+# ── LLM rate limiter (per-user sliding window) ───────────────────────────────
+_llm_requests: dict[str, list[float]] = defaultdict(list)
+_LLM_RATE_WINDOW = 60  # 1 minute
+_LLM_RATE_MAX = 20  # max requests per window
+
+
+def _check_llm_rate_limit(user_id: str) -> None:
+    """Raise 429 if the user has exceeded the LLM rate limit."""
+    now = time.monotonic()
+    recent = [t for t in _llm_requests[user_id] if now - t < _LLM_RATE_WINDOW]
+    if not recent:
+        _llm_requests.pop(user_id, None)
+    else:
+        _llm_requests[user_id] = recent
+    if len(recent) >= _LLM_RATE_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many LLM requests. Please wait before trying again.",
+        )
+    _llm_requests[user_id].append(now)
+
+
+@asynccontextmanager
+async def _mcp_user_session(user_id: str):
+    """Context manager that sets MCP user context, connects a client, and cleans up."""
+    from app.modules.llm.services.mcp_client import create_local_mcp_client
+    from app.modules.mcp_server.server import mcp_user_id_var
+
+    mcp_user_id_var.set(str(user_id))
+    client = create_local_mcp_client()
+    await client.connect()
+    try:
+        yield client
+    finally:
+        await client.disconnect()
+        mcp_user_id_var.set(None)
+
+
 # ── Status & Test ─────────────────────────────────────────────────────────────
 
 
 @router.get("/llm/status", tags=["LLM"])
 async def get_llm_status(_current_user: User = Depends(get_current_user_from_token)):
-    """Check if LLM features are available."""
+    """Check if LLM features are available (using the default config)."""
     from app.models.system import SystemConfig
+    from app.modules.llm.models import LLMConfig
 
-    config = await SystemConfig.get_config()
-    if not (config.llm_enabled and config.llm_provider and config.llm_api_key):
+    sys_config = await SystemConfig.get_config()
+    if not sys_config.llm_enabled:
+        return {"enabled": False, "provider": None, "model": None}
+
+    default = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
+    if not default or not default.api_key:
         return {"enabled": False, "provider": None, "model": None}
 
     return {
         "enabled": True,
-        "provider": config.llm_provider,
-        "model": config.llm_model,
+        "provider": default.provider,
+        "model": default.model,
     }
 
 
@@ -67,6 +127,446 @@ async def test_llm_connection(_current_user: User = Depends(get_current_user_fro
         return {"status": "error", "error": "LLM connection test failed. Check your configuration."}
 
 
+# ── LLM Config CRUD ──────────────────────────────────────────────────────────
+
+
+def _config_to_response(cfg) -> LLMConfigResponse:
+    return LLMConfigResponse(
+        id=str(cfg.id),
+        name=cfg.name,
+        provider=cfg.provider,
+        api_key_set=bool(cfg.api_key),
+        model=cfg.model,
+        base_url=cfg.base_url,
+        temperature=cfg.temperature,
+        max_tokens_per_request=cfg.max_tokens_per_request,
+        is_default=cfg.is_default,
+        enabled=cfg.enabled,
+    )
+
+
+@router.get("/llm/configs", tags=["LLM"])
+async def list_llm_configs(_current_user: User = Depends(require_admin)):
+    """List all LLM configurations."""
+    from app.modules.llm.models import LLMConfig
+
+    configs = await LLMConfig.find_all().to_list()
+    return [_config_to_response(c) for c in configs]
+
+
+@router.post("/llm/configs", tags=["LLM"])
+async def create_llm_config(
+    request: LLMConfigCreate,
+    _current_user: User = Depends(require_admin),
+):
+    """Create a new LLM configuration."""
+    from app.core.security import encrypt_sensitive_data
+    from app.modules.llm.models import LLMConfig
+
+    # If setting as default, unset any existing default
+    if request.is_default:
+        await LLMConfig.find(LLMConfig.is_default == True).update_many({"$set": {"is_default": False}})  # noqa: E712
+
+    cfg = LLMConfig(
+        name=request.name,
+        provider=request.provider,
+        api_key=encrypt_sensitive_data(request.api_key) if request.api_key else None,
+        model=request.model,
+        base_url=request.base_url,
+        temperature=request.temperature,
+        max_tokens_per_request=request.max_tokens_per_request,
+        is_default=request.is_default,
+        enabled=request.enabled,
+    )
+    await cfg.insert()
+    return _config_to_response(cfg)
+
+
+@router.put("/llm/configs/{config_id}", tags=["LLM"])
+async def update_llm_config(
+    config_id: str,
+    request: LLMConfigUpdate,
+    _current_user: User = Depends(require_admin),
+):
+    """Update an LLM configuration."""
+    from app.core.security import encrypt_sensitive_data
+    from app.modules.llm.models import LLMConfig
+
+    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
+
+    updates = request.model_dump(exclude_unset=True)
+
+    # Encrypt API key if provided
+    if "api_key" in updates and updates["api_key"]:
+        updates["api_key"] = encrypt_sensitive_data(updates["api_key"])
+    elif "api_key" in updates and not updates["api_key"]:
+        del updates["api_key"]  # Don't clear existing key when empty string sent
+
+    # If setting as default, unset any existing default
+    if updates.get("is_default"):
+        await LLMConfig.find(LLMConfig.is_default == True, LLMConfig.id != cfg.id).update_many(  # noqa: E712
+            {"$set": {"is_default": False}}
+        )
+
+    for field, value in updates.items():
+        setattr(cfg, field, value)
+    cfg.update_timestamp()
+    await cfg.save()
+    return _config_to_response(cfg)
+
+
+@router.delete("/llm/configs/{config_id}", tags=["LLM"])
+async def delete_llm_config(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """Delete an LLM configuration (cannot delete the default)."""
+    from app.modules.llm.models import LLMConfig
+
+    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
+    if cfg.is_default:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the default config")
+
+    await cfg.delete()
+    return {"status": "deleted"}
+
+
+@router.post("/llm/configs/{config_id}/set-default", tags=["LLM"])
+async def set_default_llm_config(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """Set an LLM configuration as the default."""
+    from app.modules.llm.models import LLMConfig
+
+    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
+
+    # Unset all defaults, then set this one
+    await LLMConfig.find(LLMConfig.is_default == True).update_many({"$set": {"is_default": False}})  # noqa: E712
+    cfg.is_default = True
+    cfg.update_timestamp()
+    await cfg.save()
+    return _config_to_response(cfg)
+
+
+@router.post("/llm/configs/{config_id}/test", tags=["LLM"])
+async def test_llm_config(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """Test a specific LLM configuration's connection."""
+    from app.modules.llm.services.llm_service import LLMMessage
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+
+    try:
+        llm = await create_llm_service(config_id=config_id)
+        response = await llm.complete([LLMMessage(role="user", content="Reply with exactly: OK")])
+        return {"status": "connected", "model": response.model, "response": response.content[:100]}
+    except Exception as e:
+        logger.warning("llm_config_test_failed", config_id=config_id, error=str(e))
+        return {"status": "error", "error": "Connection test failed. Check your configuration."}
+
+
+async def _resolve_api_key(api_key: str | None, config_id: str | None) -> str:
+    """Get the API key from the request or from a stored config."""
+    if api_key:
+        return api_key
+    if config_id:
+        from app.core.security import decrypt_sensitive_data
+        from app.modules.llm.models import LLMConfig
+
+        cfg = await LLMConfig.get(PydanticObjectId(config_id))
+        if cfg and cfg.api_key:
+            return decrypt_sensitive_data(cfg.api_key)
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API key required")
+
+
+@router.post("/llm/test-connection", tags=["LLM"])
+async def test_connection_anonymous(
+    request: LLMConnectionTestRequest,
+    _current_user: User = Depends(require_admin),
+):
+    """Test LLM connection with unsaved config values."""
+    from app.modules.llm.services.llm_service import LLMMessage, LLMService
+    from app.modules.llm.services.llm_service_factory import _default_model
+
+    api_key = await _resolve_api_key(request.api_key, request.config_id)
+    if request.base_url:
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(request.base_url)
+    try:
+        llm = LLMService(
+            provider=request.provider,
+            api_key=api_key,
+            model=_default_model(request.provider),
+            base_url=request.base_url,
+        )
+        response = await llm.complete([LLMMessage(role="user", content="Reply with exactly: OK")])
+        return {"status": "connected", "model": response.model, "response": response.content[:100]}
+    except Exception as e:
+        logger.warning("llm_test_connection_failed", error=str(e))
+        return {"status": "error", "error": "Connection test failed. Check your configuration."}
+
+
+@router.post("/llm/discover-models", tags=["LLM"])
+async def discover_models_anonymous(
+    request: LLMModelDiscoveryRequest,
+    _current_user: User = Depends(require_admin),
+):
+    """Discover available models with unsaved config values."""
+    if request.base_url:
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(request.base_url)
+    api_key = await _resolve_api_key(request.api_key, request.config_id)
+    models = await _fetch_models(request.provider, api_key, request.base_url)
+    return {"models": models}
+
+
+@router.get("/llm/configs/available", tags=["LLM"])
+async def list_available_configs(_current_user: User = Depends(get_current_user_from_token)):
+    """List LLM configs available for workflow creators (no secrets)."""
+    from app.modules.llm.models import LLMConfig
+
+    configs = await LLMConfig.find(LLMConfig.enabled == True).to_list()  # noqa: E712
+    return [
+        LLMConfigAvailable(
+            id=str(c.id), name=c.name, provider=c.provider, model=c.model, is_default=c.is_default
+        )
+        for c in configs
+    ]
+
+
+@router.get("/llm/configs/{config_id}/models", tags=["LLM"])
+async def list_config_models(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """Fetch available models from the provider."""
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import LLMConfig
+
+    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
+    if not cfg.api_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API key not configured")
+
+    if cfg.base_url:
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(cfg.base_url)
+    api_key = decrypt_sensitive_data(cfg.api_key)
+    models = await _fetch_models(cfg.provider, api_key, cfg.base_url)
+    return {"models": models}
+
+
+async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> list[dict]:
+    """Fetch available models from a provider. Returns [{id, name}]."""
+    import httpx
+
+    try:
+        if provider in ("openai", "azure_openai", "lm_studio", "ollama"):
+            from openai import AsyncOpenAI
+
+            url = base_url
+            if provider == "lm_studio" and not url:
+                url = "http://localhost:1234/v1"
+            if url and not url.rstrip("/").endswith("/v1"):
+                url = f"{url.rstrip('/')}/v1"
+
+            client = AsyncOpenAI(api_key=api_key, base_url=url)
+            try:
+                result = await client.models.list()
+                return [{"id": m.id, "name": m.id} for m in result.data]
+            finally:
+                await client.close()
+
+        elif provider == "anthropic":
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    "https://api.anthropic.com/v1/models",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return [{"id": m["id"], "name": m.get("display_name", m["id"])} for m in data.get("data", [])]
+
+        else:
+            # Bedrock, Vertex — hardcoded
+            return []
+
+    except Exception as e:
+        logger.warning("model_discovery_failed", provider=provider, error=str(e))
+        return []
+
+
+# ── MCP Config CRUD ──────────────────────────────────────────────────────────
+
+
+def _mcp_config_to_response(cfg) -> MCPConfigResponse:
+    return MCPConfigResponse(
+        id=str(cfg.id),
+        name=cfg.name,
+        url=cfg.url,
+        headers_set=bool(cfg.headers),
+        ssl_verify=cfg.ssl_verify,
+        enabled=cfg.enabled,
+    )
+
+
+@router.get("/mcp/configs", tags=["MCP"])
+async def list_mcp_configs(_current_user: User = Depends(require_admin)):
+    """List all MCP server configurations."""
+    from app.modules.llm.models import MCPConfig
+
+    configs = await MCPConfig.find_all().to_list()
+    return [_mcp_config_to_response(c) for c in configs]
+
+
+@router.post("/mcp/configs", tags=["MCP"])
+async def create_mcp_config(
+    request: MCPConfigCreate,
+    _current_user: User = Depends(require_admin),
+):
+    """Create a new MCP server configuration."""
+    import json as json_mod
+
+    from app.core.security import encrypt_sensitive_data
+    from app.modules.llm.models import MCPConfig
+
+    cfg = MCPConfig(
+        name=request.name,
+        url=request.url,
+        headers=encrypt_sensitive_data(json_mod.dumps(request.headers)) if request.headers else None,
+        ssl_verify=request.ssl_verify,
+        enabled=request.enabled,
+    )
+    await cfg.insert()
+    return _mcp_config_to_response(cfg)
+
+
+@router.put("/mcp/configs/{config_id}", tags=["MCP"])
+async def update_mcp_config(
+    config_id: str,
+    request: MCPConfigUpdate,
+    _current_user: User = Depends(require_admin),
+):
+    """Update an MCP server configuration."""
+    import json as json_mod
+
+    from app.core.security import encrypt_sensitive_data
+    from app.modules.llm.models import MCPConfig
+
+    cfg = await MCPConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
+
+    updates = request.model_dump(exclude_unset=True)
+
+    if "headers" in updates and updates["headers"]:
+        updates["headers"] = encrypt_sensitive_data(json_mod.dumps(updates["headers"]))
+    elif "headers" in updates and not updates["headers"]:
+        del updates["headers"]
+
+    for field, value in updates.items():
+        setattr(cfg, field, value)
+    cfg.update_timestamp()
+    await cfg.save()
+    return _mcp_config_to_response(cfg)
+
+
+@router.delete("/mcp/configs/{config_id}", tags=["MCP"])
+async def delete_mcp_config(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """Delete an MCP server configuration."""
+    from app.modules.llm.models import MCPConfig
+
+    cfg = await MCPConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
+    await cfg.delete()
+    return {"status": "deleted"}
+
+
+@router.post("/mcp/configs/{config_id}/test", tags=["MCP"])
+async def test_mcp_config(
+    config_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """Test connection to an MCP server."""
+    import json as json_mod
+
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import MCPConfig
+    from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPServerConfig
+
+    cfg = await MCPConfig.get(PydanticObjectId(config_id))
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
+
+    headers = json_mod.loads(decrypt_sensitive_data(cfg.headers)) if cfg.headers else None
+    client = MCPClientWrapper(MCPServerConfig(name=cfg.name, url=cfg.url, headers=headers, ssl_verify=cfg.ssl_verify))
+    try:
+        await client.connect()
+        tools = await client.list_tools()
+        await client.disconnect()
+        return {"status": "connected", "tools": len(tools), "tool_names": [t.name for t in tools[:20]]}
+    except Exception as e:
+        logger.warning("mcp_config_test_failed", config_id=config_id, error=str(e))
+        return {"status": "error", "error": "Connection test failed. Check URL and credentials."}
+
+
+@router.get("/mcp/configs/available", tags=["MCP"])
+async def list_available_mcp_configs(_current_user: User = Depends(get_current_user_from_token)):
+    """List MCP configs available for workflow creators (no secrets)."""
+    from app.modules.llm.models import MCPConfig
+
+    configs = await MCPConfig.find(MCPConfig.enabled == True).to_list()  # noqa: E712
+    return [MCPConfigAvailable(id=str(c.id), name=c.name, url=c.url) for c in configs]
+
+
+@router.post("/mcp/test-connection", tags=["MCP"])
+async def test_mcp_connection_anonymous(
+    request: MCPConnectionTestRequest,
+    _current_user: User = Depends(require_admin),
+):
+    """Test MCP connection with unsaved config values."""
+    import json as json_mod
+
+    from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPServerConfig
+
+    headers = request.headers
+    if not headers and request.config_id:
+        from app.core.security import decrypt_sensitive_data
+        from app.modules.llm.models import MCPConfig
+
+        cfg = await MCPConfig.get(PydanticObjectId(request.config_id))
+        if cfg and cfg.headers:
+            headers = json_mod.loads(decrypt_sensitive_data(cfg.headers))
+
+    client = MCPClientWrapper(
+        MCPServerConfig(name="test", url=request.url, headers=headers, ssl_verify=request.ssl_verify)
+    )
+    try:
+        await client.connect()
+        tools = await client.list_tools()
+        await client.disconnect()
+        return {"status": "connected", "tools": len(tools), "tool_names": [t.name for t in tools[:20]]}
+    except Exception as e:
+        logger.warning("mcp_test_connection_failed", error=str(e))
+        return {"status": "error", "error": "Connection test failed. Check URL and credentials."}
+
+
 # ── Backup Summarization ─────────────────────────────────────────────────────
 
 
@@ -75,7 +575,12 @@ async def summarize_backup_change(
     request: SummarizeDiffRequest,
     current_user: User = Depends(require_backup_role),
 ):
-    """Generate an LLM summary of changes between two backup object versions."""
+    """Generate an LLM summary of changes between two backup object versions.
+
+    Uses the MCP agent loop so the LLM can fetch additional backup data on demand.
+    """
+    _check_llm_rate_limit(str(current_user.id))
+    from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.context_service import get_backup_diff_context
     from app.modules.llm.services.llm_service_factory import create_llm_service
     from app.modules.llm.services.prompt_builders import build_backup_summary_prompt
@@ -91,31 +596,40 @@ async def summarize_backup_change(
         new_version=ctx["new_version"],
         event_type=ctx["event_type"],
         changed_fields=ctx["changed_fields"],
+        version_id_1=request.version_id_1,
+        version_id_2=request.version_id_2,
+        object_id=ctx.get("object_id", ""),
     )
 
     thread = await _load_or_create_thread(
         request.thread_id, current_user.id, "backup_summary", prompt_messages, context_ref=request.version_id_2
     )
 
-    # Build messages for LLM: full thread history
-    llm_messages = thread.to_llm_messages()
-
-    response = await llm.complete(llm_messages)
+    # Run agent with local MCP server
+    async with _mcp_user_session(current_user.id) as mcp_client:
+        agent = AIAgentService(llm=llm, mcp_clients=[mcp_client], max_iterations=5)
+        result = await agent.run(
+            task=prompt_messages[-1]["content"],
+            system_prompt=prompt_messages[0]["content"],
+        )
+        summary = result.result
 
     # Store assistant reply
-    thread.add_message("assistant", response.content)
+    thread.add_message("assistant", summary)
     await thread.save()
 
-    await _log_llm_usage(current_user.id, "backup_summary", llm, response)
-
     return SummaryResponse(
-        summary=response.content,
+        summary=summary,
         thread_id=str(thread.id),
-        usage=_usage_dict(response),
+        usage=_usage_dict_from_agent(result),
     )
 
 
 # ── Conversation Follow-Up ───────────────────────────────────────────────────
+
+
+# Features whose follow-up messages should go through the MCP agent loop
+_MCP_ENABLED_FEATURES = {"backup_summary", "global_chat"}
 
 
 @router.post("/llm/chat/{thread_id}", response_model=ChatResponse, tags=["LLM"])
@@ -124,7 +638,12 @@ async def continue_conversation(
     request: FollowUpRequest,
     current_user: User = Depends(get_current_user_from_token),
 ):
-    """Continue an existing LLM conversation thread."""
+    """Continue an existing LLM conversation thread.
+
+    Threads from MCP-enabled features (backup_summary, global_chat) route through
+    the agent loop with MCP tools so the LLM can fetch data on demand.
+    """
+    _check_llm_rate_limit(str(current_user.id))
     from app.modules.llm.models import ConversationThread
     from app.modules.llm.services.llm_service_factory import create_llm_service
 
@@ -142,22 +661,82 @@ async def continue_conversation(
     thread.add_message("user", request.message)
     await thread.save()
 
-    # Call LLM with full conversation history
-    llm = await create_llm_service()
-    llm_messages = thread.to_llm_messages()
-    response = await llm.complete(llm_messages)
+    if thread.feature in _MCP_ENABLED_FEATURES:
+        reply = await _continue_with_mcp(thread, request.message, current_user)
+    else:
+        llm = await create_llm_service()
+        llm_messages = thread.to_llm_messages()
+        response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
+        reply = response.content
+        await _log_llm_usage(current_user.id, thread.feature, llm, response)
 
     # Store assistant reply
-    thread.add_message("assistant", response.content)
+    thread.add_message("assistant", reply)
     await thread.save()
 
-    await _log_llm_usage(current_user.id, thread.feature, llm, response)
-
     return ChatResponse(
-        reply=response.content,
+        reply=reply,
         thread_id=str(thread.id),
-        usage=_usage_dict(response),
+        usage={},
     )
+
+
+async def _continue_with_mcp(thread, message: str, current_user: User) -> str:
+    """Run a follow-up message through the MCP agent loop with conversation history."""
+    from app.modules.llm.services.agent_service import AIAgentService
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+
+    llm = await create_llm_service()
+
+    # Build system prompt from the first message in the thread (if it's a system message)
+    messages = thread.get_messages_for_llm(max_turns=20)
+    system_prompt = ""
+    if messages and messages[0]["role"] == "system":
+        system_prompt = messages[0]["content"]
+
+    # Include recent conversation history as context
+    prior_turns = []
+    for m in messages:
+        if m["role"] in ("user", "assistant"):
+            prior_turns.append(f"{m['role']}: {m['content'][:300]}")
+    # Skip the last user message (it's the current one, passed as task)
+    context_summary = ""
+    if len(prior_turns) > 1:
+        context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[:-1][-8:])
+
+    async with _mcp_user_session(current_user.id) as mcp_client:
+        agent = AIAgentService(llm=llm, mcp_clients=[mcp_client], max_iterations=5)
+        result = await agent.run(
+            task=message,
+            system_prompt=system_prompt + context_summary,
+        )
+        return result.result
+
+
+async def _stream_or_complete(llm, messages, stream_id: str | None = None, json_mode: bool = False):
+    """Complete an LLM request, optionally streaming tokens via WebSocket.
+
+    If ``stream_id`` is provided and ``json_mode`` is False, uses the streaming
+    API and broadcasts each token on ``llm:{stream_id}``. Returns the same
+    LLMResponse as ``llm.complete()``.
+    """
+    if not stream_id or json_mode:
+        return await llm.complete(messages, json_mode=json_mode)
+
+    from app.core.websocket import ws_manager
+    from app.modules.llm.services.llm_service import LLMResponse
+
+    channel = f"llm:{stream_id}"
+    chunks: list[str] = []
+
+    async for chunk in llm.stream(messages):
+        chunks.append(chunk)
+        await ws_manager.broadcast(channel, {"type": "token", "content": chunk})
+
+    content = "".join(chunks)
+    await ws_manager.broadcast(channel, {"type": "done", "content": content})
+
+    return LLMResponse(content=content, model=llm.model)
 
 
 # ── Workflow Creation Assistant ───────────────────────────────────────────────
@@ -169,6 +748,11 @@ def _usage_dict(response) -> dict:
         "prompt_tokens": response.usage.prompt_tokens,
         "completion_tokens": response.usage.completion_tokens,
     }
+
+
+def _usage_dict_from_agent(result) -> dict:
+    """Extract usage stats from an AgentResult for API responses."""
+    return {"iterations": result.iterations, "tool_calls": len(result.tool_calls)}
 
 
 async def _log_llm_usage(user_id, feature: str, llm, response) -> None:
@@ -250,6 +834,7 @@ async def select_workflow_categories(
     current_user: User = Depends(require_automation_role),
 ):
     """Pass 1: select relevant API categories for a workflow description."""
+    _check_llm_rate_limit(str(current_user.id))
     from app.modules.llm.services.llm_service_factory import create_llm_service
 
     llm = await create_llm_service()
@@ -266,6 +851,7 @@ async def workflow_assist(
 
     If ``categories`` is provided, skips category selection (pass 1 already done).
     """
+    _check_llm_rate_limit(str(current_user.id))
     import json as json_mod
 
     from app.modules.llm.services.context_service import get_endpoints_for_categories
@@ -347,6 +933,7 @@ async def workflow_field_assist(
     current_user: User = Depends(require_automation_role),
 ):
     """Help fill a single workflow node field."""
+    _check_llm_rate_limit(str(current_user.id))
 
     from app.modules.llm.services.llm_service import LLMMessage
     from app.modules.llm.services.llm_service_factory import create_llm_service
@@ -380,6 +967,7 @@ async def debug_execution(
     current_user: User = Depends(require_automation_role),
 ):
     """Analyze a failed workflow execution and suggest fixes."""
+    _check_llm_rate_limit(str(current_user.id))
     from app.modules.automation.models.execution import WorkflowExecution
     from app.modules.automation.models.workflow import Workflow
     from app.modules.llm.services.context_service import get_debug_context
@@ -407,7 +995,7 @@ async def debug_execution(
     )
 
     llm_messages = thread.to_llm_messages()
-    response = await llm.complete(llm_messages)
+    response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
 
     thread.add_message("assistant", response.content)
     await thread.save()
@@ -430,6 +1018,7 @@ async def summarize_webhook_events(
     current_user: User = Depends(require_automation_role),
 ):
     """Summarize recent webhook events using LLM."""
+    _check_llm_rate_limit(str(current_user.id))
     from app.modules.llm.services.context_service import get_webhook_summary_context
     from app.modules.llm.services.llm_service_factory import create_llm_service
     from app.modules.llm.services.prompt_builders import build_webhook_summary_prompt
@@ -441,7 +1030,7 @@ async def summarize_webhook_events(
     thread = await _load_or_create_thread(None, current_user.id, "webhook_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
-    response = await llm.complete(llm_messages)
+    response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
 
     thread.add_message("assistant", response.content)
     await thread.save()
@@ -453,4 +1042,73 @@ async def summarize_webhook_events(
         event_count=event_count,
         thread_id=str(thread.id),
         usage=_usage_dict(response),
+    )
+
+
+# ── Global Chat ───────────────────────────────────────────────────────────────
+
+
+@router.post("/llm/chat", response_model=GlobalChatResponse, tags=["LLM"])
+async def global_chat(
+    request: GlobalChatRequest,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Chat about any app data using MCP tools."""
+    _check_llm_rate_limit(str(current_user.id))
+    from app.modules.llm.services.agent_service import AIAgentService
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt, build_global_chat_system_prompt
+
+    llm = await create_llm_service()
+    system_prompt = build_global_chat_system_prompt(current_user.roles)
+    safe_ctx = _sanitize_for_prompt(request.page_context, max_len=2000) if request.page_context else None
+    if safe_ctx:
+        system_prompt += f"\n\nCurrent UI context:\n{safe_ctx}"
+
+    # Load or create thread
+    thread = await _load_or_create_thread(request.thread_id, current_user.id, "global_chat", [])
+    if not thread.messages:
+        thread.add_message("system", system_prompt)
+        await thread.save()
+    elif safe_ctx:
+        # Update system prompt with latest page context for existing threads
+        if thread.messages and thread.messages[0].role == "system":
+            base_prompt = build_global_chat_system_prompt(current_user.roles)
+            thread.messages[0].content = base_prompt + f"\n\nCurrent UI context:\n{safe_ctx}"
+
+    # Add user message
+    thread.add_message("user", request.message)
+    await thread.save()
+
+    # Run agent with local MCP server
+    async with _mcp_user_session(current_user.id) as mcp_client:
+        agent = AIAgentService(llm=llm, mcp_clients=[mcp_client], max_iterations=10)
+
+        # Include recent conversation history as context for multi-turn
+        history = thread.get_messages_for_llm(max_turns=10)
+        context_summary = ""
+        if len(history) > 2:
+            prior_turns = [f"{m['role']}: {m['content'][:200]}" for m in history[1:-1]]
+            context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[-6:])
+
+        result = await agent.run(
+            task=request.message,
+            system_prompt=system_prompt + context_summary,
+        )
+
+        reply = result.result
+        tool_calls_summary = [
+            {"tool": tc.tool, "arguments": tc.arguments}
+            for tc in result.tool_calls
+        ]
+
+    # Store assistant reply
+    thread.add_message("assistant", reply)
+    await thread.save()
+
+    return GlobalChatResponse(
+        reply=reply,
+        thread_id=str(thread.id),
+        tool_calls=tool_calls_summary,
+        usage=_usage_dict_from_agent(result),
     )

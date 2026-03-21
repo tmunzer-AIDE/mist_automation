@@ -20,6 +20,7 @@ info:
     name: API Support
   license:
     name: Proprietary
+    identifier: LicenseRef-Proprietary
 
 servers:
   - url: /api/v1
@@ -42,6 +43,12 @@ tags:
     description: Configuration backup and restore operations
   - name: Admin
     description: System administration (admin only)
+  - name: Dashboard
+    description: Role-aware dashboard statistics and activity
+  - name: Reports
+    description: Post-deployment validation reports
+  - name: LLM
+    description: LLM-powered assistance features
   - name: WebSocket
     description: Real-time WebSocket connections
 
@@ -583,6 +590,29 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ApiCatalogEntry'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/device-utils-catalog:
+    get:
+      tags:
+        - Workflows
+      summary: Get device utilities catalog
+      description: Return the device utility catalog for device_utils action autocomplete
+      operationId: getDeviceUtilsCatalog
+      responses:
+        '200':
+          description: Device utilities catalog entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceUtilEntry'
         '401':
           description: Not authenticated
           content:
@@ -2557,6 +2587,661 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # Dashboard Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /dashboard/stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Dashboard statistics
+      description: |
+        Role-aware dashboard statistics. Returns summary counts, 14-day activity
+        time-series, recent events, and alert highlights. Each section is only
+        present if the user has the matching role.
+      operationId: getDashboardStats
+      responses:
+        '200':
+          description: Dashboard statistics (shape varies by user roles)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStatsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Reports Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /reports/sites:
+    get:
+      tags:
+        - Reports
+      summary: List sites for reports
+      description: List organization sites for the report site picker
+      operationId: listReportSites
+      responses:
+        '200':
+          description: List of sites
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportSitesResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Reports role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Failed to fetch sites from Mist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reports/validation:
+    post:
+      tags:
+        - Reports
+      summary: Create validation report
+      description: Create a new post-deployment validation report for a site. Runs validation as a background task.
+      operationId: createValidationReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationReportCreate'
+      responses:
+        '201':
+          description: Report job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportJobResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Reports role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Reports
+      summary: List validation reports
+      description: List past validation reports with pagination and optional site filter
+      operationId: listValidationReports
+      parameters:
+        - name: skip
+          in: query
+          description: Number of reports to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of reports to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: site_id
+          in: query
+          description: Filter by site ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of validation reports
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportJobListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Reports role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reports/validation/{report_id}:
+    get:
+      tags:
+        - Reports
+      summary: Get validation report
+      description: Get a validation report with full results
+      operationId: getValidationReport
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          description: Report ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report with full results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportJobDetailResponse'
+        '400':
+          description: Invalid report ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Reports
+      summary: Delete validation report
+      description: Delete a validation report
+      operationId: deleteValidationReport
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          description: Report ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Report deleted
+        '400':
+          description: Invalid report ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reports/validation/{report_id}/export/pdf:
+    get:
+      tags:
+        - Reports
+      summary: Export report as PDF
+      description: Export a completed validation report as PDF
+      operationId: exportValidationPdf
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          description: Report ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid report ID or report not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reports/validation/{report_id}/export/csv:
+    get:
+      tags:
+        - Reports
+      summary: Export report as CSV
+      description: Export a completed validation report as a ZIP of CSV files
+      operationId: exportValidationCsv
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          description: Report ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ZIP file containing CSVs
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid report ID or report not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LLM Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /llm/status:
+    get:
+      tags:
+        - LLM
+      summary: Check LLM availability
+      description: Check if LLM features are available and return provider/model info
+      operationId: getLlmStatus
+      responses:
+        '200':
+          description: LLM status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LlmStatusResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/test:
+    post:
+      tags:
+        - LLM
+      summary: Test LLM connection
+      description: Test LLM connection by sending a simple prompt
+      operationId: testLlmConnection
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LlmTestResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/backup/summarize:
+    post:
+      tags:
+        - LLM
+      summary: Summarize backup changes
+      description: Generate an LLM summary of changes between two backup object versions
+      operationId: summarizeBackupChange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummarizeDiffRequest'
+      responses:
+        '200':
+          description: Summary of changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Backup role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/chat/{thread_id}:
+    post:
+      tags:
+        - LLM
+      summary: Continue conversation
+      description: Continue an existing LLM conversation thread
+      operationId: continueConversation
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          description: Conversation thread ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowUpRequest'
+      responses:
+        '200':
+          description: LLM reply
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: Invalid thread ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Thread not owned by user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/workflow/select-categories:
+    post:
+      tags:
+        - LLM
+      summary: Select API categories
+      description: "Pass 1: select relevant API categories for a workflow description"
+      operationId: selectWorkflowCategories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategorySelectionRequest'
+      responses:
+        '200':
+          description: Selected categories
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategorySelectionResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Automation role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/workflow/assist:
+    post:
+      tags:
+        - LLM
+      summary: Generate workflow from description
+      description: |
+        Pass 2: generate a workflow graph from a natural language description.
+        If categories is provided, skips category selection (pass 1 already done).
+        Supports follow-up refinements via thread_id.
+      operationId: workflowAssist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowAssistRequest'
+      responses:
+        '200':
+          description: Generated workflow graph
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAssistResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Automation role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/workflow/field-assist:
+    post:
+      tags:
+        - LLM
+      summary: Field-level assistance
+      description: Help fill a single workflow node field
+      operationId: workflowFieldAssist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldAssistRequest'
+      responses:
+        '200':
+          description: Suggested field value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldAssistResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Automation role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/workflow/debug:
+    post:
+      tags:
+        - LLM
+      summary: Debug workflow execution
+      description: Analyze a failed workflow execution and suggest fixes
+      operationId: debugExecution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DebugExecutionRequest'
+      responses:
+        '200':
+          description: Debug analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebugExecutionResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/webhooks/summarize:
+    post:
+      tags:
+        - LLM
+      summary: Summarize webhook events
+      description: Summarize recent webhook events using LLM
+      operationId: summarizeWebhookEvents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSummaryRequest'
+      responses:
+        '200':
+          description: Webhook event summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSummaryResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Automation role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /llm/chat:
+    post:
+      tags:
+        - LLM
+      summary: Global chat
+      description: Chat about any app data using MCP tools. Supports follow-up via thread_id.
+      operationId: globalChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalChatRequest'
+      responses:
+        '200':
+          description: Chat reply with tool call details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalChatResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # WebSocket Endpoints
   # ═══════════════════════════════════════════════════════════════════════════
   /ws:
@@ -2579,6 +3264,7 @@ paths:
         Available channels:
         - simulation:<stream_id> - Real-time simulation progress updates
         - webhooks:monitor - Live webhook event stream
+        - report:<report_id> - Real-time report generation progress
       operationId: websocketConnect
       security: []
       responses:
@@ -2637,16 +3323,20 @@ components:
       properties:
         status:
           type: string
-          example: healthy
+          examples:
+            - healthy
         app:
           type: string
-          example: Mist Automation & Backup
+          examples:
+            - Mist Automation & Backup
         version:
           type: string
-          example: 1.0.0
+          examples:
+            - 1.0.0
         environment:
           type: string
-          example: development
+          examples:
+            - development
         is_initialized:
           type: boolean
           description: Whether the system has been initialized (has at least one user)
@@ -2726,8 +3416,9 @@ components:
       type: object
       properties:
         timezone:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: User timezone (IANA format, e.g., 'America/New_York')
 
     ChangePasswordRequest:
@@ -2891,9 +3582,10 @@ components:
           format: date-time
           description: Last update timestamp
         last_login:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Last login timestamp
 
     UserListResponse:
@@ -2942,8 +3634,9 @@ components:
           maxLength: 200
           description: Workflow name
         description:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Workflow description
         workflow_type:
           type: string
@@ -2971,9 +3664,10 @@ components:
           default: []
           description: Graph edges connecting nodes
         viewport:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Canvas viewport state (zoom, pan position)
         input_parameters:
           type: array
@@ -2997,8 +3691,9 @@ components:
           maxLength: 200
           description: Workflow name
         description:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Workflow description
         status:
           type: string
@@ -3022,9 +3717,10 @@ components:
             additionalProperties: true
           description: Graph edges connecting nodes
         viewport:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Canvas viewport state
         input_parameters:
           type: array
@@ -3062,8 +3758,9 @@ components:
           type: string
           description: Workflow name
         description:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Workflow description
         workflow_type:
           type: string
@@ -3096,9 +3793,10 @@ components:
             additionalProperties: true
           description: Graph edges connecting nodes
         viewport:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Canvas viewport state
         input_parameters:
           type: array
@@ -3120,9 +3818,10 @@ components:
           type: integer
           description: Failed executions
         last_execution:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Last execution timestamp
         created_at:
           type: string
@@ -3166,12 +3865,13 @@ components:
           default: ''
           description: Parameter description
         required:
-          type: boolean
+          type:
+            - boolean
+            - 'null'
           default: true
           description: Whether the parameter is required
         default_value:
           description: Default value for optional parameters
-          nullable: true
 
     SubflowSchemaResponse:
       type: object
@@ -3208,7 +3908,8 @@ components:
           description: Execution ID
         status:
           type: string
-          example: queued
+          examples:
+            - queued
         message:
           type: string
 
@@ -3243,13 +3944,15 @@ components:
           format: date-time
           description: Start timestamp
         completed_at:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Completion timestamp
         duration_ms:
-          type: integer
-          nullable: true
+          type:
+            - integer
+            - 'null'
           description: Duration in milliseconds
         actions_executed:
           type: integer
@@ -3261,12 +3964,14 @@ components:
           type: integer
           description: Number of actions failed
         parent_execution_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Parent execution ID (when this is a sub-flow execution)
         parent_workflow_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Parent workflow ID (when this is a sub-flow execution)
         child_execution_ids:
           type: array
@@ -3316,34 +4021,40 @@ components:
           type: string
           description: How execution was triggered
         trigger_data:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Trigger data (e.g., webhook payload)
         triggered_by:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: User ID who triggered (for manual)
         started_at:
           type: string
           format: date-time
           description: Start timestamp
         completed_at:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Completion timestamp
         duration_ms:
-          type: integer
-          nullable: true
+          type:
+            - integer
+            - 'null'
           description: Duration in milliseconds
         trigger_condition_passed:
-          type: boolean
-          nullable: true
+          type:
+            - boolean
+            - 'null'
           description: Whether trigger condition was met
         trigger_condition:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Trigger condition expression
         actions_executed:
           type: integer
@@ -3367,30 +4078,36 @@ components:
                 type: string
                 format: date-time
               completed_at:
-                type: string
+                type:
+                  - string
+                  - 'null'
                 format: date-time
-                nullable: true
               duration_ms:
-                type: integer
-                nullable: true
+                type:
+                  - integer
+                  - 'null'
               error:
-                type: string
-                nullable: true
+                type:
+                  - string
+                  - 'null'
               output:
-                type: object
+                type:
+                  - object
+                  - 'null'
                 additionalProperties: true
-                nullable: true
               retry_count:
                 type: integer
           description: Results of each action
         error:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Error message if failed
         error_details:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Detailed error information
         variables:
           type: object
@@ -3416,35 +4133,41 @@ components:
                 type: string
                 format: date-time
               completed_at:
-                type: string
+                type:
+                  - string
+                  - 'null'
                 format: date-time
-                nullable: true
               duration_ms:
-                type: integer
-                nullable: true
+                type:
+                  - integer
+                  - 'null'
               output:
-                type: object
+                type:
+                  - object
+                  - 'null'
                 additionalProperties: true
-                nullable: true
               error:
-                type: string
-                nullable: true
-          nullable: true
+                type:
+                  - string
+                  - 'null'
           description: Per-node execution results keyed by node_id
         node_snapshots:
-          type: array
+          type:
+            - array
+            - 'null'
           items:
             type: object
             additionalProperties: true
-          nullable: true
           description: Ordered snapshots of node execution for simulation replay
         parent_execution_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Parent execution ID (when this is a sub-flow execution)
         parent_workflow_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Parent workflow ID (when this is a sub-flow execution)
         child_execution_ids:
           type: array
@@ -3465,7 +4188,8 @@ components:
       properties:
         status:
           type: string
-          example: received
+          examples:
+            - received
         event_id:
           type: string
           description: Stored event ID
@@ -3477,9 +4201,10 @@ components:
         message:
           type: string
         backup_result:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Result from backup module if applicable
 
     WebhookEventResponse:
@@ -3499,23 +4224,27 @@ components:
           type: string
           description: Webhook type
         webhook_topic:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Webhook topic
         webhook_id:
           type: string
           description: Unique webhook ID
         source_ip:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Source IP address
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Mist site ID
         org_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Mist organization ID
         processed:
           type: boolean
@@ -3550,9 +4279,10 @@ components:
           format: date-time
           description: Receipt timestamp
         processed_at:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Processing timestamp
 
     WebhookEventDetailResponse:
@@ -3682,30 +4412,34 @@ components:
           additionalProperties: true
           description: JSON Schema for response
         example:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Example response
 
     SimulateRequest:
       type: object
       properties:
         payload:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Custom trigger payload
         webhook_event_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Use payload from existing webhook event
         dry_run:
           type: boolean
           default: false
           description: Simulate without making real API calls
         stream_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: WebSocket stream ID for real-time progress updates
 
     SimulationResultResponse:
@@ -3722,8 +4456,9 @@ components:
           enum: [pending, running, succeeded, failed, cancelled]
           description: Simulation status
         duration_ms:
-          type: integer
-          nullable: true
+          type:
+            - integer
+            - 'null'
           description: Duration in milliseconds
         node_results:
           type: object
@@ -3741,12 +4476,14 @@ components:
               duration_ms:
                 type: integer
               error:
-                type: string
-                nullable: true
+                type:
+                  - string
+                  - 'null'
               output_data:
-                type: object
+                type:
+                  - object
+                  - 'null'
                 additionalProperties: true
-                nullable: true
           description: Results keyed by node ID
         node_snapshots:
           type: array
@@ -3763,16 +4500,18 @@ components:
                 type: object
                 additionalProperties: true
               output_data:
-                type: object
+                type:
+                  - object
+                  - 'null'
                 additionalProperties: true
-                nullable: true
               status:
                 type: string
               duration_ms:
                 type: integer
               error:
-                type: string
-                nullable: true
+                type:
+                  - string
+                  - 'null'
               variables_after:
                 type: object
                 additionalProperties: true
@@ -3787,8 +4526,9 @@ components:
             type: string
           description: Execution logs
         error:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Error message if failed
 
     SamplePayloadEntry:
@@ -3806,8 +4546,9 @@ components:
           format: date-time
           description: Event timestamp
         topic:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Webhook topic
         webhook_type:
           type: string
@@ -3844,18 +4585,21 @@ components:
           default: full
           description: Backup type
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site ID (for site-scoped manual backup)
         object_type:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Object type in 'org:key' or 'site:key' format (for manual backup)
         object_ids:
-          type: array
+          type:
+            - array
+            - 'null'
           items:
             type: string
-          nullable: true
           description: Object IDs to backup (for manual list-type backup)
 
     BackupJobResponse:
@@ -3880,16 +4624,19 @@ components:
           type: string
           description: Organization ID
         org_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Organization name
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site ID
         site_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site name
         status:
           type: string
@@ -3906,19 +4653,22 @@ components:
           format: date-time
           description: Creation timestamp
         created_by:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Creator user ID
         webhook_event:
-          type: array
+          type:
+            - array
+            - 'null'
           items:
             type: object
             additionalProperties: true
-          nullable: true
           description: Associated webhook events (for incremental backups)
         error:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Error message if failed
 
     BackupJobListResponse:
@@ -3992,8 +4742,9 @@ components:
           type: string
           description: Organization ID
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site ID
         backups:
           type: array
@@ -4012,8 +4763,9 @@ components:
                 type: string
                 format: date-time
               created_by:
-                type: string
-                nullable: true
+                type:
+                  - string
+                  - 'null'
           description: Timeline of backups
         total:
           type: integer
@@ -4040,19 +4792,22 @@ components:
           type: string
           description: Object type
         object_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Object name
         org_id:
           type: string
           description: Organization ID
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site ID
         site_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site name
         scope:
           type: string
@@ -4073,9 +4828,10 @@ components:
           format: date-time
           description: Last backup timestamp
         last_modified_at:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Last modification timestamp
         is_deleted:
           type: boolean
@@ -4119,16 +4875,19 @@ components:
           type: string
           description: Object type
         object_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Object name
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site ID
         site_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site name
         scope:
           type: string
@@ -4150,8 +4909,9 @@ components:
           format: date-time
           description: Backup timestamp
         backed_up_by:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: User who triggered backup
 
     BackupChangeListResponse:
@@ -4191,15 +4951,17 @@ components:
           type: string
           description: Object type
         object_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Object name
         org_id:
           type: string
           description: Organization ID
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Site ID
         version:
           type: integer
@@ -4217,8 +4979,9 @@ components:
           format: date-time
           description: Backup timestamp
         backed_up_by:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: User who triggered backup
         is_deleted:
           type: boolean
@@ -4256,8 +5019,9 @@ components:
           type: string
           description: Parent object ID
         target_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Parent object name
         field_path:
           type: string
@@ -4280,8 +5044,9 @@ components:
           type: string
           description: Child object ID
         source_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Child object name
         field_path:
           type: string
@@ -4302,8 +5067,9 @@ components:
           type: string
           description: Object type
         object_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Object name
         parents:
           type: array
@@ -4347,25 +5113,30 @@ components:
           type: string
           description: Log message
         object_type:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Related object type
         object_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Related object ID
         object_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Related object name
         site_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Related site ID
         details:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Additional details
 
     BackupLogListResponse:
@@ -4421,16 +5192,19 @@ components:
           type: integer
           description: Webhook events processed
         avg_duration_seconds:
-          type: number
-          nullable: true
+          type:
+            - number
+            - 'null'
           description: Average job duration
         min_duration_seconds:
-          type: number
-          nullable: true
+          type:
+            - number
+            - 'null'
           description: Minimum job duration
         max_duration_seconds:
-          type: number
-          nullable: true
+          type:
+            - number
+            - 'null'
           description: Maximum job duration
 
     BackupObjectStatsResponse:
@@ -4497,8 +5271,9 @@ components:
           type: boolean
           description: Whether Smee client is running
         channel_url:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Smee channel URL
         status:
           type: string
@@ -4525,23 +5300,27 @@ components:
           type: boolean
           description: Whether Mist API token is configured
         mist_org_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Mist organization ID
         mist_cloud_region:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Mist cloud region
         webhook_secret:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Webhook verification secret (decrypted)
         smee_enabled:
           type: boolean
           description: Whether Smee.io is enabled
         smee_channel_url:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Smee.io channel URL
         max_concurrent_workflows:
           type: integer
@@ -4570,8 +5349,9 @@ components:
           type: boolean
           description: Whether scheduled backups are enabled
         backup_full_schedule_cron:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Cron expression for full backups
         backup_retention_days:
           type: integer
@@ -4580,32 +5360,39 @@ components:
           type: boolean
           description: Whether Git backup is enabled
         backup_git_repo_url:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Git repository URL
         backup_git_branch:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Git branch name
         backup_git_author_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Git commit author name
         backup_git_author_email:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Git commit author email
         slack_webhook_url:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Slack webhook URL for notifications
         servicenow_instance_url:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: ServiceNow instance URL
         servicenow_username:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: ServiceNow username
         servicenow_password_set:
           type: boolean
@@ -4614,9 +5401,10 @@ components:
           type: boolean
           description: Whether PagerDuty API key is configured
         updated_at:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          nullable: true
           description: Last update timestamp
 
     SystemSettingsUpdate:
@@ -4714,33 +5502,39 @@ components:
           type: string
           description: Event type
         event_category:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Event category
         description:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Event description
         user_id:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: User ID
         user_email:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: User email
         source_ip:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Source IP address
         timestamp:
           type: string
           format: date-time
           description: Event timestamp
         details:
-          type: object
+          type:
+            - object
+            - 'null'
           additionalProperties: true
-          nullable: true
           description: Event details
 
     AuditLogListResponse:
@@ -4829,8 +5623,9 @@ components:
           enum: [connected, failed]
           description: Connection status
         error:
-          type: string
-          nullable: true
+          type:
+            - string
+            - 'null'
           description: Error message if failed
 
     WorkerStatusResponse:
@@ -4911,3 +5706,655 @@ components:
               type:
                 type: string
                 description: Object type
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Device Utils Schemas
+    # ─────────────────────────────────────────────────────────────────────────
+    DeviceUtilParam:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Parameter name
+        description:
+          type: string
+          description: Parameter description
+        required:
+          type: boolean
+          default: false
+          description: Whether the parameter is required
+        type:
+          type: string
+          default: string
+          description: Parameter type (string, integer, list)
+
+    DeviceUtilEntry:
+      type: object
+      required:
+        - id
+        - device_type
+        - function
+        - label
+        - description
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the utility
+        device_type:
+          type: string
+          description: Device type (ap, switch, gateway)
+        function:
+          type: string
+          description: Utility function name
+        label:
+          type: string
+          description: Human-readable label
+        params:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceUtilParam'
+          description: Function parameters
+        description:
+          type: string
+          description: Utility description
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Dashboard Schemas
+    # ─────────────────────────────────────────────────────────────────────────
+    DashboardStatsResponse:
+      type: object
+      required:
+        - display_name
+        - stats_window_days
+      properties:
+        display_name:
+          type: string
+          description: Current user's display name
+        stats_window_days:
+          type: integer
+          description: Number of days for stats window
+        highlights:
+          type: array
+          items:
+            type: object
+            properties:
+              level:
+                type: string
+                enum: [error, warning]
+              icon:
+                type: string
+              message:
+                type: string
+              route:
+                type: string
+              count:
+                type: integer
+          description: Alert highlights for the last 24 hours
+        users:
+          type: object
+          description: User counts (admin only)
+          properties:
+            total:
+              type: integer
+            active:
+              type: integer
+            admins:
+              type: integer
+        workflows:
+          type: object
+          description: Workflow counts (automation role)
+          properties:
+            total:
+              type: integer
+            enabled:
+              type: integer
+            draft:
+              type: integer
+        executions:
+          type: object
+          description: Execution counts within stats window (automation role)
+          properties:
+            total:
+              type: integer
+            succeeded:
+              type: integer
+            failed:
+              type: integer
+            running:
+              type: integer
+        webhooks:
+          type: object
+          description: Webhook counts within stats window (automation role)
+          properties:
+            total:
+              type: integer
+            processed:
+              type: integer
+            pending:
+              type: integer
+        backups:
+          type: object
+          description: Backup counts within stats window (backup role)
+          properties:
+            total:
+              type: integer
+            completed:
+              type: integer
+            pending:
+              type: integer
+            failed:
+              type: integer
+        reports:
+          type: object
+          description: Report counts within stats window (reports role)
+          properties:
+            total:
+              type: integer
+            completed:
+              type: integer
+            pending:
+              type: integer
+            failed:
+              type: integer
+        activity:
+          type: object
+          description: 14-day activity time-series
+          properties:
+            labels:
+              type: array
+              items:
+                type: string
+              description: Date labels (MM-DD format)
+            executions:
+              type: object
+              properties:
+                succeeded:
+                  type: array
+                  items:
+                    type: integer
+                failed:
+                  type: array
+                  items:
+                    type: integer
+            webhooks:
+              type: object
+              properties:
+                received:
+                  type: array
+                  items:
+                    type: integer
+            backups:
+              type: object
+              properties:
+                completed:
+                  type: array
+                  items:
+                    type: integer
+                failed:
+                  type: array
+                  items:
+                    type: integer
+        recent:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [execution, backup, report]
+              id:
+                type: string
+              title:
+                type: string
+              status:
+                type: string
+              timestamp:
+                type:
+                  - string
+                  - 'null'
+                format: date-time
+              detail:
+                type:
+                  - string
+                  - 'null'
+          description: Recent activity items across modules
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Reports Schemas
+    # ─────────────────────────────────────────────────────────────────────────
+    ReportSitesResponse:
+      type: object
+      required:
+        - sites
+      properties:
+        sites:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                description: Site ID
+              name:
+                type: string
+                description: Site name
+
+    ValidationReportCreate:
+      type: object
+      required:
+        - site_id
+      properties:
+        site_id:
+          type: string
+          description: Mist site ID to validate
+
+    ReportJobResponse:
+      type: object
+      required:
+        - id
+        - report_type
+        - site_id
+        - site_name
+        - status
+        - progress
+        - created_by
+        - created_at
+      properties:
+        id:
+          type: string
+          description: Report job ID
+        report_type:
+          type: string
+          description: Report type
+        site_id:
+          type: string
+          description: Mist site ID
+        site_name:
+          type: string
+          description: Site name
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          description: Report status
+        progress:
+          type: object
+          additionalProperties: true
+          description: Progress information
+        error:
+          type:
+            - string
+            - 'null'
+          description: Error message if failed
+        created_by:
+          type: string
+          description: User ID who created the report
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        completed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Completion timestamp
+
+    ReportJobDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ReportJobResponse'
+        - type: object
+          properties:
+            result:
+              type:
+                - object
+                - 'null'
+              additionalProperties: true
+              description: Full validation results
+
+    ReportJobListResponse:
+      type: object
+      required:
+        - reports
+        - total
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportJobResponse'
+          description: List of report jobs
+        total:
+          type: integer
+          description: Total number of reports
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LLM Schemas
+    # ─────────────────────────────────────────────────────────────────────────
+    LlmStatusResponse:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          description: Whether LLM features are available
+        provider:
+          type:
+            - string
+            - 'null'
+          description: LLM provider name
+        model:
+          type:
+            - string
+            - 'null'
+          description: LLM model name
+
+    LlmTestResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [connected, error]
+          description: Connection test status
+        model:
+          type: string
+          description: Model used for test
+        response:
+          type: string
+          description: LLM response (truncated to 100 chars)
+        error:
+          type: string
+          description: Error message if test failed
+
+    LlmUsage:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+
+    SummarizeDiffRequest:
+      type: object
+      required:
+        - version_id_1
+        - version_id_2
+      properties:
+        version_id_1:
+          type: string
+          description: Older version document ID
+        version_id_2:
+          type: string
+          description: Newer version document ID
+        thread_id:
+          type:
+            - string
+            - 'null'
+          description: Existing conversation thread ID for follow-up
+
+    SummaryResponse:
+      type: object
+      required:
+        - summary
+        - thread_id
+      properties:
+        summary:
+          type: string
+          description: LLM-generated summary
+        thread_id:
+          type: string
+          description: Conversation thread ID for follow-ups
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    FollowUpRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: User follow-up message
+
+    ChatResponse:
+      type: object
+      required:
+        - reply
+        - thread_id
+      properties:
+        reply:
+          type: string
+          description: LLM reply
+        thread_id:
+          type: string
+          description: Conversation thread ID
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    CategorySelectionRequest:
+      type: object
+      required:
+        - description
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: Workflow description for category selection
+
+    CategorySelectionResponse:
+      type: object
+      required:
+        - categories
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+          description: Selected API categories
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    WorkflowAssistRequest:
+      type: object
+      required:
+        - description
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: Natural language workflow description
+        categories:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+          description: Pre-selected API categories (skips pass 1)
+        thread_id:
+          type:
+            - string
+            - 'null'
+          description: Existing thread for follow-up refinements
+
+    WorkflowAssistResponse:
+      type: object
+      required:
+        - thread_id
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Generated workflow nodes
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Generated workflow edges
+        name:
+          type: string
+          description: Suggested workflow name
+        description:
+          type: string
+          description: Suggested workflow description
+        explanation:
+          type: string
+          description: LLM explanation of the generated workflow
+        thread_id:
+          type: string
+          description: Conversation thread ID for refinements
+        validation_errors:
+          type: array
+          items:
+            type: string
+          description: Graph validation errors if any
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    FieldAssistRequest:
+      type: object
+      required:
+        - node_type
+        - field_name
+        - description
+      properties:
+        node_type:
+          type: string
+          description: Type of the workflow node
+        field_name:
+          type: string
+          description: Name of the field to fill
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: What the user wants
+        upstream_variables:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+          description: Available variables from upstream nodes
+
+    FieldAssistResponse:
+      type: object
+      required:
+        - suggested_value
+      properties:
+        suggested_value:
+          type: string
+          description: LLM-suggested field value
+        explanation:
+          type: string
+          description: Explanation of the suggestion
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    DebugExecutionRequest:
+      type: object
+      required:
+        - execution_id
+      properties:
+        execution_id:
+          type: string
+          description: ID of the failed execution
+        thread_id:
+          type:
+            - string
+            - 'null'
+          description: Existing thread for follow-up
+
+    DebugExecutionResponse:
+      type: object
+      required:
+        - analysis
+        - thread_id
+      properties:
+        analysis:
+          type: string
+          description: LLM debug analysis
+        thread_id:
+          type: string
+          description: Conversation thread ID
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    WebhookSummaryRequest:
+      type: object
+      properties:
+        hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          default: 24
+          description: Time range in hours
+
+    WebhookSummaryResponse:
+      type: object
+      required:
+        - summary
+        - thread_id
+      properties:
+        summary:
+          type: string
+          description: LLM-generated webhook event summary
+        event_count:
+          type: integer
+          default: 0
+          description: Number of events in the time range
+        thread_id:
+          type: string
+          description: Conversation thread ID
+        usage:
+          $ref: '#/components/schemas/LlmUsage'
+
+    GlobalChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: User message
+        thread_id:
+          type:
+            - string
+            - 'null'
+          description: Existing conversation thread ID for follow-up
+
+    GlobalChatResponse:
+      type: object
+      required:
+        - reply
+        - thread_id
+      properties:
+        reply:
+          type: string
+          description: LLM reply
+        thread_id:
+          type: string
+          description: Conversation thread ID
+        tool_calls:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: MCP tool calls made during the conversation
+        usage:
+          type: object
+          properties:
+            iterations:
+              type: integer
+            tool_calls:
+              type: integer

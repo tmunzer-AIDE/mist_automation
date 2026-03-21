@@ -39,6 +39,50 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", name)
 
 
+def _sanitize_execution_error(exc: Exception) -> str:
+    """Return a user-safe error message from an exception.
+
+    Maps known exception types to descriptive messages and truncates
+    unknown ones to avoid leaking internal paths or stack traces.
+    """
+    from app.core.exceptions import MistAutomationException
+
+    if isinstance(exc, MistAutomationException):
+        return exc.message
+    if isinstance(exc, asyncio.TimeoutError):
+        return "Operation timed out"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code} from external API"
+    if isinstance(exc, httpx.ConnectError):
+        return "Failed to connect to external service"
+    if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)):
+        return "Request to external service timed out"
+    if isinstance(exc, KeyError):
+        return "Missing required configuration key"
+    if isinstance(exc, (ValueError, TypeError)):
+        msg = str(exc)
+        return msg[:200] if len(msg) > 200 else msg
+    # Generic fallback — truncate to avoid leaking internal details
+    msg = str(exc)
+    return msg[:200] if len(msg) > 200 else msg
+
+
+async def _update_workflow_stats_atomic(
+    workflow: Workflow, *, success: bool, timestamp: datetime
+) -> None:
+    """Atomically increment workflow execution stats using MongoDB $inc/$set."""
+    inc_fields: dict[str, int] = {"execution_count": 1}
+    set_fields: dict[str, Any] = {"last_execution": timestamp, "updated_at": datetime.now(timezone.utc)}
+    if success:
+        inc_fields["success_count"] = 1
+        set_fields["last_success"] = timestamp
+    else:
+        inc_fields["failure_count"] = 1
+        set_fields["last_failure"] = timestamp
+
+    await Workflow.find_one(Workflow.id == workflow.id).update({"$inc": inc_fields, "$set": set_fields})
+
+
 class WorkflowExecutor:
     """Graph-based workflow executor."""
 
@@ -115,45 +159,41 @@ class WorkflowExecutor:
                 timeout=workflow.timeout_seconds,
             )
 
-        except asyncio.TimeoutError:
+        except asyncio.CancelledError:
+            execution.mark_completed(ExecutionStatus.CANCELLED)
+            execution.add_log("Execution cancelled by user", "info")
+            await execution.save()
+            raise
+
+        except asyncio.TimeoutError as e:
             execution.status = ExecutionStatus.TIMEOUT
             execution.error = f"Workflow exceeded timeout of {workflow.timeout_seconds} seconds"
             execution.add_log(f"Workflow timed out after {workflow.timeout_seconds} seconds", "error")
             await execution.save()
 
-            workflow.failure_count += 1
-            workflow.last_execution = start_time
-            workflow.last_failure = start_time
-            await workflow.save()
-            raise WorkflowTimeoutError(f"Workflow execution timed out after {workflow.timeout_seconds} seconds")
+            await _update_workflow_stats_atomic(workflow, success=False, timestamp=start_time)
+            raise WorkflowTimeoutError(
+                f"Workflow execution timed out after {workflow.timeout_seconds} seconds"
+            ) from e
 
         except Exception as e:
+            logger.error("workflow_execution_error", workflow_id=str(workflow.id), error=str(e))
             execution.status = ExecutionStatus.FAILED
-            execution.error = str(e)
-            execution.add_log(f"Workflow execution failed: {e}", "error")
+            execution.error = _sanitize_execution_error(e)
+            execution.add_log("Workflow execution failed", "error")
             await execution.save()
 
-            workflow.failure_count += 1
-            workflow.last_execution = start_time
-            workflow.last_failure = start_time
-            await workflow.save()
-            raise WorkflowExecutionError(f"Workflow execution failed: {e}")
+            await _update_workflow_stats_atomic(workflow, success=False, timestamp=start_time)
+            raise WorkflowExecutionError(f"Workflow execution failed: {e}") from e
 
         # Calculate duration
         end_time = datetime.now(timezone.utc)
         execution.duration_ms = int((end_time - start_time).total_seconds() * 1000)
         await execution.save()
 
-        # Update workflow stats
-        workflow.execution_count += 1
-        workflow.last_execution = start_time
-        if execution.status == ExecutionStatus.SUCCESS:
-            workflow.success_count += 1
-            workflow.last_success = start_time
-        else:
-            workflow.failure_count += 1
-            workflow.last_failure = start_time
-        await workflow.save()
+        # Update workflow stats atomically
+        is_success = execution.status == ExecutionStatus.SUCCESS
+        await _update_workflow_stats_atomic(workflow, success=is_success, timestamp=start_time)
 
         logger.info(
             "workflow_execution_completed",
@@ -242,6 +282,7 @@ class WorkflowExecutor:
                         "duration_ms": None,
                         "error": None,
                         "output_data": self.variable_context.get("trigger", {}),
+                        "logs": execution.logs,
                     },
                 )
 
@@ -388,6 +429,7 @@ class WorkflowExecutor:
                                 "duration_ms": node_result.duration_ms,
                                 "error": node_result.error,
                                 "output_data": result,
+                                "logs": execution.logs,
                             },
                         )
 
@@ -511,6 +553,8 @@ class WorkflowExecutor:
                         queue.append(edge_info)
 
             except Exception as e:
+                logger.error("node_execution_failed", node_id=node.id, error=str(e))
+                safe_err = _sanitize_execution_error(e)
                 node_result = NodeExecutionResult(
                     node_id=node.id,
                     node_name=node.name,
@@ -518,12 +562,11 @@ class WorkflowExecutor:
                     status="failed",
                     started_at=datetime.now(timezone.utc),
                     completed_at=datetime.now(timezone.utc),
-                    error=str(e),
+                    error=safe_err,
                     input_snapshot=input_snapshot,
                 )
                 execution.add_node_result(node_result)
-                execution.add_log(f"Node '{node.name or node.id}' failed: {e}", "error")
-                logger.error("node_execution_failed", node_id=node.id, error=str(e))
+                execution.add_log(f"Node '{node.name or node.id}' failed: {safe_err}", "error")
 
                 all_success = False
                 if not node.continue_on_error:
@@ -565,6 +608,7 @@ class WorkflowExecutor:
                             "duration_ms": node_result.duration_ms,
                             "error": node_result.error,
                             "output_data": result if node_result.status == "success" else None,
+                            "logs": execution.logs,
                         },
                     )
 
@@ -1051,36 +1095,61 @@ class WorkflowExecutor:
         self, node: WorkflowNode, execution: WorkflowExecution
     ) -> dict[str, Any]:
         """Execute an AI agent node: LLM + MCP tool-calling loop."""
-        from app.modules.llm.services.agent_service import AIAgentService
-        from app.modules.llm.services.llm_service_factory import create_llm_service
-        from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPServerConfig
+        try:
+            from app.modules.llm.services.agent_service import AIAgentService
+            from app.modules.llm.services.llm_service_factory import create_llm_service
+            from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPServerConfig
+        except ImportError as e:
+            raise WorkflowExecutionError("LLM module is required for ai_agent nodes but is not available") from e
 
         config = node.config
         task = self._render_template(config.get("agent_task", ""))
         system_prompt = self._render_template(config.get("agent_system_prompt", ""))
         max_iterations = min(int(config.get("max_iterations", 10)), 25)
-        mcp_configs = config.get("mcp_servers", [])
 
         if not task:
             raise WorkflowExecutionError("AI agent task is empty")
 
-        llm = await create_llm_service()
+        llm_config_id = config.get("llm_config_id")
+        llm = await create_llm_service(config_id=llm_config_id)
 
-        # Connect to configured MCP servers (validate URLs, then connect in parallel)
+        # Build MCP clients — from global config IDs or inline config (backward compat)
         from app.utils.url_safety import validate_outbound_url
 
-        for srv in mcp_configs:
-            validate_outbound_url(srv.get("url", ""))
+        pending: list[MCPClientWrapper] = []
+        mcp_config_ids = config.get("mcp_config_ids", [])
 
-        pending = [
-            MCPClientWrapper(MCPServerConfig(
-                name=srv.get("name", "unnamed"),
-                url=srv.get("url", ""),
-                headers=srv.get("headers") or None,
-                ssl_verify=srv.get("ssl_verify", True),
-            ))
-            for srv in mcp_configs
-        ]
+        if mcp_config_ids:
+            # New path: load from global MCPConfig collection
+            import json as json_mod
+
+            from beanie import PydanticObjectId
+            from app.core.security import decrypt_sensitive_data
+            from app.modules.llm.models import MCPConfig as MCPConfigModel
+
+            for cid in mcp_config_ids:
+                mcp_cfg = await MCPConfigModel.get(PydanticObjectId(cid))
+                if not mcp_cfg or not mcp_cfg.enabled:
+                    continue
+                validate_outbound_url(mcp_cfg.url)
+                headers = json_mod.loads(decrypt_sensitive_data(mcp_cfg.headers)) if mcp_cfg.headers else None
+                pending.append(MCPClientWrapper(MCPServerConfig(
+                    name=mcp_cfg.name, url=mcp_cfg.url, headers=headers, ssl_verify=mcp_cfg.ssl_verify,
+                )))
+        else:
+            # Backward compat: inline mcp_servers config
+            mcp_configs = config.get("mcp_servers", [])
+            for srv in mcp_configs:
+                validate_outbound_url(srv.get("url", ""))
+            pending = [
+                MCPClientWrapper(MCPServerConfig(
+                    name=srv.get("name", "unnamed"),
+                    url=srv.get("url", ""),
+                    headers=srv.get("headers") or None,
+                    ssl_verify=srv.get("ssl_verify", True),
+                ))
+                for srv in mcp_configs
+            ]
         clients = pending
         try:
             await asyncio.gather(*(c.connect() for c in clients))
@@ -1138,9 +1207,42 @@ class WorkflowExecutor:
         if json_path.startswith("{{"):
             json_path = json_path.lstrip("{").rstrip("}").strip()
         if json_path:
-            resolved = get_nested_value(self._build_render_context(), json_path)
+            ctx = self._build_render_context()
+            resolved = get_nested_value(ctx, json_path)
+
+            # Fallback: case-insensitive match on node name segment
+            if resolved is None and json_path.startswith("nodes."):
+                parts = json_path.split(".", 2)
+                if len(parts) >= 2:
+                    nodes = ctx.get("nodes", {})
+                    for key in nodes:
+                        if key.lower() == parts[1].lower():
+                            remaining = ".".join(parts[2:]) if len(parts) > 2 else ""
+                            target = nodes[key]
+                            resolved = get_nested_value(target, remaining) if remaining else target
+                            if resolved is not None:
+                                logger.debug("slack_json_fallback", original=parts[1], matched=key)
+                                break
+
+            logger.debug(
+                "slack_json_resolved",
+                path=json_path,
+                resolved_type=type(resolved).__name__ if resolved is not None else "None",
+                resolved_preview=str(resolved)[:200] if resolved else None,
+            )
+
             if resolved is not None:
-                blocks.extend(self._build_slack_json_block(resolved))
+                slack_blocks = self._extract_slack_blocks(resolved)
+                if slack_blocks:
+                    blocks.extend(slack_blocks)
+                elif isinstance(resolved, str):
+                    # Plain text (e.g., AI Agent response) — render as readable mrkdwn
+                    text = resolved.strip()
+                    for i in range(0, len(text), 3000):
+                        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[i : i + 3000]}})
+                else:
+                    # Structured data — render as formatted code block
+                    blocks.extend(self._build_slack_json_block(resolved))
 
         # 5. Footer as context block
         footer = self._render_template(config.get("slack_footer", ""))
@@ -1596,6 +1698,41 @@ class WorkflowExecutor:
             )
 
         return blocks
+
+    @staticmethod
+    def _extract_slack_blocks(data: Any) -> list[dict[str, Any]] | None:
+        """Try to extract Slack Block Kit blocks from a value.
+
+        Handles:
+        - A dict with a ``blocks`` key (direct Slack payload)
+        - A string containing JSON with ``blocks`` (e.g., LLM output with code fences)
+        Returns the blocks list if found, ``None`` otherwise.
+        """
+        # Already a dict with blocks
+        if isinstance(data, dict) and isinstance(data.get("blocks"), list):
+            return data["blocks"]
+
+        if not isinstance(data, str):
+            return None
+
+        # Find the first '{' and try to parse a JSON object from there
+        # using raw_decode which correctly handles nested braces
+        decoder = json.JSONDecoder()
+        text = data
+        while True:
+            idx = text.find("{")
+            if idx == -1:
+                break
+            try:
+                parsed, end = decoder.raw_decode(text, idx)
+                if isinstance(parsed, dict) and isinstance(parsed.get("blocks"), list):
+                    return parsed["blocks"]
+                # Not a Slack payload — skip past this object and try the next one
+                text = text[end:]
+            except json.JSONDecodeError:
+                text = text[idx + 1:]
+
+        return None
 
     @staticmethod
     def _build_slack_json_block(data: Any) -> list[dict[str, Any]]:

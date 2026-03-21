@@ -2,7 +2,6 @@
 Backup and restore API endpoints.
 """
 
-import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -11,7 +10,6 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.core.security import decrypt_sensitive_data
 from app.dependencies import require_backup_role
 from app.models.system import SystemConfig
 from app.models.user import User
@@ -72,21 +70,14 @@ async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
     missing = site_ids - names.keys()
     if missing:
         try:
-            config = await SystemConfig.get_config()
-            if config and config.mist_api_token:
-                from app.services.mist_service import MistService
+            from app.services.mist_service_factory import create_mist_service
 
-                api_token = decrypt_sensitive_data(config.mist_api_token)
-                service = MistService(
-                    api_token=api_token,
-                    org_id=config.mist_org_id or "",
-                    cloud_region=config.mist_cloud_region or "global_01",
-                )
-                sites = await service.get_sites()
-                for s in sites:
-                    sid = s.get("id", "")
-                    if sid in missing:
-                        names[sid] = s.get("name", sid[:8])
+            service = await create_mist_service()
+            sites = await service.get_sites()
+            for s in sites:
+                sid = s.get("id", "")
+                if sid in missing:
+                    names[sid] = s.get("name", sid[:8])
         except Exception as exc:
             logger.debug("site_name_api_fallback_failed", error=str(exc))
 
@@ -192,9 +183,18 @@ async def create_backup(request: BackupCreateRequest, current_user: User = Depen
                 detail="At least one object_id is required for list-type manual backups",
             )
 
+    # Validate backup type
+    try:
+        bt = BackupType(request.backup_type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid backup_type. Use: {', '.join(t.value for t in BackupType)}",
+        ) from exc
+
     # Create backup record
     backup = BackupJob(
-        backup_type=BackupType(request.backup_type),
+        backup_type=bt,
         org_id=org_id,
         site_id=request.site_id,
         status=BackupStatus.PENDING,
@@ -204,9 +204,10 @@ async def create_backup(request: BackupCreateRequest, current_user: User = Depen
 
     logger.info("backup_created", backup_id=str(backup.id), org_id=org_id, user_id=str(current_user.id))
 
+    from app.core.tasks import create_background_task
     from app.modules.backup.workers import perform_backup
 
-    asyncio.create_task(
+    create_background_task(
         perform_backup(
             str(backup.id),
             request.backup_type,
@@ -214,7 +215,8 @@ async def create_backup(request: BackupCreateRequest, current_user: User = Depen
             request.site_id,
             object_type=request.object_type,
             object_ids=request.object_ids,
-        )
+        ),
+        name=f"backup-{backup.id}",
     )
 
     return BackupJobResponse(
@@ -398,10 +400,13 @@ async def get_backup_timeline(
     if site_id:
         query["site_id"] = site_id
 
-    if start_date:
-        query["created_at"] = {"$gte": datetime.fromisoformat(start_date)}
-    if end_date:
-        query.setdefault("created_at", {})["$lte"] = datetime.fromisoformat(end_date)
+    try:
+        if start_date:
+            query["created_at"] = {"$gte": datetime.fromisoformat(start_date)}
+        if end_date:
+            query.setdefault("created_at", {})["$lte"] = datetime.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date format") from exc
 
     # Get backups
     backups = await BackupJob.find(query).sort("-created_at").to_list()
@@ -466,7 +471,7 @@ async def list_backup_objects(
         match["object_type"] = object_type
     if site_id:
         match["site_id"] = site_id
-    if scope == "org":
+    elif scope == "org":
         match["site_id"] = None
     elif scope == "site":
         match["site_id"] = {"$ne": None}
@@ -498,7 +503,7 @@ async def list_backup_objects(
                 "version_count": {"$sum": 1},
                 "first_backed_up_at": {"$min": "$backed_up_at"},
                 "last_backed_up_at": {"$max": "$backed_up_at"},
-                "last_modified_at": {"$max": "$last_modified_at"},
+                "last_modified_at": {"$first": "$last_modified_at"},
                 "is_deleted": {"$first": "$is_deleted"},
                 "event_type": {"$first": "$event_type"},
             }
@@ -584,15 +589,18 @@ async def list_backup_changes(
         query["event_type"] = event_type
     if site_id:
         query["site_id"] = site_id
-    if scope == "org":
+    elif scope == "org":
         query["site_id"] = None
     elif scope == "site":
         query["site_id"] = {"$ne": None}
 
-    if start_date:
-        query.setdefault("backed_up_at", {})["$gte"] = datetime.fromisoformat(start_date)
-    if end_date:
-        query.setdefault("backed_up_at", {})["$lte"] = datetime.fromisoformat(end_date)
+    try:
+        if start_date:
+            query.setdefault("backed_up_at", {})["$gte"] = datetime.fromisoformat(start_date)
+        if end_date:
+            query.setdefault("backed_up_at", {})["$lte"] = datetime.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date format") from exc
 
     total = await BackupObject.find(query).count()
     docs = await BackupObject.find(query).sort([("backed_up_at", -1)]).skip(skip).limit(limit).to_list()
@@ -853,16 +861,10 @@ async def restore_object_version(
             detail="Mist API credentials not configured",
         )
 
-    api_token = decrypt_sensitive_data(config.mist_api_token)
     from app.modules.backup.services.restore_service import RestoreService
-    from app.services.mist_service import MistService
+    from app.services.mist_service_factory import create_mist_service
 
-    mist_service = MistService(
-        api_token=api_token,
-        org_id=config.mist_org_id or "",
-        cloud_region=config.mist_cloud_region or "global_01",
-    )
-
+    mist_service = await create_mist_service()
     restore_service = RestoreService(mist_service=mist_service)
 
     try:
@@ -889,9 +891,10 @@ async def restore_object_version(
             )
         return result
     except Exception as exc:
+        logger.error("restore_version_failed", version_id=version_id, error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail="Restore operation failed",
         ) from exc
 
 
@@ -991,12 +994,8 @@ async def restore_backup(
 
     logger.info("restore_requested", backup_id=backup_id, dry_run=dry_run, user_id=str(current_user.id))
 
-    from app.modules.backup.workers import perform_restore
-
-    asyncio.create_task(perform_restore(backup_id, dry_run=dry_run))
-
-    return {
-        "message": "Restore initiated" if not dry_run else "Dry run restore initiated",
-        "backup_id": backup_id,
-        "dry_run": dry_run,
-    }
+    # Full-job restore is not yet implemented — use the per-version restore endpoint instead
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Full backup restore is not yet implemented. Use the per-version restore endpoint.",
+    )

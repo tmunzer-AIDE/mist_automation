@@ -32,14 +32,8 @@ export interface SystemSettings {
   servicenow_username: string | null;
   servicenow_password_set: boolean;
   pagerduty_api_key_set: boolean;
-  // LLM Configuration
+  // LLM (global toggle — configs managed via /llm/configs)
   llm_enabled: boolean;
-  llm_provider: string | null;
-  llm_api_key_set: boolean;
-  llm_model: string | null;
-  llm_base_url: string | null;
-  llm_temperature: number;
-  llm_max_tokens_per_request: number;
   updated_at: string;
 }
 
@@ -77,14 +71,8 @@ export interface SystemSettingsUpdate {
   servicenow_username?: string;
   servicenow_password?: string;
   pagerduty_api_key?: string;
-  // LLM Configuration
+  // LLM
   llm_enabled?: boolean;
-  llm_provider?: string;
-  llm_api_key?: string;
-  llm_model?: string;
-  llm_base_url?: string;
-  llm_temperature?: number;
-  llm_max_tokens_per_request?: number;
 }
 
 export interface AuditLogEntry {

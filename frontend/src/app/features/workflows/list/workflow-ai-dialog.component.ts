@@ -12,6 +12,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { switchMap, tap } from 'rxjs';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { LlmService, WorkflowAssistResponse } from '../../../core/services/llm.service';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
@@ -32,6 +33,7 @@ type Step = 'input' | 'categories' | 'generating' | 'done';
     MatInputModule,
     MatProgressBarModule,
     MatSnackBarModule,
+    AiIconComponent,
   ],
   template: `
     <h2 mat-dialog-title>Create Workflow with AI</h2>
@@ -146,7 +148,7 @@ type Step = 'input' | 'categories' | 'generating' | 'done';
           (click)="generate()"
           [disabled]="!descriptionText.trim()"
         >
-          <mat-icon>auto_awesome</mat-icon> Generate
+          <app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Generate
         </button>
       }
       @if (step() === 'done' && result()) {

@@ -1,275 +1,249 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
+import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatSliderModule } from '@angular/material/slider';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { SettingsService } from '../settings.service';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { LlmService } from '../../../../core/services/llm.service';
-import { SystemSettings } from '../../../../core/models/admin.model';
+import { LlmConfig } from '../../../../core/models/llm.model';
+import { SettingsService } from '../settings.service';
+import { LlmConfigDialogComponent } from './llm-config-dialog.component';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
-
-const PROVIDER_OPTIONS = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'ollama', label: 'Ollama (Local)' },
-  { value: 'lm_studio', label: 'LM Studio (Local)' },
-  { value: 'azure_openai', label: 'Azure OpenAI' },
-  { value: 'bedrock', label: 'AWS Bedrock' },
-  { value: 'vertex', label: 'Google Vertex AI' },
-];
-
-const MODEL_HINTS: Record<string, string> = {
-  openai: 'gpt-4o, gpt-4o-mini, gpt-4-turbo',
-  anthropic: 'claude-sonnet-4-20250514, claude-haiku-4-5-20251001',
-  ollama: 'llama3.1, mistral, codellama',
-  lm_studio: 'Use the model name loaded in LM Studio',
-  azure_openai: 'gpt-4o (deployment name)',
-  bedrock: 'anthropic.claude-sonnet-4-20250514-v1:0',
-  vertex: 'gemini-2.0-flash',
-};
 
 @Component({
   selector: 'app-settings-llm',
   standalone: true,
   imports: [
-    ReactiveFormsModule,
-    MatCardModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
+    FormsModule,
     MatButtonModule,
+    MatCardModule,
+    MatDialogModule,
     MatIconModule,
-    MatSlideToggleModule,
-    MatSliderModule,
-    MatSnackBarModule,
     MatProgressBarModule,
+    MatSlideToggleModule,
+    MatSnackBarModule,
+    MatTableModule,
+    MatTooltipModule,
   ],
   template: `
     @if (loading()) {
       <mat-progress-bar mode="indeterminate"></mat-progress-bar>
     } @else {
-      <form [formGroup]="form" class="tab-form">
+      <div class="tab-form">
         <mat-card>
           <mat-card-header>
-            <mat-card-title>LLM Configuration</mat-card-title>
+            <mat-card-title>LLM Integration</mat-card-title>
           </mat-card-header>
           <mat-card-content>
             <div class="toggle-row">
-              <mat-slide-toggle formControlName="llm_enabled">Enable LLM Integration</mat-slide-toggle>
+              <mat-slide-toggle
+                [ngModel]="llmEnabled()"
+                (ngModelChange)="toggleGlobalLlm($event)"
+              >
+                Enable LLM Features
+              </mat-slide-toggle>
             </div>
+          </mat-card-content>
+        </mat-card>
 
-            <mat-form-field appearance="outline">
-              <mat-label>Provider</mat-label>
-              <mat-select formControlName="llm_provider">
-                @for (opt of providers; track opt.value) {
-                  <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-
-            <mat-form-field appearance="outline">
-              <mat-label>API Key</mat-label>
-              <input
-                matInput
-                type="password"
-                formControlName="llm_api_key"
-                [placeholder]="apiKeySet() ? 'Leave empty to keep current' : 'Enter API key'"
-              />
-            </mat-form-field>
-
-            <mat-form-field appearance="outline">
-              <mat-label>Model</mat-label>
-              <input matInput formControlName="llm_model" [placeholder]="modelHint()" />
-              @if (modelHint()) {
-                <mat-hint>e.g., {{ modelHint() }}</mat-hint>
+        @if (llmEnabled()) {
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>LLM Configurations</mat-card-title>
+              <button mat-flat-button (click)="addConfig()">
+                <mat-icon>add</mat-icon> Add Configuration
+              </button>
+            </mat-card-header>
+            <mat-card-content>
+              @if (configs().length === 0) {
+                <p class="empty-hint">No LLM configurations yet. Add one to get started.</p>
+              } @else {
+                <table mat-table [dataSource]="configs()" class="config-table">
+                  <ng-container matColumnDef="name">
+                    <th mat-header-cell *matHeaderCellDef>Name</th>
+                    <td mat-cell *matCellDef="let c">
+                      {{ c.name }}
+                      @if (c.is_default) {
+                        <span class="default-badge">Default</span>
+                      }
+                    </td>
+                  </ng-container>
+                  <ng-container matColumnDef="provider">
+                    <th mat-header-cell *matHeaderCellDef>Provider</th>
+                    <td mat-cell *matCellDef="let c">{{ c.provider }}</td>
+                  </ng-container>
+                  <ng-container matColumnDef="model">
+                    <th mat-header-cell *matHeaderCellDef>Model</th>
+                    <td mat-cell *matCellDef="let c">{{ c.model || '—' }}</td>
+                  </ng-container>
+                  <ng-container matColumnDef="status">
+                    <th mat-header-cell *matHeaderCellDef>Status</th>
+                    <td mat-cell *matCellDef="let c">
+                      <span class="status-dot" [class.active]="c.enabled" [class.disabled]="!c.enabled">
+                        {{ c.enabled ? 'Active' : 'Disabled' }}
+                      </span>
+                    </td>
+                  </ng-container>
+                  <ng-container matColumnDef="actions">
+                    <th mat-header-cell *matHeaderCellDef></th>
+                    <td mat-cell *matCellDef="let c">
+                      <div class="inline-actions">
+                        @if (!c.is_default) {
+                          <button mat-icon-button matTooltip="Set as Default" (click)="setDefault(c)">
+                            <mat-icon>star_outline</mat-icon>
+                          </button>
+                        }
+                        <button mat-icon-button matTooltip="Test Connection" (click)="testConfig(c)">
+                          <mat-icon>wifi_tethering</mat-icon>
+                        </button>
+                        <button mat-icon-button matTooltip="Edit" (click)="editConfig(c)">
+                          <mat-icon>edit</mat-icon>
+                        </button>
+                        <button
+                          mat-icon-button
+                          matTooltip="Delete"
+                          [disabled]="c.is_default"
+                          (click)="deleteConfig(c)"
+                        >
+                          <mat-icon>delete</mat-icon>
+                        </button>
+                      </div>
+                    </td>
+                  </ng-container>
+                  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+                </table>
               }
-            </mat-form-field>
-
-            @if (showBaseUrl()) {
-              <mat-form-field appearance="outline">
-                <mat-label>Base URL</mat-label>
-                <input
-                  matInput
-                  formControlName="llm_base_url"
-                  placeholder="http://localhost:11434"
-                />
-                <mat-hint>Required for Ollama or custom API endpoints</mat-hint>
-              </mat-form-field>
-            }
-          </mat-card-content>
-        </mat-card>
-
-        <mat-card>
-          <mat-card-header>
-            <mat-card-title>Parameters</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <div class="slider-row">
-              <label>Temperature: {{ form.get('llm_temperature')?.value }}</label>
-              <mat-slider min="0" max="2" step="0.1" discrete>
-                <input matSliderThumb formControlName="llm_temperature" />
-              </mat-slider>
-            </div>
-
-            <mat-form-field appearance="outline">
-              <mat-label>Max Tokens per Request</mat-label>
-              <input
-                matInput
-                type="number"
-                formControlName="llm_max_tokens_per_request"
-              />
-              <mat-hint>100 - 32000</mat-hint>
-            </mat-form-field>
-          </mat-card-content>
-          <mat-card-actions align="end">
-            <button
-              mat-stroked-button
-              (click)="testConnection()"
-              [disabled]="testing() || !form.get('llm_enabled')?.value"
-            >
-              <mat-icon>wifi_tethering</mat-icon>
-              {{ testing() ? 'Testing...' : 'Test Connection' }}
-            </button>
-            <button mat-flat-button (click)="save()" [disabled]="saving()">
-              <mat-icon>save</mat-icon> {{ saving() ? 'Saving...' : 'Save' }}
-            </button>
-          </mat-card-actions>
-        </mat-card>
-      </form>
+            </mat-card-content>
+          </mat-card>
+        }
+      </div>
     }
   `,
   styles: [
     `
-      .toggle-row {
-        margin-bottom: 16px;
+      .toggle-row { margin-bottom: 8px; }
+      .empty-hint { color: var(--mat-sys-on-surface-variant); font-size: 13px; padding: 16px; text-align: center; }
+      .config-table { width: 100%; }
+      .default-badge {
+        font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+        background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container);
+        margin-left: 8px;
       }
-      .slider-row {
-        display: flex;
-        flex-direction: column;
-        margin-bottom: 8px;
+      .status-dot {
+        font-size: 12px; font-weight: 500;
+        &.active { color: var(--app-success, #4caf50); }
+        &.disabled { color: var(--app-neutral, #888); }
       }
-      .slider-row label {
-        font-size: 14px;
-        color: var(--app-neutral);
-        margin-bottom: 4px;
-      }
+      .inline-actions { display: flex; gap: 0; justify-content: flex-end; }
+      mat-card-header { display: flex; justify-content: space-between; align-items: center; }
     `,
   ],
 })
 export class SettingsLlmComponent implements OnInit {
-  private readonly settingsService = inject(SettingsService);
   private readonly llmService = inject(LlmService);
-  private readonly fb = inject(FormBuilder);
+  private readonly settingsService = inject(SettingsService);
+  private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
 
   loading = signal(true);
-  saving = signal(false);
-  testing = signal(false);
-  apiKeySet = signal(false);
-
-  readonly providers = PROVIDER_OPTIONS;
-
-  form = this.fb.group({
-    llm_enabled: [false],
-    llm_provider: [''],
-    llm_api_key: [''],
-    llm_model: [''],
-    llm_base_url: [''],
-    llm_temperature: [0.3, [Validators.min(0), Validators.max(2)]],
-    llm_max_tokens_per_request: [4096, [Validators.min(100), Validators.max(32000)]],
-  });
+  llmEnabled = signal(false);
+  configs = signal<LlmConfig[]>([]);
+  displayedColumns = ['name', 'provider', 'model', 'status', 'actions'];
 
   ngOnInit(): void {
-    const cached = this.settingsService.current;
-    if (cached) {
-      this.populateForm(cached);
-      this.loading.set(false);
-    } else {
-      this.settingsService.load().subscribe({
-        next: (s) => {
-          this.populateForm(s);
+    this.settingsService.load().subscribe({
+      next: (s) => {
+        this.llmEnabled.set(s.llm_enabled);
+        if (s.llm_enabled) {
+          this.loadConfigs();
+        } else {
           this.loading.set(false);
-        },
-        error: () => this.loading.set(false),
-      });
-    }
+        }
+      },
+      error: () => this.loading.set(false),
+    });
   }
 
-  modelHint(): string {
-    const provider = this.form.get('llm_provider')?.value;
-    return provider ? MODEL_HINTS[provider] || '' : '';
+  private loadConfigs(): void {
+    this.llmService.listConfigs().subscribe({
+      next: (configs) => {
+        this.configs.set(configs);
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false),
+    });
   }
 
-  showBaseUrl(): boolean {
-    const provider = this.form.get('llm_provider')?.value;
-    return ['ollama', 'lm_studio', 'azure_openai', 'bedrock'].includes(provider || '');
+  toggleGlobalLlm(enabled: boolean): void {
+    this.settingsService.save({ llm_enabled: enabled }).subscribe({
+      next: () => {
+        this.llmEnabled.set(enabled);
+        if (enabled) this.loadConfigs();
+        this.snackBar.open(enabled ? 'LLM enabled' : 'LLM disabled', 'OK', { duration: 3000 });
+      },
+      error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
+    });
   }
 
-  testConnection(): void {
-    this.testing.set(true);
-    this.llmService.testConnection().subscribe({
+  addConfig(): void {
+    const ref = this.dialog.open(LlmConfigDialogComponent, {
+      width: '600px',
+      maxHeight: '80vh',
+      data: { config: null },
+    });
+    ref.afterClosed().subscribe((result) => {
+      if (result) this.loadConfigs();
+    });
+  }
+
+  editConfig(config: LlmConfig): void {
+    const ref = this.dialog.open(LlmConfigDialogComponent, {
+      width: '600px',
+      maxHeight: '80vh',
+      data: { config },
+    });
+    ref.afterClosed().subscribe((result) => {
+      if (result) this.loadConfigs();
+    });
+  }
+
+  setDefault(config: LlmConfig): void {
+    this.llmService.setDefaultConfig(config.id).subscribe({
+      next: () => {
+        this.loadConfigs();
+        this.snackBar.open(`'${config.name}' set as default`, 'OK', { duration: 3000 });
+      },
+      error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
+    });
+  }
+
+  testConfig(config: LlmConfig): void {
+    this.llmService.testConfig(config.id).subscribe({
       next: (result) => {
-        this.testing.set(false);
         if (result.status === 'connected') {
           this.snackBar.open(`Connected to ${result.model}`, 'OK', { duration: 3000 });
         } else {
           this.snackBar.open(result.error || 'Connection failed', 'OK', { duration: 5000 });
         }
       },
-      error: (err) => {
-        this.testing.set(false);
-        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
-      },
+      error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
     });
   }
 
-  save(): void {
-    this.saving.set(true);
-    const values = this.form.getRawValue();
-    const updates: Record<string, unknown> = {};
-
-    // Always send toggle and non-sensitive fields
-    if (values.llm_enabled !== null) updates['llm_enabled'] = values.llm_enabled;
-    if (values.llm_provider) updates['llm_provider'] = values.llm_provider;
-    if (values.llm_model) updates['llm_model'] = values.llm_model;
-    if (values.llm_temperature !== null) updates['llm_temperature'] = values.llm_temperature;
-    if (values.llm_max_tokens_per_request !== null)
-      updates['llm_max_tokens_per_request'] = values.llm_max_tokens_per_request;
-
-    // Only send sensitive/optional fields if non-empty
-    if (values.llm_api_key) updates['llm_api_key'] = values.llm_api_key;
-    if (values.llm_base_url) updates['llm_base_url'] = values.llm_base_url;
-
-    this.settingsService.save(updates).subscribe({
+  deleteConfig(config: LlmConfig): void {
+    if (config.is_default) return;
+    this.llmService.deleteConfig(config.id).subscribe({
       next: () => {
-        this.saving.set(false);
-        this.snackBar.open('LLM settings saved', 'OK', { duration: 3000 });
-        // Reload to get fresh state (api_key_set, etc.)
-        this.settingsService.load().subscribe((s) => this.populateForm(s));
+        this.loadConfigs();
+        this.snackBar.open(`'${config.name}' deleted`, 'OK', { duration: 3000 });
       },
-      error: (err) => {
-        this.saving.set(false);
-        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
-      },
-    });
-  }
-
-  private populateForm(s: SystemSettings): void {
-    this.apiKeySet.set(s.llm_api_key_set);
-    this.form.patchValue({
-      llm_enabled: s.llm_enabled,
-      llm_provider: s.llm_provider || '',
-      llm_model: s.llm_model || '',
-      llm_base_url: s.llm_base_url || '',
-      llm_temperature: s.llm_temperature,
-      llm_max_tokens_per_request: s.llm_max_tokens_per_request,
+      error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
     });
   }
 }

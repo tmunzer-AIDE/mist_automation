@@ -28,29 +28,61 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
 
-def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
+def validate_password_strength(
+    password: str,
+    *,
+    min_length: int | None = None,
+    require_uppercase: bool | None = None,
+    require_lowercase: bool | None = None,
+    require_digits: bool | None = None,
+    require_special_chars: bool | None = None,
+) -> tuple[bool, Optional[str]]:
     """
     Validate password against security policy.
+
+    Policy values can be passed explicitly (from SystemConfig) or fall back
+    to the static settings from environment variables.
 
     Returns:
         tuple: (is_valid, error_message)
     """
-    if len(password) < settings.min_password_length:
-        return False, f"Password must be at least {settings.min_password_length} characters long"
+    _min = min_length if min_length is not None else settings.min_password_length
+    _upper = require_uppercase if require_uppercase is not None else settings.require_uppercase
+    _lower = require_lowercase if require_lowercase is not None else settings.require_lowercase
+    _digits = require_digits if require_digits is not None else settings.require_digits
+    _special = require_special_chars if require_special_chars is not None else settings.require_special_chars
 
-    if settings.require_uppercase and not any(c.isupper() for c in password):
+    if len(password) < _min:
+        return False, f"Password must be at least {_min} characters long"
+
+    if _upper and not any(c.isupper() for c in password):
         return False, "Password must contain at least one uppercase letter"
 
-    if settings.require_lowercase and not any(c.islower() for c in password):
+    if _lower and not any(c.islower() for c in password):
         return False, "Password must contain at least one lowercase letter"
 
-    if settings.require_digits and not any(c.isdigit() for c in password):
+    if _digits and not any(c.isdigit() for c in password):
         return False, "Password must contain at least one digit"
 
-    if settings.require_special_chars and not any(c in string.punctuation for c in password):
+    if _special and not any(c in string.punctuation for c in password):
         return False, "Password must contain at least one special character"
 
     return True, None
+
+
+async def validate_password_with_policy(password: str) -> tuple[bool, Optional[str]]:
+    """Validate password using the admin-configurable policy from SystemConfig."""
+    from app.models.system import SystemConfig
+
+    config = await SystemConfig.get_config()
+    return validate_password_strength(
+        password,
+        min_length=config.min_password_length,
+        require_uppercase=config.require_uppercase,
+        require_lowercase=config.require_lowercase,
+        require_digits=config.require_digits,
+        require_special_chars=config.require_special_chars,
+    )
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> tuple[str, str]:
@@ -99,7 +131,8 @@ def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
     to_encode["type"] = "refresh"  # Mark as refresh token
 
-    return create_access_token(to_encode, expires_delta)
+    token, _jti = create_access_token(to_encode, expires_delta)
+    return token
 
 
 def decode_token(token: str) -> Optional[dict[str, Any]]:
@@ -225,6 +258,10 @@ def decrypt_sensitive_data(encrypted_data: str, key: Optional[str] = None) -> st
     encryption_key = key or settings.secret_key
 
     raw = base64.urlsafe_b64decode(encrypted_data.encode())
+
+    # Minimum: 16 (salt) + 12 (nonce) + 16 (GCM tag) = 44 bytes (empty plaintext)
+    if len(raw) < 44:
+        raise ValueError("Encrypted data is corrupted or truncated")
 
     # Extract salt (16 bytes), nonce (12 bytes), ciphertext (rest)
     salt = raw[:16]

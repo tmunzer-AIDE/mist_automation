@@ -8,6 +8,21 @@ Each function returns a list of LLMMessage dicts (role + content) and is pure
 import json
 
 
+def _sanitize_for_prompt(value: str, max_len: int = 200) -> str:
+    """Sanitize a user-sourced value for safe interpolation into an LLM prompt.
+
+    Escapes markdown control sequences, strips potential prompt injection
+    markers, and truncates excessively long values.
+    """
+    if not value:
+        return value
+    # Strip characters that could break prompt structure
+    sanitized = value.replace("```", "").replace("---", "").replace("***", "")
+    if len(sanitized) > max_len:
+        sanitized = sanitized[:max_len] + "..."
+    return sanitized
+
+
 def build_backup_summary_prompt(
     diff_entries: list[dict],
     object_type: str,
@@ -16,13 +31,28 @@ def build_backup_summary_prompt(
     new_version: int,
     event_type: str,
     changed_fields: list[str],
+    version_id_1: str = "",
+    version_id_2: str = "",
+    object_id: str = "",
 ) -> list[dict[str, str]]:
-    """Build prompt for backup change summarization."""
+    """Build prompt for backup change summarization with MCP tool context."""
+    context_lines = ""
+    if object_id:
+        context_lines = (
+            "\n\nYou have tools to fetch additional backup data if needed.\n"
+            f"- Object ID (Mist UUID): {object_id}\n"
+            f"- Older version document ID: {version_id_1} (v{old_version})\n"
+            f"- Newer version document ID: {version_id_2} (v{new_version})\n"
+            "If you need more context (other versions, full config, dependencies), "
+            "use the backup tool."
+        )
+
     system = (
         "You are a network configuration analyst for Juniper Mist. "
         "Summarize configuration changes concisely and explain their operational impact. "
         "Focus on what changed, why it might matter, and any risks. "
         "Use short paragraphs. Do not repeat the raw diff data — interpret it."
+        + context_lines
     )
 
     # Truncate diff for very large changes to avoid token overflow
@@ -30,11 +60,14 @@ def build_backup_summary_prompt(
     if len(diff_entries) > 100:
         diff_text += f"\n... and {len(diff_entries) - 100} more changes"
 
-    name_display = object_name or "(unnamed)"
+    name_display = _sanitize_for_prompt(object_name or "(unnamed)")
+    safe_type = _sanitize_for_prompt(object_type)
+    safe_event = _sanitize_for_prompt(event_type)
+    safe_fields = ", ".join(_sanitize_for_prompt(f) for f in changed_fields) if changed_fields else "N/A"
     user = (
-        f"A Mist **{object_type}** object named **{name_display}** was changed "
-        f"(v{old_version} → v{new_version}, event: {event_type}).\n\n"
-        f"**Changed fields**: {', '.join(changed_fields) if changed_fields else 'N/A'}\n\n"
+        f"A Mist `{safe_type}` object named `{name_display}` was changed "
+        f"(v{old_version} → v{new_version}, event: `{safe_event}`).\n\n"
+        f"**Changed fields**: {safe_fields}\n\n"
         f"**Detailed diff**:\n```json\n{diff_text}\n```\n\n"
         "Please summarize what was changed and explain the operational impact."
     )
@@ -43,6 +76,24 @@ def build_backup_summary_prompt(
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+
+
+_KNOWN_ROLES = {"admin", "automation", "backup", "reports"}
+
+
+def build_global_chat_system_prompt(user_roles: list[str]) -> str:
+    """Build system prompt for the global chat with MCP tools."""
+    # Only allow known role names to prevent prompt injection via custom roles
+    safe_roles = [r for r in user_roles if r in _KNOWN_ROLES] if user_roles else []
+    roles = ", ".join(safe_roles) if safe_roles else "none"
+    return (
+        "You are an assistant for the Mist Automation & Backup platform. "
+        "You can query backups, workflows, executions, webhook events, reports, and system stats. "
+        f"The current user has roles: {roles}. "
+        "Use the available tools to look up data before answering. "
+        "Be concise and precise. Format data as markdown tables when appropriate. "
+        "Do not guess — if you are unsure, use a tool to verify."
+    )
 
 
 # ── Workflow Creation Assistant ───────────────────────────────────────────────
@@ -222,9 +273,9 @@ def build_field_assist_prompt(
         variables_text = f"\n\nAvailable upstream variables:\n```json\n{json.dumps(upstream_variables, indent=2, default=str)[:2000]}\n```"
 
     user = (
-        f"Node type: {node_type}\n"
-        f"Field: {field_name}\n"
-        f"What I want: {description}"
+        f"Node type: {_sanitize_for_prompt(node_type, max_len=50)}\n"
+        f"Field: {_sanitize_for_prompt(field_name, max_len=100)}\n"
+        f"What I want: {_sanitize_for_prompt(description, max_len=2000)}"
         f"{variables_text}"
     )
 

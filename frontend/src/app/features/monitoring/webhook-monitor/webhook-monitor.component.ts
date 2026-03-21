@@ -30,6 +30,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import { WebhookEventDetailDialogComponent } from '../../../shared/components/webhook-event-detail-dialog/webhook-event-detail-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
@@ -77,6 +79,7 @@ interface ChartRange {
     EmptyStateComponent,
     StatusBadgeComponent,
     AiChatPanelComponent,
+    AiIconComponent,
     DateTimePipe,
   ],
   templateUrl: './webhook-monitor.component.html',
@@ -86,6 +89,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   private readonly webhookEventService = inject(WebhookEventService);
   private readonly wsService = inject(WebSocketService);
   private readonly llmService = inject(LlmService);
+  private readonly globalChat = inject(GlobalChatService);
   private readonly dialog = inject(MatDialog);
   private readonly topbarService = inject(TopbarService);
   private readonly destroyRef = inject(DestroyRef);
@@ -194,6 +198,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     'event_details',
     'routed_to',
     'processed',
+    'actions',
   ];
 
   private wsSub: Subscription | null = null;
@@ -203,6 +208,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.topbarService.setTitle('Webhook Monitor');
     this.topbarService.setActions(this.topbarActions);
+    this.globalChat.setContext({ page: 'Webhook Monitor', details: { view: 'Live webhook events' } });
     this.llmService.getStatus().subscribe({
       next: (s) => this.llmAvailable.set(s.enabled),
       error: () => this.llmAvailable.set(false),
@@ -337,6 +343,19 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     this.events.set([]);
     this.pauseBuffer.set([]);
     this.pageIndex.set(0);
+  }
+
+  analyzeEvent(event: MonitorEvent): void {
+    const parts = [`Analyze this event: ${event.event_type || event.webhook_topic}`];
+    if (event.device_name) parts.push(`on device "${event.device_name}"`);
+    if (event.site_name) parts.push(`at site "${event.site_name}"`);
+    if (event.event_details) parts.push(`(${event.event_details})`);
+    parts.push(
+      'Check what happened before and after this event. ' +
+        'Look for related config changes, device events, and alarms. ' +
+        'Provide a root cause analysis.'
+    );
+    this.globalChat.open(parts.join(' '));
   }
 
   summarizeWithAI(): void {

@@ -278,6 +278,7 @@ export interface SamplePayload {
   timestamp: string;
   topic: string;
   webhook_type: string;
+  event_type: string | null;
   payload_preview: Record<string, unknown>;
   payload: Record<string, unknown>;
 }

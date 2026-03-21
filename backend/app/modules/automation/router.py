@@ -2,6 +2,7 @@
 Workflow automation API endpoints — graph-based workflow model.
 """
 
+import asyncio
 from datetime import datetime, timezone
 
 import structlog
@@ -9,7 +10,7 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.tasks import create_background_task
-from app.dependencies import get_current_user_from_token
+from app.dependencies import require_automation_role
 from app.models.user import User
 from app.modules.automation.api_catalog import API_CATALOG
 from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
@@ -33,6 +34,9 @@ from app.modules.automation.schemas.workflow import (
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
+
+# Track running simulation tasks for cancellation
+_simulation_tasks: dict[str, asyncio.Task] = {}
 
 
 # ── Node types whose configs may contain encrypted OAuth / auth secrets ────────
@@ -151,7 +155,7 @@ def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
 
 @router.get("/workflows/api-catalog", tags=["Workflows"])
 async def get_api_catalog(
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_automation_role),
 ):
     """Return the Mist API endpoint catalog for action autocomplete."""
     return [entry.model_dump() for entry in API_CATALOG]
@@ -159,7 +163,7 @@ async def get_api_catalog(
 
 @router.get("/workflows/device-utils-catalog", tags=["Workflows"])
 async def get_device_utils_catalog(
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_automation_role),
 ):
     """Return the device utility catalog for device_utils action autocomplete."""
     from app.modules.automation.device_utils_catalog import DEVICE_UTILS_CATALOG
@@ -173,7 +177,7 @@ async def list_workflows(
     limit: int = Query(100, ge=1, le=1000, description="Number of workflows to return"),
     status_filter: str | None = Query(None, description="Filter by status"),
     workflow_type: str | None = Query(None, description="Filter by workflow type: standard or subflow"),
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """List all workflows accessible to the current user."""
     query = {
@@ -197,7 +201,7 @@ async def list_workflows(
 @router.post("/workflows", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED, tags=["Workflows"])
 async def create_workflow(
     workflow_data: WorkflowCreate,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Create a new graph-based workflow."""
     # Parse nodes and edges
@@ -247,7 +251,7 @@ async def create_workflow(
 )
 async def duplicate_workflow(
     workflow_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Duplicate an existing workflow."""
     import uuid
@@ -314,7 +318,7 @@ async def list_all_executions(
     limit: int = Query(25, ge=1, le=100),
     status_filter: str | None = Query(None, description="Filter by execution status"),
     trigger_type: str | None = Query(None, description="Filter by trigger type"),
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """List all workflow executions across all workflows accessible to the current user."""
     # Only show executions for workflows the user can access
@@ -370,7 +374,7 @@ async def list_all_executions(
 @router.post("/executions/{execution_id}/cancel", tags=["Executions"])
 async def cancel_execution(
     execution_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Cancel a pending or running execution."""
     try:
@@ -404,7 +408,7 @@ async def cancel_execution(
 @router.get("/workflows/{workflow_id}", response_model=WorkflowResponse, tags=["Workflows"])
 async def get_workflow(
     workflow_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Get workflow details by ID."""
     try:
@@ -425,7 +429,7 @@ async def get_workflow(
 async def update_workflow(
     workflow_id: str,
     workflow_data: WorkflowUpdate,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Update workflow details."""
     try:
@@ -436,8 +440,8 @@ async def update_workflow(
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
-    if str(workflow.created_by) != str(current_user.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the workflow owner can update it")
+    if not workflow.can_be_modified_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to update this workflow")
 
     if workflow_data.name is not None:
         workflow.name = workflow_data.name
@@ -484,7 +488,7 @@ async def update_workflow(
 @router.delete("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Workflows"])
 async def delete_workflow(
     workflow_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Delete a workflow."""
     try:
@@ -512,7 +516,7 @@ async def delete_workflow(
 )
 async def get_subflow_schema(
     workflow_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Get the input/output parameter schema of a sub-flow workflow."""
     try:
@@ -540,7 +544,7 @@ async def get_subflow_schema(
 @router.post("/workflows/{workflow_id}/execute", tags=["Workflows"])
 async def execute_workflow(
     workflow_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Manually execute a workflow."""
     try:
@@ -550,6 +554,9 @@ async def execute_workflow(
 
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     if workflow.status != WorkflowStatus.ENABLED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workflow must be enabled to execute")
@@ -593,9 +600,12 @@ async def execute_workflow(
                 execution=ex,
             )
         except Exception as e:
+            logger.error("manual_execution_error", execution_id=ex_id, error=str(e))
             if ex.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
-                ex.mark_completed(ExecutionStatus.FAILED, error=str(e))
-                ex.add_log(f"Manual execution error: {e}", "error")
+                from app.modules.automation.services.executor_service import _sanitize_execution_error
+
+                ex.mark_completed(ExecutionStatus.FAILED, error=_sanitize_execution_error(e))
+                ex.add_log("Manual execution failed", "error")
                 await ex.save()
 
     create_background_task(
@@ -615,7 +625,7 @@ async def list_workflow_executions(
     workflow_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """List execution history for a workflow."""
     try:
@@ -625,6 +635,9 @@ async def list_workflow_executions(
 
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     total = await WorkflowExecution.find(WorkflowExecution.workflow_id == workflow.id).count()
 
@@ -666,7 +679,7 @@ async def list_workflow_executions(
 async def get_workflow_execution(
     workflow_id: str,
     execution_id: str,
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Get full execution details including node results, logs, and variables."""
     try:
@@ -674,6 +687,12 @@ async def get_workflow_execution(
         ex_oid = PydanticObjectId(execution_id)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid ID format") from exc
+
+    workflow = await Workflow.get(wf_oid)
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     execution = await WorkflowExecution.get(ex_oid)
     if not execution:
@@ -721,7 +740,7 @@ async def get_workflow_execution(
 async def get_available_variables(
     workflow_id: str,
     node_id: str,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Get variables available to a specific node from upstream nodes."""
     try:
@@ -744,7 +763,7 @@ async def get_available_variables(
 async def compute_available_variables(
     node_id: str,
     body: InlineGraphRequest,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Compute variables available to a node from an in-memory (unsaved) graph."""
     nodes = [WorkflowNode(**n) for n in body.nodes]
@@ -767,7 +786,7 @@ async def compute_available_variables(
 async def get_endpoint_schema(
     method: str = Query(..., description="HTTP method"),
     path: str = Query(..., description="API path template"),
-    _current_user: User = Depends(get_current_user_from_token),
+    _current_user: User = Depends(require_automation_role),
 ):
     """Look up the response schema for a Mist API endpoint from the OAS."""
     from app.modules.automation.services.oas_service import OASService
@@ -790,7 +809,7 @@ async def get_endpoint_schema(
 async def simulate_workflow(
     workflow_id: str,
     request: SimulateRequest,
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Simulate a workflow execution with optional dry-run mode."""
     try:
@@ -872,11 +891,35 @@ async def simulate_workflow(
                         "data": _build_simulation_result(completed),
                     },
                 )
+            except asyncio.CancelledError:
+                ex = await WorkflowExecution.get(PydanticObjectId(ex_id))
+                if ex and ex.status not in (ExecutionStatus.CANCELLED,):
+                    ex.mark_completed(ExecutionStatus.CANCELLED)
+                    ex.add_log("Simulation cancelled by user", "info")
+                    await ex.save()
+                await ws_manager.broadcast(
+                    channel,
+                    {
+                        "type": "simulation_completed",
+                        "data": {
+                            "execution_id": ex_id,
+                            "status": "cancelled",
+                            "node_results": {},
+                            "node_snapshots": [],
+                            "variables": {},
+                            "logs": ex.logs if ex else [],
+                        },
+                    },
+                )
             except Exception as e:
+                logger.error("simulation_error", execution_id=ex_id, error=str(e))
+                from app.modules.automation.services.executor_service import _sanitize_execution_error
+
+                safe_error = _sanitize_execution_error(e)
                 ex = await WorkflowExecution.get(PydanticObjectId(ex_id))
                 if ex and ex.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
-                    ex.mark_completed(ExecutionStatus.FAILED, error=str(e))
-                    ex.add_log(f"Simulation error: {e}", "error")
+                    ex.mark_completed(ExecutionStatus.FAILED, error=safe_error)
+                    ex.add_log("Simulation failed", "error")
                     await ex.save()
                 await ws_manager.broadcast(
                     channel,
@@ -885,19 +928,22 @@ async def simulate_workflow(
                         "data": {
                             "execution_id": ex_id,
                             "status": "failed",
-                            "error": str(e),
+                            "error": safe_error,
                             "node_results": {},
                             "node_snapshots": [],
                             "variables": {},
-                            "logs": [f"[ERROR] {e}"],
+                            "logs": [f"[ERROR] {safe_error}"],
                         },
                     },
                 )
+            finally:
+                _simulation_tasks.pop(ex_id, None)
 
-        create_background_task(
+        task = create_background_task(
             _run_simulation(str(workflow.id), str(execution.id)),
             name=f"simulation-{execution.id}",
         )
+        _simulation_tasks[str(execution.id)] = task
 
         return {"execution_id": str(execution.id), "status": "pending"}
 
@@ -922,6 +968,32 @@ async def simulate_workflow(
     return _build_simulation_result(execution)
 
 
+@router.post("/workflows/{workflow_id}/simulate/{execution_id}/cancel", tags=["Workflows"])
+async def cancel_simulation(
+    workflow_id: str,
+    execution_id: str,
+    current_user: User = Depends(require_automation_role),
+):
+    """Cancel a running simulation."""
+    workflow = await Workflow.get(PydanticObjectId(workflow_id))
+    if not workflow or not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    task = _simulation_tasks.get(execution_id)
+    if task and not task.done():
+        task.cancel()
+        return {"status": "cancelling"}
+
+    # Task already finished or not found — update DB status if still running
+    execution = await WorkflowExecution.get(PydanticObjectId(execution_id))
+    if execution and execution.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+        execution.mark_completed(ExecutionStatus.CANCELLED)
+        execution.add_log("Simulation cancelled by user", "info")
+        await execution.save()
+
+    return {"status": "cancelled"}
+
+
 def _build_simulation_result(execution: WorkflowExecution) -> dict:
     """Build the simulation result dict from an execution."""
     return {
@@ -939,7 +1011,7 @@ def _build_simulation_result(execution: WorkflowExecution) -> dict:
 async def get_sample_payloads(
     workflow_id: str,
     limit: int = Query(10, ge=1, le=50),
-    current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(require_automation_role),
 ):
     """Get recent webhook events matching the workflow's trigger type for simulation."""
     try:
@@ -962,11 +1034,17 @@ async def get_sample_payloads(
     if not webhook_type:
         return {"payloads": []}
 
+    event_type_filter = trigger_node.config.get("event_type_filter", "")
+
     from app.modules.automation.models.webhook import WebhookEvent
 
-    events = (
-        await WebhookEvent.find(WebhookEvent.webhook_type == webhook_type).sort("-received_at").limit(limit).to_list()
-    )
+    query = WebhookEvent.find(WebhookEvent.webhook_type == webhook_type)
+    if event_type_filter:
+        query = WebhookEvent.find(
+            WebhookEvent.webhook_type == webhook_type,
+            WebhookEvent.event_type == event_type_filter,
+        )
+    events = await query.sort("-received_at").limit(limit).to_list()
 
     return {
         "payloads": [
@@ -975,6 +1053,7 @@ async def get_sample_payloads(
                 "timestamp": e.received_at,
                 "topic": e.webhook_topic,
                 "webhook_type": e.webhook_type,
+                "event_type": e.event_type,
                 "payload_preview": _truncate_payload(e.payload),
                 "payload": e.payload,
             }

@@ -1,7 +1,17 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
 import { ApiService } from './api.service';
-import { LlmStatus, LlmTestResult } from '../models/llm.model';
+import {
+  GlobalChatResponse,
+  LlmConfig,
+  LlmConfigAvailable,
+  LlmModel,
+  LlmStatus,
+  LlmTestResult,
+  McpConfig,
+  McpConfigAvailable,
+  McpTestResult,
+} from '../models/llm.model';
 
 interface SummaryResponse {
   summary: string;
@@ -67,6 +77,59 @@ export class LlmService {
     return this.api.post<LlmTestResult>('/llm/test');
   }
 
+  // ── LLM Config CRUD ──────────────────────────────────────────────────────
+
+  listConfigs(): Observable<LlmConfig[]> {
+    return this.api.get<LlmConfig[]>('/llm/configs');
+  }
+
+  createConfig(data: Record<string, unknown>): Observable<LlmConfig> {
+    return this.api.post<LlmConfig>('/llm/configs', data);
+  }
+
+  updateConfig(id: string, data: Record<string, unknown>): Observable<LlmConfig> {
+    return this.api.put<LlmConfig>(`/llm/configs/${id}`, data);
+  }
+
+  deleteConfig(id: string): Observable<void> {
+    return this.api.delete<void>(`/llm/configs/${id}`);
+  }
+
+  setDefaultConfig(id: string): Observable<LlmConfig> {
+    return this.api.post<LlmConfig>(`/llm/configs/${id}/set-default`);
+  }
+
+  testConfig(id: string): Observable<LlmTestResult> {
+    return this.api.post<LlmTestResult>(`/llm/configs/${id}/test`);
+  }
+
+  listAvailableConfigs(): Observable<LlmConfigAvailable[]> {
+    return this.api.get<LlmConfigAvailable[]>('/llm/configs/available');
+  }
+
+  listModels(configId: string): Observable<{ models: LlmModel[] }> {
+    return this.api.get<{ models: LlmModel[] }>(`/llm/configs/${configId}/models`);
+  }
+
+  /** Test connection with unsaved config values */
+  testConnectionAnonymous(data: Record<string, unknown>): Observable<LlmTestResult> {
+    return this.api.post<LlmTestResult>('/llm/test-connection', data);
+  }
+
+  /** Discover models with unsaved config values */
+  discoverModels(data: Record<string, unknown>): Observable<{ models: LlmModel[] }> {
+    return this.api.post<{ models: LlmModel[] }>('/llm/discover-models', data);
+  }
+
+  /** Global chat with MCP tool access */
+  globalChat(message: string, threadId?: string, pageContext?: string): Observable<GlobalChatResponse> {
+    return this.api.post<GlobalChatResponse>('/llm/chat', {
+      message,
+      thread_id: threadId ?? null,
+      page_context: pageContext ?? null,
+    });
+  }
+
   /** Summarize changes between two backup object versions */
   summarizeDiff(
     versionId1: string,
@@ -81,8 +144,11 @@ export class LlmService {
   }
 
   /** Send a follow-up message in an existing conversation thread */
-  followUp(threadId: string, message: string): Observable<ChatResponse> {
-    return this.api.post<ChatResponse>(`/llm/chat/${threadId}`, { message });
+  followUp(threadId: string, message: string, streamId?: string): Observable<ChatResponse> {
+    return this.api.post<ChatResponse>(`/llm/chat/${threadId}`, {
+      message,
+      stream_id: streamId ?? null,
+    });
   }
 
   /** Pass 1: select relevant API categories for a workflow description */
@@ -131,5 +197,35 @@ export class LlmService {
       description,
       upstream_variables: upstreamVariables ?? null,
     });
+  }
+
+  // ── MCP Config CRUD ──────────────────────────────────────────────────────
+
+  listMcpConfigs(): Observable<McpConfig[]> {
+    return this.api.get<McpConfig[]>('/mcp/configs');
+  }
+
+  createMcpConfig(data: Record<string, unknown>): Observable<McpConfig> {
+    return this.api.post<McpConfig>('/mcp/configs', data);
+  }
+
+  updateMcpConfig(id: string, data: Record<string, unknown>): Observable<McpConfig> {
+    return this.api.put<McpConfig>(`/mcp/configs/${id}`, data);
+  }
+
+  deleteMcpConfig(id: string): Observable<void> {
+    return this.api.delete<void>(`/mcp/configs/${id}`);
+  }
+
+  testMcpConfig(id: string): Observable<McpTestResult> {
+    return this.api.post<McpTestResult>(`/mcp/configs/${id}/test`);
+  }
+
+  listAvailableMcpConfigs(): Observable<McpConfigAvailable[]> {
+    return this.api.get<McpConfigAvailable[]>('/mcp/configs/available');
+  }
+
+  testMcpConnectionAnonymous(data: Record<string, unknown>): Observable<McpTestResult> {
+    return this.api.post<McpTestResult>('/mcp/test-connection', data);
   }
 }

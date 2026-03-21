@@ -82,6 +82,10 @@ class NotificationService:
         if not url:
             raise ConfigurationError("Slack webhook URL not configured")
 
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(url)
+
         try:
             if blocks:
                 # Block Kit payload — blocks take precedence, message is fallback
@@ -113,6 +117,13 @@ class NotificationService:
             if channel:
                 payload["channel"] = channel
 
+            logger.debug(
+                "slack_payload",
+                has_blocks=bool(blocks),
+                block_count=len(blocks) if blocks else 0,
+                message_length=len(message),
+            )
+
             # Send request
             client = await self._get_client()
             response = await client.post(url, json=payload)
@@ -127,13 +138,23 @@ class NotificationService:
                     status=response.status_code,
                     body=response.text[:500],
                 )
+                # Extract text from blocks if message is empty
+                fallback_text = message
+                if not fallback_text.strip() and blocks:
+                    texts = [
+                        b.get("text", {}).get("text", "")
+                        for b in blocks
+                        if b.get("type") == "section" and isinstance(b.get("text"), dict)
+                    ]
+                    fallback_text = "\n".join(t for t in texts if t)[:3000] or message
+
                 fallback_payload: dict[str, Any] = {
                     "username": username,
                     "icon_emoji": icon_emoji,
                     "attachments": [
                         {
                             "color": color,
-                            "text": message,
+                            "text": fallback_text,
                             "footer": "Mist Automation",
                             "ts": int(datetime.now(timezone.utc).timestamp()),
                         }
@@ -204,8 +225,11 @@ class NotificationService:
         if not all([url, user, pwd]):
             raise ConfigurationError("ServiceNow credentials not configured")
 
-        # Build endpoint URL
+        # Build endpoint URL and validate against SSRF
         endpoint = f"{url}/api/now/table/{table}"
+        from app.utils.url_safety import validate_outbound_url
+
+        validate_outbound_url(endpoint)
 
         try:
             # Build payload
@@ -523,6 +547,9 @@ class NotificationService:
         try:
             # Try to query incident table (just to test auth)
             endpoint = f"{url}/api/now/table/incident?sysparm_limit=1"
+            from app.utils.url_safety import validate_outbound_url
+
+            validate_outbound_url(endpoint)
             client = await self._get_client()
             response = await client.get(
                 endpoint,

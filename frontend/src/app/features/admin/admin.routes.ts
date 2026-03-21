@@ -56,6 +56,11 @@ const routes: Routes = [
         loadComponent: () =>
           import('./settings/llm/settings-llm.component').then((m) => m.SettingsLlmComponent),
       },
+      {
+        path: 'mcp',
+        loadComponent: () =>
+          import('./settings/mcp/settings-mcp.component').then((m) => m.SettingsMcpComponent),
+      },
     ],
   },
   {

@@ -40,7 +40,7 @@ Modules are registered via `MODULES` list in `app/modules/__init__.py` — each 
 
 ### Request Pipeline
 
-Three middleware layers execute in order:
+Three middleware layers execute in order (all inherit from `_SkipWebSocketMiddleware` which auto-bypasses WebSocket connections):
 1. `RequestLoggingMiddleware` — generates `request_id`, logs method/path/IP, adds `X-Request-ID` header
 2. `ExceptionHandlerMiddleware` — catches `MistAutomationException` subclasses → standardized JSON errors
 3. `SecurityHeadersMiddleware` — adds HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Permissions-Policy
@@ -64,6 +64,8 @@ Single entry point `POST /webhooks/mist` receives all Mist webhooks:
 Smee.io forwarding (`app/core/smee_service.py`) connects to a Smee SSE channel and replays events to the local webhook endpoint for development. It bypasses signature verification.
 
 ### Worker Patterns
+
+Shared Celery app defined in `app/core/celery_app.py` — both automation and backup modules import from there (never create Celery instances in modules directly).
 
 Two separate execution mechanisms:
 - **Celery** (`app/modules/automation/workers/webhook_worker.py`): Processes webhook-triggered workflows. Max 3 retries, soft timeout from config, prefetch=1.
@@ -109,20 +111,25 @@ Always instantiate via `create_mist_service()` from `app.services.mist_service_f
 
 - **Access control**: Every endpoint must use the appropriate auth dependency: `require_admin`, `require_automation_role`, `require_backup_role`, or `get_current_user_from_token`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
 - **Sensitive data**: Use `encrypt_sensitive_data()` / `decrypt_sensitive_data()` for tokens and passwords stored in `SystemConfig`. Return `*_set: bool` fields in API responses instead of actual values.
-- **Error messages**: Never leak `str(e)` to API clients. Log full errors server-side with structlog, return generic messages in HTTP responses.
+- **Error messages**: Never leak `str(e)` to API clients. Log full errors server-side with structlog, return generic messages in HTTP responses. Use `_sanitize_execution_error()` from `executor_service.py` for workflow/node error fields.
 - **SSRF**: Call `validate_outbound_url()` before any outbound HTTP request to a user-controlled URL.
 - **Session invalidation**: Password changes must invalidate all other sessions. Login enforces `max_concurrent_sessions`.
 - **Input validation**: Admin settings use Pydantic schemas with validators, not raw dicts.
 - **Re-raise from**: Always use `raise ... from e` or `raise ... from None` in except clauses (ruff B904).
+- **Password policy**: Use `validate_password_with_policy()` (reads from `SystemConfig` at runtime) instead of `validate_password_strength()` (reads from env only) in endpoint code.
+- **MCP access control**: MCP write tools must enforce role/ownership checks via `mcp_user_id_var`, mirroring REST API enforcement.
 
 ## DRY Conventions
 
 - **MistService**: Always instantiate via `create_mist_service()` factory — never inline config+decrypt.
 - **Template braces**: Use `strip_template_braces()` from `app/utils/variables.py` for `{{ }}` stripping.
 - **API methods**: `MistService._api_call()` is the single implementation; thin wrappers for each HTTP verb.
-- **Shared helpers**: Extract common field construction into helpers (e.g., `_event_fields()`, `_user_to_response()`).
+- **Shared helpers**: Extract common field construction into helpers (e.g., `_event_fields()`, `user_to_response()`).
 - **Variable substitution dispatch**: `_substitute_value()` is the single recursive dispatcher; `substitute_in_dict`/`substitute_in_list` are thin wrappers.
 - **Report response helpers**: `_dict_to_response()` for raw aggregation dicts, `_job_to_response()` for `ReportJob` documents — never inline `ReportJobResponse(...)` construction.
+- **Celery app**: Always import from `app.core.celery_app` — never create Celery instances in modules.
+- **User response**: `user_to_response()` from `app.schemas.user` — single canonical User→UserResponse builder.
+- **LLM service**: Always use `create_llm_service()` factory from `app.modules.llm.services.llm_service_factory`.
 
 ## Testing
 

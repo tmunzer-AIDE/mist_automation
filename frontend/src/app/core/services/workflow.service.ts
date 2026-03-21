@@ -104,6 +104,10 @@ export class WorkflowService {
     return this.api.post(`/executions/${executionId}/cancel`);
   }
 
+  cancelSimulation(workflowId: string, executionId: string): Observable<{ status: string }> {
+    return this.api.post(`/workflows/${workflowId}/simulate/${executionId}/cancel`);
+  }
+
   // ── API Catalog ───────────────────────────────────────────────────────
 
   getApiCatalog(): Observable<ApiCatalogEntry[]> {
@@ -405,7 +409,7 @@ export class WorkflowService {
       case 'subflow_output':
         return { outputs: {} };
       case 'ai_agent':
-        return { agent_task: '', agent_system_prompt: '', max_iterations: 10, mcp_servers: [] };
+        return { agent_task: '', agent_system_prompt: '', max_iterations: 10, mcp_config_ids: [] };
       default:
         return {};
     }

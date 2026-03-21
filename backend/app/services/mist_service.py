@@ -3,7 +3,6 @@ Mist API service wrapper using the mistapi package.
 Provides abstraction layer for all Mist API interactions.
 """
 
-from functools import lru_cache
 from typing import Any
 
 import mistapi
@@ -406,14 +405,3 @@ class MistService:
     async def api_delete(self, endpoint: str, params: dict[str, Any] | None = None) -> None:
         """Generic DELETE request to Mist API."""
         await self._api_call("delete", endpoint, success_codes=(200, 204), query=params or {})
-
-
-@lru_cache
-def get_mist_service() -> MistService:
-    """
-    Get singleton instance of MistService.
-
-    Returns:
-        MistService instance
-    """
-    return MistService()

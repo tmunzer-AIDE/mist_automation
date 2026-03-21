@@ -68,14 +68,8 @@ class SystemConfig(TimestampMixin, Document):
 
     pagerduty_api_key: str | None = Field(default=None, description="Encrypted PagerDuty API key")
     
-    # LLM Configuration
-    llm_enabled: bool = Field(default=False, description="Enable LLM integration")
-    llm_provider: str | None = Field(default=None, description="LLM provider (openai, anthropic, ollama, etc.)")
-    llm_api_key: str | None = Field(default=None, description="Encrypted LLM API key")
-    llm_model: str | None = Field(default=None, description="LLM model name")
-    llm_base_url: str | None = Field(default=None, description="Custom LLM API base URL (for Ollama, etc.)")
-    llm_temperature: float = Field(default=0.3, description="LLM temperature (0.0-2.0)")
-    llm_max_tokens_per_request: int = Field(default=4096, description="Max output tokens per request")
+    # LLM Configuration (individual configs stored in LLMConfig collection)
+    llm_enabled: bool = Field(default=False, description="Global LLM kill switch")
 
     # System Status
     is_initialized: bool = Field(default=False, description="Whether initial setup is complete")
@@ -90,12 +84,24 @@ class SystemConfig(TimestampMixin, Document):
     
     @classmethod
     async def get_config(cls) -> "SystemConfig":
-        """Get the system configuration (creates if doesn't exist)."""
+        """Get the system configuration (creates if doesn't exist).
+
+        Uses insert with DuplicateKeyError handling to avoid race conditions
+        when two concurrent requests both find no config.
+        """
         config = await cls.find_one()
-        if not config:
+        if config:
+            return config
+        try:
             config = cls()
             await config.insert()
-        return config
+            return config
+        except Exception:
+            # Another request may have inserted concurrently — re-fetch
+            config = await cls.find_one()
+            if config:
+                return config
+            raise
     
     class Config:
         json_schema_extra = {

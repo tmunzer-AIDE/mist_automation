@@ -19,5 +19,8 @@
     <main class="content" [class.full-width]="isFullWidth()">
       <router-outlet></router-outlet>
     </main>
+    @if (llmAvailable()) {
+      <app-global-chat></app-global-chat>
+    }
   </mat-sidenav-content>
 </mat-sidenav-container>

@@ -5,6 +5,7 @@ Backup models for configuration backup and restore.
 from datetime import datetime, timezone
 from enum import Enum
 
+import pymongo
 from beanie import Document, PydanticObjectId
 from pydantic import BaseModel, Field
 
@@ -102,32 +103,22 @@ class BackupObject(Document):
             [("object_type", 1), ("object_id", 1), ("version", -1)],  # Compound index for latest version
             "is_deleted",
             [("references.target_id", 1)],
+            pymongo.IndexModel(
+                [("object_id", 1), ("version", 1)],
+                unique=True,
+                name="unique_object_version",
+            ),
         ]
     
-    def create_new_version(
-        self,
-        new_configuration: dict,
-        configuration_hash: str,
-        event_type: BackupEventType,
-        changed_fields: list[str] = None,
-        references: list["ObjectReference"] | None = None,
-    ) -> "BackupObject":
-        """Create a new version of this backup object."""
-        return BackupObject(
-            object_type=self.object_type,
-            object_id=self.object_id,
-            object_name=new_configuration.get("name", self.object_name),
-            org_id=self.org_id,
-            site_id=self.site_id,
-            configuration=new_configuration,
-            configuration_hash=configuration_hash,
-            version=self.version + 1,
-            previous_version_id=self.id,
-            event_type=event_type,
-            changed_fields=changed_fields or [],
-            references=references or [],
-        )
-    
+    @classmethod
+    async def next_version(cls, object_id: str) -> int:
+        """Get the next sequential version number for an object.
+
+        Queries ALL versions (including deleted) to avoid duplicate version numbers.
+        """
+        latest = await cls.find(cls.object_id == object_id).sort([("version", -1)]).first_or_none()
+        return (latest.version + 1) if latest else 1
+
     def mark_deleted(self):
         """Mark this object as deleted."""
         self.is_deleted = True

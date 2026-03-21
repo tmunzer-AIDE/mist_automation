@@ -122,3 +122,75 @@ class MCPClientWrapper:
         if settings.ca_cert_path and os.path.isfile(settings.ca_cert_path):
             return settings.ca_cert_path
         return True
+
+
+class InProcessMCPClient:
+    """MCP client using in-process memory transport.
+
+    Connects directly to a FastMCP server object — no HTTP round-trip.
+    Python ContextVars propagate from the caller to the tool handlers.
+    """
+
+    def __init__(self, server: object, name: str = "local"):
+        self._server = server
+        self._client: object | None = None
+        self.config = MCPServerConfig(name=name, url="in-process")
+
+    async def connect(self) -> None:
+        """Connect to the FastMCP server in-process."""
+        from fastmcp import Client
+
+        self._client = Client(self._server)
+        await self._client.__aenter__()
+        logger.info("mcp_connected_inprocess", server=self.config.name)
+
+    async def disconnect(self) -> None:
+        """Disconnect from the in-process server."""
+        if self._client:
+            try:
+                await self._client.__aexit__(None, None, None)
+            except Exception:
+                logger.debug("mcp_disconnect_error", server=self.config.name)
+            self._client = None
+
+    async def list_tools(self) -> list[MCPTool]:
+        """List available tools from the in-process server."""
+        if not self._client:
+            raise RuntimeError("Not connected")
+
+        tools = await self._client.list_tools()
+        return [
+            MCPTool(
+                name=t.name,
+                description=t.description or "",
+                input_schema=t.inputSchema if hasattr(t, "inputSchema") else {},
+            )
+            for t in tools
+        ]
+
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        """Call a tool on the in-process server and return the result as a string."""
+        if not self._client:
+            raise RuntimeError("Not connected")
+
+        result = await self._client.call_tool(name, arguments)
+        # fastmcp.Client.call_tool returns a list of content blocks
+        if isinstance(result, list):
+            parts = []
+            for block in result:
+                if hasattr(block, "text"):
+                    parts.append(block.text)
+                else:
+                    parts.append(str(block))
+            return "\n".join(parts) if parts else ""
+        return str(result) if result else ""
+
+
+def create_local_mcp_client() -> InProcessMCPClient:
+    """Create an in-process MCP client connected to the local FastMCP server.
+
+    Uses memory transport — ContextVars propagate from caller to tool handlers.
+    """
+    from app.modules.mcp_server.server import mcp
+
+    return InProcessMCPClient(mcp, name="mist-automation")

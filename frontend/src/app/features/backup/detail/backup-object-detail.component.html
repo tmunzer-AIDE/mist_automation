@@ -36,7 +36,7 @@
                 matTooltip="AI Summary"
                 (click)="summarizeChanges()"
               >
-                <mat-icon>smart_toy</mat-icon>
+                <app-ai-icon [size]="18" [animated]="false"></app-ai-icon>
               </button>
             }
           </mat-card-header>
@@ -165,7 +165,7 @@
           <div class="ai-chat-container">
             <div class="ai-chat-topbar">
               <div class="ai-chat-title">
-                <mat-icon class="ai-chat-title-icon">smart_toy</mat-icon>
+                <app-ai-icon [size]="20"></app-ai-icon>
                 <span>AI Assistant</span>
               </div>
               <button mat-icon-button matTooltip="Close" (click)="aiPanelOpen.set(false)">
@@ -177,6 +177,7 @@
               [initialSummary]="aiSummary()"
               [errorMessage]="aiError()"
               [parentLoading]="aiLoading()"
+              loadingLabel="Summarizing changes..."
             ></app-ai-chat-panel>
           </div>
         }

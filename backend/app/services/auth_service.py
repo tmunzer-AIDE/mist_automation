@@ -17,7 +17,7 @@ from app.models.session import UserSession, DeviceInfo
 from app.core.security import (
     hash_password,
     verify_password,
-    validate_password_strength,
+    validate_password_with_policy,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -139,7 +139,7 @@ class AuthService:
             ValueError: If password doesn't meet requirements or user exists
         """
         # Validate password strength
-        is_valid, error_msg = validate_password_strength(password)
+        is_valid, error_msg = await validate_password_with_policy(password)
         if not is_valid:
             logger.warning("user_creation_failed_weak_password", email=email, error=error_msg)
             raise ValueError(error_msg)
@@ -187,7 +187,7 @@ class AuthService:
             raise InvalidCredentialsError("Current password is incorrect")
 
         # Validate new password strength
-        is_valid, error_msg = validate_password_strength(new_password)
+        is_valid, error_msg = await validate_password_with_policy(new_password)
         if not is_valid:
             logger.warning("password_change_failed_weak_password", user_id=str(user.id), error=error_msg)
             raise ValueError(error_msg)

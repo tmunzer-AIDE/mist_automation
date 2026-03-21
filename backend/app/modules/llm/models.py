@@ -1,5 +1,5 @@
 """
-LLM module models: usage tracking and conversation threads.
+LLM module models: provider configs, usage tracking, and conversation threads.
 """
 
 from datetime import datetime, timezone
@@ -7,6 +7,44 @@ from datetime import datetime, timezone
 from beanie import Document, Indexed, PydanticObjectId
 from pydantic import BaseModel, Field
 from pymongo import IndexModel
+
+from app.models.mixins import TimestampMixin
+
+
+class LLMConfig(TimestampMixin, Document):
+    """A named LLM provider configuration."""
+
+    name: str = Field(..., description="Display name (e.g., 'GPT-4o Cloud', 'Local Qwen')")
+    provider: str = Field(..., description="Provider: openai, anthropic, ollama, lm_studio, azure_openai, bedrock, vertex")
+    api_key: str | None = Field(default=None, description="Encrypted API key")
+    model: str | None = Field(default=None, description="Model name")
+    base_url: str | None = Field(default=None, description="Custom API base URL")
+    temperature: float = Field(default=0.3, description="Temperature (0.0-2.0)")
+    max_tokens_per_request: int = Field(default=4096, description="Max output tokens")
+    is_default: bool = Field(default=False, description="Default config for UI features")
+    enabled: bool = Field(default=True, description="Whether this config is active")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "llm_configs"
+        indexes = ["name", "is_default"]
+
+
+class MCPConfig(TimestampMixin, Document):
+    """A named MCP server configuration."""
+
+    name: str = Field(..., description="Display name (e.g., 'Mist MCP', 'Custom Tools')")
+    url: str = Field(..., description="Streamable HTTP endpoint URL")
+    headers: str | None = Field(default=None, description="Encrypted JSON headers (contains auth tokens)")
+    ssl_verify: bool = Field(default=True, description="Verify SSL certificates")
+    enabled: bool = Field(default=True, description="Whether this config is active")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "mcp_configs"
+        indexes = ["name"]
 
 
 class LLMUsageLog(Document):

@@ -142,6 +142,8 @@ class RestoreService:
                 "note": "Object restored with new UUID" if result.get("id") != backup.object_id else None,
             }
 
+        except (ValidationError, NotFoundError, RestoreError):
+            raise
         except Exception as e:
             logger.error(
                 "restore_failed",
@@ -149,7 +151,7 @@ class RestoreService:
                 object_id=backup.object_id,
                 error=str(e),
             )
-            raise RestoreError(f"Restore failed: {str(e)}")
+            raise RestoreError(f"Restore failed") from e
 
     async def restore_deleted_object(
         self,
@@ -164,6 +166,10 @@ class RestoreService:
                 BackupObject.object_id == object_id,
                 BackupObject.version == version,
             )
+            # If the requested version is a deletion record, follow the chain
+            # to the actual configuration it was derived from
+            if backup and backup.is_deleted and backup.previous_version_id:
+                backup = await BackupObject.get(backup.previous_version_id)
         else:
             deleted_backup = await BackupObject.find(
                 BackupObject.object_id == object_id,
@@ -210,18 +216,21 @@ class RestoreService:
         )
 
         new_object_id = result.get("id")
-        await self._migrate_versions_to_new_id(
-            old_object_id=object_id,
-            new_object_id=new_object_id,
-            backup=backup,
-            result=result,
-            restored_by=restored_by,
-        )
+        if new_object_id:
+            await self._migrate_versions_to_new_id(
+                old_object_id=object_id,
+                new_object_id=new_object_id,
+                backup=backup,
+                result=result,
+                restored_by=restored_by,
+            )
+        else:
+            await self._create_restore_backup(backup, restored_by)
 
         return {
             "status": "success",
             "original_object_id": object_id,
-            "new_object_id": new_object_id,
+            "new_object_id": new_object_id or object_id,
             "object_type": backup.object_type,
             "object_name": backup.object_name,
             "note": "Object restored with new UUID",
@@ -682,10 +691,9 @@ class RestoreService:
         """Create a backup record marking the restore event."""
         latest = await BackupObject.find(
             BackupObject.object_id == original_backup.object_id,
-            BackupObject.is_deleted == False,
         ).sort([("version", -1)]).first_or_none()
 
-        version = (latest.version + 1) if latest else 1
+        version = await BackupObject.next_version(original_backup.object_id)
 
         restore_backup = BackupObject(
             object_type=original_backup.object_type,
@@ -732,7 +740,7 @@ class RestoreService:
                         ref.target_id = id_remap[ref.target_id]
             await old_ver.save()
 
-        max_version = max((v.version for v in old_versions), default=0)
+        next_ver = await BackupObject.next_version(new_object_id)
 
         config_hash = hashlib.sha256(
             json.dumps(result, sort_keys=True).encode()
@@ -749,7 +757,7 @@ class RestoreService:
             site_id=backup.site_id,
             configuration=result,
             configuration_hash=config_hash,
-            version=max_version + 1,
+            version=next_ver,
             previous_version_id=backup.id,
             event_type=BackupEventType.RESTORED,
             changed_fields=[],
@@ -839,7 +847,7 @@ class RestoreService:
             BackupObject.is_deleted == False,
         ).sort([("version", -1)]).first_or_none()
 
-        version = (latest.version + 1) if latest else 1
+        version = await BackupObject.next_version(child_object_id)
         config_hash = hashlib.sha256(
             json.dumps(result, sort_keys=True).encode()
         ).hexdigest()
@@ -867,12 +875,20 @@ class RestoreService:
         )
         await restore_backup.insert()
 
-        # Also remap references in older backup versions of this child
-        if latest and latest.references:
-            for ref in latest.references:
+        # Remap stale parent IDs in all backup versions of this child
+        all_child_versions = await BackupObject.find(
+            BackupObject.object_id == child_object_id,
+        ).to_list()
+        for ver in all_child_versions:
+            if not ver.references:
+                continue
+            changed = False
+            for ref in ver.references:
                 if ref.target_id in id_remap:
                     ref.target_id = id_remap[ref.target_id]
-            await latest.save()
+                    changed = True
+            if changed:
+                await ver.save()
 
         restored_objects.append({
             "role": "update",

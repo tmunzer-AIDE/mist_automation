@@ -7,6 +7,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { LlmService } from '../../../core/services/llm.service';
 import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/workflow.model';
@@ -24,6 +25,7 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
     MatDialogModule,
     StatusBadgeComponent,
     AiChatPanelComponent,
+    AiIconComponent,
     DurationPipe,
   ],
   template: `
@@ -132,7 +134,7 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
         @if (aiPanelOpen()) {
           <div class="ai-debug-panel">
             <div class="ai-debug-header">
-              <mat-icon>smart_toy</mat-icon>
+              <app-ai-icon [size]="20"></app-ai-icon>
               <span>AI Debug Analysis</span>
               <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
             </div>
@@ -141,6 +143,7 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
               [errorMessage]="aiError()"
               [parentLoading]="aiLoading()"
               [threadId]="aiThreadId()"
+              loadingLabel="Analyzing execution..."
             ></app-ai-chat-panel>
           </div>
         }
@@ -150,7 +153,7 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
     <mat-dialog-actions align="end">
       @if (hasFailedNodes() && llmAvailable()) {
         <button mat-stroked-button (click)="debugWithAI()" [disabled]="aiLoading()">
-          <mat-icon>smart_toy</mat-icon> Debug with AI
+          <app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Debug with AI
         </button>
       }
       <button mat-flat-button mat-dialog-close>Close</button>

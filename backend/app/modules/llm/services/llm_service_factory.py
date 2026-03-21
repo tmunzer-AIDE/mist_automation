@@ -1,67 +1,90 @@
 """
-Shared factory for creating an LLMService from system config.
+Shared factory for creating an LLMService from a named LLMConfig.
 """
 
 import structlog
+from beanie import PydanticObjectId
 
 from app.core.exceptions import ConfigurationError
 
 logger = structlog.get_logger(__name__)
 
+_LOCAL_PROVIDERS = {"lm_studio", "ollama"}
 
-async def create_llm_service():
-    """Get SystemConfig, decrypt API key, create LLMService.
 
-    Raises ConfigurationError if LLM is not configured.
+async def create_llm_service(config_id: str | None = None):
+    """Create an LLMService from a named LLMConfig.
+
+    If ``config_id`` is provided, loads that specific config.
+    Otherwise, loads the default config (``is_default=True``).
+
+    Raises ConfigurationError if LLM is not configured or the config is not found.
     """
     from app.core.security import decrypt_sensitive_data
     from app.models.system import SystemConfig
+    from app.modules.llm.models import LLMConfig
     from app.modules.llm.services.llm_service import LLMService
 
-    config = await SystemConfig.get_config()
-
-    if not config.llm_enabled:
+    # Global kill switch
+    sys_config = await SystemConfig.get_config()
+    if not sys_config.llm_enabled:
         raise ConfigurationError("LLM integration is not enabled")
-    if not config.llm_provider:
-        raise ConfigurationError("LLM provider is not configured")
-    if not config.llm_api_key:
-        raise ConfigurationError("LLM API key is not configured")
+
+    # Load config
+    if config_id:
+        try:
+            llm_config = await LLMConfig.get(PydanticObjectId(config_id))
+        except Exception as exc:
+            raise ConfigurationError("Invalid LLM config ID") from exc
+        if not llm_config:
+            raise ConfigurationError("LLM config not found")
+    else:
+        llm_config = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
+        if not llm_config:
+            raise ConfigurationError("No default LLM config found")
+
+    if not llm_config.enabled:
+        raise ConfigurationError(f"LLM config '{llm_config.name}' is disabled")
+    if not llm_config.api_key:
+        raise ConfigurationError(f"LLM config '{llm_config.name}' has no API key")
 
     try:
-        api_key = decrypt_sensitive_data(config.llm_api_key)
+        api_key = decrypt_sensitive_data(llm_config.api_key)
     except Exception as e:
-        logger.warning("llm_api_key_decryption_failed", error=str(e))
+        logger.warning("llm_api_key_decryption_failed", config=llm_config.name, error=str(e))
         raise ConfigurationError("Failed to decrypt LLM API key") from e
 
-    base_url = config.llm_base_url
-    # LM Studio defaults to http://localhost:1234/v1 if no base URL set
-    if config.llm_provider == "lm_studio" and not base_url:
+    base_url = llm_config.base_url
+    if llm_config.provider == "lm_studio" and not base_url:
         base_url = "http://localhost:1234/v1"
 
-    # SSRF check on base_url — skip for local providers (they run on localhost by design)
-    _local_providers = {"lm_studio", "ollama"}
-    if base_url and config.llm_provider not in _local_providers:
+    # SSRF check — skip for local providers
+    if base_url and llm_config.provider not in _LOCAL_PROVIDERS:
         from app.utils.url_safety import validate_outbound_url
 
         validate_outbound_url(base_url)
 
     return LLMService(
-        provider=config.llm_provider,
+        provider=llm_config.provider,
         api_key=api_key,
-        model=config.llm_model or _default_model(config.llm_provider),
+        model=llm_config.model or _default_model(llm_config.provider),
         base_url=base_url,
-        temperature=config.llm_temperature,
-        max_tokens=config.llm_max_tokens_per_request,
+        temperature=llm_config.temperature,
+        max_tokens=llm_config.max_tokens_per_request,
     )
 
 
 async def is_llm_available() -> bool:
     """Check if LLM is configured without raising."""
     from app.models.system import SystemConfig
+    from app.modules.llm.models import LLMConfig
 
     try:
-        config = await SystemConfig.get_config()
-        return bool(config.llm_enabled and config.llm_provider and config.llm_api_key)
+        sys_config = await SystemConfig.get_config()
+        if not sys_config.llm_enabled:
+            return False
+        default = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
+        return default is not None and bool(default.api_key)
     except Exception:
         return False
 
@@ -75,5 +98,6 @@ def _default_model(provider: str) -> str:
         "lm_studio": "local-model",
         "azure_openai": "gpt-4o",
         "bedrock": "anthropic.claude-sonnet-4-20250514-v1:0",
+        "vertex": "gemini-2.0-flash",
     }
     return defaults.get(provider, "gpt-4o")

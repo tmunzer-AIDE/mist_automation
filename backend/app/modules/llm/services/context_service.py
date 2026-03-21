@@ -21,8 +21,11 @@ async def get_backup_diff_context(version_id_1: str, version_id_2: str) -> dict:
       - changed_fields (from the newer version)
       - diff_entries (list of {path, type, old?, new?, value?})
     """
-    from app.modules.backup.models import BackupObject
-    from app.modules.backup.utils import deep_diff
+    try:
+        from app.modules.backup.models import BackupObject
+        from app.modules.backup.utils import deep_diff
+    except ImportError as e:
+        raise DataNotFoundException("Backup module is required for diff context but is not available") from e
 
     try:
         v1 = await BackupObject.get(PydanticObjectId(version_id_1))
@@ -42,7 +45,8 @@ async def get_backup_diff_context(version_id_1: str, version_id_2: str) -> dict:
     return {
         "object_type": v2.object_type,
         "object_name": v2.object_name,
-        "event_type": v2.event_type,
+        "object_id": v2.object_id,
+        "event_type": v2.event_type.value if hasattr(v2.event_type, "value") else str(v2.event_type),
         "old_version": v1.version,
         "new_version": v2.version,
         "changed_fields": v2.changed_fields,

@@ -9,6 +9,9 @@
         <div class="hero-primary">
           <h2 class="hero-greeting">Welcome back, {{ displayName() }}</h2>
           <p class="hero-sub">Here's your overview for the last {{ statsWindowDays() }} days.</p>
+          <button mat-stroked-button class="incident-btn" (click)="analyzeIncident()">
+            <app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Analyze Incidents
+          </button>
         </div>
         @if (health(); as h) {
           <div class="hero-health">

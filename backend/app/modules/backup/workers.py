@@ -10,6 +10,7 @@ import structlog
 from beanie import PydanticObjectId
 
 from app.config import settings
+from app.core.celery_app import celery_app
 from app.core.exceptions import MistAPIError
 from app.modules.backup.models import BackupEventType, BackupJob, BackupLogEntry, BackupObject, BackupStatus, BackupType
 from app.modules.backup.services.backup_logger import BackupLogger
@@ -18,9 +19,6 @@ from app.modules.backup.services.git_service import GitService
 from app.services.mist_service import MistService
 
 logger = structlog.get_logger(__name__)
-
-# Initialize Celery (reuse same app as webhook worker)
-from app.modules.automation.workers.webhook_worker import celery_app
 
 
 @celery_app.task(name="perform_backup", bind=True, max_retries=2)
@@ -65,6 +63,7 @@ async def perform_backup(
         dict: Backup result with statistics
     """
     start_time = datetime.now(timezone.utc)
+    backup_job = None
 
     try:
         # Get backup job record
@@ -168,7 +167,7 @@ async def perform_backup(
         if backup_job:
             backup_job.status = BackupStatus.FAILED
             backup_job.completed_at = datetime.now(timezone.utc)
-            backup_job.error = str(e)
+            backup_job.error = str(e)[:200]
             await backup_job.save()
 
             try:
@@ -178,28 +177,6 @@ async def perform_backup(
                 pass
 
         raise
-
-
-async def perform_restore(backup_id: str, dry_run: bool = False):
-    """Restore from a backup job."""
-    backup = await BackupJob.get(backup_id)
-    if not backup:
-        logger.error(f"BackupJob {backup_id} not found")
-        return
-    try:
-        backup.status = BackupStatus.IN_PROGRESS
-        await backup.save()
-        from app.modules.backup.services.restore_service import RestoreService
-
-        restore_service = RestoreService()
-        await restore_service.restore_backup(backup, dry_run=dry_run)
-        backup.status = BackupStatus.COMPLETED
-        await backup.save()
-    except Exception as e:
-        logger.error(f"Restore failed for {backup_id}: {e}")
-        backup.status = BackupStatus.FAILED
-        backup.error = str(e)
-        await backup.save()
 
 
 @celery_app.task(name="cleanup_old_backups")
@@ -226,8 +203,10 @@ async def cleanup_old_backups() -> dict[str, Any]:
         logger.info("backup_cleanup_started")
 
         # Calculate cutoff date
+        from datetime import timedelta
+
         cutoff_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        cutoff_date = cutoff_date.replace(day=cutoff_date.day - settings.backup_retention_days)
+        cutoff_date = cutoff_date - timedelta(days=settings.backup_retention_days)
 
         # Find old backups
         old_backups = await BackupJob.find(
@@ -241,7 +220,29 @@ async def cleanup_old_backups() -> dict[str, Any]:
             await backup.delete()
             deleted_count += 1
 
-        logger.info("backup_cleanup_completed", deleted_count=deleted_count, cutoff_date=cutoff_date.isoformat())
+        # Delete old BackupObject versions beyond the retention window,
+        # but preserve the latest version of each object_id so we don't lose
+        # the current backup of objects that haven't changed recently.
+        latest_ids_pipeline = [
+            {"$sort": {"version": -1}},
+            {"$group": {"_id": "$object_id", "latest_doc_id": {"$first": "$_id"}}},
+        ]
+        latest_results = await BackupObject.aggregate(latest_ids_pipeline).to_list()
+        latest_doc_ids = {r["latest_doc_id"] for r in latest_results}
+
+        old_objects = await BackupObject.find(BackupObject.backed_up_at < cutoff_date).to_list()
+        obj_deleted = 0
+        for obj in old_objects:
+            if obj.id not in latest_doc_ids:
+                await obj.delete()
+                obj_deleted += 1
+
+        logger.info(
+            "backup_cleanup_completed",
+            deleted_jobs=deleted_count,
+            deleted_objects=obj_deleted,
+            cutoff_date=cutoff_date.isoformat(),
+        )
 
         return {
             "status": "completed",
@@ -840,7 +841,7 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             if backup_job:
                 backup_job.status = BackupStatus.FAILED
                 backup_job.completed_at = datetime.now(timezone.utc)
-                backup_job.error = str(exc)
+                backup_job.error = str(exc)[:200]
                 await backup_job.save()
                 backup_logger = BackupLogger(str(backup_job.id))
                 await backup_logger.error(

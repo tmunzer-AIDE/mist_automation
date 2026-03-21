@@ -20,21 +20,21 @@
   >
     <mat-icon>{{ paused() ? 'play_arrow' : 'pause' }}</mat-icon>
   </button>
-  @if (llmAvailable()) {
-    <button mat-icon-button (click)="summarizeWithAI()" matTooltip="AI Summary" [disabled]="aiLoading()">
-      <mat-icon>smart_toy</mat-icon>
-    </button>
-  }
   <button mat-icon-button (click)="clearEvents()" matTooltip="Clear events">
     <mat-icon>delete_sweep</mat-icon>
   </button>
+  @if (llmAvailable()) {
+    <button mat-stroked-button (click)="summarizeWithAI()" [disabled]="aiLoading()" class="ai-summary-btn">
+      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
+    </button>
+  }
 </ng-template>
 
 @if (aiPanelOpen()) {
   <div class="ai-summary-container">
     <div class="ai-summary-topbar">
       <div class="ai-summary-title">
-        <mat-icon>smart_toy</mat-icon>
+        <app-ai-icon [size]="20"></app-ai-icon>
         <span>AI Event Summary</span>
       </div>
       <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
@@ -44,6 +44,7 @@
       [errorMessage]="aiError()"
       [parentLoading]="aiLoading()"
       [threadId]="aiThreadId()"
+      loadingLabel="Summarizing events..."
     ></app-ai-chat-panel>
   </div>
 }
@@ -237,6 +238,20 @@
         <th mat-header-cell *matHeaderCellDef>Status</th>
         <td mat-cell *matCellDef="let ev">
           <app-status-badge [status]="ev.processed ? 'completed' : 'pending'"></app-status-badge>
+        </td>
+      </ng-container>
+
+      <!-- Actions -->
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let ev">
+          <button
+            mat-icon-button
+            matTooltip="Analyze with AI"
+            (click)="$event.stopPropagation(); analyzeEvent(ev)"
+          >
+            <app-ai-icon [size]="18" [animated]="false"></app-ai-icon>
+          </button>
         </td>
       </ng-container>
 
