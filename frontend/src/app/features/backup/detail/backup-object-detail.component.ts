@@ -106,13 +106,13 @@ export class BackupObjectDetailComponent implements OnInit {
   aiError = signal<string | null>(null);
   aiPanelOpen = signal(false);
   aiLoading = signal(false);
-  selectedVersionId: string | null = null;
+  selectedVersionId = signal<string | null>(null);
   dependencies = signal<ObjectDependencyResponse | null>(null);
   depsLoading = signal(true);
 
   // Compare mode
-  compareMode = false;
-  compareVersions: [ObjectVersion | null, ObjectVersion | null] = [null, null];
+  compareMode = signal(false);
+  compareVersions = signal<[ObjectVersion | null, ObjectVersion | null]>([null, null]);
   diffEntries = signal<DiffEntry[]>([]);
   activeFilters = signal<Set<string>>(new Set());
   expandedGroups = signal<Set<string>>(new Set());
@@ -229,11 +229,11 @@ export class BackupObjectDetailComponent implements OnInit {
   private resetState(): void {
     this.versions.set([]);
     this.loading.set(true);
-    this.selectedVersionId = null;
+    this.selectedVersionId.set(null);
     this.dependencies.set(null);
     this.depsLoading.set(true);
-    this.compareMode = false;
-    this.compareVersions = [null, null];
+    this.compareMode.set(false);
+    this.compareVersions.set([null, null]);
     this.aiThreadId.set(null);
     this.aiPanelOpen.set(false);
     this.diffEntries.set([]);
@@ -255,7 +255,7 @@ export class BackupObjectDetailComponent implements OnInit {
   }
 
   onRowClick(v: ObjectVersion): void {
-    if (this.compareMode) {
+    if (this.compareMode()) {
       this.toggleCompareVersion(v);
     }
   }
@@ -295,9 +295,9 @@ export class BackupObjectDetailComponent implements OnInit {
   }
 
   toggleCompareMode(): void {
-    this.compareMode = !this.compareMode;
-    if (!this.compareMode) {
-      this.compareVersions = [null, null];
+    this.compareMode.set(!this.compareMode());
+    if (!this.compareMode()) {
+      this.compareVersions.set([null, null]);
       this.diffEntries.set([]);
       this.activeFilters.set(new Set());
       this.expandedGroups.set(new Set());
@@ -306,46 +306,49 @@ export class BackupObjectDetailComponent implements OnInit {
   }
 
   toggleCompareVersion(v: ObjectVersion): void {
-    if (!this.compareMode) return;
+    if (!this.compareMode()) return;
+    const cv = this.compareVersions();
 
     // If already selected, deselect
-    if (this.compareVersions[0]?.id === v.id) {
-      this.compareVersions = [this.compareVersions[1], null];
+    if (cv[0]?.id === v.id) {
+      this.compareVersions.set([cv[1], null]);
       this.diffEntries.set([]);
       return;
     }
-    if (this.compareVersions[1]?.id === v.id) {
-      this.compareVersions = [this.compareVersions[0], null];
+    if (cv[1]?.id === v.id) {
+      this.compareVersions.set([cv[0], null]);
       this.diffEntries.set([]);
       return;
     }
 
     // Add to selection
-    if (!this.compareVersions[0]) {
-      this.compareVersions = [v, null];
+    if (!cv[0]) {
+      this.compareVersions.set([v, null]);
     } else {
-      this.compareVersions = [this.compareVersions[0], v];
+      this.compareVersions.set([cv[0], v]);
       this.computeDiff();
     }
   }
 
   isCompareSelected(v: ObjectVersion): boolean {
-    return this.compareVersions[0]?.id === v.id || this.compareVersions[1]?.id === v.id;
+    const cv = this.compareVersions();
+    return cv[0]?.id === v.id || cv[1]?.id === v.id;
   }
 
   compareLabel(v: ObjectVersion): string | null {
-    if (this.compareVersions[0]?.id === v.id) return 'A';
-    if (this.compareVersions[1]?.id === v.id) return 'B';
+    const cv = this.compareVersions();
+    if (cv[0]?.id === v.id) return 'A';
+    if (cv[1]?.id === v.id) return 'B';
     return null;
   }
 
   private computeDiff(): void {
-    const [a, b] = this.compareVersions;
+    const [a, b] = this.compareVersions();
     if (!a || !b) return;
     // Order so that older version is on the left
     const older = a.version < b.version ? a : b;
     const newer = a.version < b.version ? b : a;
-    this.compareVersions = [older, newer];
+    this.compareVersions.set([older, newer]);
     this.diffEntries.set(this.deepDiff(older.configuration, newer.configuration));
     this.activeFilters.set(new Set());
     this.expandedGroups.set(new Set());
@@ -493,8 +496,8 @@ export class BackupObjectDetailComponent implements OnInit {
   // ── AI Summary ──────────────────────────────────────────────────────────
 
   summarizeChanges(): void {
-    const v0 = this.compareVersions[0];
-    const v1 = this.compareVersions[1];
+    const v0 = this.compareVersions()[0];
+    const v1 = this.compareVersions()[1];
     if (!v0 || !v1) return;
 
     this.aiPanelOpen.set(true);

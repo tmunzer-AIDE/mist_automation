@@ -758,12 +758,25 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     return {
       nodes: g.nodes.map((n) => ({ ...n, position: { ...n.position }, config: { ...n.config }, output_ports: [...n.output_ports], save_as: n.save_as ? [...n.save_as] : undefined })),
       edges: g.edges.map((e) => ({ ...e })),
-      viewport: g.viewport ? { ...g.viewport } : null,
+      viewport: null,
     };
   }
 
   /** Push a snapshot of the current graph onto the history stack. */
   private pushHistory(): void {
+    // Flush any pending debounced config snapshot first
+    if (this.pendingConfigSnapshot) {
+      if (this.configDebounceTimer) {
+        clearTimeout(this.configDebounceTimer);
+        this.configDebounceTimer = null;
+      }
+      this.graphHistory = this.graphHistory.slice(0, this.historyIndex + 1);
+      this.graphHistory.push(this.pendingConfigSnapshot);
+      if (this.graphHistory.length > this.MAX_HISTORY) this.graphHistory.shift();
+      this.historyIndex = this.graphHistory.length - 1;
+      this.pendingConfigSnapshot = null;
+    }
+
     const snapshot = this.cloneGraph(this.graph());
 
     // Truncate any redo states

@@ -1,4 +1,5 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -104,8 +105,8 @@ const TIMEZONES = [
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-flat-button (click)="save()" [disabled]="form.invalid || saving">
-        {{ saving ? 'Saving...' : 'Save' }}
+      <button mat-flat-button (click)="save()" [disabled]="form.invalid || saving()">
+        {{ saving() ? 'Saving...' : 'Save' }}
       </button>
     </mat-dialog-actions>
   `,
@@ -137,10 +138,11 @@ export class UserDialogComponent implements OnInit {
   private readonly authService = inject(AuthService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
 
   availableRoles = AVAILABLE_ROLES;
   timezones = TIMEZONES;
-  saving = false;
+  saving = signal(false);
 
   form = this.fb.group({
     first_name: [this.data.user?.first_name || ''],
@@ -163,7 +165,7 @@ export class UserDialogComponent implements OnInit {
 
   ngOnInit(): void {
     if (this.data.mode === 'create') {
-      this.authService.checkHealth().subscribe({
+      this.authService.checkHealth().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (health) => {
           if (health.password_policy) {
             const ctrl = this.form.get('password')!;
@@ -177,7 +179,7 @@ export class UserDialogComponent implements OnInit {
 
   save(): void {
     if (this.form.invalid) return;
-    this.saving = true;
+    this.saving.set(true);
 
     const { first_name, last_name, email, password, roles, timezone } = this.form.getRawValue();
 
@@ -193,11 +195,12 @@ export class UserDialogComponent implements OnInit {
         })
         .subscribe({
           next: () => {
+            this.saving.set(false);
             this.snackBar.open('User created', 'OK', { duration: 3000 });
             this.dialogRef.close(true);
           },
           error: (err) => {
-            this.saving = false;
+            this.saving.set(false);
             this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
           },
         });
@@ -212,11 +215,12 @@ export class UserDialogComponent implements OnInit {
         })
         .subscribe({
         next: () => {
+          this.saving.set(false);
           this.snackBar.open('User updated', 'OK', { duration: 3000 });
           this.dialogRef.close(true);
         },
         error: (err) => {
-          this.saving = false;
+          this.saving.set(false);
           this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
         },
       });

@@ -45,7 +45,7 @@ class WebhookEvent(Document):
     )
 
     # Validation
-    signature_valid: bool = Field(default=True, description="Whether webhook signature was valid")
+    signature_valid: bool | None = Field(default=None, description="Whether webhook signature was valid (None = unchecked)")
 
     # Routing
     routed_to: list[str] = Field(default_factory=list, description="Modules routed to: 'automation', 'backup'")

@@ -62,4 +62,8 @@ export class AuthService {
     }
     return this.healthCache$;
   }
+
+  clearHealthCache(): void {
+    this.healthCache$ = null;
+  }
 }

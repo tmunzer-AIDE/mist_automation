@@ -577,11 +577,13 @@ class WorkflowExecutor:
                         collected_results: list[dict[str, Any]] = []
 
                         if parallel:
-                            # ── Parallel iteration: isolated executor per item ────
+                            # ── Parallel iteration: isolated executor + execution per item ──
                             max_concurrent = config.get("max_concurrent", 5)
                             sem = asyncio.Semaphore(max_concurrent)
 
-                            async def _run_iteration(i: int, item: Any) -> tuple[bool, dict[str, Any]]:
+                            async def _run_iteration(
+                                i: int, item: Any
+                            ) -> tuple[bool, dict[str, Any], dict[str, NodeExecutionResult], list[str]]:
                                 async with sem:
                                     iter_executor = WorkflowExecutor(mist_service=self.mist_service)
                                     iter_executor.variable_context = copy.deepcopy(self.variable_context)
@@ -592,37 +594,60 @@ class WorkflowExecutor:
                                     if node.name:
                                         iter_executor.variable_context["nodes"][_sanitize_name(node.name)] = item_output
 
+                                    # Isolated execution copy — avoids concurrent writes to the shared doc
+                                    # _in_memory_only suppresses DB saves inside _traverse_from
+                                    iter_execution = copy.deepcopy(execution)
+                                    iter_execution._in_memory_only = True
+
                                     body_visited: set[str] = {node.id}
+                                    # Isolated step counter — snapshots aren't merged from parallel iterations
+                                    iter_step_counter = [step_counter[0]]
                                     success = await iter_executor._traverse_from(
                                         node.id,
                                         adjacency,
                                         node_map,
-                                        execution,
+                                        iter_execution,
                                         dry_run=dry_run,
                                         simulate=simulate,
-                                        step_counter=step_counter,
+                                        step_counter=iter_step_counter,
                                         visited=body_visited,
                                         initial_port_filter="loop_body",
                                     )
                                     # Collect last body node output + iteration item
                                     last_output: dict[str, Any] = {}
                                     for nid in body_visited:
-                                        if nid != node.id and nid in execution.node_results:
-                                            last_output = execution.node_results[nid].output_data or {}
-                                    return success, {"item": item, "output": last_output}
+                                        if nid != node.id and nid in iter_execution.node_results:
+                                            last_output = iter_execution.node_results[nid].output_data or {}
+                                    # Return collected node results and logs for merging
+                                    new_results = {
+                                        k: v
+                                        for k, v in iter_execution.node_results.items()
+                                        if k not in execution.node_results
+                                    }
+                                    new_logs = iter_execution.logs[len(execution.logs) :]
+                                    return success, {"item": item, "output": last_output}, new_results, new_logs
 
                             iteration_results = await asyncio.gather(
                                 *[_run_iteration(i, item) for i, item in enumerate(items)],
                                 return_exceptions=True,
                             )
+                            # Merge results from all iterations back into the shared execution
                             for r in iteration_results:
+                                if isinstance(r, WorkflowPausedException):
+                                    raise WorkflowExecutionError(
+                                        "wait_for_callback is not supported inside parallel for-each loops"
+                                    )
                                 if isinstance(r, Exception):
                                     all_success = False
                                 else:
-                                    success, entry = r
+                                    success, entry, node_results, logs = r
                                     collected_results.append(entry)
+                                    for nr_id, nr in node_results.items():
+                                        execution.add_node_result(nr)
+                                    execution.logs.extend(logs)
                                     if not success:
                                         all_success = False
+                            await execution.save()
 
                         else:
                             # ── Sequential iteration (default) ────────────────────
@@ -690,7 +715,8 @@ class WorkflowExecutor:
                 execution.add_log(
                     f"Execution paused at node '{node.name or node.id}' — awaiting callback", "info"
                 )
-                await execution.save()
+                if not getattr(execution, "_in_memory_only", False):
+                    await execution.save()
                 raise  # Re-raise to break out of _execute_graph → execute_workflow
 
             except Exception as e:
@@ -753,7 +779,8 @@ class WorkflowExecutor:
                         },
                     )
 
-            await execution.save()
+            if not getattr(execution, "_in_memory_only", False):
+                await execution.save()
 
         return all_success
 
@@ -1341,8 +1368,7 @@ class WorkflowExecutor:
 
         # Set user context for MCP tool access control
         user_id = execution.triggered_by or getattr(execution, "created_by", None)
-        if user_id:
-            mcp_user_id_var.set(str(user_id))
+        token_user = mcp_user_id_var.set(str(user_id)) if user_id else None
 
         try:
             await asyncio.gather(*(c.connect() for c in clients))
@@ -1371,9 +1397,9 @@ class WorkflowExecutor:
             return result_dict
 
         finally:
-            for client in clients:
-                await client.disconnect()
-            mcp_user_id_var.set(None)
+            await asyncio.gather(*(c.disconnect() for c in clients), return_exceptions=True)
+            if token_user is not None:
+                mcp_user_id_var.reset(token_user)
 
     async def _extract_structured_output(
         self,

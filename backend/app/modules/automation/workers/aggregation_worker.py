@@ -182,35 +182,47 @@ async def _handle_closing_event(
         )
         return
 
-    # Remove device from map and its event from the list
+    # Atomic update: remove device from map, pull event ID, decrement count
+    # Note: device_id is a Mist UUID (no dots), safe for MongoDB dot-notation paths
     opening_event_id = PydanticObjectId(opening_event_id_str)
-    del window.device_event_map[device_id]
+    updated = await AggregationWindow.find_one_and_update(
+        {
+            "_id": window.id,
+            "status": "collecting",
+            f"device_event_map.{device_id}": {"$exists": True},
+        },
+        {
+            "$unset": {f"device_event_map.{device_id}": ""},
+            "$pull": {"event_ids": opening_event_id},
+            "$inc": {"event_count": -1},
+        },
+        return_document=True,
+    )
 
-    if opening_event_id in window.event_ids:
-        window.event_ids.remove(opening_event_id)
+    if not updated:
+        logger.debug("aggregation_closing_event_already_processed", window_id=str(window.id), device_id=device_id)
+        return
 
-    window.event_count = max(0, window.event_count - 1)
-
-    if window.event_count == 0:
-        window.status = "cancelled"
-        _cancel_fire_job(window)
+    if updated.event_count <= 0:
+        updated.status = "cancelled"
+        await updated.save()
+        _cancel_fire_job(updated)
         logger.info(
             "aggregation_window_cancelled",
             workflow_id=str(workflow_id),
-            window_id=str(window.id),
+            window_id=str(updated.id),
             group_key=group_key,
         )
     else:
         logger.info(
             "aggregation_closing_event_processed",
             workflow_id=str(workflow_id),
-            window_id=str(window.id),
+            window_id=str(updated.id),
             device_id=device_id,
-            remaining_events=window.event_count,
+            remaining_events=updated.event_count,
         )
 
-    await window.save()
-    await _broadcast_window_update(window)
+    await _broadcast_window_update(updated)
 
 
 async def fire_aggregation_window(window_id: str) -> None:

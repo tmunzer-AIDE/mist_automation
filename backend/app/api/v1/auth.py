@@ -117,6 +117,7 @@ async def login(request: Request, login_data: LoginRequest):
         ip_address=ip_address,
         user_agent=user_agent,
         trusted_device=login_data.remember_me,
+        expires_delta=expires_delta,
     )
     await session.insert()
 

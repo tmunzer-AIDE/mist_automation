@@ -56,6 +56,7 @@ class UserSession(Document):
         browser: str | None = None,
         os: str | None = None,
         trusted_device: bool = False,
+        expires_delta: timedelta | None = None,
     ) -> "UserSession":
         """Create a new user session."""
         device_info = DeviceInfo(
@@ -65,7 +66,7 @@ class UserSession(Document):
             user_agent=user_agent,
         )
 
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.access_token_expire_hours)
+        expires_at = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=settings.access_token_expire_hours))
 
         return cls(
             user_id=user_id,

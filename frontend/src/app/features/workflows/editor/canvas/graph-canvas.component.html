@@ -245,7 +245,7 @@
 
         <!-- Node type subtitle -->
         <text x="52" y="50" class="node-type">
-          {{ node.type === 'trigger' ? (node.config['trigger_type'] || 'webhook') : node.type.replace('_', ' ') }}
+          {{ node.type === 'trigger' ? (node.config['trigger_type'] || 'webhook') : node.type.split('_').join(' ') }}
         </text>
 
         <!-- Input port (top center) — not on trigger or subflow_input -->

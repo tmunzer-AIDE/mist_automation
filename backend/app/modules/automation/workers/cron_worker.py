@@ -89,8 +89,10 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
             # Mark execution as failed if the executor hasn't already done so
             # (e.g. MistService init failure happens before the executor runs)
             if execution.status == ExecutionStatus.RUNNING:
-                execution.mark_completed(ExecutionStatus.FAILED, error=str(e))
-                execution.add_log(f"Workflow execution error: {e}", "error")
+                from app.modules.automation.services.executor_service import _sanitize_execution_error
+
+                execution.mark_completed(ExecutionStatus.FAILED, error=_sanitize_execution_error(e))
+                execution.add_log("Workflow execution error", "error")
                 await execution.save()
 
             logger.error(

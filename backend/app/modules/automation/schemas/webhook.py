@@ -21,7 +21,7 @@ class WebhookEventResponse(BaseModel):
     processed: bool = Field(..., description="Whether processed")
     matched_workflows: list[str] = Field(default_factory=list, description="Matched workflow IDs")
     executions_triggered: list[str] = Field(default_factory=list, description="Triggered execution IDs")
-    signature_valid: bool = Field(..., description="Signature validity")
+    signature_valid: bool | None = Field(default=None, description="Signature validity (None = unchecked)")
     routed_to: list[str] = Field(default_factory=list, description="Modules routed to")
     response_status: int = Field(default=200, description="HTTP status code returned")
     response_body: dict = Field(default_factory=dict, description="Response body returned")

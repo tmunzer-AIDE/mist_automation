@@ -2,6 +2,7 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  OnDestroy,
   TemplateRef,
   ViewChild,
   inject,
@@ -204,7 +205,7 @@ interface WsProgressMessage {
   templateUrl: './report-detail.component.html',
   styleUrl: './report-detail.component.scss',
 })
-export class ReportDetailComponent implements OnInit {
+export class ReportDetailComponent implements OnInit, OnDestroy {
   @ViewChild('actions', { static: true }) actionsTpl!: TemplateRef<unknown>;
 
   private readonly route = inject(ActivatedRoute);
@@ -465,5 +466,9 @@ export class ReportDetailComponent implements OnInit {
       default:
         return '';
     }
+  }
+
+  ngOnDestroy(): void {
+    this.topbarService.clearActions();
   }
 }

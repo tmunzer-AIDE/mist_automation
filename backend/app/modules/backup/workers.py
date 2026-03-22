@@ -129,13 +129,22 @@ async def perform_backup(
                     author_email=settings.backup_git_author_email,
                 )
 
-                commit_sha = await git_service.commit_backup(
-                    backup_id=backup_id,
-                    message=f"Automated backup - {backup_type}",
-                    objects_count=backup_job.object_count,
-                )
+                # Fetch objects backed up during this job's time window
+                backup_objects = await BackupObject.find(
+                    BackupObject.backed_up_at >= backup_job.started_at,
+                    BackupObject.backed_up_at <= backup_job.completed_at,
+                ).to_list()
 
-                logger.info("backup_committed_to_git", backup_id=backup_id, commit_sha=commit_sha)
+                if backup_objects:
+                    commit_sha = await git_service.commit_multiple_backups(
+                        backups=backup_objects,
+                        message=f"Automated backup - {backup_type} ({len(backup_objects)} objects)",
+                    )
+                else:
+                    commit_sha = None
+
+                if commit_sha:
+                    logger.info("backup_committed_to_git", backup_id=backup_id, commit_sha=commit_sha)
 
             except Exception as e:
                 logger.warning("git_commit_failed", backup_id=backup_id, error=str(e))

@@ -2454,8 +2454,12 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
           for (const p of schema.output_parameters) {
             outputSchema[p.name] = p.type;
           }
-          this.node.config['_output_schema'] = outputSchema;
-          this.emitChanges();
+          const updatedNode = {
+            ...this.node,
+            config: { ...this.node.config, _output_schema: outputSchema },
+          };
+          this.emitting = true;
+          this.configChanged.emit(updatedNode);
         },
         error: () => {
           this.selectedSubflowSchema = null;
@@ -2471,8 +2475,9 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   setInputMapping(paramName: string, value: string): void {
     const mappings = { ...((this.node.config['input_mappings'] || {}) as Record<string, string>) };
     mappings[paramName] = value;
-    this.node.config['input_mappings'] = mappings;
-    this.emitChanges();
+    const updatedNode = { ...this.node, config: { ...this.node.config, input_mappings: mappings } };
+    this.emitting = true;
+    this.configChanged.emit(updatedNode);
   }
 
   appendInputMapping(paramName: string, variablePath: string): void {
@@ -2490,8 +2495,9 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   setSubflowOutputValue(paramName: string, value: string): void {
     const outputs = { ...((this.node.config['outputs'] || {}) as Record<string, string>) };
     outputs[paramName] = value;
-    this.node.config['outputs'] = outputs;
-    this.emitChanges();
+    const updatedNode = { ...this.node, config: { ...this.node.config, outputs } };
+    this.emitting = true;
+    this.configChanged.emit(updatedNode);
   }
 
   appendSubflowOutputValue(paramName: string, variablePath: string): void {

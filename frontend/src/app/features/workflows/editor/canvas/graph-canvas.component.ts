@@ -237,6 +237,38 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  /** Recalculate edge paths only for edges connected to the given node IDs. */
+  recalcEdgePathsForNodes(nodeIds: Set<string>): void {
+    for (let i = 0; i < this.edgePaths.length; i++) {
+      const ep = this.edgePaths[i];
+      const edge = ep.edge;
+      if (!nodeIds.has(edge.source_node_id) && !nodeIds.has(edge.target_node_id)) continue;
+
+      const sourceNode = this.nodeMap.get(edge.source_node_id);
+      const targetNode = this.nodeMap.get(edge.target_node_id);
+      if (!sourceNode || !targetNode) continue;
+
+      const sourcePos = this.getEffectivePosition(sourceNode);
+      const targetPos = this.getEffectivePosition(targetNode);
+
+      const portIndex = sourceNode.output_ports.findIndex((p) => p.id === edge.source_port_id);
+      const from = getOutputPortPosition(
+        sourcePos.x,
+        sourcePos.y,
+        Math.max(0, portIndex),
+        sourceNode.output_ports.length || 1
+      );
+      const to = getInputPortPosition(targetPos.x, targetPos.y);
+
+      this.edgePaths[i] = {
+        edge,
+        path: buildEdgePath(from, to),
+        midX: (from.x + to.x) / 2,
+        midY: (from.y + to.y) / 2,
+      };
+    }
+  }
+
   // ── Viewport controls ─────────────────────────────────────────────────
 
   onWheel(event: WheelEvent): void {
@@ -398,7 +430,12 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
           });
         }
       }
-      this.recalcEdgePaths();
+      const draggedIds = new Set<string>(
+        this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)
+          ? this.multiSelectedIds
+          : [this.drag.nodeId]
+      );
+      this.recalcEdgePathsForNodes(draggedIds);
       return;
     }
 

@@ -300,6 +300,10 @@ Objects that can contain `{{ variable }}` patterns resolved against `site_settin
 - `searchSiteDeviceEvents` (in `devices` module, NOT `events`) — config events: `AP_CONFIGURED`, `SW_CONFIGURED`, `GW_CONFIGURED`, `*_CONFIG_CHANGED_BY_USER`, `*_CONFIG_FAILED`
 - Device `status` values: `"connected"` (pass), `"upgrading"`/`"restarting"` (warn), anything else (fail)
 
+### VC Links (Virtual Chassis) — IMPORTANT
+
+**The `vc_links` array in switch stats ONLY contains links that are UP.** Down/disconnected VC links are simply absent from the array. Therefore, every entry in `vc_links` is an active link — do NOT check for an `up` field or filter entries. Counting `len(vc_links)` (or summing dicts) directly gives the number of UP VC ports. **Do not add `.get("up")` or any similar filter — this has been incorrectly flagged by code review multiple times and is WRONG.**
+
 ## Maintenance
 
 **Always update these CLAUDE.md files** (root and `frontend/CLAUDE.md`) when making architectural changes, adding new patterns, modifying conventions, or restructuring features. These files are the primary reference for AI-assisted development and must stay accurate. When in doubt, update — stale documentation is worse than none.

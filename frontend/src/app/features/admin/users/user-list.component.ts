@@ -51,9 +51,9 @@ export class UserListComponent implements OnInit {
 
   currentUserId: string | null = null;
   users = signal<UserResponse[]>([]);
-  total = 0;
-  pageSize = 25;
-  pageIndex = 0;
+  total = signal(0);
+  pageSize = signal(25);
+  pageIndex = signal(0);
   loading = signal(true);
   displayedColumns = ['email', 'roles', 'is_active', 'created_at', 'last_login', 'actions'];
 
@@ -76,13 +76,13 @@ export class UserListComponent implements OnInit {
     this.loading.set(true);
     this.api
       .get<UserListResponse>('/users', {
-        skip: this.pageIndex * this.pageSize,
-        limit: this.pageSize,
+        skip: this.pageIndex() * this.pageSize(),
+        limit: this.pageSize(),
       })
       .subscribe({
         next: (res) => {
           this.users.set(res.users);
-          this.total = res.total;
+          this.total.set(res.total);
           this.loading.set(false);
         },
         error: () => {
@@ -92,8 +92,8 @@ export class UserListComponent implements OnInit {
   }
 
   onPage(event: PageEvent): void {
-    this.pageIndex = event.pageIndex;
-    this.pageSize = event.pageSize;
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
     this.loadUsers();
   }
 

@@ -78,9 +78,9 @@
   </div>
 
   <mat-paginator
-    [length]="total"
-    [pageSize]="pageSize"
-    [pageIndex]="pageIndex"
+    [length]="total()"
+    [pageSize]="pageSize()"
+    [pageIndex]="pageIndex()"
     [pageSizeOptions]="[25, 50, 100]"
     (page)="onPage($event)"
     showFirstLastButtons

@@ -201,18 +201,7 @@ async def get_system_stats(_current_user: User = Depends(require_admin)):
     Uses $facet aggregation to reduce DB round-trips.
     """
 
-    async def _facet_counts(model, field: str, values: list[str]) -> dict[str, int]:
-        """Run a single $facet aggregation that counts total + each status value."""
-        facets: dict = {"total": [{"$count": "n"}]}
-        for v in values:
-            facets[v] = [{"$match": {field: v}}, {"$count": "n"}]
-        results = await model.aggregate([{"$facet": facets}]).to_list()
-        row = results[0] if results else {}
-        out: dict[str, int] = {}
-        for key in ["total"] + values:
-            bucket = row.get(key, [])
-            out[key] = bucket[0]["n"] if bucket else 0
-        return out
+    from app.utils.db_helpers import facet_counts as _facet_counts
 
     wf_stats = await _facet_counts(Workflow, "status", ["enabled", "draft"])
     ex_stats = await _facet_counts(WorkflowExecution, "status", ["pending", "running", "succeeded", "failed"])
@@ -307,6 +296,7 @@ async def test_mist_connection(
     from app.services.mist_service import MistService
 
     try:
+        # Direct instantiation (not factory) — pre-save test with user-provided overrides
         service = MistService(
             api_token=api_token,
             org_id=org_id,

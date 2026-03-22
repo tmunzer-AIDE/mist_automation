@@ -29,7 +29,7 @@ class NotificationService:
         return self._http_client
 
     @staticmethod
-    async def _resolve_verify() -> str | bool:
+    async def _resolve_verify(probe_url: str = "https://hooks.slack.com") -> str | bool:
         """Try TLS options in order: CA_CERT_PATH → default → disabled.
 
         Same fallback strategy as SmeeClient for ZScaler/TLS-intercepting proxies.
@@ -41,7 +41,7 @@ class NotificationService:
         for option in options:
             try:
                 async with httpx.AsyncClient(verify=option) as client:
-                    await client.head("https://slack.com", timeout=10)
+                    await client.head(probe_url, timeout=10)
                 return option
             except Exception:
                 continue
@@ -546,7 +546,8 @@ class NotificationService:
             return True, None
 
         except Exception as e:
-            return False, str(e)
+            logger.error("slack_connection_test_failed", error=str(e))
+            return False, "Slack connection test failed"
 
     async def test_servicenow_connection(
         self,
@@ -589,7 +590,8 @@ class NotificationService:
             return True, None
 
         except Exception as e:
-            return False, str(e)
+            logger.error("servicenow_connection_test_failed", error=str(e))
+            return False, "ServiceNow connection test failed"
 
     async def test_pagerduty_connection(
         self,
@@ -619,7 +621,8 @@ class NotificationService:
             return True, None
 
         except Exception as e:
-            return False, str(e)
+            logger.error("pagerduty_connection_test_failed", error=str(e))
+            return False, "PagerDuty connection test failed"
 
     async def close(self):
         """Close HTTP client."""

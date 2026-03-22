@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from beanie import Document
 from pydantic import EmailStr, Field
+from pymongo import ASCENDING, IndexModel
 
 from app.models.mixins import TimestampMixin
 
@@ -36,7 +37,7 @@ class User(TimestampMixin, Document):
     class Settings:
         name = "users"
         indexes = [
-            "email",
+            IndexModel([("email", ASCENDING)], unique=True),
             "is_active",
         ]
     

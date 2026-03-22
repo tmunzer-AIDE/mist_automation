@@ -108,8 +108,8 @@ async def _mcp_user_session(
     from app.modules.mcp_server.helpers import elicitation_channel_var
     from app.modules.mcp_server.server import mcp_user_id_var
 
-    mcp_user_id_var.set(str(user_id))
-    elicitation_channel_var.set(elicitation_channel)
+    token_user = mcp_user_id_var.set(str(user_id))
+    token_elicit = elicitation_channel_var.set(elicitation_channel)
 
     local = create_local_mcp_client()
     all_clients = [local] + (extra_clients or [])
@@ -117,14 +117,15 @@ async def _mcp_user_session(
         await asyncio.gather(*(c.connect() for c in all_clients))
     except Exception:
         await asyncio.gather(*(c.disconnect() for c in all_clients), return_exceptions=True)
+        mcp_user_id_var.reset(token_user)
+        elicitation_channel_var.reset(token_elicit)
         raise
     try:
         yield all_clients
     finally:
-        for c in all_clients:
-            await c.disconnect()
-        mcp_user_id_var.set(None)
-        elicitation_channel_var.set(None)
+        await asyncio.gather(*(c.disconnect() for c in all_clients), return_exceptions=True)
+        mcp_user_id_var.reset(token_user)
+        elicitation_channel_var.reset(token_elicit)
 
 
 # ── Status & Test ─────────────────────────────────────────────────────────────
@@ -678,7 +679,7 @@ async def list_local_mcp_tools(
     from app.modules.llm.services.mcp_client import create_local_mcp_client
     from app.modules.mcp_server.server import mcp_user_id_var
 
-    mcp_user_id_var.set(str(current_user.id))
+    token_user = mcp_user_id_var.set(str(current_user.id))
     client = create_local_mcp_client()
     try:
         await client.connect()
@@ -686,7 +687,7 @@ async def list_local_mcp_tools(
         return [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
     finally:
         await client.disconnect()
-        mcp_user_id_var.set(None)
+        mcp_user_id_var.reset(token_user)
 
 
 @router.post("/mcp/local/tools/{tool_name}/call", tags=["MCP"])
@@ -699,7 +700,7 @@ async def call_local_mcp_tool(
     from app.modules.llm.services.mcp_client import create_local_mcp_client
     from app.modules.mcp_server.server import mcp_user_id_var
 
-    mcp_user_id_var.set(str(current_user.id))
+    token_user = mcp_user_id_var.set(str(current_user.id))
     client = create_local_mcp_client()
     try:
         await client.connect()
@@ -712,7 +713,7 @@ async def call_local_mcp_tool(
         ) from None
     finally:
         await client.disconnect()
-        mcp_user_id_var.set(None)
+        mcp_user_id_var.reset(token_user)
 
 
 # ── Backup Summarization ─────────────────────────────────────────────────────

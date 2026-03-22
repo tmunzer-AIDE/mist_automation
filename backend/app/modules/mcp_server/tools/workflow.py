@@ -227,13 +227,13 @@ async def _create(*, ctx: Context, name: str, description: str, nodes: list[dict
     except Exception as e:
         return to_json({"validation_errors": [str(e)]})
 
-    # Elicit confirmation
-    await elicit_confirmation(ctx, f"Create workflow '{name}' with {len(nodes)} nodes?")
-
-    # Get user_id from contextvar (set by agent service)
+    # Verify user context before elicitation
     user_id = mcp_user_id_var.get()
     if not user_id:
         return to_json({"error": "Access denied: user context not available"})
+
+    # Elicit confirmation
+    await elicit_confirmation(ctx, f"Create workflow '{name}' with {len(nodes)} nodes?")
 
     wf = Workflow(
         name=name,

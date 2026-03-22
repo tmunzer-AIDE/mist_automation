@@ -1,4 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -427,7 +428,7 @@ export class CascadeRestoreDialogComponent implements OnInit {
           this.step.set(hasDeps ? 'show-deps' : 'confirm-simple');
         },
         error: (err) => {
-          this.error.set(err?.error?.detail || 'Failed to check dependencies');
+          this.error.set(extractErrorMessage(err) || 'Failed to check dependencies');
           this.step.set('confirm-simple');
         },
       });
@@ -456,7 +457,7 @@ export class CascadeRestoreDialogComponent implements OnInit {
         },
         error: (err) => {
           this.executing.set(false);
-          this.error.set(err?.error?.detail || 'Restore failed');
+          this.error.set(extractErrorMessage(err) || 'Restore failed');
         },
       });
   }
@@ -478,7 +479,7 @@ export class CascadeRestoreDialogComponent implements OnInit {
         },
         error: (err) => {
           this.executing.set(false);
-          this.error.set(err?.error?.detail || 'Failed to load cascade plan');
+          this.error.set(extractErrorMessage(err) || 'Failed to load cascade plan');
         },
       });
   }
@@ -499,7 +500,7 @@ export class CascadeRestoreDialogComponent implements OnInit {
         },
         error: (err) => {
           this.executing.set(false);
-          this.error.set(err?.error?.detail || 'Cascade restore failed');
+          this.error.set(extractErrorMessage(err) || 'Cascade restore failed');
         },
       });
   }

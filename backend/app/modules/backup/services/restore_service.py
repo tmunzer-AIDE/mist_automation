@@ -56,8 +56,8 @@ def _remove_config_field(config: dict, field_path: str) -> None:
 class RestoreService:
     """Service for restoring configurations from backups."""
 
-    def __init__(self, mist_service: Optional[MistService] = None):
-        self.mist_service = mist_service or MistService()
+    def __init__(self, mist_service: MistService):
+        self.mist_service = mist_service
 
     async def restore_object(
         self,

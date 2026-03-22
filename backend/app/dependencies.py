@@ -262,24 +262,34 @@ async def get_optional_user(
     """
     if not credentials:
         return None
-    
+
     try:
         token = credentials.credentials
         payload = decode_token(token)
-        
+
         if not payload:
             return None
-        
+
         user_id_str = payload.get("sub")
-        if not user_id_str:
+        token_jti = payload.get("jti")
+        if not user_id_str or not token_jti:
             return None
-        
+
+        # Validate session exists and is not revoked/expired
+        from app.models.session import UserSession
+
+        session = await UserSession.find_one(UserSession.token_jti == token_jti)
+        if not session or session.is_expired():
+            return None
+
         user_id = ObjectId(user_id_str)
         user = await User.get(user_id)
-        
+
         if user and user.is_active:
+            session.update_activity()
+            await session.save()
             return user
-        
+
         return None
     except Exception:
         return None

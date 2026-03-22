@@ -67,8 +67,8 @@ async def fetch_objects(
 class BackupService:
     """Service for managing configuration backups."""
 
-    def __init__(self, mist_service: Optional[MistService] = None, backup_logger=None):
-        self.mist_service = mist_service or MistService()
+    def __init__(self, mist_service: MistService, backup_logger=None):
+        self.mist_service = mist_service
         self.org_id = self.mist_service.org_id
         self.backup_logger = backup_logger
 

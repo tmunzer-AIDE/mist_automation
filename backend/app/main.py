@@ -150,10 +150,10 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Process-Time"],
 )
 
-# Add custom middleware
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(ExceptionHandlerMiddleware)
+# Add custom middleware (order matters: last-added runs outermost in Starlette)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(ExceptionHandlerMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)  # outermost — headers added to ALL responses including errors
 
 
 # Health check endpoint

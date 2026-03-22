@@ -1,4 +1,5 @@
 import { Component, inject, OnInit } from '@angular/core';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -80,6 +81,7 @@ export class OnboardComponent implements OnInit {
       .subscribe({
       next: (response) => {
         this.loading = false;
+        this.authService.clearHealthCache();
         this.tokenService.setToken(response.access_token, response.expires_in);
         this.store.dispatch(
           AuthActions.loginSuccess({
@@ -89,7 +91,7 @@ export class OnboardComponent implements OnInit {
       },
       error: (err) => {
         this.loading = false;
-        this.error = err.message || 'Onboarding failed';
+        this.error = extractErrorMessage(err) || 'Onboarding failed';
       },
     });
   }

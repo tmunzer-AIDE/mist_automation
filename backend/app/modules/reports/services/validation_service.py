@@ -545,7 +545,7 @@ async def _fetch_config_events(session, site_id: str) -> dict[str, dict]:
             if existing and existing["timestamp"] >= timestamp:
                 continue
 
-            is_success = ev_type.endswith("_CONFIGURED")
+            is_success = ev_type.endswith("_CONFIGURED") or ev_type.endswith("_CONFIG_CHANGED_BY_USER")
             latest_by_mac[mac] = {
                 "type": ev_type,
                 "timestamp": timestamp,

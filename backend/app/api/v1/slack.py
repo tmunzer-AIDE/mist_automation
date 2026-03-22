@@ -111,7 +111,8 @@ async def handle_slack_interactive(request: Request):
                 logger.warning("slack_interactive_signature_invalid")
                 return {"ok": True, "error": "Invalid signature"}
         else:
-            logger.warning("slack_interactive_no_signing_secret")
+            logger.error("slack_interactive_no_signing_secret_configured")
+            return {"ok": True}  # Slack requires 200, but do not process without verification
 
     # ── Extract action ───────────────────────────────────────────────────
     actions = payload.get("actions", [])

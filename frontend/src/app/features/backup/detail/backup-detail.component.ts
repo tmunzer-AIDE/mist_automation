@@ -43,14 +43,14 @@ export class BackupDetailComponent implements OnInit {
 
   backup = signal<BackupJobResponse | null>(null);
   loading = signal(true);
-  jsonExpanded = false;
-  webhookExpanded = false;
+  jsonExpanded = signal(false);
+  webhookExpanded = signal(false);
 
   // Execution logs
   logs = signal<BackupLogEntry[]>([]);
   logsTotal = signal(0);
   logsLoading = signal(false);
-  logLevelFilter: string | null = null;
+  logLevelFilter = signal<string | null>(null);
 
   ngOnInit(): void {
     this.topbarService.setTitle('Backup Job');
@@ -89,8 +89,8 @@ export class BackupDetailComponent implements OnInit {
     if (!b) return;
     this.logsLoading.set(true);
     let url = `/backups/${b.id}/logs?limit=500`;
-    if (this.logLevelFilter) {
-      url += `&level=${this.logLevelFilter}`;
+    if (this.logLevelFilter()) {
+      url += `&level=${this.logLevelFilter()}`;
     }
     this.api.get<BackupLogListResponse>(url).subscribe({
       next: (res) => {
@@ -105,7 +105,7 @@ export class BackupDetailComponent implements OnInit {
   }
 
   filterLogs(level: string | null): void {
-    this.logLevelFilter = level;
+    this.logLevelFilter.set(level);
     this.loadLogs();
   }
 

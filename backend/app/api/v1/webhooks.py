@@ -126,7 +126,7 @@ async def receive_mist_webhook(
     # Verify signature with stored webhook secret from SystemConfig
     config = await SystemConfig.get_config()
 
-    signature_valid = True
+    signature_valid = None  # None = unchecked (no secret configured)
     if not config.webhook_secret and not smee_forwarded:
         logger.warning("webhook_no_secret_configured", webhook_type=webhook_type)
     if config.webhook_secret and not smee_forwarded:

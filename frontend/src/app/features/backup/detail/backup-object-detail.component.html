@@ -1,8 +1,8 @@
 <div class="page-actions">
   <a mat-stroked-button routerLink="/backup"> <mat-icon>arrow_back</mat-icon> Back </a>
   @if (versions().length > 1) {
-    <button mat-stroked-button (click)="toggleCompareMode()" [class.active-compare]="compareMode">
-      <mat-icon>compare</mat-icon> {{ compareMode ? 'Exit Compare' : 'Compare Versions' }}
+    <button mat-stroked-button (click)="toggleCompareMode()" [class.active-compare]="compareMode()">
+      <mat-icon>compare</mat-icon> {{ compareMode() ? 'Exit Compare' : 'Compare Versions' }}
     </button>
   }
 </div>
@@ -13,19 +13,19 @@
 
 @if (!loading() && latestVersion(); as latestVersion) {
   <!-- ── Compare Mode ───────────────────────────────────────────────── -->
-  @if (compareMode) {
+  @if (compareMode()) {
     <section class="compare-section">
-      @if (!compareVersions[0]) {
+      @if (!compareVersions()[0]) {
         <p class="compare-hint">Click two rows in the Version History table to compare.</p>
-      } @else if (!compareVersions[1]) {
+      } @else if (!compareVersions()[1]) {
         <p class="compare-hint">
-          Selected v{{ compareVersions[0]!.version }} (A). Now select a second version (B).
+          Selected v{{ compareVersions()[0]!.version }} (A). Now select a second version (B).
         </p>
       } @else {
         <mat-card class="diff-card">
           <mat-card-header>
             <mat-card-title>
-              v{{ compareVersions[0]!.version }} → v{{ compareVersions[1]!.version }}
+              v{{ compareVersions()[0]!.version }} → v{{ compareVersions()[1]!.version }}
             </mat-card-title>
             <span class="diff-summary">
               {{ filteredCount() }} difference{{ filteredCount() === 1 ? '' : 's' }}
@@ -400,8 +400,8 @@
         <tr
           mat-row
           *matRowDef="let row; columns: versionColumns"
-          [class.compare-row-selected]="compareMode && isCompareSelected(row)"
-          [class.compare-row-selectable]="compareMode"
+          [class.compare-row-selected]="compareMode() && isCompareSelected(row)"
+          [class.compare-row-selectable]="compareMode()"
           (click)="onRowClick(row)"
         ></tr>
       </table>

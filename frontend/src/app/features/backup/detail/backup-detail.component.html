@@ -50,8 +50,8 @@
     <section class="data-section">
       <div class="section-head">
         <h3 class="section-label">Webhook Event Payload</h3>
-        <button class="toggle-btn" (click)="webhookExpanded = !webhookExpanded">
-          <mat-icon>{{ webhookExpanded ? 'unfold_less' : 'unfold_more' }}</mat-icon>
+        <button class="toggle-btn" (click)="webhookExpanded.set(!webhookExpanded())">
+          <mat-icon>{{ webhookExpanded() ? 'unfold_less' : 'unfold_more' }}</mat-icon>
         </button>
       </div>
       <div class="webhook-summary">
@@ -66,7 +66,7 @@
           }
         }
       </div>
-      <pre class="json-block" [class.expanded]="webhookExpanded">{{
+      <pre class="json-block" [class.expanded]="webhookExpanded()">{{
         formatJson(backup.webhook_event)
       }}</pre>
     </section>
@@ -76,11 +76,11 @@
     <section class="data-section">
       <div class="section-head">
         <h3 class="section-label">Backup Data</h3>
-        <button class="toggle-btn" (click)="jsonExpanded = !jsonExpanded">
-          <mat-icon>{{ jsonExpanded ? 'unfold_less' : 'unfold_more' }}</mat-icon>
+        <button class="toggle-btn" (click)="jsonExpanded.set(!jsonExpanded())">
+          <mat-icon>{{ jsonExpanded() ? 'unfold_less' : 'unfold_more' }}</mat-icon>
         </button>
       </div>
-      <pre class="json-block" [class.expanded]="jsonExpanded">{{ formatJson(backup.data) }}</pre>
+      <pre class="json-block" [class.expanded]="jsonExpanded()">{{ formatJson(backup.data) }}</pre>
     </section>
   }
 
@@ -100,22 +100,22 @@
     </div>
 
     <div class="log-filters">
-      <button class="pill" [class.active]="logLevelFilter === null" (click)="filterLogs(null)">
+      <button class="pill" [class.active]="logLevelFilter() === null" (click)="filterLogs(null)">
         All
       </button>
-      <button class="pill" [class.active]="logLevelFilter === 'info'" (click)="filterLogs('info')">
+      <button class="pill" [class.active]="logLevelFilter() === 'info'" (click)="filterLogs('info')">
         Info
       </button>
       <button
         class="pill pill-warn"
-        [class.active]="logLevelFilter === 'warning'"
+        [class.active]="logLevelFilter() === 'warning'"
         (click)="filterLogs('warning')"
       >
         Warning
       </button>
       <button
         class="pill pill-err"
-        [class.active]="logLevelFilter === 'error'"
+        [class.active]="logLevelFilter() === 'error'"
         (click)="filterLogs('error')"
       >
         Error
