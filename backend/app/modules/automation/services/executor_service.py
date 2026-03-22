@@ -896,16 +896,62 @@ class WorkflowExecutor:
 
         if node_type == "ai_agent":
             if dry_run:
-                return {
+                mock_result: dict[str, Any] = {
                     "status": "mocked",
                     "task": config.get("agent_task", ""),
                     "iterations": 0,
                     "tool_calls": [],
                 }
+                # Include mock values for output_fields so downstream nodes work in dry-run
+                for field in config.get("output_fields", []):
+                    name = field.get("name", "")
+                    ftype = field.get("type", "string")
+                    if not name:
+                        continue
+                    if ftype == "boolean":
+                        mock_result[name] = True
+                    elif ftype == "number":
+                        mock_result[name] = 0.85
+                    else:
+                        mock_result[name] = f"mock_{name}"
+                return mock_result
             return await self._execute_ai_agent(node, execution)
 
         if node_type == "wait_for_callback":
             return await self._execute_wait_for_callback(node, execution, dry_run=dry_run)
+
+        if node_type == "trigger_backup":
+            if dry_run:
+                return {
+                    "status": "mocked",
+                    "backup_type": config.get("backup_type", "full"),
+                    "backup_id": "mock-backup-id",
+                    "object_count": 0,
+                }
+            return await self._execute_trigger_backup(config, execution)
+
+        if node_type == "restore_backup":
+            if dry_run:
+                return {
+                    "status": "mocked",
+                    "version_id": config.get("version_id", ""),
+                    "dry_run": config.get("dry_run", False),
+                    "result": "preview",
+                }
+            return await self._execute_restore_backup(config, execution)
+
+        if node_type == "compare_backups":
+            if dry_run:
+                return {
+                    "status": "mocked",
+                    "backup_id_1": config.get("backup_id_1", ""),
+                    "backup_id_2": config.get("backup_id_2", ""),
+                    "differences": [],
+                    "added_count": 0,
+                    "removed_count": 0,
+                    "modified_count": 0,
+                }
+            return await self._execute_compare_backups(config, execution)
 
         raise NotImplementedError(f"Node type '{node_type}' not implemented")
 
@@ -1264,20 +1310,24 @@ class WorkflowExecutor:
         llm_config_id = config.get("llm_config_id")
         llm = await create_llm_service(config_id=llm_config_id)
 
-        # Build MCP clients — from global config IDs or inline config (backward compat)
-        from app.modules.llm.services.mcp_client import load_external_mcp_clients
+        # Build MCP clients — local in-process + external
+        from app.modules.llm.services.mcp_client import create_local_mcp_client, load_external_mcp_clients
+        from app.modules.mcp_server.server import mcp_user_id_var
         from app.utils.url_safety import validate_outbound_url
 
-        mcp_config_ids = config.get("mcp_config_ids", [])
+        # Always include the local MCP server (backups, workflows, webhooks, reports, stats)
+        local_mcp = create_local_mcp_client()
+        external: list = []
 
+        mcp_config_ids = config.get("mcp_config_ids", [])
         if mcp_config_ids:
-            pending = await load_external_mcp_clients(mcp_config_ids)
+            external = await load_external_mcp_clients(mcp_config_ids)
         else:
             # Backward compat: inline mcp_servers config
             mcp_configs = config.get("mcp_servers", [])
             for srv in mcp_configs:
                 validate_outbound_url(srv.get("url", ""))
-            pending = [
+            external = [
                 MCPClientWrapper(MCPServerConfig(
                     name=srv.get("name", "unnamed"),
                     url=srv.get("url", ""),
@@ -1286,7 +1336,14 @@ class WorkflowExecutor:
                 ))
                 for srv in mcp_configs
             ]
-        clients = pending
+
+        clients = [local_mcp] + external
+
+        # Set user context for MCP tool access control
+        user_id = execution.triggered_by or getattr(execution, "created_by", None)
+        if user_id:
+            mcp_user_id_var.set(str(user_id))
+
         try:
             await asyncio.gather(*(c.connect() for c in clients))
 
@@ -1298,11 +1355,133 @@ class WorkflowExecutor:
             )
 
             execution.add_log(f"AI agent completed: {result.status} ({result.iterations} iterations)")
-            return result.to_dict()
+
+            result_dict = result.to_dict()
+
+            # Extract structured output if output_fields are configured
+            output_fields = config.get("output_fields")
+            if output_fields and result.status == "completed":
+                try:
+                    structured = await self._extract_structured_output(llm, result, output_fields)
+                    result_dict.update(structured)
+                    execution.add_log(f"Structured output extracted: {list(structured.keys())}")
+                except Exception as exc:
+                    execution.add_log(f"Structured output extraction failed: {_sanitize_execution_error(exc)}")
+
+            return result_dict
 
         finally:
             for client in clients:
                 await client.disconnect()
+            mcp_user_id_var.set(None)
+
+    async def _extract_structured_output(
+        self,
+        llm: Any,
+        agent_result: Any,
+        output_fields: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Extract structured data from the agent's analysis using a forced tool call.
+
+        Builds a JSON Schema from ``output_fields`` (list of {name, type, description,
+        required?}), then forces the LLM to call a ``structured_output`` tool whose
+        parameters match that schema.  Returns the parsed field values.
+        """
+        from app.modules.llm.services.llm_service import LLMMessage
+
+        # Build JSON Schema from output_fields
+        properties: dict[str, dict[str, str]] = {}
+        required: list[str] = []
+        for field in output_fields:
+            name = field.get("name", "")
+            if not name:
+                continue
+            prop: dict[str, str] = {"type": field.get("type", "string")}
+            desc = field.get("description")
+            if desc:
+                prop["description"] = desc
+            properties[name] = prop
+            if field.get("required", False):
+                required.append(name)
+
+        tool = {
+            "type": "function",
+            "function": {
+                "name": "structured_output",
+                "description": "Extract structured data from the analysis results.",
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                },
+            },
+        }
+
+        # Build messages: system instruction + agent's analysis
+        messages = [
+            LLMMessage(
+                role="system",
+                content=(
+                    "Based on the analysis below, extract the requested structured data. "
+                    "Call the structured_output tool with the appropriate values."
+                ),
+            ),
+            LLMMessage(role="user", content=agent_result.result),
+        ]
+
+        import json as _json
+
+        # Force the LLM to call the structured_output tool.
+        # Try provider-specific forced format first, fall back to "required" (string),
+        # then fall back to JSON-mode completion if tool calling fails entirely.
+        tool_choice_options: list = [
+            {"type": "function", "function": {"name": "structured_output"}},
+            "required",
+        ]
+
+        for tc_option in tool_choice_options:
+            try:
+                response = await llm.complete_with_tools(messages, [tool], tool_choice=tc_option)
+                if response.tool_calls:
+                    tc = response.tool_calls[0]
+                    if hasattr(tc, "function") and hasattr(tc.function, "arguments"):
+                        args_str = tc.function.arguments
+                    elif isinstance(tc, dict):
+                        args_str = tc.get("function", {}).get("arguments", "{}")
+                    else:
+                        args_str = str(tc)
+                    parsed = _json.loads(args_str) if isinstance(args_str, str) else args_str
+                    if isinstance(parsed, dict):
+                        return parsed
+                logger.debug("structured_output_no_tool_call", tool_choice=str(tc_option))
+            except Exception as exc:
+                logger.debug("structured_output_tool_choice_failed", tool_choice=str(tc_option), error=str(exc)[:200])
+                continue
+
+        # Fallback: JSON mode completion (no tool calling)
+        field_descriptions = "; ".join(
+            f"{f.get('name')} ({f.get('type', 'string')}): {f.get('description', '')}"
+            for f in output_fields if f.get("name")
+        )
+        fallback_msg = [
+            LLMMessage(
+                role="system",
+                content=(
+                    "Extract structured data from the analysis text below. "
+                    f"Return ONLY a JSON object with these fields: {field_descriptions}"
+                ),
+            ),
+            LLMMessage(role="user", content=agent_result.result),
+        ]
+        fallback_resp = await llm.complete(fallback_msg, json_mode=True)
+        if fallback_resp.content:
+            try:
+                return _json.loads(fallback_resp.content)
+            except _json.JSONDecodeError:
+                pass
+
+        logger.warning("structured_output_empty", fields=[f.get("name") for f in output_fields])
+        return {}
 
     def _build_slack_message_blocks(self, config: dict, message: str) -> list[dict[str, Any]] | None:
         """Assemble Slack Block Kit blocks from node config + upstream data.
@@ -1988,3 +2167,167 @@ class WorkflowExecutor:
 
                 self.variable_context["results"][binding.name] = value
                 logger.debug("save_as_variable_stored", name=binding.name, value=str(value)[:200])
+
+    # ── App Actions (backup, restore, compare) ─────────────────────────────
+
+    async def _check_backup_role(self, execution: "WorkflowExecution") -> None:
+        """Verify the user has backup role. Checks triggering user first, falls back to workflow creator."""
+        from app.models.user import User
+
+        # Check the triggering user, or the workflow creator for system-triggered workflows
+        user_id = execution.triggered_by
+        if not user_id:
+            workflow = await Workflow.get(execution.workflow_id)
+            user_id = workflow.created_by if workflow else None
+        if not user_id:
+            raise PermissionError("Backup role required to execute backup actions")
+
+        user = await User.get(user_id)
+        if not user or not (user.can_manage_backups() or user.is_admin()):
+            raise PermissionError("Backup role required to execute backup actions")
+
+    async def _execute_trigger_backup(self, config: dict, execution: "WorkflowExecution" = None) -> dict[str, Any]:
+        """Trigger a backup operation."""
+        from app.modules.backup.models import BackupJob, BackupStatus, BackupType
+        from app.modules.backup.services.backup_service import BackupService
+        from app.services.mist_service_factory import create_mist_service
+
+        if execution:
+            await self._check_backup_role(execution)
+
+        backup_type = config.get("backup_type", "full")
+        site_id = config.get("site_id") or None
+        object_type = config.get("object_type") or None
+
+        mist_service = await create_mist_service()
+
+        job = BackupJob(
+            backup_type=BackupType.FULL if backup_type == "full" else BackupType.MANUAL,
+            status=BackupStatus.IN_PROGRESS,
+            org_id=mist_service.org_id,
+        )
+        await job.insert()
+
+        backup_service = BackupService(mist_service=mist_service)
+
+        try:
+            if backup_type == "full":
+                stats = await backup_service.perform_full_backup()
+            else:
+                stats = await backup_service.perform_manual_backup(
+                    object_type=object_type or "org:wlans",
+                    site_id=site_id,
+                )
+
+            job.status = BackupStatus.COMPLETED
+            job.object_count = stats.get("total", 0)
+            await job.save()
+
+            return {
+                "backup_id": str(job.id),
+                "status": "completed",
+                "backup_type": backup_type,
+                "object_count": stats.get("total", 0),
+                "created": stats.get("created", 0),
+                "updated": stats.get("updated", 0),
+            }
+        except Exception as e:
+            job.status = BackupStatus.FAILED
+            await job.save()
+            raise RuntimeError(_sanitize_execution_error(e)) from e
+
+    async def _execute_restore_backup(self, config: dict, execution: "WorkflowExecution" = None) -> dict[str, Any]:
+        """Restore a configuration from backup."""
+        from beanie import PydanticObjectId
+
+        from app.modules.backup.services.restore_service import RestoreService
+        from app.services.mist_service_factory import create_mist_service
+
+        if execution:
+            await self._check_backup_role(execution)
+
+        version_id = config.get("version_id", "")
+        dry_run = config.get("dry_run", False)
+        cascade = config.get("cascade", False)
+
+        if not version_id:
+            raise ValueError("version_id is required for restore")
+
+        try:
+            oid = PydanticObjectId(version_id)
+        except Exception as exc:
+            raise ValueError("Invalid version_id format") from exc
+
+        # Resolve user email for audit trail
+        restored_by: str | None = None
+        if execution and execution.triggered_by:
+            from app.models.user import User
+
+            user = await User.get(execution.triggered_by)
+            if user:
+                restored_by = user.email
+
+        mist_service = await create_mist_service()
+        restore_service = RestoreService(mist_service=mist_service)
+
+        if cascade:
+            result = await restore_service.cascade_restore(
+                version_id=oid,
+                dry_run=dry_run,
+            )
+        else:
+            result = await restore_service.restore_object(
+                backup_id=oid,
+                dry_run=dry_run,
+                restored_by=restored_by,
+            )
+
+        return {
+            "status": "preview" if dry_run else "restored",
+            "version_id": version_id,
+            "dry_run": dry_run,
+            "cascade": cascade,
+            "result": result,
+        }
+
+    async def _execute_compare_backups(self, config: dict, execution: "WorkflowExecution" = None) -> dict[str, Any]:
+        """Compare two backup snapshots."""
+        from beanie import PydanticObjectId
+
+        from app.modules.backup.models import BackupObject
+        from app.modules.backup.utils import deep_diff
+
+        if execution:
+            await self._check_backup_role(execution)
+
+        backup_id_1 = config.get("backup_id_1", "")
+        backup_id_2 = config.get("backup_id_2", "")
+
+        if not backup_id_1 or not backup_id_2:
+            raise ValueError("Both backup_id_1 and backup_id_2 are required")
+
+        try:
+            oid1 = PydanticObjectId(backup_id_1)
+            oid2 = PydanticObjectId(backup_id_2)
+        except Exception as exc:
+            raise ValueError("Invalid backup ID format") from exc
+
+        obj1 = await BackupObject.get(oid1)
+        obj2 = await BackupObject.get(oid2)
+
+        if not obj1 or not obj2:
+            raise ValueError("One or both backup objects not found")
+
+        differences = deep_diff(obj1.configuration or {}, obj2.configuration or {})
+
+        added = sum(1 for d in differences if d["type"] == "added")
+        removed = sum(1 for d in differences if d["type"] == "removed")
+        modified = sum(1 for d in differences if d["type"] == "modified")
+
+        return {
+            "differences": differences,
+            "added_count": added,
+            "removed_count": removed,
+            "modified_count": modified,
+            "total_changes": len(differences),
+        }

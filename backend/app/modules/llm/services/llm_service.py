@@ -165,17 +165,22 @@ class LLMService:
         finally:
             await client.close()
 
-    async def _complete_openai_with_tools(self, messages: list[LLMMessage], tools: list[dict]) -> LLMResponse:
+    async def _complete_openai_with_tools(
+        self, messages: list[LLMMessage], tools: list[dict], tool_choice: dict | str | None = None,
+    ) -> LLMResponse:
         client = self._get_openai_client()
         start = monotonic()
+        kwargs: dict = {
+            "model": self.model,
+            "messages": self._messages_to_dicts(messages),
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "tools": tools,
+        }
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
         try:
-            response = await client.chat.completions.create(
-                model=self.model,
-                messages=self._messages_to_dicts(messages),
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                tools=tools,
-            )
+            response = await client.chat.completions.create(**kwargs)
         except Exception:
             logger.exception("llm_tool_completion_failed", model=self.model, provider=self.provider)
             raise
@@ -267,12 +272,16 @@ class LLMService:
             logger.exception("llm_stream_failed", model=self.model, provider=self.provider)
             raise
 
-    async def _complete_litellm_with_tools(self, messages: list[LLMMessage], tools: list[dict]) -> LLMResponse:
+    async def _complete_litellm_with_tools(
+        self, messages: list[LLMMessage], tools: list[dict], tool_choice: dict | str | None = None,
+    ) -> LLMResponse:
         import litellm
 
         kwargs = self._build_litellm_kwargs()
         kwargs["messages"] = self._messages_to_dicts(messages)
         kwargs["tools"] = tools
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
 
         start = monotonic()
         try:
@@ -317,8 +326,18 @@ class LLMService:
             async for chunk in self._stream_litellm(messages):
                 yield chunk
 
-    async def complete_with_tools(self, messages: list[LLMMessage], tools: list[dict]) -> LLMResponse:
-        """Completion with tool/function calling support (for AI Agent node)."""
+    async def complete_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict],
+        tool_choice: dict | str | None = None,
+    ) -> LLMResponse:
+        """Completion with tool/function calling support (for AI Agent node).
+
+        ``tool_choice`` can force a specific tool call:
+        - OpenAI format: ``{"type": "function", "function": {"name": "tool_name"}}``
+        - Anthropic/litellm: ``{"type": "tool", "name": "tool_name"}``
+        """
         if self._is_openai_compat():
-            return await self._complete_openai_with_tools(messages, tools)
-        return await self._complete_litellm_with_tools(messages, tools)
+            return await self._complete_openai_with_tools(messages, tools, tool_choice)
+        return await self._complete_litellm_with_tools(messages, tools, tool_choice)

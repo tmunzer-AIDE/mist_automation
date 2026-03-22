@@ -188,12 +188,18 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
         return {"status": "string", "device_type": "string", "function": "string", "data": {}}
 
     if node_type == "ai_agent":
-        return {
+        schema: dict[str, Any] = {
             "status": "string",
             "result": "string",
             "tool_calls": [{"tool": "string", "arguments": "object", "result": "string"}],
             "iterations": "integer",
         }
+        # Add custom output fields to schema
+        for field in node.config.get("output_fields", []):
+            name = field.get("name")
+            if name:
+                schema[name] = field.get("type", "string")
+        return schema
 
     if node_type == "wait_for_callback":
         return {

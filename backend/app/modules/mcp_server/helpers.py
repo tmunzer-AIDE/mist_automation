@@ -25,6 +25,7 @@ elicitation_channel_var: contextvars.ContextVar[str | None] = contextvars.Contex
 )
 
 # Pending elicitations awaiting user response, keyed by request_id.
+# NOTE: In-process state — requires single-worker deployment. Use Redis for multi-worker.
 _pending_elicitations: dict[str, asyncio.Future[bool]] = {}
 
 
@@ -117,43 +118,64 @@ def extract_fields(config: dict, fields: list[str]) -> dict:
     return result
 
 
-async def elicit_confirmation(ctx: Any, description: str, timeout: float = 120.0) -> bool:
-    """Ask user for confirmation via MCP elicitation.
+async def _elicit(payload: dict[str, Any], description: str, timeout: float) -> bool:
+    """Core elicitation: broadcast payload via WS and wait for user response.
 
-    When a WebSocket elicitation channel is set (by the LLM router), broadcasts
-    the confirmation request to the frontend and waits for the user's response.
-    Otherwise auto-approves (e.g., for workflow AI agent nodes without a UI).
+    Auto-approves when no WS channel is set (workflow AI agent nodes without a UI).
     """
     channel = elicitation_channel_var.get()
-    if channel:
-        # Bridge to frontend via WebSocket
-        from app.core.websocket import ws_manager
-
-        request_id = str(uuid.uuid4())
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[bool] = loop.create_future()
-        _pending_elicitations[request_id] = future
-
-        await ws_manager.broadcast(channel, {
-            "type": "elicitation",
-            "request_id": request_id,
-            "description": description,
-        })
-        logger.debug("elicitation_sent", request_id=request_id, channel=channel, description=description)
-
-        try:
-            accepted = await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
-            _pending_elicitations.pop(request_id, None)
-            raise ValueError("Confirmation timed out — user did not respond") from None
-        except BaseException:
-            _pending_elicitations.pop(request_id, None)
-            raise
-
-        if not accepted:
-            raise ValueError(f"Action declined by user: {description}")
+    if not channel:
+        logger.debug("elicitation_auto_approved", description=description)
         return True
 
-    # No UI channel — auto-approve (backward compat for workflow AI agent nodes)
-    logger.debug("elicitation_auto_approved", description=description)
+    from app.core.websocket import ws_manager
+
+    request_id = str(uuid.uuid4())
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[bool] = loop.create_future()
+    _pending_elicitations[request_id] = future
+
+    payload["request_id"] = request_id
+    await ws_manager.broadcast(channel, payload)
+    logger.debug("elicitation_sent", request_id=request_id, channel=channel, description=description)
+
+    try:
+        accepted = await asyncio.wait_for(future, timeout=timeout)
+    except asyncio.TimeoutError:
+        _pending_elicitations.pop(request_id, None)
+        raise ValueError("Confirmation timed out — user did not respond") from None
+    except BaseException:
+        _pending_elicitations.pop(request_id, None)
+        raise
+
+    if not accepted:
+        raise ValueError(f"Action declined by user: {description}")
     return True
+
+
+async def elicit_confirmation(ctx: Any, description: str, timeout: float = 120.0) -> bool:
+    """Ask user for simple text confirmation via MCP elicitation."""
+    return await _elicit(
+        {"type": "elicitation", "description": description},
+        description,
+        timeout,
+    )
+
+
+async def elicit_restore_confirmation(
+    ctx: Any,
+    description: str,
+    diff_data: dict[str, Any],
+    timeout: float = 180.0,
+) -> bool:
+    """Ask user for restore confirmation with diff data via MCP elicitation."""
+    return await _elicit(
+        {
+            "type": "elicitation",
+            "description": description,
+            "elicitation_type": "restore_confirm",
+            "data": diff_data,
+        },
+        description,
+        timeout,
+    )

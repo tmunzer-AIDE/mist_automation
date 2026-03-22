@@ -128,39 +128,42 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
             <app-ai-icon [size]="56" class="welcome-icon"></app-ai-icon>
             <h2 class="welcome-title">How can I help?</h2>
             <p class="welcome-subtitle">Ask me anything about your Mist infrastructure, backups, workflows, and more.</p>
-            <div class="welcome-input-wrap">
-              @if (availableMcpConfigs().length > 0) {
-                <button
-                  mat-icon-button
-                  [matMenuTriggerFor]="mcpMenu"
-                  matTooltip="External MCP Servers"
-                  [matBadge]="selectedMcpIds().length || null"
-                  matBadgeSize="small"
-                  matBadgeColor="primary"
-                >
-                  <mat-icon>hub</mat-icon>
-                </button>
-                <mat-menu #mcpMenu="matMenu">
-                  @for (cfg of availableMcpConfigs(); track cfg.id) {
-                    <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
-                      <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()">
-                        {{ cfg.name }}
-                      </mat-checkbox>
-                    </button>
-                  }
-                </mat-menu>
-              }
+            <div class="welcome-input-box">
               <textarea
                 class="welcome-textarea"
                 [value]="inputText"
-                (input)="inputText = $any($event.target).value"
+                (input)="inputText = $any($event.target).value; autoGrow($event)"
                 (keydown.enter)="onEnter($event)"
                 placeholder="Ask a question..."
                 rows="1"
               ></textarea>
-              <button class="welcome-send" (click)="sendFirst()" [disabled]="!inputText.trim()">
-                <mat-icon>arrow_upward</mat-icon>
-              </button>
+              <div class="welcome-input-actions">
+                @if (availableMcpConfigs().length > 0) {
+                  <button
+                    mat-icon-button
+                    [matMenuTriggerFor]="mcpMenu"
+                    matTooltip="External MCP Servers"
+                    [matBadge]="selectedMcpIds().length || null"
+                    matBadgeSize="small"
+                    matBadgeColor="primary"
+                  >
+                    <mat-icon>hub</mat-icon>
+                  </button>
+                  <mat-menu #mcpMenu="matMenu">
+                    @for (cfg of availableMcpConfigs(); track cfg.id) {
+                      <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
+                        <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()" (change)="toggleMcp(cfg.id)">
+                          {{ cfg.name }}
+                        </mat-checkbox>
+                      </button>
+                    }
+                  </mat-menu>
+                }
+                <span class="spacer"></span>
+                <button class="welcome-send" (click)="sendFirst()" [disabled]="!inputText.trim()">
+                  <mat-icon>arrow_upward</mat-icon>
+                </button>
+              </div>
             </div>
           </div>
         } @else {
@@ -171,6 +174,7 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
               [initialMessages]="loadedMessages()"
               [parentLoading]="sending() || loadingThread()"
               [loadingLabel]="loadingThread() ? 'Loading conversation...' : 'Thinking...'"
+              [mcpConfigs]="activeMcpConfigs()"
             ></app-ai-chat-panel>
           </div>
         }
@@ -397,31 +401,51 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
         max-width: 400px;
       }
 
-      .welcome-input-wrap {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+      .welcome-input-box {
         width: 100%;
-        max-width: 600px;
+        max-width: 700px;
+        border: 1px solid var(--mat-sys-outline-variant);
+        border-radius: 20px;
+        background: var(--mat-sys-surface-container);
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+        &:focus-within {
+          border-color: var(--mat-sys-primary);
+          box-shadow: 0 0 0 1px var(--mat-sys-primary);
+        }
       }
 
       .welcome-textarea {
-        flex: 1;
-        border: 1px solid var(--mat-sys-outline-variant);
-        border-radius: 24px;
-        padding: 14px 20px;
+        width: 100%;
+        border: none;
+        padding: 8px 12px;
         font: inherit;
         font-size: 15px;
         line-height: 1.5;
         resize: none;
-        background: var(--mat-sys-surface-container);
+        background: transparent;
         color: var(--mat-sys-on-surface);
         outline: none;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
 
-        &:focus {
-          border-color: var(--mat-sys-primary);
-          box-shadow: 0 0 0 1px var(--mat-sys-primary);
+        &::-webkit-scrollbar {
+          width: 6px;
+        }
+        &::-webkit-scrollbar-track {
+          background: transparent;
+          margin: 4px 0;
+        }
+        &::-webkit-scrollbar-thumb {
+          background: rgba(128, 128, 128, 0.3);
+          border-radius: 3px;
+        }
+        &::-webkit-scrollbar-thumb:hover {
+          background: rgba(128, 128, 128, 0.5);
         }
 
         &::placeholder {
@@ -429,10 +453,20 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
         }
       }
 
+      .welcome-input-actions {
+        display: flex;
+        align-items: center;
+        padding: 0 4px;
+      }
+
+      .spacer {
+        flex: 1;
+      }
+
       .welcome-send {
         flex-shrink: 0;
-        width: 44px;
-        height: 44px;
+        width: 36px;
+        height: 36px;
         border-radius: 50%;
         border: none;
         background: var(--mat-sys-primary);
@@ -454,9 +488,9 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
         }
 
         mat-icon {
-          font-size: 22px;
-          width: 22px;
-          height: 22px;
+          font-size: 20px;
+          width: 20px;
+          height: 20px;
         }
       }
 
@@ -506,6 +540,7 @@ export class AiChatsComponent implements OnInit {
   inputText = '';
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
   selectedMcpIds = signal<string[]>([]);
+  activeMcpConfigs = signal<McpConfigAvailable[]>([]);
 
   threadGroups = computed(() => groupByDate(this.threads()));
 
@@ -557,6 +592,9 @@ export class AiChatsComponent implements OnInit {
             html: m.role === 'assistant' ? renderMd(m.content) : '',
           }));
         this.loadedMessages.set(msgs);
+        this.activeMcpConfigs.set(
+          this.availableMcpConfigs().filter((c) => detail.mcp_config_ids.includes(c.id)),
+        );
         this.loadingThread.set(false);
       },
       error: () => {
@@ -570,6 +608,7 @@ export class AiChatsComponent implements OnInit {
     this.elicitSub = null;
     this.activeThreadId.set(null);
     this.loadedMessages.set([]);
+    this.activeMcpConfigs.set([]);
     this.inputText = '';
   }
 
@@ -584,6 +623,12 @@ export class AiChatsComponent implements OnInit {
         }
       },
     });
+  }
+
+  autoGrow(event: Event): void {
+    const el = event.target as HTMLTextAreaElement;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 378) + 'px';
   }
 
   onEnter(event: Event): void {
@@ -601,6 +646,9 @@ export class AiChatsComponent implements OnInit {
     this.inputText = '';
     this.sending.set(true);
     this.loadedMessages.set([{ role: 'user', content: text, html: '' }]);
+    this.activeMcpConfigs.set(
+      this.availableMcpConfigs().filter((c) => this.selectedMcpIds().includes(c.id)),
+    );
 
     const streamId = crypto.randomUUID();
     const channel = `llm:${streamId}`;

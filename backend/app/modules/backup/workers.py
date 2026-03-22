@@ -413,6 +413,22 @@ def _extract_type_from_message(
     for candidate in candidates:
         if candidate in org_objects or candidate in site_objects:
             return candidate
+
+    # Fallback: drop leading scope qualifiers ("Site Settings" → "Settings")
+    words = raw_type.split()
+    if len(words) > 1:
+        for i in range(1, len(words)):
+            suffix = " ".join(words[i:])
+            no_space_suffix = suffix.replace(" ", "")
+            sub_candidates = [suffix, suffix + "s", no_space_suffix, no_space_suffix + "s"]
+            if suffix.endswith("y"):
+                sub_candidates.append(suffix[:-1] + "ies")
+            if no_space_suffix.endswith("y"):
+                sub_candidates.append(no_space_suffix[:-1] + "ies")
+            for candidate in sub_candidates:
+                if candidate in org_objects or candidate in site_objects:
+                    return candidate
+
     return None
 
 

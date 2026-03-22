@@ -10,7 +10,6 @@ from apscheduler.triggers.date import DateTrigger
 from beanie import PydanticObjectId
 
 from app.core.tasks import create_background_task
-from app.core.webhook_extractor import extract_event_fields
 from app.modules.automation.models.aggregation import AggregationWindow
 from app.modules.automation.models.execution import ExecutionStatus, WorkflowExecution
 from app.modules.automation.models.webhook import WebhookEvent
@@ -19,6 +18,32 @@ from app.modules.automation.services.executor_service import WorkflowExecutor
 from app.modules.automation.workers.scheduler import get_scheduler
 
 logger = structlog.get_logger(__name__)
+
+
+async def _broadcast_window_update(window, msg_type: str = "aggregation_updated") -> None:
+    """Broadcast aggregation window status change via WebSocket."""
+    try:
+        from app.core.websocket import ws_manager
+
+        await ws_manager.broadcast(
+            f"workflow:{window.workflow_id}:aggregation",
+            {
+                "type": msg_type,
+                "data": {
+                    "window_id": str(window.id) if hasattr(window, "id") else str(window.get("_id", "")),
+                    "workflow_id": str(window.workflow_id) if hasattr(window, "workflow_id") else str(window.get("workflow_id", "")),
+                    "group_key": window.group_key if hasattr(window, "group_key") else "",
+                    "status": window.status if hasattr(window, "status") else "collecting",
+                    "event_count": window.event_count if hasattr(window, "event_count") else 0,
+                    "site_id": window.site_id if hasattr(window, "site_id") else None,
+                    "site_name": window.site_name if hasattr(window, "site_name") else None,
+                    "window_end": window.window_end.isoformat() if hasattr(window, "window_end") and window.window_end else "",
+                    "window_seconds": window.window_seconds if hasattr(window, "window_seconds") else 0,
+                },
+            },
+        )
+    except Exception as e:
+        logger.debug("ws_broadcast_failed", error=str(e))
 
 
 async def buffer_event_for_aggregation(
@@ -71,7 +96,10 @@ async def buffer_event_for_aggregation(
     now = datetime.now(timezone.utc)
     window_end = now + timedelta(seconds=window_seconds)
 
-    window = await AggregationWindow.find_one_and_update(
+    collection = AggregationWindow.get_motor_collection()
+    from pymongo import ReturnDocument
+
+    raw = await collection.find_one_and_update(
         {
             "workflow_id": workflow.id,
             "group_key": group_key,
@@ -91,10 +119,10 @@ async def buffer_event_for_aggregation(
             },
         },
         upsert=True,
-        return_document=True,
+        return_document=ReturnDocument.AFTER,
     )
 
-    if not window:
+    if not raw:
         logger.error(
             "aggregation_upsert_failed",
             workflow_id=str(workflow.id),
@@ -102,9 +130,13 @@ async def buffer_event_for_aggregation(
         )
         return
 
+    window = AggregationWindow.model_validate(raw)
+
     # If this is a newly created window (event_count == 1), schedule the fire job
     if window.event_count == 1:
         _schedule_fire_job(window)
+
+    await _broadcast_window_update(window)
 
     logger.info(
         "aggregation_event_buffered",
@@ -178,6 +210,7 @@ async def _handle_closing_event(
         )
 
     await window.save()
+    await _broadcast_window_update(window)
 
 
 async def fire_aggregation_window(window_id: str) -> None:
@@ -239,17 +272,8 @@ async def fire_aggregation_window(window_id: str) -> None:
         # Load all buffered WebhookEvent documents
         events = await WebhookEvent.find({"_id": {"$in": window.event_ids}}).to_list()
 
-        # Build trigger data with aggregation context
-        event_fields_list = []
-        for evt in events:
-            fields = extract_event_fields(
-                evt.payload,
-                evt.webhook_topic or evt.webhook_type,
-                evt.payload,
-            )
-            # Include the full payload alongside extracted fields
-            fields["payload"] = evt.payload
-            event_fields_list.append(fields)
+        # Build trigger data with aggregation context — use full event payloads
+        event_fields_list = [evt.payload for evt in events]
 
         trigger_data = {
             "aggregation": {
@@ -324,6 +348,7 @@ async def fire_aggregation_window(window_id: str) -> None:
         window.fired_at = datetime.now(timezone.utc)
         window.execution_id = execution.id
         await window.save()
+        await _broadcast_window_update(window, "aggregation_fired")
 
     except Exception as e:
         logger.error("aggregation_fire_error", window_id=window_id, error=str(e))

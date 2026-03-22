@@ -5,6 +5,7 @@ Workflow automation API endpoints — graph-based workflow model.
 import asyncio
 from datetime import datetime, timezone
 
+import pymongo
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,7 +33,12 @@ from app.modules.automation.schemas.workflow import (
     WorkflowUpdate,
 )
 
+from app.modules.automation.router_recipes import publish_router as _publish_router
+from app.modules.automation.router_recipes import router as _recipes_router
+
 router = APIRouter()
+router.include_router(_recipes_router)
+router.include_router(_publish_router)
 logger = structlog.get_logger(__name__)
 
 # Track running simulation tasks for cancellation
@@ -129,7 +135,20 @@ def _encrypt_workflow_secrets(
             encrypt_node_secrets(node.config)
 
 
-def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
+def _window_summary(window) -> dict:
+    """Build a summary dict from an AggregationWindow."""
+    return {
+        "window_id": str(window.id) if hasattr(window, "id") else str(window.get("_id", "")),
+        "group_key": window.group_key if hasattr(window, "group_key") else window.get("group_key", ""),
+        "event_count": window.event_count if hasattr(window, "event_count") else window.get("event_count", 0),
+        "site_id": window.site_id if hasattr(window, "site_id") else window.get("site_id"),
+        "site_name": window.site_name if hasattr(window, "site_name") else window.get("site_name"),
+        "window_end": (window.window_end.isoformat() if hasattr(window, "window_end") and window.window_end else window.get("window_end", "")),
+        "window_seconds": window.window_seconds if hasattr(window, "window_seconds") else window.get("window_seconds", 0),
+    }
+
+
+def _workflow_to_response(wf: Workflow, windows: list = ()) -> WorkflowResponse:
     _mask_workflow_secrets(wf)
     return WorkflowResponse(
         id=str(wf.id),
@@ -148,6 +167,8 @@ def _workflow_to_response(wf: Workflow) -> WorkflowResponse:
         execution_count=wf.execution_count,
         success_count=wf.success_count,
         failure_count=wf.failure_count,
+        active_windows=[_window_summary(w) for w in windows],
+        last_execution=wf.last_execution,
         created_at=wf.created_at,
         updated_at=wf.updated_at,
     )
@@ -187,6 +208,8 @@ async def list_workflows(
     limit: int = Query(100, ge=1, le=1000, description="Number of workflows to return"),
     status_filter: str | None = Query(None, description="Filter by status"),
     workflow_type: str | None = Query(None, description="Filter by workflow type: standard or subflow"),
+    sort_by: str = Query("name", description="Field to sort by"),
+    sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
     current_user: User = Depends(require_automation_role),
 ):
     """List all workflows accessible to the current user."""
@@ -202,10 +225,30 @@ async def list_workflows(
     if workflow_type:
         query["workflow_type"] = workflow_type
 
-    total = await Workflow.find(query).count()
-    workflows = await Workflow.find(query).skip(skip).limit(limit).to_list()
+    SORTABLE_FIELDS = {"name", "status", "workflow_type", "execution_count", "last_execution", "created_at", "updated_at"}
+    sort_field = sort_by if sort_by in SORTABLE_FIELDS else "name"
+    direction = pymongo.DESCENDING if sort_dir == "desc" else pymongo.ASCENDING
 
-    return WorkflowListResponse(workflows=[_workflow_to_response(wf) for wf in workflows], total=total)
+    total = await Workflow.find(query).count()
+    workflows = await Workflow.find(query).sort([(sort_field, direction)]).skip(skip).limit(limit).to_list()
+
+    # Batch-query active aggregation windows for all returned workflows (one query, no N+1)
+    from app.modules.automation.models.aggregation import AggregationWindow
+
+    workflow_ids = [wf.id for wf in workflows]
+    collecting_windows = await AggregationWindow.find(
+        {"workflow_id": {"$in": workflow_ids}, "status": "collecting"}
+    ).to_list() if workflow_ids else []
+
+    # Group windows by workflow_id
+    windows_map: dict = {}
+    for w in collecting_windows:
+        windows_map.setdefault(w.workflow_id, []).append(w)
+
+    return WorkflowListResponse(
+        workflows=[_workflow_to_response(wf, windows_map.get(wf.id, [])) for wf in workflows],
+        total=total,
+    )
 
 
 @router.post("/workflows", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED, tags=["Workflows"])
@@ -432,7 +475,13 @@ async def get_workflow(
     if not workflow.can_be_accessed_by(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    return _workflow_to_response(workflow)
+    from app.modules.automation.models.aggregation import AggregationWindow
+
+    windows = await AggregationWindow.find(
+        {"workflow_id": workflow.id, "status": "collecting"}
+    ).to_list()
+
+    return _workflow_to_response(workflow, windows)
 
 
 @router.put("/workflows/{workflow_id}", response_model=WorkflowResponse, tags=["Workflows"])
@@ -810,6 +859,61 @@ async def get_endpoint_schema(
         "schema": endpoint.response_schema,
         "example": endpoint.response_example,
     }
+
+
+# ── Active aggregation windows ────────────────────────────────────────────────
+
+
+@router.get("/workflows/{workflow_id}/active-windows", tags=["Workflows"])
+async def get_active_windows(
+    workflow_id: str,
+    current_user: User = Depends(require_automation_role),
+):
+    """Get active (collecting) aggregation windows for a workflow."""
+    try:
+        wf_oid = PydanticObjectId(workflow_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid workflow ID") from exc
+
+    workflow = await Workflow.get(wf_oid)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    from app.modules.automation.models.aggregation import AggregationWindow
+
+    windows = await AggregationWindow.find(
+        {"workflow_id": wf_oid, "status": "collecting"}
+    ).to_list()
+
+    return {"windows": [_window_summary(w) for w in windows]}
+
+
+# ── Suggestions endpoint ──────────────────────────────────────────────────────
+
+
+@router.get("/workflows/{workflow_id}/suggestions", tags=["Workflows"])
+async def get_workflow_suggestions(
+    workflow_id: str,
+    current_user: User = Depends(require_automation_role),
+):
+    """Get contextual suggestions for improving a workflow."""
+    from app.modules.automation.services.suggestion_service import analyze_workflow
+
+    try:
+        wf_oid = PydanticObjectId(workflow_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid workflow ID") from exc
+
+    workflow = await Workflow.get(wf_oid)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not workflow.can_be_accessed_by(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    suggestions = analyze_workflow(workflow)
+    return {"suggestions": [s.model_dump() for s in suggestions]}
 
 
 # ── Simulation endpoints ─────────────────────────────────────────────────────

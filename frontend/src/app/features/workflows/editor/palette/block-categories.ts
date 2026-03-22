@@ -70,6 +70,14 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
     ],
   },
   {
+    name: 'App Actions',
+    options: [
+      blockOption('trigger_backup', 'Trigger a configuration backup'),
+      blockOption('restore_backup', 'Restore a configuration from backup'),
+      blockOption('compare_backups', 'Compare two backup snapshots'),
+    ],
+  },
+  {
     name: 'AI',
     options: [blockOption('ai_agent', 'Autonomous AI agent with MCP tool access')],
   },

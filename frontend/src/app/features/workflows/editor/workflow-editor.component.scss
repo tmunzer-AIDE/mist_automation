@@ -116,6 +116,19 @@
     background: var(--app-subflow-bg);
     color: var(--app-subflow);
   }
+
+  &.status-collecting {
+    background: var(--app-warning-bg, #fff3e0);
+    color: var(--app-warning-text, #e65100);
+    border: 1px solid var(--app-warning, #ff9800);
+  }
+
+  .chip-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    margin-right: 2px;
+  }
 }
 
 @media (max-width: 768px) {

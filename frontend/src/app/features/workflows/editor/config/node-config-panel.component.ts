@@ -27,6 +27,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { Subject, takeUntil } from 'rxjs';
 import {
   WorkflowNode,
@@ -46,6 +47,7 @@ import { LlmConfigAvailable, McpConfigAvailable } from '../../../../core/models/
 import { WorkflowService } from '../../../../core/services/workflow.service';
 import { VariablePickerComponent } from './variable-picker.component';
 import { JsonSectionToggleComponent } from './json-section-toggle.component';
+import { TemplateValidationDirective } from '../../../../shared/directives/template-validation.directive';
 
 @Component({
   selector: 'app-node-config-panel',
@@ -61,8 +63,10 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
     MatAutocompleteModule,
     MatMenuModule,
     MatSlideToggleModule,
+    MatExpansionModule,
     VariablePickerComponent,
     JsonSectionToggleComponent,
+    TemplateValidationDirective,
   ],
   template: `
     @if (node && form) {
@@ -177,13 +181,17 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               </mat-form-field>
             }
 
-            <mat-form-field appearance="outline">
-              <mat-label>Condition (optional)</mat-label>
-              <textarea matInput formControlName="condition" rows="2"
-                placeholder="{{ '{{' }} type == 'ap_offline' {{ '}}' }}"></textarea>
-            </mat-form-field>
-
-            <mat-checkbox formControlName="skip_if_running">Skip if already running</mat-checkbox>
+            <mat-expansion-panel class="advanced-panel">
+              <mat-expansion-panel-header>
+                <mat-panel-title>Advanced</mat-panel-title>
+              </mat-expansion-panel-header>
+              <mat-form-field appearance="outline">
+                <mat-label>Condition (optional)</mat-label>
+                <textarea matInput formControlName="condition" rows="2"
+                  placeholder="{{ '{{' }} type == 'ap_offline' {{ '}}' }}"></textarea>
+              </mat-form-field>
+              <mat-checkbox formControlName="skip_if_running">Skip if already running</mat-checkbox>
+            </mat-expansion-panel>
           }
 
           <!-- ── Action config ──────────────────────────────────────── -->
@@ -265,7 +273,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               @if (useCustomEndpoint) {
                 <mat-form-field appearance="outline">
                   <mat-label>API Endpoint</mat-label>
-                  <input matInput formControlName="api_endpoint" />
+                  <input matInput formControlName="api_endpoint" [appTemplateValidation]="variableTree" />
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                     <mat-icon>data_object</mat-icon>
                   </button>
@@ -291,7 +299,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             @if (node.type === 'webhook') {
               <mat-form-field appearance="outline">
                 <mat-label>Webhook URL</mat-label>
-                <input matInput formControlName="webhook_url" />
+                <input matInput formControlName="webhook_url" [appTemplateValidation]="variableTree" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="webhookUrlVarMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -357,11 +365,11 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
               <mat-form-field appearance="outline">
                 <mat-label>Headers (JSON)</mat-label>
-                <textarea matInput formControlName="webhook_headers" rows="2"></textarea>
+                <textarea matInput formControlName="webhook_headers" rows="2" [appTemplateValidation]="variableTree"></textarea>
               </mat-form-field>
               <mat-form-field appearance="outline">
                 <mat-label>Body (JSON)</mat-label>
-                <textarea matInput formControlName="webhook_body" rows="3"></textarea>
+                <textarea matInput formControlName="webhook_body" rows="3" [appTemplateValidation]="variableTree"></textarea>
               </mat-form-field>
             }
 
@@ -471,7 +479,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               ) {
                 <mat-form-field appearance="outline">
                   <mat-label>Body (JSON)</mat-label>
-                  <textarea matInput formControlName="servicenow_body" rows="3"></textarea>
+                  <textarea matInput formControlName="servicenow_body" rows="3" [appTemplateValidation]="variableTree"></textarea>
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="snowBodyVarMenu">
                     <mat-icon>data_object</mat-icon>
                   </button>
@@ -494,6 +502,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                     formControlName="servicenow_query_params"
                     rows="2"
                     placeholder='{"sysparm_query": "active=true", "sysparm_limit": "10"}'
+                    [appTemplateValidation]="variableTree"
                   ></textarea>
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="snowQueryVarMenu">
                     <mat-icon>data_object</mat-icon>
@@ -520,7 +529,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               @if (node.type === 'slack') {
                 <mat-form-field appearance="outline">
                   <mat-label>Header (optional)</mat-label>
-                  <input matInput formControlName="slack_header" />
+                  <input matInput formControlName="slack_header" [appTemplateValidation]="variableTree" />
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="slackHeaderVarMenu">
                     <mat-icon>data_object</mat-icon>
                   </button>
@@ -535,7 +544,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
               <mat-form-field appearance="outline">
                 <mat-label>Message Template</mat-label>
-                <textarea matInput formControlName="notification_template" rows="3"></textarea>
+                <textarea matInput formControlName="notification_template" rows="3" [appTemplateValidation]="variableTree"></textarea>
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -575,7 +584,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
                 <mat-form-field appearance="outline">
                   <mat-label>Footer (optional)</mat-label>
-                  <input matInput formControlName="slack_footer" />
+                  <input matInput formControlName="slack_footer" [appTemplateValidation]="variableTree" />
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="slackFooterVarMenu">
                     <mat-icon>data_object</mat-icon>
                   </button>
@@ -589,7 +598,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
                 <mat-form-field appearance="outline">
                   <mat-label>JSON Payload (optional)</mat-label>
-                  <input matInput formControlName="slack_json_variable" placeholder="trigger" />
+                  <input matInput formControlName="slack_json_variable" placeholder="trigger" [appTemplateValidation]="variableTree" />
                   <button mat-icon-button matSuffix [matMenuTriggerFor]="jsonVarMenu">
                     <mat-icon>data_object</mat-icon>
                   </button>
@@ -619,12 +628,12 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
               <mat-form-field appearance="outline">
                 <mat-label>Header (optional)</mat-label>
-                <input matInput formControlName="slack_header" />
+                <input matInput formControlName="slack_header" [appTemplateValidation]="variableTree" />
               </mat-form-field>
 
               <mat-form-field appearance="outline">
                 <mat-label>Message Template</mat-label>
-                <textarea matInput formControlName="notification_template" rows="3"></textarea>
+                <textarea matInput formControlName="notification_template" rows="3" [appTemplateValidation]="variableTree"></textarea>
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="waitVarMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -687,7 +696,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               </mat-form-field>
               <mat-form-field appearance="outline">
                 <mat-label>Expression</mat-label>
-                <textarea matInput formControlName="variable_expression" rows="2"></textarea>
+                <textarea matInput formControlName="variable_expression" rows="2" [appTemplateValidation]="variableTree"></textarea>
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -704,7 +713,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             @if (node.type === 'for_each') {
               <mat-form-field appearance="outline">
                 <mat-label>Loop Over (dot path)</mat-label>
-                <input matInput formControlName="loop_over" placeholder="nodes.MyApiCall.body.results" />
+                <input matInput formControlName="loop_over" placeholder="nodes.MyApiCall.body.results" [appTemplateValidation]="variableTree" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -736,7 +745,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             @if (node.type === 'data_transform') {
               <mat-form-field appearance="outline">
                 <mat-label>Source (dot path to array)</mat-label>
-                <input matInput formControlName="dt_source" placeholder="nodes.Get_Devices.body" />
+                <input matInput formControlName="dt_source" placeholder="nodes.Get_Devices.body" [appTemplateValidation]="variableTree" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                   <mat-icon>data_object</mat-icon>
                 </button>
@@ -786,7 +795,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
               <mat-form-field appearance="outline">
                 <mat-label>Filter Condition (optional)</mat-label>
-                <input matInput formControlName="dt_filter"
+                <input matInput formControlName="dt_filter" [appTemplateValidation]="variableTree"
                   placeholder="{{ '{{' }} item.type == 'switch' {{ '}}' }}" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="filterVarMenu">
                   <mat-icon>data_object</mat-icon>
@@ -804,7 +813,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             @if (node.type === 'format_report') {
               <mat-form-field appearance="outline">
                 <mat-label>Data Source (dot path to rows)</mat-label>
-                <input matInput formControlName="fr_data_source"
+                <input matInput formControlName="fr_data_source" [appTemplateValidation]="variableTree"
                   placeholder="nodes.Transform_Data.rows" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
                   <mat-icon>data_object</mat-icon>
@@ -844,7 +853,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
               <mat-form-field appearance="outline">
                 <mat-label>Title (optional)</mat-label>
-                <input matInput formControlName="fr_title"
+                <input matInput formControlName="fr_title" [appTemplateValidation]="variableTree"
                   placeholder="Deployment Report - {{ '{{' }} trigger.site_name {{ '}}' }}" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="titleVarMenu">
                   <mat-icon>data_object</mat-icon>
@@ -859,7 +868,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
 
               <mat-form-field appearance="outline">
                 <mat-label>Footer (optional)</mat-label>
-                <input matInput formControlName="fr_footer_template"
+                <input matInput formControlName="fr_footer_template" [appTemplateValidation]="variableTree"
                   placeholder="Generated at {{ '{{' }} now_iso {{ '}}' }}" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="footerVarMenu">
                   <mat-icon>data_object</mat-icon>
@@ -877,7 +886,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
             @if (node.type === 'email') {
               <mat-form-field appearance="outline">
                 <mat-label>Subject</mat-label>
-                <input matInput formControlName="email_subject"
+                <input matInput formControlName="email_subject" [appTemplateValidation]="variableTree"
                   placeholder="Deployment Report - {{ '{{' }} trigger.site_name {{ '}}' }}" />
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="subjVarMenu">
                   <mat-icon>data_object</mat-icon>
@@ -987,7 +996,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-form-field appearance="outline">
                 <mat-label>Task</mat-label>
                 <textarea matInput formControlName="agent_task" rows="3"
-                  placeholder="Describe what the agent should accomplish..."></textarea>
+                  placeholder="Describe what the agent should accomplish..." [appTemplateValidation]="variableTree"></textarea>
                 <mat-hint>Supports Jinja2 variables</mat-hint>
                 <button mat-icon-button matSuffix [matMenuTriggerFor]="agentTaskVarMenu">
                   <mat-icon>data_object</mat-icon>
@@ -1003,7 +1012,7 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               <mat-form-field appearance="outline">
                 <mat-label>System Prompt (optional)</mat-label>
                 <textarea matInput formControlName="agent_system_prompt" rows="2"
-                  placeholder="Custom instructions for the agent..."></textarea>
+                  placeholder="Custom instructions for the agent..." [appTemplateValidation]="variableTree"></textarea>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
@@ -1020,6 +1029,123 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
                   }
                 </mat-select>
                 <mat-hint>Select MCP servers for tool access (configure in Admin > MCP Servers)</mat-hint>
+              </mat-form-field>
+
+              <mat-expansion-panel class="advanced-panel">
+                <mat-expansion-panel-header>
+                  <mat-panel-title>Structured Output</mat-panel-title>
+                </mat-expansion-panel-header>
+                <div class="output-fields-editor">
+                  <p class="field-hint">Define output fields to extract structured data from the agent's analysis. Use in downstream conditions via <code>{{ '{' }}{{ '{' }} nodes.NodeName.field_name {{ '}' }}{{ '}' }}</code>.</p>
+                  @for (field of outputFields(); track $index) {
+                    <div class="output-field-row">
+                      <mat-form-field appearance="outline" class="field-name">
+                        <mat-label>Name</mat-label>
+                        <input matInput [value]="field.name" (input)="updateOutputField($index, 'name', $event)" placeholder="e.g. detected" />
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="field-type">
+                        <mat-label>Type</mat-label>
+                        <mat-select [value]="field.type" (selectionChange)="updateOutputField($index, 'type', $event)">
+                          <mat-option value="string">String</mat-option>
+                          <mat-option value="number">Number</mat-option>
+                          <mat-option value="boolean">Boolean</mat-option>
+                        </mat-select>
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="field-desc">
+                        <mat-label>Description</mat-label>
+                        <input matInput [value]="field.description" (input)="updateOutputField($index, 'description', $event)" placeholder="What this field represents" />
+                      </mat-form-field>
+                      <mat-checkbox
+                        [checked]="field.required ?? false"
+                        (change)="updateOutputField($index, 'required', { value: $event.checked })"
+                        class="field-required"
+                      >Req.</mat-checkbox>
+                      <button mat-icon-button (click)="removeOutputField($index)" class="remove-field-btn">
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    </div>
+                  }
+                  <button mat-stroked-button (click)="addOutputField()" class="add-field-btn">
+                    <mat-icon>add</mat-icon> Add Field
+                  </button>
+                </div>
+              </mat-expansion-panel>
+            }
+
+            <!-- App Actions -->
+            @if (node.type === 'trigger_backup') {
+              <mat-form-field appearance="outline">
+                <mat-label>Backup Type</mat-label>
+                <mat-select formControlName="backup_type">
+                  <mat-option value="full">Full Backup</mat-option>
+                  <mat-option value="manual">Manual (selective)</mat-option>
+                </mat-select>
+              </mat-form-field>
+              @if (form.get('backup_type')?.value === 'manual') {
+                <mat-form-field appearance="outline">
+                  <mat-label>Object Type</mat-label>
+                  <input matInput formControlName="backup_object_type" placeholder="e.g. org:wlans, site:maps" />
+                </mat-form-field>
+              }
+              <mat-form-field appearance="outline">
+                <mat-label>Site ID (optional)</mat-label>
+                <input matInput formControlName="backup_site_id" [appTemplateValidation]="variableTree" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #varMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('backup_site_id')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+            }
+
+            @if (node.type === 'restore_backup') {
+              <mat-form-field appearance="outline">
+                <mat-label>Version ID</mat-label>
+                <input matInput formControlName="restore_version_id" [appTemplateValidation]="variableTree" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #varMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('restore_version_id')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+              <mat-checkbox formControlName="restore_dry_run">Dry run (preview only)</mat-checkbox>
+              <mat-checkbox formControlName="restore_cascade">Cascade (include dependencies)</mat-checkbox>
+            }
+
+            @if (node.type === 'compare_backups') {
+              <mat-form-field appearance="outline">
+                <mat-label>Backup ID 1</mat-label>
+                <input matInput formControlName="compare_backup_id_1" [appTemplateValidation]="variableTree" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #varMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('compare_backup_id_1')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Backup ID 2</mat-label>
+                <input matInput formControlName="compare_backup_id_2" [appTemplateValidation]="variableTree" />
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu2">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #varMenu2="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('compare_backup_id_2')!, $event)"
+                  />
+                </mat-menu>
               </mat-form-field>
             }
 
@@ -1187,62 +1313,71 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
               </app-json-section-toggle>
             }
 
-            <!-- Save As bindings -->
-            @if (hasOutput) {
-              @if (outputHint) {
-                <div class="output-hint">Available: {{ outputHint }}</div>
-              }
-              <app-json-section-toggle
-                sectionLabel="Save Output As Variables"
-                [sectionData]="saveAsArray.getRawValue()"
-                (dataChanged)="applySaveAsJson($event)"
-              >
-                @for (binding of saveAsArray.controls; track $index; let i = $index) {
-                  <div class="save-as-row" [formGroup]="$any(binding)">
-                    <mat-form-field appearance="outline" class="save-as-name">
-                      <mat-label>Name</mat-label>
-                      <input matInput formControlName="name" />
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="save-as-expr">
-                      <mat-label>Expression</mat-label>
-                      <input matInput formControlName="expression" [placeholder]="'e.g. {{ output.data }}'" />
-                      <button mat-icon-button matSuffix [matMenuTriggerFor]="saveAsVarMenu">
-                        <mat-icon>data_object</mat-icon>
-                      </button>
-                      <mat-menu #saveAsVarMenu="matMenu">
-                        <app-variable-picker
-                          [variableTree]="variableTree"
-                          (variableSelected)="insertIntoControl($any(binding).controls.expression, $event)"
-                        />
-                      </mat-menu>
-                    </mat-form-field>
-                    <button mat-icon-button (click)="removeSaveAsBinding(i)">
-                      <mat-icon>close</mat-icon>
-                    </button>
-                  </div>
-                }
-                <button mat-button (click)="addSaveAsBinding()">
-                  <mat-icon>add</mat-icon> Add Variable
-                </button>
-              </app-json-section-toggle>
-            }
+            <!-- Advanced section (collapsed by default) -->
+            @if (hasOutput || hasErrorHandling) {
+              <mat-expansion-panel class="advanced-panel">
+                <mat-expansion-panel-header>
+                  <mat-panel-title>Advanced</mat-panel-title>
+                </mat-expansion-panel-header>
 
-            <!-- Error handling -->
-            @if (hasErrorHandling) {
-              <div class="section-title">Error Handling</div>
-              @if (hasRetry) {
-                <div class="error-row">
-                  <mat-form-field appearance="outline">
-                    <mat-label>Max Retries</mat-label>
-                    <input matInput type="number" formControlName="max_retries" />
-                  </mat-form-field>
-                  <mat-form-field appearance="outline">
-                    <mat-label>Retry Delay (s)</mat-label>
-                    <input matInput type="number" formControlName="retry_delay" />
-                  </mat-form-field>
-                </div>
-              }
-              <mat-checkbox formControlName="continue_on_error">Continue on error</mat-checkbox>
+                <!-- Save As bindings -->
+                @if (hasOutput) {
+                  @if (outputHint) {
+                    <div class="output-hint">Available: {{ outputHint }}</div>
+                  }
+                  <app-json-section-toggle
+                    sectionLabel="Save Output As Variables"
+                    [sectionData]="saveAsArray.getRawValue()"
+                    (dataChanged)="applySaveAsJson($event)"
+                  >
+                    @for (binding of saveAsArray.controls; track $index; let i = $index) {
+                      <div class="save-as-row" [formGroup]="$any(binding)">
+                        <mat-form-field appearance="outline" class="save-as-name">
+                          <mat-label>Name</mat-label>
+                          <input matInput formControlName="name" />
+                        </mat-form-field>
+                        <mat-form-field appearance="outline" class="save-as-expr">
+                          <mat-label>Expression</mat-label>
+                          <input matInput formControlName="expression" [placeholder]="'e.g. {{ output.data }}'" />
+                          <button mat-icon-button matSuffix [matMenuTriggerFor]="saveAsVarMenu">
+                            <mat-icon>data_object</mat-icon>
+                          </button>
+                          <mat-menu #saveAsVarMenu="matMenu">
+                            <app-variable-picker
+                              [variableTree]="variableTree"
+                              (variableSelected)="insertIntoControl($any(binding).controls.expression, $event)"
+                            />
+                          </mat-menu>
+                        </mat-form-field>
+                        <button mat-icon-button (click)="removeSaveAsBinding(i)">
+                          <mat-icon>close</mat-icon>
+                        </button>
+                      </div>
+                    }
+                    <button mat-button (click)="addSaveAsBinding()">
+                      <mat-icon>add</mat-icon> Add Variable
+                    </button>
+                  </app-json-section-toggle>
+                }
+
+                <!-- Error handling -->
+                @if (hasErrorHandling) {
+                  <div class="section-title">Error Handling</div>
+                  @if (hasRetry) {
+                    <div class="error-row">
+                      <mat-form-field appearance="outline">
+                        <mat-label>Max Retries</mat-label>
+                        <input matInput type="number" formControlName="max_retries" />
+                      </mat-form-field>
+                      <mat-form-field appearance="outline">
+                        <mat-label>Retry Delay (s)</mat-label>
+                        <input matInput type="number" formControlName="retry_delay" />
+                      </mat-form-field>
+                    </div>
+                  }
+                  <mat-checkbox formControlName="continue_on_error">Continue on error</mat-checkbox>
+                }
+              </mat-expansion-panel>
             }
           }
         </form>
@@ -1409,6 +1544,44 @@ import { JsonSectionToggleComponent } from './json-section-toggle.component';
         gap: 8px;
       }
 
+      .advanced-panel {
+        margin-top: 8px;
+        box-shadow: none;
+        border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+        border-radius: 8px;
+      }
+
+      .output-fields-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+
+        .field-hint {
+          font-size: 12px;
+          color: var(--app-neutral);
+          margin: 0 0 4px;
+          code { font-size: 11px; background: rgba(128,128,128,0.12); padding: 1px 4px; border-radius: 3px; }
+        }
+      }
+
+      .output-field-row {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+
+        .field-name { flex: 1; min-width: 0; }
+        .field-type { width: 100px; flex-shrink: 0; }
+        .field-desc { flex: 2; min-width: 0; }
+        .field-required { flex-shrink: 0; margin-top: 12px; font-size: 12px; }
+        .remove-field-btn { flex-shrink: 0; margin-top: 8px; }
+      }
+
+      .add-field-btn {
+        align-self: flex-start;
+        font-size: 13px;
+        mat-icon { font-size: 16px; width: 16px; height: 16px; margin-right: 4px; }
+      }
+
       .params-section {
         display: flex;
         flex-direction: column;
@@ -1444,6 +1617,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   availableLlmConfigs = signal<LlmConfigAvailable[]>([]);
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
   eventPairs = signal<EventPair[]>([]);
+  outputFields = signal<Array<{ name: string; type: string; description: string; required?: boolean }>>([]);
   private readonly destroyRef = inject(DestroyRef);
   private readonly rebuild$ = new Subject<void>();
 
@@ -1551,6 +1725,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       this.llmService.listAvailableMcpConfigs().pipe(takeUntil(this.rebuild$)).subscribe({
         next: (configs) => this.availableMcpConfigs.set(configs),
       });
+      this.outputFields.set((config['output_fields'] as Array<{ name: string; type: string; description: string }>) || []);
     }
   }
 
@@ -1674,6 +1849,15 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       agent_max_iterations: [config['max_iterations'] ?? 10],
       llm_config_id: [config['llm_config_id'] || ''],
       mcp_config_ids: [(config['mcp_config_ids'] as string[]) || []],
+      // App actions
+      backup_type: [config['backup_type'] || 'full'],
+      backup_site_id: [config['site_id'] || ''],
+      backup_object_type: [config['object_type'] || ''],
+      restore_version_id: [config['version_id'] || ''],
+      restore_dry_run: [config['dry_run'] ?? false],
+      restore_cascade: [config['cascade'] ?? false],
+      compare_backup_id_1: [config['backup_id_1'] || ''],
+      compare_backup_id_2: [config['backup_id_2'] || ''],
       // Wait for callback
       wait_actions: this.fb.array(
         ((config['slack_actions'] as { text: string; action_id: string; style: string }[]) || [
@@ -2126,6 +2310,24 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         config['max_iterations'] = raw.agent_max_iterations ?? 10;
         config['llm_config_id'] = raw.llm_config_id || null;
         config['mcp_config_ids'] = raw.mcp_config_ids || [];
+        config['output_fields'] = this.outputFields().filter((f) => f.name.trim());
+      }
+
+      if (this.node.type === 'trigger_backup') {
+        config['backup_type'] = raw.backup_type || 'full';
+        config['site_id'] = raw.backup_site_id || undefined;
+        config['object_type'] = raw.backup_object_type || undefined;
+      }
+
+      if (this.node.type === 'restore_backup') {
+        config['version_id'] = raw.restore_version_id || '';
+        config['dry_run'] = raw.restore_dry_run ?? false;
+        config['cascade'] = raw.restore_cascade ?? false;
+      }
+
+      if (this.node.type === 'compare_backups') {
+        config['backup_id_1'] = raw.compare_backup_id_1 || '';
+        config['backup_id_2'] = raw.compare_backup_id_2 || '';
       }
 
       updatedNode.config = config;
@@ -2313,6 +2515,32 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     return this.node.type === 'ai_agent';
   }
 
+  addOutputField(): void {
+    this.outputFields.update((fields) => [...fields, { name: '', type: 'string', description: '', required: false }]);
+    this._emitOutputFieldsChange();
+  }
+
+  removeOutputField(index: number): void {
+    this.outputFields.update((fields) => fields.filter((_, i) => i !== index));
+    this._emitOutputFieldsChange();
+  }
+
+  updateOutputField(index: number, key: string, event: Event | { value: string | boolean }): void {
+    const value = 'value' in event ? event.value : (event.target as HTMLInputElement).value;
+    this.outputFields.update((fields) =>
+      fields.map((f, i) => (i === index ? { ...f, [key]: value } : f)),
+    );
+    this._emitOutputFieldsChange();
+  }
+
+  private _emitOutputFieldsChange(): void {
+    if (this.emitting) return;
+    this.emitting = true;
+    const node = { ...this.node, config: { ...this.node.config, output_fields: this.outputFields() } };
+    this.configChanged.emit(node);
+    this.emitting = false;
+  }
+
 
   get hasOutput(): boolean {
     return (
@@ -2322,7 +2550,10 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       this.node.type === 'webhook' ||
       this.node.type === 'servicenow' ||
       this.node.type === 'data_transform' ||
-      this.node.type === 'format_report'
+      this.node.type === 'format_report' ||
+      this.node.type === 'trigger_backup' ||
+      this.node.type === 'restore_backup' ||
+      this.node.type === 'compare_backups'
     );
   }
 
@@ -2330,11 +2561,18 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
     const t = this.node.type;
     if (this.isApiAction) return 'output.status_code, output.body';
     if (this.isDeviceUtilAction) return 'output.status, output.device_type, output.function, output.data';
-    if (this.isAiAgentAction) return 'output.status, output.result, output.tool_calls, output.iterations';
+    if (this.isAiAgentAction) {
+      const base = 'output.status, output.result, output.tool_calls, output.iterations';
+      const custom = this.outputFields().filter((f) => f.name).map((f) => `output.${f.name}`);
+      return custom.length > 0 ? `${base}, ${custom.join(', ')}` : base;
+    }
     if (t === 'webhook') return 'output.status_code, output.response';
     if (t === 'servicenow') return 'output.status_code, output.response';
     if (t === 'data_transform') return 'output.rows, output.columns, output.row_count';
     if (t === 'format_report') return 'output.report, output.format, output.row_count';
+    if (t === 'trigger_backup') return 'output.backup_id, output.status, output.object_count';
+    if (t === 'restore_backup') return 'output.status, output.version_id, output.result';
+    if (t === 'compare_backups') return 'output.differences, output.added_count, output.removed_count, output.modified_count';
     return '';
   }
 

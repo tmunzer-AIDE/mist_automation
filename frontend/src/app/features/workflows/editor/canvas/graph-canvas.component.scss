@@ -25,6 +25,13 @@
     text-align: center;
     color: var(--mat-sys-on-surface-variant, #666);
   }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--mat-sys-outline-variant, #e0e0e0);
+    margin: 0 4px;
+  }
 }
 
 .graph-canvas {
@@ -208,5 +215,32 @@
     r: 12;
     opacity: 0;
   }
+}
+
+// ── Edge insert "+" button ──────────────────────────────────────────────
+
+.edge-insert-btn {
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  pointer-events: none;
+
+  .insert-btn-bg {
+    fill: var(--app-canvas-selected, #42a5f5);
+    stroke: var(--app-canvas-selected, #42a5f5);
+    stroke-width: 1.5;
+  }
+
+  .insert-btn-line {
+    stroke: #fff;
+    stroke-width: 2;
+    stroke-linecap: round;
+    pointer-events: none;
+  }
+}
+
+.edge-group:hover .edge-insert-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 

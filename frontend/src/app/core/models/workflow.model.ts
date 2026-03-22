@@ -22,7 +22,10 @@ export type ActionType =
   | 'subflow_output'
   | 'device_utils'
   | 'ai_agent'
-  | 'wait_for_callback';
+  | 'wait_for_callback'
+  | 'trigger_backup'
+  | 'restore_backup'
+  | 'compare_backups';
 export type WorkflowType = 'standard' | 'subflow';
 
 export interface DeviceUtilParam {
@@ -150,9 +153,35 @@ export interface WorkflowResponse {
   execution_count: number;
   success_count: number;
   failure_count: number;
+  active_windows: AggregationWindowSummary[];
   last_execution: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AggregationWindowSummary {
+  window_id: string;
+  group_key: string;
+  event_count: number;
+  site_id: string | null;
+  site_name: string | null;
+  window_end: string;
+  window_seconds: number;
+}
+
+export interface AggregationWsMessage {
+  type: 'aggregation_updated' | 'aggregation_fired';
+  data: {
+    window_id: string;
+    workflow_id: string;
+    group_key: string;
+    status: string;
+    event_count: number;
+    site_id: string | null;
+    site_name: string | null;
+    window_end: string;
+    window_seconds: number;
+  };
 }
 
 export interface SubflowSchemaResponse {

@@ -55,6 +55,8 @@ class WorkflowResponse(BaseModel):
     execution_count: int = Field(..., description="Total executions")
     success_count: int = Field(..., description="Successful executions")
     failure_count: int = Field(..., description="Failed executions")
+    active_windows: list[dict[str, Any]] = Field(default_factory=list, description="Active aggregation windows")
+    last_execution: datetime | None = Field(None, description="Last execution timestamp")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

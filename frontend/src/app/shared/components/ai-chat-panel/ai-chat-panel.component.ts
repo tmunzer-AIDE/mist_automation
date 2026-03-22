@@ -15,10 +15,13 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
+import { RestoreDiffCardComponent, RestoreDiffData } from './restore-diff-card.component';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { Subscription } from 'rxjs';
+import { McpConfigAvailable } from '../../../core/models/llm.model';
 import { LlmService } from '../../../core/services/llm.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { extractErrorMessage } from '../../utils/error.utils';
@@ -37,7 +40,7 @@ function renderMarkdown(md: string): string {
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
-  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, AiIconComponent],
+  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, AiIconComponent, RestoreDiffCardComponent],
   template: `
     <div class="ai-chat-panel">
       <div class="chat-messages" #chatMessages>
@@ -89,20 +92,29 @@ function renderMarkdown(md: string): string {
           </div>
         }
 
-        @if (pendingElicitation()) {
-          <div class="elicitation-card">
-            <div class="elicitation-icon">
-              <mat-icon>verified_user</mat-icon>
-            </div>
-            <div class="elicitation-body">
-              <div class="elicitation-label">Tool confirmation</div>
-              <div class="elicitation-desc">{{ pendingElicitation()!.description }}</div>
-              <div class="elicitation-actions">
-                <button mat-flat-button color="primary" (click)="respondElicitation(true)">Accept</button>
-                <button mat-stroked-button (click)="respondElicitation(false)">Decline</button>
+        @if (pendingElicitation(); as elicit) {
+          @if (elicit.elicitationType === 'restore_confirm' && elicit.data) {
+            <app-restore-diff-card
+              [data]="elicit.data"
+              [description]="elicit.description"
+              (accepted)="respondElicitation(true)"
+              (declined)="respondElicitation(false)"
+            />
+          } @else {
+            <div class="elicitation-card">
+              <div class="elicitation-icon">
+                <mat-icon>verified_user</mat-icon>
+              </div>
+              <div class="elicitation-body">
+                <div class="elicitation-label">Tool confirmation</div>
+                <div class="elicitation-desc">{{ elicit.description }}</div>
+                <div class="elicitation-actions">
+                  <button mat-flat-button color="primary" (click)="respondElicitation(true)">Accept</button>
+                  <button mat-stroked-button (click)="respondElicitation(false)">Decline</button>
+                </div>
               </div>
             </div>
-          </div>
+          }
         }
 
         @if (error()) {
@@ -115,21 +127,32 @@ function renderMarkdown(md: string): string {
 
       @if (threadId()) {
         <div class="chat-input-container">
-          <textarea
-            class="chat-textarea"
-            rows="1"
-            [formControl]="followUpText"
-            placeholder="Ask a follow-up question..."
-            (keydown.enter)="onEnter($event)"
-            (input)="autoGrow($event)"
-          ></textarea>
-          <button
-            class="send-button"
-            (click)="sendFollowUp()"
-            [disabled]="isLoading() || !followUpText.value?.trim()"
-          >
-            <mat-icon>arrow_upward</mat-icon>
-          </button>
+          <div class="chat-input-box">
+            <textarea
+              class="chat-textarea"
+              rows="1"
+              [formControl]="followUpText"
+              placeholder="Ask a follow-up question..."
+              (keydown.enter)="onEnter($event)"
+              (input)="autoGrow($event)"
+            ></textarea>
+            <div class="chat-input-actions">
+              @if (mcpConfigs().length > 0) {
+                <div class="mcp-indicator" [matTooltip]="mcpTooltip()">
+                  <mat-icon>hub</mat-icon>
+                  <span>{{ mcpConfigs().length }}</span>
+                </div>
+              }
+              <span class="spacer"></span>
+              <button
+                class="send-button"
+                (click)="sendFollowUp()"
+                [disabled]="isLoading() || !followUpText.value?.trim()"
+              >
+                <mat-icon>arrow_upward</mat-icon>
+              </button>
+            </div>
+          </div>
         </div>
       }
     </div>
@@ -160,7 +183,23 @@ function renderMarkdown(md: string): string {
         flex: 1;
         overflow-y: auto;
         padding: 16px;
-        border-radius: inherit;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
+
+        &::-webkit-scrollbar {
+          width: 6px;
+        }
+        &::-webkit-scrollbar-track {
+          background: transparent;
+          margin: 8px 0;
+        }
+        &::-webkit-scrollbar-thumb {
+          background: rgba(128, 128, 128, 0.3);
+          border-radius: 3px;
+        }
+        &::-webkit-scrollbar-thumb:hover {
+          background: rgba(128, 128, 128, 0.5);
+        }
       }
 
       .loading-hint {
@@ -421,33 +460,57 @@ function renderMarkdown(md: string): string {
       }
 
       .chat-input-container {
-        display: flex;
-        align-items: center;
-        gap: 8px;
         padding: 12px 16px;
         border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
         flex-shrink: 0;
       }
 
-      .chat-textarea {
-        flex: 1;
-        margin: 0;
-        box-sizing: border-box;
+      .chat-input-box {
         border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
         border-radius: 20px;
-        padding: 10px 16px;
+        background: var(--mat-sys-surface-container, #f5f5f5);
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+        &:focus-within {
+          border-color: var(--mat-sys-primary, #1976d2);
+          box-shadow: 0 0 0 1px var(--mat-sys-primary, #1976d2);
+        }
+      }
+
+      .chat-textarea {
+        width: 100%;
+        margin: 0;
+        box-sizing: border-box;
+        border: none;
+        padding: 8px 12px;
         font: inherit;
         font-size: 14px;
         line-height: 1.5;
         resize: none;
         overflow-y: auto;
-        background: var(--mat-sys-surface-container, #f5f5f5);
+        background: transparent;
         color: var(--mat-sys-on-surface, inherit);
         outline: none;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
 
-        &:focus {
-          border-color: var(--mat-sys-primary, #1976d2);
-          box-shadow: 0 0 0 1px var(--mat-sys-primary, #1976d2);
+        &::-webkit-scrollbar {
+          width: 6px;
+        }
+        &::-webkit-scrollbar-track {
+          background: transparent;
+          margin: 4px 0;
+        }
+        &::-webkit-scrollbar-thumb {
+          background: rgba(128, 128, 128, 0.3);
+          border-radius: 3px;
+        }
+        &::-webkit-scrollbar-thumb:hover {
+          background: rgba(128, 128, 128, 0.5);
         }
 
         &:disabled {
@@ -458,6 +521,33 @@ function renderMarkdown(md: string): string {
         &::placeholder {
           color: var(--app-neutral);
         }
+      }
+
+      .chat-input-actions {
+        display: flex;
+        align-items: center;
+        padding: 0 4px;
+      }
+
+      .mcp-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--app-neutral);
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 12px;
+        background: var(--mat-sys-surface-container-high, rgba(0, 0, 0, 0.04));
+
+        mat-icon {
+          font-size: 14px;
+          width: 14px;
+          height: 14px;
+        }
+      }
+
+      .spacer {
+        flex: 1;
       }
 
       .send-button {
@@ -512,6 +602,9 @@ export class AiChatPanelComponent {
   /** Pre-loaded messages (for loading existing threads). Takes priority over initialSummary. */
   initialMessages = input<ChatMessage[]>([]);
 
+  /** Active MCP server configs for this thread (read-only indicator) */
+  mcpConfigs = input<McpConfigAvailable[]>([]);
+
   /** Emits when a follow-up is sent */
   followUpSent = output<void>();
 
@@ -524,10 +617,19 @@ export class AiChatPanelComponent {
   messages = signal<ChatMessage[]>([]);
   loading = signal(false);
   error = signal<string | null>(null);
-  pendingElicitation = signal<{ requestId: string; description: string } | null>(null);
+  pendingElicitation = signal<{
+    requestId: string;
+    description: string;
+    elicitationType?: string;
+    data?: RestoreDiffData;
+  } | null>(null);
   followUpText = new FormControl('');
 
   isLoading = computed(() => this.loading() || this.parentLoading());
+  mcpTooltip = computed(() => {
+    const names = this.mcpConfigs().map((c) => c.name);
+    return names.length ? 'MCP: ' + names.join(', ') : '';
+  });
 
   constructor() {
     // Disable/enable textarea based on loading state
@@ -547,19 +649,17 @@ export class AiChatPanelComponent {
         this.scrollToBottom();
       }
     });
-    // Load pre-existing messages (thread history)
+    // Load pre-existing messages (thread history) or clear on reset
     effect(() => {
       const msgs = this.initialMessages();
-      if (msgs.length > 0) {
-        this.streamSub?.unsubscribe();
-        this.streamSub = null;
-        this.loading.set(false);
-        this.error.set(null);
-        this.pendingElicitation.set(null);
-        this.followUpText.reset();
-        this.messages.set(msgs);
-        this.scrollToBottom();
-      }
+      this.streamSub?.unsubscribe();
+      this.streamSub = null;
+      this.loading.set(false);
+      this.error.set(null);
+      this.pendingElicitation.set(null);
+      this.followUpText.reset();
+      this.messages.set(msgs);
+      if (msgs.length > 0) this.scrollToBottom();
     });
     effect(() => {
       this.error.set(this.errorMessage());
@@ -600,7 +700,14 @@ export class AiChatPanelComponent {
 
     this.streamSub?.unsubscribe();
     this.streamSub = this.wsService
-      .subscribe<{ type: string; content?: string; request_id?: string; description?: string }>(channel)
+      .subscribe<{
+        type: string;
+        content?: string;
+        request_id?: string;
+        description?: string;
+        elicitation_type?: string;
+        data?: RestoreDiffData;
+      }>(channel)
       .subscribe((msg) => {
         if (msg.type === 'token') {
           streamedContent += msg.content ?? '';
@@ -613,7 +720,12 @@ export class AiChatPanelComponent {
           });
           this.scrollToBottom();
         } else if (msg.type === 'elicitation' && msg.request_id && msg.description) {
-          this.pendingElicitation.set({ requestId: msg.request_id, description: msg.description });
+          this.pendingElicitation.set({
+            requestId: msg.request_id,
+            description: msg.description,
+            elicitationType: msg.elicitation_type,
+            data: msg.data,
+          });
           this.scrollToBottom();
         } else if (msg.type === 'done') {
           this.streamSub?.unsubscribe();

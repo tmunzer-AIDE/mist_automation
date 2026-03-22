@@ -64,6 +64,7 @@ MODULES: list[AppModule] = [
             ("app.modules.automation.models.execution", "WorkflowExecution"),
             ("app.modules.automation.models.webhook", "WebhookEvent"),
             ("app.modules.automation.models.aggregation", "AggregationWindow"),
+            ("app.modules.automation.models.recipe", "WorkflowRecipe"),
         ],
         tags=["Workflows"],
     ),

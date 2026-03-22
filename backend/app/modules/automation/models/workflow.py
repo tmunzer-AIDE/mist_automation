@@ -54,6 +54,9 @@ class ActionType(str, Enum):
     SUBFLOW_OUTPUT = "subflow_output"
     DEVICE_UTILS = "device_utils"
     AI_AGENT = "ai_agent"
+    TRIGGER_BACKUP = "trigger_backup"
+    RESTORE_BACKUP = "restore_backup"
+    COMPARE_BACKUPS = "compare_backups"
 
 
 class SubflowParameter(BaseModel):

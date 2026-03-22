@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import get_current_user_from_token, require_admin, require_automation_role, require_backup_role
 from app.models.user import User
+from app.modules.llm.services.llm_service_factory import _LOCAL_PROVIDERS
 from fastapi import Query
 
 from app.modules.llm.schemas import (
@@ -339,7 +340,7 @@ async def test_connection_anonymous(
     from app.modules.llm.services.llm_service_factory import _default_model
 
     api_key = await _resolve_api_key(request.api_key, request.config_id)
-    if request.base_url:
+    if request.base_url and request.provider not in _LOCAL_PROVIDERS:
         from app.utils.url_safety import validate_outbound_url
 
         validate_outbound_url(request.base_url)
@@ -363,7 +364,7 @@ async def discover_models_anonymous(
     _current_user: User = Depends(require_admin),
 ):
     """Discover available models with unsaved config values."""
-    if request.base_url:
+    if request.base_url and request.provider not in _LOCAL_PROVIDERS:
         from app.utils.url_safety import validate_outbound_url
 
         validate_outbound_url(request.base_url)
@@ -401,7 +402,7 @@ async def list_config_models(
     if not cfg.api_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API key not configured")
 
-    if cfg.base_url:
+    if cfg.base_url and cfg.provider not in _LOCAL_PROVIDERS:
         from app.utils.url_safety import validate_outbound_url
 
         validate_outbound_url(cfg.base_url)
@@ -1210,13 +1211,19 @@ async def global_chat(
     _check_llm_rate_limit(str(current_user.id))
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
-    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt, build_global_chat_system_prompt
+    from app.modules.llm.services.prompt_builders import (
+        _sanitize_for_prompt,
+        build_global_chat_system_prompt,
+        build_workflow_editor_context,
+    )
 
     llm = await create_llm_service()
     system_prompt = build_global_chat_system_prompt(current_user.roles)
     safe_ctx = _sanitize_for_prompt(request.page_context, max_len=2000) if request.page_context else None
     if safe_ctx:
         system_prompt += f"\n\nCurrent UI context:\n{safe_ctx}"
+        if "Workflow Editor" in safe_ctx:
+            system_prompt += build_workflow_editor_context()
 
     # Load or create thread
     thread = await _load_or_create_thread(request.thread_id, current_user.id, "global_chat", [])

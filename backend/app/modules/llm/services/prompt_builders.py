@@ -78,6 +78,44 @@ def build_backup_summary_prompt(
     ]
 
 
+def build_workflow_editor_context() -> str:
+    """Return workflow variable syntax reference for the global chat system prompt.
+
+    Appended when the user is on the Workflow Editor page so the LLM gives
+    correct advice about Jinja2 variable paths.
+    """
+    return (
+        "\n\nWorkflow variable syntax — ALWAYS use this when helping with workflow configuration:\n"
+        "\n## Standard webhooks (trigger_type: webhook)\n"
+        "{{ trigger }} is a SINGLE pre-processed event object (NOT the raw Mist payload array).\n"
+        "Common fields: {{ trigger.org_id }}, {{ trigger.site_id }}, {{ trigger.type }}, "
+        "{{ trigger.device_name }}, {{ trigger.mac }}, {{ trigger.timestamp }}.\n"
+        "Field availability depends on webhook_topic:\n"
+        "- alarms: type, severity, reason, device_name, device_type\n"
+        "- audits: admin_name, message, src_ip\n"
+        "- device-events: type (AP_CONFIGURED, SW_CONFIGURED, etc.), device_name, mac, text, reason\n"
+        "- device-updowns: type (AP_CONNECTED, AP_DISCONNECTED, etc.), device_name, mac\n"
+        "- client-events: type, mac, ssid, ap\n"
+        "\n## Aggregated webhooks (trigger_type: aggregated_webhook)\n"
+        "Events are buffered over a time window, then fired together.\n"
+        "- {{ trigger.aggregation.event_count }} — number of events in window\n"
+        "- {{ trigger.aggregation.site_id }}, {{ trigger.aggregation.site_name }} — from first event\n"
+        "- {{ trigger.aggregation.window_seconds }} — window duration\n"
+        "- {{ trigger.events }} — array of all buffered events (use with for_each node)\n"
+        "- {{ trigger.events[0].device_name }} — individual event access\n"
+        "- {{ trigger.first_event.* }}, {{ trigger.last_event.* }} — shortcuts to first/last\n"
+        "Each event has: event_type, device_name, device_mac, site_name, org_name, payload (full original data).\n"
+        "Opening/closing pairs: AP_DISCONNECTED→AP_CONNECTED, SW_DISCONNECTED→SW_CONNECTED, etc. "
+        "Closing events remove devices from the buffer.\n"
+        "\n## Node outputs\n"
+        "- {{ nodes.NodeName.body.field }} — Mist API response body\n"
+        "- {{ nodes.NodeName.status_code }} — HTTP status code\n"
+        "- {{ results.var_name }} — variables set by set_variable nodes\n"
+        "\nNode names with spaces use underscores: \"Check Status\" → {{ nodes.Check_Status.body }}.\n"
+        "ALWAYS use {{ }} Jinja2 syntax. NEVER use payload.* — it does not exist."
+    )
+
+
 _KNOWN_ROLES = {"admin", "automation", "backup", "reports"}
 
 
@@ -92,7 +130,9 @@ def build_global_chat_system_prompt(user_roles: list[str]) -> str:
         f"The current user has roles: {roles}. "
         "Use the available tools to look up data before answering. "
         "Be concise and precise. Format data as markdown tables when appropriate. "
-        "Do not guess — if you are unsure, use a tool to verify."
+        "Do not guess — if you are unsure, use a tool to verify. "
+        "To restore a backup, use backup(action='restore', version_id=...) — "
+        "this automatically shows the user a diff and asks for confirmation before restoring."
     )
 
 

@@ -12,14 +12,54 @@ from pydantic import Field
 from app.modules.mcp_server.helpers import to_json
 from app.modules.mcp_server.server import mcp
 
+# Per-type mapping from generic sort names to MongoDB field names.
+_SORT_FIELDS: dict[str, dict[str, str]] = {
+    "backup_objects": {
+        "name": "object_name",
+        "date": "last_modified_at",
+        "status": "is_deleted",
+        "type": "object_type",
+    },
+    "workflows": {
+        "name": "name",
+        "date": "updated_at",
+        "status": "status",
+        "type": "workflow_type",
+    },
+    "executions": {
+        "name": "workflow_name",
+        "date": "started_at",
+        "status": "status",
+        "type": "trigger_type",
+    },
+    "webhook_events": {
+        "name": "device_name",
+        "date": "received_at",
+        "status": "processed",
+        "type": "webhook_topic",
+    },
+    "reports": {
+        "name": "site_name",
+        "date": "created_at",
+        "status": "status",
+        "type": "report_type",
+    },
+}
+
+
+def _resolve_sort(search_type: str, sort_by: str, sort_order: str) -> dict[str, int]:
+    """Resolve generic sort params to a MongoDB $sort dict."""
+    fields = _SORT_FIELDS.get(search_type, {})
+    field = fields.get(sort_by, fields.get("date", "created_at"))
+    direction = 1 if sort_order == "asc" else -1
+    return {field: direction}
+
 
 async def _paginated_query(
     model: type[Document], pipeline: list[dict[str, Any]], skip: int, limit: int
 ) -> tuple[int, list[dict]]:
     """Run a MongoDB aggregation with $facet pagination and return (total, items)."""
-    faceted = pipeline + [
-        {"$facet": {"total": [{"$count": "n"}], "items": [{"$skip": skip}, {"$limit": limit}]}}
-    ]
+    faceted = pipeline + [{"$facet": {"total": [{"$count": "n"}], "items": [{"$skip": skip}, {"$limit": limit}]}}]
     results = await model.aggregate(faceted).to_list()
     row = results[0] if results else {}
     total = row.get("total", [{}])[0].get("n", 0) if row.get("total") else 0
@@ -76,10 +116,26 @@ async def search(
     ] = "",
     hours: Annotated[
         int,
-        Field(description="Time window in hours. Filters webhook_events by received_at (default 24h if omitted). Set 0 to disable.", ge=0),
+        Field(
+            description="Time window in hours. Filters webhook_events by received_at (default 24h if omitted). Set 0 to disable.",
+            ge=0,
+        ),
     ] = 0,
     skip: Annotated[int, Field(description="Number of results to skip for pagination.", ge=0)] = 0,
     limit: Annotated[int, Field(description="Max results to return (1-25).", ge=1, le=25)] = 10,
+    sort_by: Annotated[
+        str,
+        Field(
+            description=(
+                "Field to sort results by. "
+                "One of: 'name', 'date', 'status', 'type'. Default 'date' (most recent first)."
+            ),
+        ),
+    ] = "date",
+    sort_order: Annotated[
+        str,
+        Field(description="Sort direction: 'asc' (ascending) or 'desc' (descending). Default 'desc'."),
+    ] = "desc",
 ) -> str:
     """Search across the platform: find backup objects, workflows, executions, webhook events, or reports.
 
@@ -100,6 +156,8 @@ async def search(
     if not handler:
         return to_json({"error": f"Unknown type '{type}'. Use: {', '.join(dispatchers)}"})
 
+    sort = _resolve_sort(type, sort_by, sort_order)
+
     return await handler(
         query=query,
         object_type=object_type,
@@ -109,10 +167,13 @@ async def search(
         hours=hours,
         skip=skip,
         limit=limit,
+        sort=sort,
     )
 
 
-async def _search_backup_objects(*, query: str, object_type: str, site_id: str, status: str, **_kwargs) -> str:
+async def _search_backup_objects(
+    *, query: str, object_type: str, site_id: str, status: str, sort: dict[str, int], **_kwargs
+) -> str:
     from app.modules.backup.models import BackupObject
 
     match: dict = {}
@@ -146,10 +207,10 @@ async def _search_backup_objects(*, query: str, object_type: str, site_id: str, 
                 "is_deleted": {"$first": "$is_deleted"},
                 "version_count": {"$sum": 1},
                 "latest_version": {"$first": "$version"},
-                "last_backed_up_at": {"$first": "$backed_up_at"},
+                "last_modified_at": {"$first": "$last_modified_at"},
             }
         },
-        {"$sort": {"last_backed_up_at": -1}},
+        {"$sort": sort},
     ]
 
     total, items = await _paginated_query(BackupObject, pipeline, skip, limit)
@@ -163,7 +224,7 @@ async def _search_backup_objects(*, query: str, object_type: str, site_id: str, 
                     "type": item.get("object_type", ""),
                     "status": "deleted" if item.get("is_deleted") else "active",
                     "summary": f"v{item.get('latest_version', 0)}, {item.get('version_count', 0)} versions",
-                    "date": item.get("last_backed_up_at"),
+                    "date": item.get("last_modified_at"),
                 }
                 for item in items
             ],
@@ -172,7 +233,7 @@ async def _search_backup_objects(*, query: str, object_type: str, site_id: str, 
     )
 
 
-async def _search_workflows(*, query: str, status: str, **_kwargs) -> str:
+async def _search_workflows(*, query: str, status: str, sort: dict[str, int], **_kwargs) -> str:
     from app.modules.automation.models.workflow import Workflow
 
     match: dict = {}
@@ -184,7 +245,7 @@ async def _search_workflows(*, query: str, status: str, **_kwargs) -> str:
     skip = _kwargs.get("skip", 0)
     limit = _kwargs.get("limit", 10)
 
-    pipeline = [{"$match": match}, {"$sort": {"updated_at": -1}}]
+    pipeline = [{"$match": match}, {"$sort": sort}]
     total, items = await _paginated_query(Workflow, pipeline, skip, limit)
 
     return to_json(
@@ -205,7 +266,7 @@ async def _search_workflows(*, query: str, status: str, **_kwargs) -> str:
     )
 
 
-async def _search_executions(*, query: str, status: str, hours: int, **_kwargs) -> str:
+async def _search_executions(*, query: str, status: str, hours: int, sort: dict[str, int], **_kwargs) -> str:
     from app.modules.automation.models.execution import WorkflowExecution
 
     match: dict = {"is_simulation": False}
@@ -220,7 +281,7 @@ async def _search_executions(*, query: str, status: str, hours: int, **_kwargs) 
     skip = _kwargs.get("skip", 0)
     limit = _kwargs.get("limit", 10)
 
-    pipeline = [{"$match": match}, {"$sort": {"started_at": -1}}]
+    pipeline = [{"$match": match}, {"$sort": sort}]
     total, items = await _paginated_query(WorkflowExecution, pipeline, skip, limit)
 
     return to_json(
@@ -241,7 +302,9 @@ async def _search_executions(*, query: str, status: str, hours: int, **_kwargs) 
     )
 
 
-async def _search_webhook_events(*, query: str, site_id: str, event_type: str, hours: int, **_kwargs) -> str:
+async def _search_webhook_events(
+    *, query: str, site_id: str, event_type: str, hours: int, sort: dict[str, int], **_kwargs
+) -> str:
     from app.modules.automation.models.webhook import WebhookEvent
 
     match: dict = {}
@@ -261,7 +324,7 @@ async def _search_webhook_events(*, query: str, site_id: str, event_type: str, h
     skip = _kwargs.get("skip", 0)
     limit = _kwargs.get("limit", 10)
 
-    pipeline = [{"$match": match}, {"$sort": {"received_at": -1}}]
+    pipeline = [{"$match": match}, {"$sort": sort}]
     total, items = await _paginated_query(WebhookEvent, pipeline, skip, limit)
 
     return to_json(
@@ -282,7 +345,7 @@ async def _search_webhook_events(*, query: str, site_id: str, event_type: str, h
     )
 
 
-async def _search_reports(*, query: str, site_id: str, status: str, **_kwargs) -> str:
+async def _search_reports(*, query: str, site_id: str, status: str, sort: dict[str, int], **_kwargs) -> str:
     from app.modules.reports.models import ReportJob
 
     match: dict = {}
@@ -296,7 +359,7 @@ async def _search_reports(*, query: str, site_id: str, status: str, **_kwargs) -
     skip = _kwargs.get("skip", 0)
     limit = _kwargs.get("limit", 10)
 
-    pipeline = [{"$match": match}, {"$sort": {"created_at": -1}}]
+    pipeline = [{"$match": match}, {"$sort": sort}]
     total, items = await _paginated_query(ReportJob, pipeline, skip, limit)
 
     return to_json(

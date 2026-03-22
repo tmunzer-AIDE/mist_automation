@@ -4,22 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+All commands below must be run from `backend/` using the virtual environment at `.venv/`:
+
 ```bash
-python -m app.main                    # Dev server with auto-reload at http://localhost:8000
-pip install -e ".[dev,test]"          # Install with dev + test dependencies
+# Activate venv (or prefix commands with .venv/bin/)
+source .venv/bin/activate
+
+.venv/bin/python -m app.main          # Dev server with auto-reload at http://localhost:8000
+.venv/bin/pip install -e ".[dev,test]" # Install with dev + test dependencies
 
 # Testing
-pytest                                # All tests with coverage (asyncio_mode=auto, --cov=app)
-pytest tests/unit/test_security.py    # Single test file
-pytest -k "test_substitute"           # Run tests matching name pattern
-pytest -m "unit"                      # Only unit tests
-pytest -m "integration"               # Only integration tests
+.venv/bin/pytest                                # All tests with coverage (asyncio_mode=auto, --cov=app)
+.venv/bin/pytest tests/unit/test_security.py    # Single test file
+.venv/bin/pytest -k "test_substitute"           # Run tests matching name pattern
+.venv/bin/pytest -m "unit"                      # Only unit tests
+.venv/bin/pytest -m "integration"               # Only integration tests
 
 # Code quality
-black .                               # Format (120 char lines)
-ruff check .                          # Lint (E, W, F, I, B, C4, UP rules)
-ruff check --fix .                    # Lint with auto-fix
-mypy app                              # Type check (pydantic plugin enabled)
+.venv/bin/black .                               # Format (120 char lines)
+.venv/bin/ruff check .                          # Lint (E, W, F, I, B, C4, UP rules)
+.venv/bin/ruff check --fix .                    # Lint with auto-fix
+.venv/bin/mypy app                              # Type check (pydantic plugin enabled)
 ```
 
 ## Architecture

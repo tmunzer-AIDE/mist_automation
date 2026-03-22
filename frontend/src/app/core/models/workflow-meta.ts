@@ -27,6 +27,9 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   device_utils: { label: 'Device Utility', icon: 'terminal', color: '#00897b' },
   ai_agent: { label: 'AI Agent', icon: 'smart_toy', color: '#7c4dff' },
   wait_for_callback: { label: 'Wait for Callback', icon: 'hourglass_top', color: '#f4511e' },
+  trigger_backup: { label: 'Trigger Backup', icon: 'backup', color: '#00897b' },
+  restore_backup: { label: 'Restore Backup', icon: 'restore', color: '#e65100' },
+  compare_backups: { label: 'Compare Backups', icon: 'compare_arrows', color: '#5e35b1' },
 };
 
 export const DEFAULT_ACTION_META: ActionMeta = {

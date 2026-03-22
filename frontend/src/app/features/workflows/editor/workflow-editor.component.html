@@ -10,6 +10,15 @@
   }
   @if (workflowId()) {
     <span class="status-chip" [ngClass]="statusChipClass()">{{ workflowStatus() }}</span>
+    @if (activeWindows().length > 0) {
+      <span
+        class="status-chip status-collecting"
+        [matTooltip]="'Buffering ' + totalBufferedEvents() + ' event(s) across ' + activeWindows().length + ' window(s)'"
+      >
+        <mat-icon class="chip-icon">hourglass_top</mat-icon>
+        {{ totalBufferedEvents() }} buffering
+      </span>
+    }
     <button mat-icon-button (click)="toggleStatus()" [matTooltip]="workflowStatus() === 'enabled' ? 'Disable' : 'Enable'">
       <mat-icon>{{ workflowStatus() === 'enabled' ? 'toggle_on' : 'toggle_off' }}</mat-icon>
     </button>
@@ -63,6 +72,10 @@
         (edgeRemoved)="onEdgeRemoved($event)"
         (canvasDropped)="onCanvasDropped($event)"
         (viewportChanged)="onViewportChanged($event)"
+        (undoRequested)="undo()"
+        (redoRequested)="redo()"
+        (insertNodeOnEdge)="onInsertNodeOnEdge($event)"
+        (nodesPasted)="onNodesPasted($event)"
       />
 
       <!-- Bottom: Simulation panel -->
@@ -77,8 +90,19 @@
       />
     </div>
 
+    <!-- Right: Placeholder wizard (after recipe instantiation) -->
+    @if (pendingPlaceholders().length > 0) {
+      <div class="config-panel-container" [style.width.px]="configPanelWidth()">
+        <app-placeholder-wizard
+          [placeholders]="pendingPlaceholders()"
+          (placeholderFilled)="onPlaceholderFilled($event)"
+          (completed)="onPlaceholderWizardCompleted()"
+        />
+      </div>
+    }
+
     <!-- Right: Resizable config panel (when a node is selected) -->
-    @if (selectedNode()) {
+    @if (!pendingPlaceholders().length && selectedNode()) {
       <div class="config-panel-container" [style.width.px]="configPanelWidth()">
         <div class="resize-handle" (mousedown)="onResizeStart($event)"></div>
         <div class="config-panel-header-actions">

@@ -1,23 +1,27 @@
 """
 Backup tool — consolidated backup operations with action dispatch.
 
-Actions: object_info, version_detail, compare, trigger.
+Actions: object_info, version_detail, compare, trigger, restore.
 """
 
 from typing import Annotated, Any
 
+import structlog
 from fastmcp import Context
 from pydantic import Field
 
 from app.modules.mcp_server.helpers import (
     cap_list,
     elicit_confirmation,
+    elicit_restore_confirmation,
     extract_fields,
     prune_config,
     to_json,
     truncate_value,
 )
 from app.modules.mcp_server.server import mcp
+
+logger = structlog.get_logger(__name__)
 
 
 @mcp.tool()
@@ -37,7 +41,11 @@ async def backup(
                 "Requires: version_id_1, version_id_2 (MongoDB document IDs from object_info).\n"
                 "- 'trigger': Start a backup job (asks user for confirmation). "
                 "Requires: backup_type ('full' or 'manual'). "
-                "For manual: also requires object_type (e.g. 'org:wlans', 'site:devices')."
+                "For manual: also requires object_type (e.g. 'org:wlans', 'site:devices').\n"
+                "- 'restore': Restore an object to a specific backup version. "
+                "Automatically shows the user a diff of what will change and asks for confirmation. "
+                "Requires: version_id (MongoDB document ID or version number). "
+                "If using a version number, also provide object_id (Mist UUID)."
             ),
         ),
     ],
@@ -47,7 +55,7 @@ async def backup(
     ] = "",
     version_id: Annotated[
         str,
-        Field(description="MongoDB document ID of a specific backup version. Used by action='version_detail'. Get this from the 'versions' array in object_info results."),
+        Field(description="Backup version identifier. Used by action='version_detail' and action='restore'. Can be a MongoDB document ID (from 'version_id' in object_info results) or a version number (requires object_id too)."),
     ] = "",
     version_id_1: Annotated[
         str,
@@ -88,6 +96,7 @@ async def backup(
         "version_detail": _version_detail,
         "compare": _compare,
         "trigger": _trigger,
+        "restore": _restore,
     }
 
     handler = dispatchers.get(action)
@@ -310,3 +319,151 @@ async def _trigger(
     return to_json(
         {"backup_type": backup_type, "status": "started", "message": "Backup started in background."}
     )
+
+
+async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwargs) -> str:
+    """Restore an object to a specific backup version with auto-diff elicitation."""
+    from beanie import PydanticObjectId
+
+    from app.models.user import User
+    from app.modules.backup.models import BackupObject
+    from app.modules.backup.utils import deep_diff
+    from app.modules.mcp_server.server import mcp_user_id_var
+
+    if not version_id:
+        return to_json({"error": "version_id is required for action=restore"})
+
+    # Enforce backup role (mirrors REST API require_backup_role)
+    user_id = mcp_user_id_var.get()
+    if not user_id:
+        return to_json({"error": "Access denied: user context not available"})
+    user = await User.get(PydanticObjectId(user_id))
+    if not user or not ("backup" in user.roles or "admin" in user.roles):
+        return to_json({"error": "Access denied: backup role required"})
+
+    # Load target version — accept either MongoDB ObjectId or version number
+    target = None
+    try:
+        target = await BackupObject.get(PydanticObjectId(version_id))
+    except Exception:
+        # Not a valid ObjectId — try as a version number with object_id
+        try:
+            version_num = int(version_id)
+            if object_id:
+                target = await BackupObject.find_one(
+                    BackupObject.object_id == object_id,
+                    BackupObject.version == version_num,
+                )
+        except (ValueError, TypeError):
+            pass
+    if not target:
+        hint = " Provide either a MongoDB document ID or a version number with object_id."
+        return to_json({"error": f"Version '{version_id}' not found.{hint}"})
+
+    # Find current (latest non-deleted) version of the same object
+    current = (
+        await BackupObject.find(
+            BackupObject.object_id == target.object_id,
+            BackupObject.is_deleted == False,  # noqa: E712
+        )
+        .sort(-BackupObject.version)
+        .first_or_none()
+    )
+
+    # Compute diff
+    is_deleted = current is None
+    if is_deleted:
+        # Object was deleted — show full target config as "added"
+        diff_entries = [
+            {"path": k, "type": "added", "value": v} for k, v in (target.configuration or {}).items()
+        ]
+    else:
+        # Diff: current → target (what will change)
+        diff_entries = deep_diff(current.configuration or {}, target.configuration or {})
+
+    # Cap and truncate for the frontend payload
+    capped = diff_entries[:50]
+    for entry in capped:
+        for key in ("old", "new", "value"):
+            if key in entry:
+                entry[key] = truncate_value(entry[key], 200)
+
+    added = sum(1 for e in diff_entries if e.get("type") == "added")
+    removed = sum(1 for e in diff_entries if e.get("type") == "removed")
+    modified = sum(1 for e in diff_entries if e.get("type") == "modified")
+
+    # Create restore service once — reused for dry-run and real restore
+    from app.modules.backup.services.restore_service import RestoreService
+    from app.services.mist_service_factory import create_mist_service
+
+    restore_service = RestoreService(await create_mist_service())
+
+    # Run dry-run validation for warnings
+    warnings: list[str] = []
+    deleted_dependencies: list[dict] = []
+    deleted_children: list[dict] = []
+    try:
+        dry_run_result = await restore_service.restore_object(
+            backup_id=target.id, dry_run=True, restored_by=user.email,
+        )
+        warnings = dry_run_result.get("warnings", [])
+        deleted_dependencies = dry_run_result.get("deleted_dependencies", [])
+        deleted_children = dry_run_result.get("deleted_children", [])
+    except Exception as exc:
+        logger.warning("restore_dry_run_failed", error=str(exc))
+        warnings.append("Restore pre-validation failed")
+
+    # Build description
+    if is_deleted:
+        description = (
+            f"Restore deleted {target.object_type} '{target.object_name or target.object_id}' "
+            f"from version {target.version}? The object will be recreated."
+        )
+    elif not diff_entries:
+        description = (
+            f"Restore {target.object_type} '{target.object_name or target.object_id}' "
+            f"to version {target.version}? This version is identical to the current configuration."
+        )
+    else:
+        description = (
+            f"Restore {target.object_type} '{target.object_name or target.object_id}' "
+            f"to version {target.version}? "
+            f"{added} added, {removed} removed, {modified} modified fields."
+        )
+
+    # Send rich elicitation with diff data
+    diff_data = {
+        "object_type": target.object_type,
+        "object_name": target.object_name,
+        "object_id": target.object_id,
+        "target_version": target.version,
+        "target_version_id": str(target.id),
+        "current_version": current.version if current else None,
+        "current_version_id": str(current.id) if current else None,
+        "is_deleted": is_deleted,
+        "changes": capped,
+        "summary": {"added": added, "removed": removed, "modified": modified, "total": len(diff_entries)},
+        "warnings": warnings,
+        "deleted_dependencies": deleted_dependencies,
+        "deleted_children": deleted_children,
+    }
+
+    await elicit_restore_confirmation(ctx, description, diff_data)
+
+    # User accepted — execute restore
+    try:
+        result = await restore_service.restore_object(
+            backup_id=target.id, dry_run=False, restored_by=user.email,
+        )
+
+        return to_json({
+            "status": result.get("status", "success"),
+            "object_type": target.object_type,
+            "object_name": target.object_name,
+            "object_id": result.get("object_id", target.object_id),
+            "version_restored": target.version,
+            "message": f"Successfully restored {target.object_type} '{target.object_name}' to version {target.version}.",
+        })
+    except Exception as exc:
+        logger.error("mcp_restore_failed", error=str(exc))
+        return to_json({"error": "Restore operation failed"})

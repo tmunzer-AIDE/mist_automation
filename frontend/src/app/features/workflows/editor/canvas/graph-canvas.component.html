@@ -1,5 +1,12 @@
-<!-- Zoom controls toolbar -->
+<!-- Canvas toolbar -->
 <div class="canvas-toolbar">
+  <button mat-icon-button (click)="undoRequested.emit()" matTooltip="Undo (Ctrl+Z)">
+    <mat-icon>undo</mat-icon>
+  </button>
+  <button mat-icon-button (click)="redoRequested.emit()" matTooltip="Redo (Ctrl+Shift+Z)">
+    <mat-icon>redo</mat-icon>
+  </button>
+  <span class="toolbar-divider"></span>
   <button mat-icon-button (click)="zoomOut()" matTooltip="Zoom out">
     <mat-icon>remove</mat-icon>
   </button>
@@ -114,6 +121,31 @@
             {{ ep.edge.label }}
           </text>
         }
+        <!-- "+" insert node button at midpoint (offset below label if present) -->
+        <g class="edge-insert-btn"
+           (pointerdown)="$event.stopPropagation()"
+           (click)="onEdgeInsertClick($event, ep.edge.id, ep.midX, ep.midY)">
+          <circle
+            [attr.cx]="ep.midX"
+            [attr.cy]="ep.edge.label ? ep.midY + 12 : ep.midY"
+            r="9"
+            class="insert-btn-bg"
+          />
+          <line
+            [attr.x1]="ep.midX - 4"
+            [attr.y1]="ep.edge.label ? ep.midY + 12 : ep.midY"
+            [attr.x2]="ep.midX + 4"
+            [attr.y2]="ep.edge.label ? ep.midY + 12 : ep.midY"
+            class="insert-btn-line"
+          />
+          <line
+            [attr.x1]="ep.midX"
+            [attr.y1]="ep.edge.label ? ep.midY + 8 : ep.midY - 4"
+            [attr.x2]="ep.midX"
+            [attr.y2]="ep.edge.label ? ep.midY + 16 : ep.midY + 4"
+            class="insert-btn-line"
+          />
+        </g>
       </g>
     }
 

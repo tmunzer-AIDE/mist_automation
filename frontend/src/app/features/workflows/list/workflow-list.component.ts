@@ -1,6 +1,8 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterModule } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
+import { MatSortModule, Sort, SortDirection } from '@angular/material/sort';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -20,6 +22,7 @@ import { TopbarService } from '../../../core/services/topbar.service';
 import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { WorkflowAiDialogComponent } from './workflow-ai-dialog.component';
+import { RecipePickerDialogComponent } from './recipe-picker-dialog.component';
 
 @Component({
   selector: 'app-workflow-list',
@@ -27,6 +30,7 @@ import { WorkflowAiDialogComponent } from './workflow-ai-dialog.component';
   imports: [
     RouterModule,
     MatTableModule,
+    MatSortModule,
     MatPaginatorModule,
     MatButtonModule,
     MatIconModule,
@@ -51,6 +55,7 @@ export class WorkflowListComponent implements OnInit {
   private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
   private readonly globalChatService = inject(GlobalChatService);
+  private readonly destroyRef = inject(DestroyRef);
 
   llmAvailable = signal(false);
   workflows = signal<WorkflowResponse[]>([]);
@@ -59,13 +64,15 @@ export class WorkflowListComponent implements OnInit {
   pageIndex = signal(0);
   loading = signal(true);
   workflowTypeFilter = signal<WorkflowType | undefined>(undefined);
+  sortActive = signal('name');
+  sortDirection = signal<SortDirection>('asc');
 
   displayedColumns = ['name', 'type', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
 
   ngOnInit(): void {
     this.topbarService.setTitle('Workflows');
     this.globalChatService.setContext({ page: 'Workflow List', details: { view: 'All workflows' } });
-    this.llmService.getStatus().subscribe({
+    this.llmService.getStatus().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => this.llmAvailable.set(s.enabled),
       error: () => this.llmAvailable.set(false),
     });
@@ -80,18 +87,33 @@ export class WorkflowListComponent implements OnInit {
 
   loadWorkflows(): void {
     this.loading.set(true);
+    const sortDir = this.sortDirection() || 'asc';
     this.workflowService
-      .list(this.pageIndex() * this.pageSize(), this.pageSize(), undefined, this.workflowTypeFilter())
+      .list(
+        this.pageIndex() * this.pageSize(),
+        this.pageSize(),
+        undefined,
+        this.workflowTypeFilter(),
+        this.sortActive(),
+        sortDir
+      )
       .subscribe({
-      next: (res) => {
-        this.workflows.set(res.workflows);
-        this.total.set(res.total);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-      },
-    });
+        next: (res) => {
+          this.workflows.set(res.workflows);
+          this.total.set(res.total);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
+      });
+  }
+
+  onSort(sort: Sort): void {
+    this.sortActive.set(sort.active);
+    this.sortDirection.set(sort.direction);
+    this.pageIndex.set(0);
+    this.loadWorkflows();
   }
 
   onPage(event: PageEvent): void {
@@ -100,8 +122,16 @@ export class WorkflowListComponent implements OnInit {
     this.loadWorkflows();
   }
 
+  totalActiveEvents(wf: WorkflowResponse): number {
+    return (wf.active_windows ?? []).reduce((sum, w) => sum + w.event_count, 0);
+  }
+
   createWorkflow(): void {
-    this.router.navigate(['/workflows/new']);
+    const ref = this.dialog.open(RecipePickerDialogComponent, {
+      width: '620px',
+      maxHeight: '85vh',
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.loadWorkflows());
   }
 
   createSubflow(): void {
@@ -113,7 +143,7 @@ export class WorkflowListComponent implements OnInit {
       width: '600px',
       maxHeight: '80vh',
     });
-    ref.afterClosed().subscribe(() => this.loadWorkflows());
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.loadWorkflows());
   }
 
   editWorkflow(workflow: WorkflowResponse): void {

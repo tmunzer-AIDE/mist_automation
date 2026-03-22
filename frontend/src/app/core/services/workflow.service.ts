@@ -40,11 +40,15 @@ export class WorkflowService {
     skip = 0,
     limit = 100,
     statusFilter?: string,
-    workflowType?: WorkflowType
+    workflowType?: WorkflowType,
+    sortBy?: string,
+    sortDir?: string
   ): Observable<WorkflowListResponse> {
     const params: Record<string, string | number> = { skip, limit };
     if (statusFilter) params['status_filter'] = statusFilter;
     if (workflowType) params['workflow_type'] = workflowType;
+    if (sortBy) params['sort_by'] = sortBy;
+    if (sortDir) params['sort_dir'] = sortDir;
     return this.api.get<WorkflowListResponse>('/workflows', params);
   }
 
@@ -108,6 +112,20 @@ export class WorkflowService {
 
   cancelSimulation(workflowId: string, executionId: string): Observable<{ status: string }> {
     return this.api.post(`/workflows/${workflowId}/simulate/${executionId}/cancel`);
+  }
+
+  // ── Suggestions ──────────────────────────────────────────────────────
+
+  getSuggestions(id: string): Observable<{
+    suggestions: { id: string; message: string; action_type?: string; target_node_id?: string; priority: number }[];
+  }> {
+    return this.api.get(`/workflows/${id}/suggestions`);
+  }
+
+  // ── Aggregation Windows ──────────────────────────────────────────────
+
+  getActiveWindows(id: string): Observable<{ windows: import('../models/workflow.model').AggregationWindowSummary[] }> {
+    return this.api.get(`/workflows/${id}/active-windows`);
   }
 
   // ── API Catalog ───────────────────────────────────────────────────────

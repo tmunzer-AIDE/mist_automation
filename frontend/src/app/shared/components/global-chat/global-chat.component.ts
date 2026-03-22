@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, inject, OnInit, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { MatBadgeModule } from '@angular/material/badge';
@@ -10,6 +10,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subscription } from 'rxjs';
 import { McpConfigAvailable } from '../../../core/models/llm.model';
 import { AiChatPanelComponent } from '../ai-chat-panel/ai-chat-panel.component';
+import { RestoreDiffData } from '../ai-chat-panel/restore-diff-card.component';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
 import { LlmService } from '../../../core/services/llm.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
@@ -37,34 +38,13 @@ import { extractErrorMessage } from '../../utils/error.utils';
     }
 
     @if (isOpen()) {
-      <div class="chat-panel" @panelAnimation>
+      <div class="chat-panel">
         <div class="panel-header">
           <div class="header-title">
             <app-ai-icon [size]="22"></app-ai-icon>
             <span>AI Assistant</span>
           </div>
           <div class="header-actions">
-            @if (availableMcpConfigs().length > 0) {
-              <button
-                mat-icon-button
-                [matMenuTriggerFor]="mcpMenu"
-                matTooltip="External MCP Servers"
-                [matBadge]="selectedMcpIds().length || null"
-                matBadgeSize="small"
-                matBadgeColor="primary"
-              >
-                <mat-icon>hub</mat-icon>
-              </button>
-              <mat-menu #mcpMenu="matMenu">
-                @for (cfg of availableMcpConfigs(); track cfg.id) {
-                  <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
-                    <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()">
-                      {{ cfg.name }}
-                    </mat-checkbox>
-                  </button>
-                }
-              </mat-menu>
-            }
             <button mat-icon-button matTooltip="Open full page" (click)="openFullPage()">
               <mat-icon>open_in_full</mat-icon>
             </button>
@@ -91,22 +71,50 @@ import { extractErrorMessage } from '../../utils/error.utils';
             [initialSummary]="initialReply()"
             [errorMessage]="chatError()"
             [parentLoading]="loading()"
+            [mcpConfigs]="activeMcpConfigs()"
           ></app-ai-chat-panel>
         </div>
 
         @if (!threadId()) {
           <div class="initial-input">
-            <textarea
-              class="chat-textarea"
-              [value]="inputText"
-              (input)="inputText = $any($event.target).value"
-              (keydown.enter)="onEnter($event)"
-              placeholder="Ask a question..."
-              rows="1"
-            ></textarea>
-            <button class="send-button" (click)="sendFirst()" [disabled]="loading() || !inputText.trim()">
-              <mat-icon>arrow_upward</mat-icon>
-            </button>
+            <div class="chat-input-box">
+              <textarea
+                #initialInput
+                class="chat-textarea"
+                [value]="inputText"
+                (input)="inputText = $any($event.target).value; autoGrow($event)"
+                (keydown.enter)="onEnter($event)"
+                placeholder="Ask a question..."
+                rows="1"
+              ></textarea>
+              <div class="chat-input-actions">
+                @if (availableMcpConfigs().length > 0) {
+                  <button
+                    mat-icon-button
+                    [matMenuTriggerFor]="mcpMenu"
+                    matTooltip="External MCP Servers"
+                    [matBadge]="selectedMcpIds().length || null"
+                    matBadgeSize="small"
+                    matBadgeColor="primary"
+                  >
+                    <mat-icon>hub</mat-icon>
+                  </button>
+                  <mat-menu #mcpMenu="matMenu">
+                    @for (cfg of availableMcpConfigs(); track cfg.id) {
+                      <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
+                        <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()" (change)="toggleMcp(cfg.id)">
+                          {{ cfg.name }}
+                        </mat-checkbox>
+                      </button>
+                    }
+                  </mat-menu>
+                }
+                <span class="spacer"></span>
+                <button class="send-button" (click)="sendFirst()" [disabled]="loading() || !inputText.trim()">
+                  <mat-icon>arrow_upward</mat-icon>
+                </button>
+              </div>
+            </div>
           </div>
         }
       </div>
@@ -210,6 +218,7 @@ import { extractErrorMessage } from '../../utils/error.utils';
         overflow: hidden;
         display: flex;
         flex-direction: column;
+        clip-path: inset(0 round 0 0 16px 16px);
       }
 
       .welcome {
@@ -238,34 +247,51 @@ import { extractErrorMessage } from '../../utils/error.utils';
       }
 
       .initial-input {
-        display: flex;
-        align-items: flex-end;
-        gap: 8px;
         padding: 12px 16px;
         border-top: 1px solid var(--mat-sys-outline-variant);
       }
 
-      .chat-textarea {
-        flex: 1;
+      .chat-input-box {
         border: 1px solid var(--mat-sys-outline-variant);
         border-radius: 20px;
-        padding: 10px 16px;
+        background: var(--mat-sys-surface-container);
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+        &:focus-within {
+          border-color: var(--mat-sys-primary);
+          box-shadow: 0 0 0 1px var(--mat-sys-primary);
+        }
+      }
+
+      .chat-textarea {
+        width: 100%;
+        border: none;
+        padding: 8px 12px;
         font: inherit;
         font-size: 14px;
         line-height: 1.5;
         resize: none;
-        background: var(--mat-sys-surface-container);
+        background: transparent;
         color: var(--mat-sys-on-surface);
         outline: none;
-
-        &:focus {
-          border-color: var(--mat-sys-primary);
-          box-shadow: 0 0 0 1px var(--mat-sys-primary);
-        }
 
         &::placeholder {
           color: var(--app-neutral);
         }
+      }
+
+      .chat-input-actions {
+        display: flex;
+        align-items: center;
+        padding: 0 4px;
+      }
+
+      .spacer {
+        flex: 1;
       }
 
       .send-button {
@@ -317,7 +343,12 @@ export class GlobalChatComponent implements OnInit {
   inputText = '';
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
   selectedMcpIds = signal<string[]>([]);
+  activeMcpConfigs = computed(() =>
+    this.availableMcpConfigs().filter((c) => this.selectedMcpIds().includes(c.id)),
+  );
+  private readonly injector = inject(Injector);
   private chatPanel = viewChild<AiChatPanelComponent>('chatPanel');
+  private initialInput = viewChild<ElementRef<HTMLTextAreaElement>>('initialInput');
 
   ngOnInit(): void {
     // Listen for external open requests (from dashboard, webhook monitor, etc.)
@@ -343,9 +374,13 @@ export class GlobalChatComponent implements OnInit {
         next: (configs) => this.availableMcpConfigs.set(configs),
       });
     }
+    // Focus the input after the panel renders
+    afterNextRender(() => this.initialInput()?.nativeElement.focus(), { injector: this.injector });
   }
 
   close(): void {
+    this.elicitSub?.unsubscribe();
+    this.elicitSub = null;
     this.isOpen.set(false);
   }
 
@@ -372,6 +407,12 @@ export class GlobalChatComponent implements OnInit {
     );
   }
 
+  autoGrow(event: Event): void {
+    const el = event.target as HTMLTextAreaElement;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 210) + 'px';
+  }
+
   onEnter(event: Event): void {
     const ke = event as KeyboardEvent;
     if (!ke.shiftKey) {
@@ -393,12 +434,14 @@ export class GlobalChatComponent implements OnInit {
     const channel = `llm:${streamId}`;
     this.elicitSub?.unsubscribe();
     this.elicitSub = this.wsService
-      .subscribe<{ type: string; request_id?: string; description?: string }>(channel)
+      .subscribe<{ type: string; request_id?: string; description?: string; elicitation_type?: string; data?: RestoreDiffData }>(channel)
       .subscribe((msg) => {
         if (msg.type === 'elicitation' && msg.request_id && msg.description) {
           this.chatPanel()?.pendingElicitation.set({
             requestId: msg.request_id,
             description: msg.description,
+            elicitationType: msg.elicitation_type,
+            data: msg.data,
           });
         }
       });

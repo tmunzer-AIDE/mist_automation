@@ -61,3 +61,22 @@
     color: var(--app-subflow);
   }
 }
+
+.aggregation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--app-warning-bg, #fff3e0);
+  color: var(--app-warning-text, #e65100);
+
+  .agg-icon {
+    font-size: 12px;
+    width: 12px;
+    height: 12px;
+  }
+}

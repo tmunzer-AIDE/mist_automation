@@ -77,6 +77,14 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("aggregation_recovery_failed", error=str(e))
 
+        # Seed built-in workflow recipes
+        try:
+            from app.modules.automation.seed_recipes import seed_built_in_recipes
+
+            await seed_built_in_recipes()
+        except Exception as e:
+            logger.warning("seed_recipes_failed", error=str(e))
+
         # Start WebSocket heartbeat
         from app.core.websocket import ws_manager
 

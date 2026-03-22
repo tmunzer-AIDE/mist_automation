@@ -17,6 +17,7 @@ import { MatButtonModule } from '@angular/material/button';
 import {
   WorkflowNode,
   WorkflowEdge,
+  WorkflowGraph,
   SimulationState,
 } from '../../../../core/models/workflow.model';
 import { ACTION_META, DEFAULT_ACTION_META } from '../../../../core/models/workflow-meta';
@@ -70,6 +71,17 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   @Output() edgeRemoved = new EventEmitter<string>();
   @Output() canvasDropped = new EventEmitter<{ type: string; x: number; y: number }>();
   @Output() viewportChanged = new EventEmitter<CanvasViewport>();
+  @Output() undoRequested = new EventEmitter<void>();
+  @Output() redoRequested = new EventEmitter<void>();
+  @Output() insertNodeOnEdge = new EventEmitter<{
+    edgeId: string;
+    actionType: string;
+    position: { x: number; y: number };
+  }>();
+  @Output() nodesPasted = new EventEmitter<{
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+  }>();
 
   @ViewChild('svgCanvas', { static: true }) svgCanvas!: ElementRef<SVGSVGElement>;
 
@@ -603,6 +615,8 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   // ── Keyboard ──────────────────────────────────────────────────────────
 
   onKeyDown(event: KeyboardEvent): void {
+    const mod = event.ctrlKey || event.metaKey;
+
     if (event.key === 'Delete' || event.key === 'Backspace') {
       if (this.multiSelectedIds.size > 0) {
         // Delete all multi-selected nodes (except trigger)
@@ -625,13 +639,127 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     // Ctrl/Cmd+A: select all nodes
-    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+    if (mod && event.key === 'a') {
       event.preventDefault();
       this.multiSelectedIds.clear();
       for (const node of this.nodes) {
         this.multiSelectedIds.add(node.id);
       }
     }
+
+    // Ctrl/Cmd+Z: undo
+    if (mod && event.key === 'z' && !event.shiftKey) {
+      event.preventDefault();
+      this.undoRequested.emit();
+    }
+
+    // Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y: redo
+    if (mod && ((event.key === 'z' && event.shiftKey) || event.key === 'y')) {
+      event.preventDefault();
+      this.redoRequested.emit();
+    }
+
+    // Ctrl/Cmd+C: copy selected nodes
+    if (mod && event.key === 'c') {
+      event.preventDefault();
+      this.copySelectedNodes();
+    }
+
+    // Ctrl/Cmd+V: paste nodes
+    if (mod && event.key === 'v') {
+      event.preventDefault();
+      this.pasteNodes();
+    }
+  }
+
+  // ── Copy / Paste ────────────────────────────────────────────────────────
+
+  private copySelectedNodes(): void {
+    const ids =
+      this.multiSelectedIds.size > 0
+        ? [...this.multiSelectedIds]
+        : this.selectedNodeId
+          ? [this.selectedNodeId]
+          : [];
+    if (!ids.length) return;
+
+    const idSet = new Set(ids);
+    const nodesToCopy = this.nodes.filter((n) => idSet.has(n.id));
+    const edgesToCopy = this.edges.filter(
+      (e) => idSet.has(e.source_node_id) && idSet.has(e.target_node_id)
+    );
+
+    const payload = JSON.stringify({ _mist_wf_clipboard: true, nodes: nodesToCopy, edges: edgesToCopy });
+    navigator.clipboard.writeText(payload).catch(() => {});
+  }
+
+  private async pasteNodes(): Promise<void> {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      return;
+    }
+
+    let data: { _mist_wf_clipboard?: boolean; nodes?: WorkflowNode[]; edges?: WorkflowEdge[] };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (!data._mist_wf_clipboard || !data.nodes?.length) return;
+
+    // Validate pasted nodes: must have valid type, numeric position, not trigger/subflow_input
+    const KNOWN_TYPES = new Set(Object.keys(ACTION_META));
+    const BLOCKED_TYPES = new Set(['trigger', 'subflow_input']);
+    const validNodes = data.nodes.filter(
+      (n) =>
+        n &&
+        typeof n.id === 'string' &&
+        typeof n.type === 'string' &&
+        (KNOWN_TYPES.has(n.type) || n.type === 'subflow_output') &&
+        !BLOCKED_TYPES.has(n.type) &&
+        typeof n.position?.x === 'number' &&
+        typeof n.position?.y === 'number' &&
+        (!n.name || (typeof n.name === 'string' && n.name.length <= 200)) &&
+        (!n.config || JSON.stringify(n.config).length < 100_000)
+    );
+    if (!validNodes.length) return;
+
+    // Build old→new ID mapping
+    const idMap = new Map<string, string>();
+    const newNodes: WorkflowNode[] = validNodes.map((n) => {
+      const newId = crypto.randomUUID();
+      idMap.set(n.id, newId);
+      return {
+        ...n,
+        id: newId,
+        position: { x: n.position.x + 40, y: n.position.y + 40 },
+      };
+    });
+
+    // Re-map edges
+    const newEdges: WorkflowEdge[] = (data.edges || [])
+      .filter((e) => idMap.has(e.source_node_id) && idMap.has(e.target_node_id))
+      .map((e) => ({
+        ...e,
+        id: crypto.randomUUID(),
+        source_node_id: idMap.get(e.source_node_id)!,
+        target_node_id: idMap.get(e.target_node_id)!,
+      }));
+
+    this.nodesPasted.emit({ nodes: newNodes, edges: newEdges });
+  }
+
+  // ── "+" button on edge ──────────────────────────────────────────────────
+
+  onEdgeInsertClick(event: MouseEvent, edgeId: string, midX: number, midY: number): void {
+    event.stopPropagation();
+    this.insertNodeOnEdge.emit({
+      edgeId,
+      actionType: '', // editor will open palette dialog
+      position: { x: midX - NODE_WIDTH / 2, y: midY - NODE_HEIGHT / 2 },
+    });
   }
 
   // ── Multi-selection helpers ───────────────────────────────────────────

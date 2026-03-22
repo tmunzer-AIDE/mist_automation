@@ -1,11 +1,13 @@
 import {
   Component,
   computed,
+  effect,
   inject,
   OnInit,
   OnDestroy,
   signal,
   TemplateRef,
+  untracked,
   ViewChild,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
@@ -31,16 +33,24 @@ import {
   ActionType,
   SimulationState,
   VariableTree,
+  AggregationWindowSummary,
+  AggregationWsMessage,
 } from '../../../core/models/workflow.model';
 import { ACTION_META, DEFAULT_ACTION_META } from '../../../core/models/workflow-meta';
 import { GraphCanvasComponent } from './canvas/graph-canvas.component';
 import { NodeConfigPanelComponent } from './config/node-config-panel.component';
 import { BlockPaletteSidebarComponent } from './palette/block-palette-sidebar.component';
+import { BlockPaletteDialogComponent } from './palette/block-palette-dialog.component';
+import { PlaceholderWizardComponent } from './placeholder-wizard.component';
+import { RecipePlaceholder } from '../../../core/services/recipe.service';
 import { SimulationPanelComponent } from './simulation/simulation-panel.component';
 import { DescriptionDialogComponent } from './description-dialog.component';
 import { ExecutionsListDialogComponent } from './executions-list-dialog.component';
 import { CanvasViewport } from './canvas/canvas-state';
+import { NODE_WIDTH, NODE_HEIGHT } from './canvas/edge-utils';
 import { Subject, debounceTime, takeUntil } from 'rxjs';
+import { WebSocketService } from '../../../core/services/websocket.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 
 @Component({
   selector: 'app-workflow-editor',
@@ -59,6 +69,7 @@ import { Subject, debounceTime, takeUntil } from 'rxjs';
     NodeConfigPanelComponent,
     BlockPaletteSidebarComponent,
     SimulationPanelComponent,
+    PlaceholderWizardComponent,
   ],
   templateUrl: './workflow-editor.component.html',
   styleUrl: './workflow-editor.component.scss',
@@ -70,6 +81,8 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   private readonly topbarService = inject(TopbarService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
+  private readonly wsService = inject(WebSocketService);
+  private readonly globalChatService = inject(GlobalChatService);
   private readonly destroy$ = new Subject<void>();
   private readonly graphChanged$ = new Subject<void>();
 
@@ -94,12 +107,30 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
 
   // UI state
   loading = signal(true);
+  graphVersion = signal(0);
+  pendingPlaceholders = signal<RecipePlaceholder[]>([]);
   saving = signal(false);
   configPanelWidth = signal(500);
   isResizingPanel = signal(false);
 
+  // Aggregation tracking
+  activeWindows = signal<AggregationWindowSummary[]>([]);
+  totalBufferedEvents = computed(() =>
+    this.activeWindows().reduce((sum, w) => sum + w.event_count, 0)
+  );
+
   // Execution history
   lastExecution = signal<WorkflowExecution | null>(null);
+
+  // Undo/Redo history
+  private graphHistory: WorkflowGraph[] = [];
+  private historyIndex = -1;
+  private readonly MAX_HISTORY = 50;
+  private lastHistoryPushTime = 0;
+  private configDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingConfigSnapshot: WorkflowGraph | null = null;
+  canUndo = signal(false);
+  canRedo = signal(false);
 
   selectedNode = computed(() => {
     const id = this.selectedNodeId();
@@ -115,6 +146,77 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     }
   });
 
+  // Update chat context when workflow ID, name, or selected node changes.
+  // Graph changes are handled separately via the debounced graphChanged$ subscriber.
+  private readonly _chatContextEffect = effect(() => {
+    this.workflowId();
+    this.workflowName();
+    this.selectedNode();
+    untracked(() => this._updateChatContext());
+  });
+
+  private _updateChatContext(): void {
+    const id = this.workflowId();
+    const g = this.graph();
+    if (!id || g.nodes.length === 0) return;
+
+    const selected = this.selectedNode();
+    const triggerNode = g.nodes.find((n) => n.type === 'trigger');
+    const details: Record<string, string | number | null> = {
+      workflow_id: id,
+      workflow_name: this.workflowName(),
+      workflow_type: this.workflowType(),
+      workflow_status: this.workflowStatus(),
+      node_count: g.nodes.length,
+      trigger_type: (triggerNode?.config['trigger_type'] as string) || null,
+      trigger_topic: (triggerNode?.config['webhook_topic'] as string) || null,
+      graph_summary: this._buildGraphSummary(g),
+    };
+
+    if (selected) {
+      details['selected_node'] = `${selected.name} (${selected.type})`;
+      details['selected_node_id'] = selected.id;
+      const configKeys = Object.keys(selected.config).filter((k) => selected.config[k] != null);
+      if (configKeys.length > 0) {
+        details['selected_node_config'] = configKeys
+          .map((k) => {
+            const v = selected.config[k];
+            const s = typeof v === 'string' ? v : JSON.stringify(v);
+            return `${k}: ${s.length > 80 ? s.slice(0, 80) + '...' : s}`;
+          })
+          .join(', ');
+      }
+    }
+
+    this.globalChatService.setContext({ page: 'Workflow Editor', details });
+  }
+
+  private _buildGraphSummary(g: WorkflowGraph): string {
+    const lines: string[] = [];
+    for (const node of g.nodes) {
+      const meta = ACTION_META[node.type as ActionType] || DEFAULT_ACTION_META;
+      let info = `${node.name} [${meta.label}]`;
+      if (node.type === 'trigger') {
+        const topic = node.config['webhook_topic'] || node.config['trigger_type'] || '';
+        if (topic) info += ` (${topic})`;
+      }
+      const targets = g.edges
+        .filter((e) => e.source_node_id === node.id)
+        .map((e) => {
+          const target = g.nodes.find((n) => n.id === e.target_node_id);
+          const port = e.source_port_id !== 'default' ? `[${e.source_port_id}]` : '';
+          return port + (target?.name || '?');
+        });
+      if (targets.length > 0) info += ` → ${targets.join(', ')}`;
+      lines.push(info);
+      if (lines.join('\n').length > 1200) {
+        lines.push(`... and ${g.nodes.length - lines.length} more nodes`);
+        break;
+      }
+    }
+    return lines.join('\n');
+  }
+
   ngOnInit(): void {
     this.topbarService.setActions(this.topbarActions);
 
@@ -123,7 +225,27 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
       .subscribe(() => {
         const nodeId = this.selectedNodeId();
         if (nodeId) this.refreshVariables(nodeId);
+        this.graphVersion.update((v) => v + 1);
+        this._updateChatContext();
       });
+
+    // Check for placeholders from recipe instantiation
+    const placeholdersParam = this.route.snapshot.queryParamMap.get('placeholders');
+    if (placeholdersParam) {
+      try {
+        const parsed = JSON.parse(placeholdersParam);
+        if (Array.isArray(parsed)) {
+          const validated = parsed.filter(
+            (p: Record<string, unknown>) =>
+              typeof p['node_id'] === 'string' &&
+              typeof p['field_path'] === 'string' &&
+              typeof p['label'] === 'string' &&
+              /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(p['field_path'] as string)
+          );
+          this.pendingPlaceholders.set(validated);
+        }
+      } catch { /* ignore invalid JSON */ }
+    }
 
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
@@ -131,12 +253,14 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
       this.loadWorkflow(id);
     } else {
       this.createNewWorkflow();
+      this.initHistory();
       this.loading.set(false);
     }
   }
 
   ngOnDestroy(): void {
     this.topbarService.clearActions();
+    if (this.configDebounceTimer) clearTimeout(this.configDebounceTimer);
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -157,8 +281,10 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
           this.outputParameters.set(response.output_parameters || []);
           this.timeoutSeconds.set(response.timeout_seconds);
           this.graph.set(this.workflowService.toGraph(response));
+          this.initHistory();
           this.loading.set(false);
           this.loadLastExecution(id);
+          this.startAggregationTracking(id);
         },
         error: () => {
           this.loading.set(false);
@@ -280,14 +406,20 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   }
 
   onNodeMoved(event: { nodeId: string; x: number; y: number }): void {
-    const g = this.graph();
-    const node = g.nodes.find((n) => n.id === event.nodeId);
-    if (node) {
-      node.position = { x: event.x, y: event.y };
-    }
+    const current = this.graph().nodes.find((n) => n.id === event.nodeId);
+    if (current && current.position.x === event.x && current.position.y === event.y) return;
+
+    this.pushHistory();
+    this.graph.update((g) => {
+      const nodes = g.nodes.map((n) =>
+        n.id === event.nodeId ? { ...n, position: { x: event.x, y: event.y } } : n
+      );
+      return { ...g, nodes };
+    });
   }
 
   onNodeRemoved(nodeId: string): void {
+    this.pushHistory();
     this.graph.update((g) => ({
       ...g,
       nodes: g.nodes.filter((n) => n.id !== nodeId),
@@ -298,9 +430,8 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     if (this.selectedNodeId() === nodeId) {
       this.selectedNodeId.set(null);
       this.variableTree.set(null);
-    } else {
-      this.graphChanged$.next();
     }
+    this.graphChanged$.next();
   }
 
   onEdgeCreated(event: {
@@ -318,6 +449,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     );
     if (exists) return;
 
+    this.pushHistory();
     const edge = this.workflowService.createEdge(
       event.sourceNodeId,
       event.sourcePortId,
@@ -341,6 +473,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   }
 
   onEdgeRemoved(edgeId: string): void {
+    this.pushHistory();
     this.graph.update((g) => ({
       ...g,
       edges: g.edges.filter((e) => e.id !== edgeId),
@@ -352,6 +485,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   }
 
   onCanvasDropped(event: { type: string; x: number; y: number }): void {
+    this.pushHistory();
     const node = this.workflowService.createNode(event.type, {
       x: event.x,
       y: event.y,
@@ -369,6 +503,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   // ── Config panel ──────────────────────────────────────────────────
 
   onNodeConfigChanged(updatedNode: WorkflowNode): void {
+    this.pushHistoryDebounced();
     // Update output ports for condition nodes when branches change
     if (updatedNode.type === 'condition') {
       const branches = (updatedNode.config['branches'] as { condition: string }[]) || [];
@@ -427,6 +562,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   // ── Palette ───────────────────────────────────────────────────────
 
   onPaletteBlockSelected(type: string): void {
+    this.pushHistory();
     // Find good position — below the last node
     let maxY = 80;
     for (const node of this.graph().nodes) {
@@ -549,5 +685,225 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
 
   cancel(): void {
     this.router.navigate(['/workflows']);
+  }
+
+  // ── Placeholder wizard ──────────────────────────────────────────────
+
+  onPlaceholderFilled(event: { nodeId: string; fieldPath: string; value: string }): void {
+    // Validate node exists in graph
+    if (!this.graph().nodes.some((n) => n.id === event.nodeId)) return;
+
+    this.graph.update((g) => {
+      const nodes = g.nodes.map((n) => {
+        if (n.id === event.nodeId) {
+          const config = { ...n.config };
+          config[event.fieldPath] = event.value;
+          return { ...n, config };
+        }
+        return n;
+      });
+      return { ...g, nodes };
+    });
+  }
+
+  onPlaceholderWizardCompleted(): void {
+    this.pushHistory();
+    this.pendingPlaceholders.set([]);
+  }
+
+  // ── Aggregation tracking ─────────────────────────────────────────────
+
+  private startAggregationTracking(id: string): void {
+    this.workflowService.getActiveWindows(id)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({ next: (r) => this.activeWindows.set(r.windows), error: () => {} });
+
+    this.wsService.subscribe<AggregationWsMessage>(`workflow:${id}:aggregation`)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((msg) => {
+        const d = msg.data;
+        if (msg.type === 'aggregation_updated') {
+          if (d.status === 'collecting') {
+            this.activeWindows.update((windows) => {
+              const idx = windows.findIndex((w) => w.window_id === d.window_id);
+              const summary: AggregationWindowSummary = {
+                window_id: d.window_id,
+                group_key: d.group_key,
+                event_count: d.event_count,
+                site_id: d.site_id,
+                site_name: d.site_name,
+                window_end: d.window_end,
+                window_seconds: d.window_seconds,
+              };
+              return idx >= 0
+                ? windows.map((w, i) => (i === idx ? summary : w))
+                : [...windows, summary];
+            });
+          } else {
+            this.activeWindows.update((windows) =>
+              windows.filter((w) => w.window_id !== d.window_id)
+            );
+          }
+        } else if (msg.type === 'aggregation_fired') {
+          this.activeWindows.update((windows) =>
+            windows.filter((w) => w.window_id !== d.window_id)
+          );
+        }
+      });
+  }
+
+  // ── Undo / Redo ─────────────────────────────────────────────────────
+
+  private cloneGraph(g: WorkflowGraph): WorkflowGraph {
+    return {
+      nodes: g.nodes.map((n) => ({ ...n, position: { ...n.position }, config: { ...n.config }, output_ports: [...n.output_ports], save_as: n.save_as ? [...n.save_as] : undefined })),
+      edges: g.edges.map((e) => ({ ...e })),
+      viewport: g.viewport ? { ...g.viewport } : null,
+    };
+  }
+
+  /** Push a snapshot of the current graph onto the history stack. */
+  private pushHistory(): void {
+    const snapshot = this.cloneGraph(this.graph());
+
+    // Truncate any redo states
+    this.graphHistory = this.graphHistory.slice(0, this.historyIndex + 1);
+    this.graphHistory.push(snapshot);
+
+    // Cap history size
+    if (this.graphHistory.length > this.MAX_HISTORY) {
+      this.graphHistory.shift();
+    }
+    this.historyIndex = this.graphHistory.length - 1;
+    this.lastHistoryPushTime = Date.now();
+    this.updateUndoRedoState();
+  }
+
+  /** Push history for config changes with debouncing (batch rapid changes). */
+  private pushHistoryDebounced(): void {
+    if (!this.pendingConfigSnapshot) {
+      // Capture the state *before* the first change in this batch
+      this.pendingConfigSnapshot = this.cloneGraph(this.graph());
+    }
+    if (this.configDebounceTimer) clearTimeout(this.configDebounceTimer);
+    this.configDebounceTimer = setTimeout(() => {
+      if (this.pendingConfigSnapshot) {
+        // Push the pre-change snapshot
+        this.graphHistory = this.graphHistory.slice(0, this.historyIndex + 1);
+        this.graphHistory.push(this.pendingConfigSnapshot);
+        if (this.graphHistory.length > this.MAX_HISTORY) {
+          this.graphHistory.shift();
+        }
+        this.historyIndex = this.graphHistory.length - 1;
+        this.updateUndoRedoState();
+        this.pendingConfigSnapshot = null;
+      }
+    }, 500);
+  }
+
+  private updateUndoRedoState(): void {
+    this.canUndo.set(this.historyIndex > 0);
+    this.canRedo.set(this.historyIndex < this.graphHistory.length - 1);
+  }
+
+  undo(): void {
+    if (this.historyIndex <= 0 && !this.pendingConfigSnapshot) return;
+    // If there's a pending debounced config snapshot, flush it first
+    if (this.pendingConfigSnapshot) {
+      if (this.configDebounceTimer) clearTimeout(this.configDebounceTimer);
+      this.graphHistory = this.graphHistory.slice(0, this.historyIndex + 1);
+      this.graphHistory.push(this.pendingConfigSnapshot);
+      if (this.graphHistory.length > this.MAX_HISTORY) this.graphHistory.shift();
+      this.historyIndex = this.graphHistory.length - 1;
+      this.pendingConfigSnapshot = null;
+    }
+
+    this.historyIndex--;
+    this.graph.set(this.cloneGraph(this.graphHistory[this.historyIndex]));
+    this.updateUndoRedoState();
+    this.selectedNodeId.set(null);
+    this.selectedEdgeId.set(null);
+    this.variableTree.set(null);
+  }
+
+  redo(): void {
+    if (this.historyIndex >= this.graphHistory.length - 1) return;
+    this.historyIndex++;
+    this.graph.set(this.cloneGraph(this.graphHistory[this.historyIndex]));
+    this.updateUndoRedoState();
+    this.selectedNodeId.set(null);
+    this.selectedEdgeId.set(null);
+    this.variableTree.set(null);
+  }
+
+  /** Initialize history with the current graph state (called after load/create). */
+  private initHistory(): void {
+    this.graphHistory = [this.cloneGraph(this.graph())];
+    this.historyIndex = 0;
+    this.updateUndoRedoState();
+  }
+
+  // ── Insert node on edge ─────────────────────────────────────────────
+
+  onInsertNodeOnEdge(event: { edgeId: string; actionType: string; position: { x: number; y: number } }): void {
+    const ref = this.dialog.open(BlockPaletteDialogComponent, {
+      width: '400px',
+      data: { actionsOnly: true },
+    });
+    ref.afterClosed().pipe(takeUntil(this.destroy$)).subscribe((option: { actionType?: string } | undefined) => {
+      if (!option?.actionType) return;
+
+      this.pushHistory();
+
+      const edge = this.graph().edges.find((e) => e.id === event.edgeId);
+      if (!edge) return;
+
+      const node = this.workflowService.createNode(option.actionType, {
+        x: event.position.x,
+        y: event.position.y,
+      });
+      node.name = this.getUniqueNodeName(node.name);
+
+      // Remove old edge, add node, create two new edges
+      const edge1 = this.workflowService.createEdge(
+        edge.source_node_id,
+        edge.source_port_id,
+        node.id
+      );
+      const edge2 = this.workflowService.createEdge(
+        node.id,
+        'default',
+        edge.target_node_id
+      );
+
+      this.graph.update((g) => ({
+        ...g,
+        nodes: [...g.nodes, node],
+        edges: [...g.edges.filter((e) => e.id !== event.edgeId), edge1, edge2],
+      }));
+
+      this.selectedNodeId.set(node.id);
+      this.loadVariablesForNode(node.id);
+      this.graphChanged$.next();
+    });
+  }
+
+  // ── Paste nodes ─────────────────────────────────────────────────────
+
+  onNodesPasted(event: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }): void {
+    this.pushHistory();
+
+    // Assign unique names
+    for (const n of event.nodes) {
+      n.name = this.getUniqueNodeName(n.name);
+    }
+
+    this.graph.update((g) => ({
+      ...g,
+      nodes: [...g.nodes, ...event.nodes],
+      edges: [...g.edges, ...event.edges],
+    }));
+
+    this.graphChanged$.next();
   }
 }
