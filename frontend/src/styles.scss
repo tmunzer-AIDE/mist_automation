@@ -341,23 +341,75 @@ textarea {
 
 // ── Shared table styles ────────────────────────────────────────────────────
 
-.table-card {
+.table-card,
+.table-container {
   background: var(--mat-sys-surface);
   border-radius: var(--app-radius);
   box-shadow: var(--app-shadow-sm);
+  border: 1px solid var(--mat-sys-outline-variant);
   overflow: hidden;
 
   table {
     width: 100%;
   }
+
+  // Distinct header row
+  .mat-mdc-header-row {
+    background: var(--mat-sys-surface-container);
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+  }
+
+  .mat-mdc-header-cell {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--mat-sys-on-surface-variant);
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  // Body cells: breathable padding + readable size
+  .mat-mdc-cell {
+    font-size: 13px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    border-bottom-color: var(--mat-sys-outline-variant);
+  }
+
+  // Remove double-border before paginator
+  .mat-mdc-row:last-child .mat-mdc-cell {
+    border-bottom: none;
+  }
+
+  // Smooth row hover
+  .mat-mdc-row {
+    transition: background 0.15s ease;
+
+    &:hover {
+      background: var(--mat-sys-surface-container-low);
+    }
+  }
+
+  // Sort arrow accent
+  .mat-sort-header-arrow {
+    color: var(--mat-sys-primary);
+  }
+
+  // Paginator: seamless inside card
+  .mat-mdc-paginator {
+    border-top: 1px solid var(--mat-sys-outline-variant);
+    background: var(--mat-sys-surface-container-low);
+    font-size: 12px;
+  }
 }
 
 .clickable-row {
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s ease;
 
   &:hover {
-    background: var(--mat-sys-surface-variant);
+    background: var(--mat-sys-surface-container-low) !important;
   }
 }
 

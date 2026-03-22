@@ -75,15 +75,15 @@
       <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
       <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
     </table>
-  </div>
 
-  <mat-paginator
-    [length]="total()"
-    [pageSize]="pageSize()"
-    [pageIndex]="pageIndex()"
-    [pageSizeOptions]="[25, 50, 100]"
-    (page)="onPage($event)"
-    showFirstLastButtons
-  >
-  </mat-paginator>
+    <mat-paginator
+      [length]="total()"
+      [pageSize]="pageSize()"
+      [pageIndex]="pageIndex()"
+      [pageSizeOptions]="[25, 50, 100]"
+      (page)="onPage($event)"
+      showFirstLastButtons
+    >
+    </mat-paginator>
+  </div>
 }

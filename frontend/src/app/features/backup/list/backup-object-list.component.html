@@ -135,14 +135,14 @@
         (click)="viewObjectDetail(obj)"
       ></tr>
     </table>
-  </div>
 
-  <mat-paginator
-    [length]="objectsTotal()"
-    [pageSize]="objectsPageSize"
-    [pageIndex]="objectsPageIndex"
-    [pageSizeOptions]="[25, 50, 100]"
-    (page)="onPage($event)"
-    showFirstLastButtons
-  ></mat-paginator>
+    <mat-paginator
+      [length]="objectsTotal()"
+      [pageSize]="objectsPageSize"
+      [pageIndex]="objectsPageIndex"
+      [pageSizeOptions]="[25, 50, 100]"
+      (page)="onPage($event)"
+      showFirstLastButtons
+    ></mat-paginator>
+  </div>
 }

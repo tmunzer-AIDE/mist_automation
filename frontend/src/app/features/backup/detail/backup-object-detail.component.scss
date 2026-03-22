@@ -187,11 +187,7 @@
 
 .version-history-section { margin-bottom: 24px; }
 
-.table-container { overflow-x: auto; border-radius: 10px; border: 1px solid var(--mat-sys-outline-variant); }
-
 table { width: 100%; }
-th.mat-mdc-header-cell { font-size: 12px; font-weight: 600; color: var(--mat-sys-on-surface-variant); }
-td.mat-mdc-cell { font-size: 13px; }
 .version-badge { font-weight: 600; font-size: 13px; color: var(--mat-sys-primary); }
 
 .event-badge {
@@ -219,7 +215,6 @@ td.mat-mdc-cell { font-size: 13px; }
 }
 
 .no-changes { color: var(--mat-sys-on-surface-variant); font-size: 13px; }
-tr.mat-mdc-row:hover { background: var(--mat-sys-surface-container-low); }
 tr.compare-row-selectable { cursor: pointer; }
 tr.compare-row-selected { background: var(--mat-sys-primary-container) !important; border-left: 3px solid var(--mat-sys-primary); }
 .inline-actions { display: flex; gap: 0; justify-content: flex-end; }
