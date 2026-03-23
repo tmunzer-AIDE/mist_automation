@@ -74,6 +74,7 @@ class ConversationMessage(BaseModel):
 
     role: str = Field(..., description="Message role: system, user, or assistant")
     content: str = Field(..., description="Message content")
+    metadata: dict | None = Field(default=None, description="Optional metadata (tool_calls, etc.)")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -97,9 +98,9 @@ class ConversationThread(Document):
             IndexModel([("updated_at", 1)], expireAfterSeconds=90 * 24 * 3600),
         ]
 
-    def add_message(self, role: str, content: str) -> None:
+    def add_message(self, role: str, content: str, metadata: dict | None = None) -> None:
         """Append a message and update timestamp."""
-        self.messages.append(ConversationMessage(role=role, content=content))
+        self.messages.append(ConversationMessage(role=role, content=content, metadata=metadata))
         self.updated_at = datetime.now(timezone.utc)
 
     def get_messages_for_llm(self, max_turns: int = 20) -> list[dict[str, str]]:

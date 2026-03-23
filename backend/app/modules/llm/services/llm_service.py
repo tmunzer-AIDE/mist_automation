@@ -7,7 +7,7 @@ ollama, bedrock, vertex).  This avoids litellm response-parsing issues with
 non-standard OpenAI-compatible servers such as LM Studio.
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from time import monotonic
 
@@ -192,6 +192,100 @@ class LLMService:
         result.tool_calls = choices[0].message.tool_calls if choices and choices[0].message else None
         return result
 
+    async def _stream_openai_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict],
+        tool_choice: dict | str | None = None,
+        on_content: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LLMResponse:
+        """Stream a tool-calling completion, broadcasting content deltas via callback.
+
+        Content deltas arrive before tool_call deltas in OpenAI-compatible streaming,
+        so intermediate text (e.g. "Let me search...") is captured and broadcast
+        even though non-streaming responses drop it.
+        """
+        client = self._get_openai_client()
+        start = monotonic()
+        kwargs: dict = {
+            "model": self.model,
+            "messages": self._messages_to_dicts(messages),
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "tools": tools,
+            "stream": True,
+        }
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
+
+        content_parts: list[str] = []
+        # Accumulate tool calls: index → {id, function_name, arguments_parts}
+        tc_accum: dict[int, dict] = {}
+        finish_reason = ""
+
+        try:
+            stream = await client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+
+                # Content tokens — broadcast immediately
+                if delta and delta.content:
+                    content_parts.append(delta.content)
+                    if on_content:
+                        await on_content(delta.content)
+
+                # Tool call deltas — accumulate
+                if delta and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tc_accum:
+                            tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                        entry = tc_accum[idx]
+                        if tc_delta.id:
+                            entry["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                entry["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                entry["arguments"] += tc_delta.function.arguments
+        except Exception:
+            logger.exception("llm_stream_tool_failed", model=self.model, provider=self.provider)
+            raise
+        finally:
+            await client.close()
+
+        # Assemble the response
+        duration_ms = int((monotonic() - start) * 1000)
+        content = "".join(content_parts)
+
+        # Rebuild tool_calls as OpenAI SDK objects for compatibility with agent_service
+        assembled_tool_calls = None
+        if tc_accum:
+            from types import SimpleNamespace
+
+            assembled_tool_calls = []
+            for _idx in sorted(tc_accum):
+                entry = tc_accum[_idx]
+                tc_obj = SimpleNamespace(
+                    id=entry["id"],
+                    function=SimpleNamespace(name=entry["name"], arguments=entry["arguments"]),
+                    type="function",
+                )
+                assembled_tool_calls.append(tc_obj)
+
+        return LLMResponse(
+            content=content,
+            model=self.model,
+            usage=LLMUsage(),  # streaming doesn't provide usage in chunks
+            finish_reason=finish_reason,
+            duration_ms=duration_ms,
+            tool_calls=assembled_tool_calls,
+        )
+
     # ------------------------------------------------------------------
     # litellm path (anthropic, ollama, bedrock, vertex, etc.)
     # ------------------------------------------------------------------
@@ -340,4 +434,21 @@ class LLMService:
         """
         if self._is_openai_compat():
             return await self._complete_openai_with_tools(messages, tools, tool_choice)
+        return await self._complete_litellm_with_tools(messages, tools, tool_choice)
+
+    async def stream_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict],
+        tool_choice: dict | str | None = None,
+        on_content: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LLMResponse:
+        """Streaming completion with tools — broadcasts content deltas via callback.
+
+        For OpenAI-compat providers, uses streaming to capture intermediate text
+        that non-streaming mode drops when tool_calls are present.
+        Falls back to non-streaming ``complete_with_tools`` for litellm providers.
+        """
+        if self._is_openai_compat():
+            return await self._stream_openai_with_tools(messages, tools, tool_choice, on_content)
         return await self._complete_litellm_with_tools(messages, tools, tool_choice)

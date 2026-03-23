@@ -67,6 +67,7 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
       blockOption('servicenow', 'Create or update ServiceNow record'),
       blockOption('pagerduty', 'Trigger PagerDuty incident'),
       blockOption('email', 'Send email notification'),
+      blockOption('syslog', 'Send message to Syslog server (RFC 5424 / CEF)'),
     ],
   },
   {

@@ -1,5 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpClient } from '@angular/common/http';
 import { Router, RouterOutlet, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { MatSidenavModule } from '@angular/material/sidenav';
@@ -27,8 +28,17 @@ export class LayoutComponent {
   sidebarCollapsed = signal(false);
   isFullWidth = signal(false);
   llmAvailable = signal(false);
+  maintenanceMode = signal(false);
 
   constructor() {
+    inject(HttpClient)
+      .get<any>('/health')
+      .pipe(takeUntilDestroyed())
+      .subscribe({
+        next: (h: any) => this.maintenanceMode.set(h.maintenance_mode ?? false),
+        error: () => {},
+      });
+
     this.llmService.getStatus().subscribe({
       next: (s) => this.llmAvailable.set(s.enabled),
       error: () => this.llmAvailable.set(false),

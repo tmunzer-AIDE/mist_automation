@@ -7,6 +7,7 @@ to the automation and/or backup modules.
 
 import hashlib
 import hmac
+import ipaddress
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -95,6 +96,18 @@ def _event_to_monitor_dict(event: WebhookEvent) -> dict:
     return fields
 
 
+def _ip_in_allowlist(client_ip: str, allowlist: list[str]) -> bool:
+    """Check if client IP matches any entry in the allowlist (supports CIDR)."""
+    try:
+        addr = ipaddress.ip_address(client_ip)
+        # Unwrap IPv4-mapped IPv6 (::ffff:x.x.x.x) so it matches IPv4 CIDR entries
+        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+            addr = addr.ipv4_mapped
+        return any(addr in ipaddress.ip_network(entry, strict=False) for entry in allowlist)
+    except ValueError:
+        return False
+
+
 # ── Unified webhook gateway ──────────────────────────────────────────────────
 
 
@@ -123,8 +136,15 @@ async def receive_mist_webhook(
         settings.debug and x_forwarded_by == "smee" and request.client and request.client.host in ("127.0.0.1", "::1")
     )
 
-    # Verify signature with stored webhook secret from SystemConfig
+    # Load config (used for IP allowlist + signature verification)
     config = await SystemConfig.get_config()
+
+    # IP allowlist enforcement
+    if config.webhook_ip_whitelist and not smee_forwarded:
+        client_ip = request.client.host if request.client else None
+        if not _ip_in_allowlist(client_ip or "", config.webhook_ip_whitelist):
+            logger.warning("webhook_ip_blocked", client_ip=client_ip)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IP address not allowed")
 
     signature_valid = None  # None = unchecked (no secret configured)
     if not config.webhook_secret and not smee_forwarded:

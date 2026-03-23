@@ -7,13 +7,10 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Subscription } from 'rxjs';
 import { McpConfigAvailable } from '../../../core/models/llm.model';
 import { AiChatPanelComponent } from '../ai-chat-panel/ai-chat-panel.component';
-import { RestoreDiffData } from '../ai-chat-panel/restore-diff-card.component';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
 import { LlmService } from '../../../core/services/llm.service';
-import { WebSocketService } from '../../../core/services/websocket.service';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { extractErrorMessage } from '../../utils/error.utils';
 
@@ -71,7 +68,8 @@ import { extractErrorMessage } from '../../utils/error.utils';
             [initialSummary]="initialReply()"
             [errorMessage]="chatError()"
             [parentLoading]="loading()"
-            [mcpConfigs]="activeMcpConfigs()"
+            [mcpConfigs]="availableMcpConfigs()"
+            [(mcpConfigIds)]="selectedMcpIds"
           ></app-ai-chat-panel>
         </div>
 
@@ -89,22 +87,15 @@ import { extractErrorMessage } from '../../utils/error.utils';
               ></textarea>
               <div class="chat-input-actions">
                 @if (availableMcpConfigs().length > 0) {
-                  <button
-                    mat-icon-button
-                    [matMenuTriggerFor]="mcpMenu"
-                    matTooltip="External MCP Servers"
-                    [matBadge]="selectedMcpIds().length || null"
-                    matBadgeSize="small"
-                    matBadgeColor="primary"
-                  >
+                  <button class="mcp-toggle" [class.active]="selectedMcpIds().length > 0" [matMenuTriggerFor]="mcpMenu" [matTooltip]="mcpTooltipText()">
                     <mat-icon>hub</mat-icon>
+                    <span>{{ selectedMcpIds().length }}</span>
                   </button>
                   <mat-menu #mcpMenu="matMenu">
                     @for (cfg of availableMcpConfigs(); track cfg.id) {
                       <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
-                        <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()" (change)="toggleMcp(cfg.id)">
-                          {{ cfg.name }}
-                        </mat-checkbox>
+                        <mat-icon>{{ selectedMcpIds().includes(cfg.id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
+                        {{ cfg.name }}
                       </button>
                     }
                   </mat-menu>
@@ -215,6 +206,7 @@ import { extractErrorMessage } from '../../utils/error.utils';
 
       .panel-body {
         flex: 1;
+        min-height: 0;
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -328,11 +320,9 @@ import { extractErrorMessage } from '../../utils/error.utils';
 })
 export class GlobalChatComponent implements OnInit {
   private readonly llmService = inject(LlmService);
-  private readonly wsService = inject(WebSocketService);
   private readonly globalChatService = inject(GlobalChatService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
-  private elicitSub: Subscription | null = null;
 
   isOpen = signal(false);
   showPulse = signal(true);
@@ -379,8 +369,6 @@ export class GlobalChatComponent implements OnInit {
   }
 
   close(): void {
-    this.elicitSub?.unsubscribe();
-    this.elicitSub = null;
     this.isOpen.set(false);
   }
 
@@ -391,9 +379,7 @@ export class GlobalChatComponent implements OnInit {
   }
 
   resetChat(): void {
-    this.elicitSub?.unsubscribe();
-    this.elicitSub = null;
-    this.chatPanel()?.pendingElicitation.set(null);
+    this.chatPanel()?.reset();
     this.threadId.set(null);
     this.initialReply.set(null);
     this.chatError.set(null);
@@ -406,6 +392,12 @@ export class GlobalChatComponent implements OnInit {
       ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id],
     );
   }
+
+  mcpTooltipText = computed(() => {
+    const ids = new Set(this.selectedMcpIds());
+    const names = this.availableMcpConfigs().filter((c) => ids.has(c.id)).map((c) => c.name);
+    return names.length ? 'MCP: ' + names.join(', ') : 'No MCP servers active';
+  });
 
   autoGrow(event: Event): void {
     const el = event.target as HTMLTextAreaElement;
@@ -429,37 +421,20 @@ export class GlobalChatComponent implements OnInit {
     this.loading.set(true);
     this.chatError.set(null);
 
-    // Subscribe to WS channel for elicitation prompts during agent execution
+    // Subscribe to WS channel synchronously BEFORE the HTTP request
     const streamId = crypto.randomUUID();
-    const channel = `llm:${streamId}`;
-    this.elicitSub?.unsubscribe();
-    this.elicitSub = this.wsService
-      .subscribe<{ type: string; request_id?: string; description?: string; elicitation_type?: string; data?: RestoreDiffData }>(channel)
-      .subscribe((msg) => {
-        if (msg.type === 'elicitation' && msg.request_id && msg.description) {
-          this.chatPanel()?.pendingElicitation.set({
-            requestId: msg.request_id,
-            description: msg.description,
-            elicitationType: msg.elicitation_type,
-            data: msg.data,
-          });
-        }
-      });
+    this.chatPanel()?.startStream(streamId, text);
 
     this.llmService
       .globalChat(text, this.threadId() || undefined, this.globalChatService.buildContextString() || undefined, streamId, this.selectedMcpIds())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.elicitSub?.unsubscribe();
-          this.elicitSub = null;
           this.threadId.set(res.thread_id);
           this.initialReply.set(res.reply);
           this.loading.set(false);
         },
         error: (err) => {
-          this.elicitSub?.unsubscribe();
-          this.elicitSub = null;
           this.chatError.set(extractErrorMessage(err));
           this.loading.set(false);
         },

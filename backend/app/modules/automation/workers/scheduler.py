@@ -66,6 +66,9 @@ class WorkflowScheduler:
         # Load scheduled backup job
         await self._load_backup_schedule()
 
+        # Load execution cleanup schedule
+        await self._load_execution_cleanup_schedule()
+
         # Start the scheduler
         self.scheduler.start()
         self._initialized = True
@@ -230,6 +233,31 @@ class WorkflowScheduler:
                 logger.info("backup_schedule_disabled_or_not_configured")
         except Exception as e:
             logger.error("failed_to_load_backup_schedule", error=str(e))
+
+    async def _load_execution_cleanup_schedule(self):
+        """Register the nightly execution cleanup job."""
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+
+            self.scheduler.add_job(
+                self._run_execution_cleanup,
+                trigger=CronTrigger(hour=3, minute=0, timezone="UTC"),
+                id="execution_cleanup_daily",
+                name="Nightly Execution Cleanup",
+                replace_existing=True,
+            )
+            logger.info("execution_cleanup_scheduled")
+        except Exception as e:
+            logger.error("failed_to_load_execution_cleanup_schedule", error=str(e))
+
+    async def _run_execution_cleanup(self):
+        """Execute the nightly execution cleanup."""
+        from app.modules.automation.workers.cleanup_worker import cleanup_old_executions
+
+        try:
+            await cleanup_old_executions()
+        except Exception as e:
+            logger.error("execution_cleanup_failed", error=str(e))
 
     async def schedule_backup(self, cron_expression: str):
         """Add or update the scheduled backup job."""

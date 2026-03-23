@@ -76,6 +76,13 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
                 duration_ms=result.duration_ms,
             )
 
+            # Dispatch failure notification if configured
+            if result.status in (ExecutionStatus.FAILED, ExecutionStatus.TIMEOUT) and workflow.failure_notification:
+                from app.core.tasks import create_background_task
+                from app.modules.automation.workers.notification_helper import notify_workflow_failure
+
+                create_background_task(notify_workflow_failure(workflow, result), name=f"notify_failure_{workflow_id}")
+
             return {
                 "workflow_id": workflow_id,
                 "execution_id": str(result.id),
@@ -94,6 +101,13 @@ async def execute_cron_workflow(workflow_id: str) -> dict[str, Any]:
                 execution.mark_completed(ExecutionStatus.FAILED, error=_sanitize_execution_error(e))
                 execution.add_log("Workflow execution error", "error")
                 await execution.save()
+
+            # Dispatch failure notification if configured
+            if workflow.failure_notification:
+                from app.core.tasks import create_background_task
+                from app.modules.automation.workers.notification_helper import notify_workflow_failure
+
+                create_background_task(notify_workflow_failure(workflow, execution), name=f"notify_failure_{workflow_id}")
 
             logger.error(
                 "cron_workflow_execution_error", workflow_id=workflow_id, execution_id=str(execution.id), error=str(e)

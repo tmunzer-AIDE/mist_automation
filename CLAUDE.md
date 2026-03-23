@@ -127,6 +127,7 @@ Most complex feature, spanning both backend and frontend:
 - **Variable picker**: Tree view of upstream node outputs with click-to-insert `{{ variable.path }}`. Node names are sanitized (spaces→underscores) for valid Jinja2 dot notation. `set_variable` results appear in a "Variables" section as top-level variables (e.g., `{{ site_id }}`).
 - **Simulation panel**: Bottom panel for dry-run and step-by-step replay with visual execution status on canvas. Real-time logs (`liveLogs` signal from `node_completed` WS messages) and live node results during execution. Cancel button calls `POST /workflows/{id}/simulate/{execution_id}/cancel` (backend tracks `asyncio.Task` in `_simulation_tasks` dict, calls `task.cancel()`).
 - **AI Agent node** (`ai_agent` ActionType): Autonomous LLM + MCP tool-calling node. Config: `agent_task` (Jinja2 template), `agent_system_prompt`, `max_iterations`, `mcp_servers` (name, URL, headers JSON, SSL verify toggle), `llm_config_id` (selects which LLM to use). Executor: `_execute_ai_agent()` validates MCP URLs via `validate_outbound_url()`, connects in parallel via `asyncio.gather()`, runs `AIAgentService` loop.
+- **Syslog action** (`syslog` ActionType): Sends formatted syslog messages to a remote server. Config: `syslog_host`, `syslog_port`, `syslog_protocol` (udp/tcp), `syslog_format` (rfc5424/cef), `syslog_facility` (local0-7), `syslog_severity`. All string fields support Jinja2 templates. CEF mode adds `cef_device_vendor`, `cef_device_product`, `cef_event_class_id`, `cef_name` fields. No external dependency — uses Python's native socket/asyncio.
 - **Palette sidebar**: Native HTML drag-and-drop (not CDK), emits action type string.
 - **Port-based branching**: Condition nodes → `branch_0`/`branch_1`/`else` ports; for-each → `loop_body`/`done` ports.
 - **Sub-flows**: Workflows can be `standard` (trigger-based) or `subflow` (callable from other workflows). Sub-flows use `subflow_input` entry node + `subflow_output` terminal node with explicit `input_parameters`/`output_parameters`. Standard workflows call sub-flows via `invoke_subflow` action nodes with input mappings.
@@ -143,18 +144,20 @@ Most complex feature, spanning both backend and frontend:
 - **Multi-LLM config**: `LLMConfig` Beanie Document stores named provider configs (provider, api_key encrypted, model, base_url, temperature, max_tokens). `SystemConfig.llm_enabled` is the global kill switch. Individual configs managed via `/llm/configs` CRUD endpoints.
 - **LLM service factory**: `create_llm_service(config_id=None)` from `app.modules.llm.services.llm_service_factory` — loads default or specific config. Uses openai SDK for OpenAI-compatible providers (openai, lm_studio, azure_openai), litellm for others (anthropic, ollama, bedrock, vertex).
 - **SSRF on LLM base_url**: Skip `validate_outbound_url()` for local providers (`lm_studio`, `ollama`) since they run on localhost by design.
-- **Agent service** (`services/agent_service.py`): LLM + MCP tool-calling loop with `max_iterations` cap (server-side max 25). Returns `AgentResult` with status, result text, tool_calls log.
-- **MCP client** (`services/mcp_client.py`): `MCPClientWrapper` for remote HTTP MCP servers (streamable HTTP only, with SSL verify toggle + custom headers). `InProcessMCPClient` for the local FastMCP server (memory transport, ContextVars propagate). `create_local_mcp_client()` factory.
+- **Agent service** (`services/agent_service.py`): LLM + MCP tool-calling loop with `max_iterations` cap (server-side max 25). Returns `AgentResult` with status, result text, `tool_calls` log (each `ToolCallRecord` has `tool`, `arguments`, `result`, `server`, `is_error`), `thinking_texts` (intermediate reasoning per iteration). Accepts optional `on_tool_call` async callback for real-time WS events (`thinking`, `tool_start`, `tool_end`). When callback is provided, uses `stream_with_tools()` for streaming to capture intermediate content that non-streaming mode drops.
+- **LLM streaming with tools** (`services/llm_service.py`): `stream_with_tools()` uses OpenAI-compatible streaming (`stream=True`) to capture content deltas alongside tool_call deltas. Broadcasts content tokens via `on_content` callback. Falls back to non-streaming `complete_with_tools()` for litellm providers (thinking tokens not available).
+- **MCP client** (`services/mcp_client.py`): `MCPClientWrapper` for remote HTTP MCP servers (streamable HTTP only, with SSL verify toggle + custom headers). `InProcessMCPClient` for the local FastMCP server (memory transport, ContextVars propagate). `create_local_mcp_client()` factory. Both `call_tool()` methods return `(text, is_error)` tuple — `MCPClientWrapper` reads `result.isError` from the MCP SDK, `InProcessMCPClient` returns `False` (errors raise exceptions instead).
 - **Prompt builders** (`services/prompt_builders.py`): Per-feature prompt constructors. Webhook payload schemas with domain descriptions in the workflow assist system prompt. API endpoints go in system message (not user message).
 - **Context service** (`services/context_service.py`): Gathers data from other modules for prompts. `get_webhook_summary_context()` returns `(summary_text, event_count)` tuple.
-- **Conversation threads**: `ConversationThread` with `to_llm_messages(max_turns=20)` sliding window. TTL index (90 days). `_load_or_create_thread()` helper raises 400/404/403 on invalid/missing/unauthorized thread IDs (never silently creates new).
-- **Router helpers**: `_usage_dict(response)`, `_log_llm_usage()`, `_stream_or_complete()` (WebSocket token streaming when `stream_id` provided), `_mcp_user_session()` context manager, `_check_llm_rate_limit()`.
+- **Conversation threads**: `ConversationThread` with `to_llm_messages(max_turns=20)` sliding window. TTL index (90 days). `_load_or_create_thread()` helper raises 400/404/403 on invalid/missing/unauthorized thread IDs (never silently creates new). `ConversationMessage` has optional `metadata` field for persisting tool_calls and thinking_texts alongside assistant messages.
+- **Router helpers**: `_usage_dict(response)`, `_log_llm_usage()`, `_stream_or_complete()` (WebSocket token streaming when `stream_id` provided), `_mcp_user_session()` context manager, `_check_llm_rate_limit()`, `_make_tool_notifier(stream_id)` (builds WS callback for agent tool events), `_agent_result_metadata(result)` (builds conversation metadata from `AgentResult`).
 - **Model discovery**: `/llm/configs/{id}/models` and `/llm/discover-models` (anonymous, pre-save). OpenAI-compat uses `client.models.list()`, Anthropic uses `GET /v1/models`.
 - **Slack Block Kit extraction**: `_extract_slack_blocks()` uses `json.JSONDecoder().raw_decode()` to find Block Kit JSON in AI Agent text responses. Falls back to `mrkdwn` sections for plain text, code blocks for structured data.
 
 **MCP Server** (`app/modules/mcp_server/`):
 - FastMCP server exposing app data as MCP tools (backups, workflows, executions, webhook events, reports, system stats)
-- Mounted in-process — no HTTP round-trip for internal LLM features
+- HTTP endpoint (`/mcp`) gated by `MCPAuthMiddleware` (`auth_middleware.py`) — validates Bearer JWT, sets `mcp_user_id_var`. Returns 401 for unauthenticated requests.
+- In-process memory transport (`InProcessMCPClient`) bypasses HTTP entirely — unaffected by auth middleware
 - `mcp_user_id_var` ContextVar for user context in tool handlers
 - **Elicitation bridge** (`helpers.py`): `elicit_confirmation()` sends simple text confirmations via WebSocket; `elicit_restore_confirmation()` sends rich payloads with `elicitation_type` and `data` fields for structured UI (e.g., diff viewer in restore confirmation card)
 - **Backup restore action**: `backup(action="restore")` auto-computes diff between target and current version, sends rich elicitation with diff data, executes restore on approval
@@ -162,7 +165,7 @@ Most complex feature, spanning both backend and frontend:
 **Frontend**:
 - **Global floating chat** (`shared/components/global-chat/`): Bottom-right FAB with glass style, expands to 420x560 chat panel. Uses `GlobalChatService` for open/pre-fill from any page. Passes `page_context` (current page + details) to the LLM.
 - **AI icon** (`shared/components/ai-icon/`): Animated Network Pulse SVG icon (nodes drift + green pulses). `[animated]="false"` for toolbar buttons (static, lighter). `vertical-align: middle` for button text alignment.
-- **AiChatPanel** (`shared/components/ai-chat-panel/`): Reusable chat component with markdown rendering (marked + DOMPurify), WebSocket token streaming, auto-scroll, multiline input. Input-signal-driven (not ViewChild methods). `loadingLabel` input for contextual loading text.
+- **AiChatPanel** (`shared/components/ai-chat-panel/`): Reusable chat component with unified `timeline` signal (`TimelineItem[]` — messages + inline tool call cards in chronological order). Markdown rendering (marked + DOMPurify), WebSocket streaming for thinking/tool events, auto-scroll. `startStream(streamId, text)` method initiates WS subscription synchronously (NOT via effects — effects are unreliable for WS in zoneless mode). `_subscribeToStream(channel)` private method handles all WS event types (thinking, tool_start, tool_end, token, elicitation, done). `reset()` method for full state teardown. Tool calls persist in conversation thread metadata and reconstruct on thread reload.
 - **Multi-LLM admin** (`features/admin/settings/llm/`): Config list table + add/edit dialog with connection-first flow (test + fetch models before save).
 - **LlmService**: `getStatus()` cached with `shareReplay(1)`. `globalChat()`, `followUp()`, config CRUD, `testConnectionAnonymous()`, `discoverModels()`.
 - **Page context**: Components call `globalChatService.setContext({page, details})` on init so the global chat LLM knows what the user is viewing.
@@ -195,6 +198,12 @@ Most complex feature, spanning both backend and frontend:
 - **Prompt safety**: Use `_sanitize_for_prompt()` from `app/modules/llm/services/prompt_builders.py` for all user-sourced values injected into LLM prompts (strips markdown control chars, truncates).
 - **MCP tool access control**: MCP write tools (workflow update, backup trigger) must check user roles/permissions via `mcp_user_id_var` — mirrors REST API enforcement. Read-only tools (search, details) do not need role checks.
 - **Error sanitization**: Use `_sanitize_execution_error()` from `executor_service.py` for all exception messages stored in execution/node results. Never store raw `str(e)` in client-visible fields.
+- **MCP HTTP auth**: `MCPAuthMiddleware` validates Bearer JWT on all HTTP requests to `/mcp`. In-process memory transport is unaffected.
+- **Webhook IP allowlist**: `SystemConfig.webhook_ip_whitelist` list of CIDR ranges. Enforced in `receive_mist_webhook()` via `_ip_in_allowlist()` before signature verification. Smee-forwarded localhost requests bypass.
+- **SMTP credentials**: `smtp_password` encrypted via `encrypt_sensitive_data()`. Admin API returns `smtp_password_set: bool`.
+- **Sensitive field clearing**: Empty string values for sensitive fields (tokens, passwords) in `PUT /admin/settings` clear the field (`setattr(config, field, None)`) instead of encrypting the empty string.
+- **Notification failure isolation**: `notify_workflow_failure()` catches all exceptions — notification failures must never affect workflow execution status.
+- **Maintenance mode**: `MaintenanceModeMiddleware` returns 503 for non-admin/auth paths when `SystemConfig.maintenance_mode` is True. `/health`, `/api/v1/auth/*`, `/api/v1/admin/*`, and `/mcp` are always allowed.
 
 ### KISS (Keep It Simple)
 
@@ -207,7 +216,7 @@ Most complex feature, spanning both backend and frontend:
 
 - **MistService instantiation**: Always use `create_mist_service()` from `app.services.mist_service_factory` — never manually create MistService with config+decrypt inline.
 - **LLM service instantiation**: Always use `create_llm_service(config_id=None)` from `app.modules.llm.services.llm_service_factory` — never manually create LLMService.
-- **LLM router helpers**: `_usage_dict(response)` for API response usage dicts, `_log_llm_usage()` for DB logging, `_load_or_create_thread()` for conversation thread lifecycle, `_mcp_user_session()` for MCP client connect/disconnect.
+- **LLM router helpers**: `_usage_dict(response)` for API response usage dicts, `_log_llm_usage()` for DB logging, `_load_or_create_thread()` for conversation thread lifecycle, `_mcp_user_session()` for MCP client connect/disconnect, `_agent_result_metadata(result)` for building conversation metadata from `AgentResult`, `_make_tool_notifier(stream_id)` for WS tool event callbacks.
 - **Deep diff utility**: Use `deep_diff()` from `app.modules.backup.utils` — not from `backup/router.py` (moved to shared utility).
 - **Conversation thread messages**: Use `thread.to_llm_messages()` — not inline list comprehension converting dicts to LLMMessage objects.
 - **Template brace stripping**: Use `strip_template_braces()` from `app/utils/variables.py` instead of inline `{{ }}` removal.
@@ -220,6 +229,8 @@ Most complex feature, spanning both backend and frontend:
 - **Celery app**: Import `celery_app` from `app.core.celery_app` — never create Celery instances in module workers directly.
 - **User response construction**: Use `user_to_response()` from `app.schemas.user` — single canonical User→UserResponse builder used by both `auth.py` and `users.py`.
 - **MCP paginated search**: Use `_paginated_query()` from `app/modules/mcp_server/tools/search.py` for `$facet`-based MongoDB aggregations with pagination.
+- **Workflow failure notification**: Use `notify_workflow_failure()` from `app.modules.automation.workers.notification_helper` — do not inline notification dispatch in workers.
+- **DB facet counts**: Use `facet_counts()` from `app.utils.db_helpers` for `$facet`-based count aggregations — shared by `admin.py` and `dashboard.py`.
 
 ### Efficiency
 
@@ -233,6 +244,8 @@ Most complex feature, spanning both backend and frontend:
 - **MCP connections in parallel**: AI Agent node connects to multiple MCP servers via `asyncio.gather()`, not sequentially.
 - **Simulation task tracking**: Running simulation `asyncio.Task` objects tracked in module-level `_simulation_tasks` dict for cancellation support.
 - **MistService config caching**: Factory caches resolved config (token, region, org_id) with 30s TTL. Call `invalidate_mist_config_cache()` from `app.services.mist_service_factory` when admin updates Mist settings.
+- **Maintenance mode cache**: `MaintenanceModeMiddleware` caches `SystemConfig.maintenance_mode` with 5s TTL. Call `set_maintenance_cache()` from `app.core.middleware` when admin updates the setting.
+- **Execution cleanup**: APScheduler job `cleanup_old_executions()` runs nightly (3:00 UTC), purges `WorkflowExecution` documents older than `SystemConfig.execution_retention_days`.
 
 ## Mist Cloud Object Model
 

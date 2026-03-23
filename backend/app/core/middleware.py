@@ -138,3 +138,49 @@ class SecurityHeadersMiddleware(_SkipWebSocketMiddleware):
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 
         return response
+
+
+# ── Maintenance Mode ─────────────────────────────────────────────────────────
+
+_maintenance_cache: bool | None = None
+_maintenance_cache_ts: float = 0.0
+_MAINTENANCE_CACHE_TTL = 5.0
+
+
+def set_maintenance_cache(value: bool) -> None:
+    """Set the maintenance mode cache (called from admin settings update)."""
+    global _maintenance_cache, _maintenance_cache_ts
+    _maintenance_cache = value
+    _maintenance_cache_ts = time.monotonic()
+
+
+async def _get_maintenance_mode() -> bool:
+    """Get maintenance mode with 5s cache to avoid DB hit on every request."""
+    global _maintenance_cache, _maintenance_cache_ts
+    now = time.monotonic()
+    if _maintenance_cache is not None and (now - _maintenance_cache_ts) < _MAINTENANCE_CACHE_TTL:
+        return _maintenance_cache
+    from app.models.system import SystemConfig
+
+    config = await SystemConfig.get_config()
+    _maintenance_cache = config.maintenance_mode
+    _maintenance_cache_ts = now
+    return _maintenance_cache
+
+
+class MaintenanceModeMiddleware(_SkipWebSocketMiddleware):
+    """Return 503 for non-admin/auth requests when maintenance mode is active."""
+
+    _BYPASS_PREFIXES = ("/api/v1/auth/", "/api/v1/admin/", "/health", "/mcp")
+
+    async def process_request(self, request: Request, call_next: Callable) -> Response:
+        path = request.url.path
+        if any(path.startswith(p) for p in self._BYPASS_PREFIXES):
+            return await call_next(request)
+        if await _get_maintenance_mode():
+            return JSONResponse(
+                status_code=503,
+                content={"error": {"type": "MaintenanceMode", "message": "System is under maintenance."}},
+                headers={"Retry-After": "3600"},
+            )
+        return await call_next(request)

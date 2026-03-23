@@ -28,10 +28,24 @@ export interface SystemSettings {
   backup_git_author_email: string;
   // External Integrations
   slack_webhook_url: string | null;
+  slack_signing_secret_set: boolean;
   servicenow_instance_url: string | null;
   servicenow_username: string | null;
   servicenow_password_set: boolean;
   pagerduty_api_key_set: boolean;
+  // Email / SMTP
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_username: string | null;
+  smtp_password_set: boolean;
+  smtp_from_email: string;
+  smtp_use_tls: boolean;
+  // Webhook
+  webhook_ip_whitelist: string[];
+  // Execution retention
+  execution_retention_days: number;
+  // System
+  maintenance_mode: boolean;
   // LLM (global toggle — configs managed via /llm/configs)
   llm_enabled: boolean;
   updated_at: string;
@@ -67,20 +81,45 @@ export interface SystemSettingsUpdate {
   backup_git_author_email?: string;
   // External Integrations
   slack_webhook_url?: string;
+  slack_signing_secret?: string;
   servicenow_instance_url?: string;
   servicenow_username?: string;
   servicenow_password?: string;
   pagerduty_api_key?: string;
+  // Email / SMTP
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_username?: string;
+  smtp_password?: string;
+  smtp_from_email?: string;
+  smtp_use_tls?: boolean;
+  // Webhook
+  webhook_ip_whitelist?: string[];
+  // Execution retention
+  execution_retention_days?: number;
+  // System
+  maintenance_mode?: boolean;
   // LLM
   llm_enabled?: boolean;
+}
+
+export interface IntegrationTestResult {
+  status: 'connected' | 'failed';
+  error: string | null;
 }
 
 export interface AuditLogEntry {
   id: string;
   event_type: string;
+  event_category: string | null;
+  description: string | null;
   user_id: string | null;
   user_email: string | null;
   source_ip: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  target_name: string | null;
+  success: boolean;
   timestamp: string;
   details: Record<string, unknown>;
 }

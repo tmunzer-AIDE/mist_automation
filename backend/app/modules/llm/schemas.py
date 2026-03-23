@@ -159,6 +159,7 @@ class FollowUpRequest(BaseModel):
 
     message: str = Field(..., min_length=1, max_length=4000, description="User follow-up message")
     stream_id: str | None = Field(None, description="WebSocket stream ID for token streaming")
+    mcp_config_ids: list[str] | None = Field(None, description="Override MCP server config IDs; None = keep thread default")
 
 
 class ChatResponse(BaseModel):
@@ -166,6 +167,7 @@ class ChatResponse(BaseModel):
 
     reply: str
     thread_id: str
+    tool_calls: list[dict] = Field(default_factory=list)
     usage: dict = Field(default_factory=dict)
 
 
@@ -303,6 +305,7 @@ class ConversationMessageResponse(BaseModel):
 
     role: str
     content: str
+    metadata: dict | None = None
     timestamp: datetime
 
 

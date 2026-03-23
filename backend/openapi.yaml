@@ -2370,6 +2370,20 @@ paths:
           description: Filter by user ID
           schema:
             type: string
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter logs from this date (ISO 8601)
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter logs until this date (ISO 8601)
       responses:
         '200':
           description: Audit logs
@@ -2389,6 +2403,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/logs/export:
+    post:
+      tags:
+        - Admin
+      summary: Export audit logs as CSV
+      description: Export filtered audit logs as a CSV file download (max 50,000 rows).
+      operationId: exportAuditLogs
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_type:
+                  type: string
+                user_id:
+                  type: string
+                start_date:
+                  type: string
+                  format: date-time
+                end_date:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
 
   /admin/stats:
     get:
@@ -2459,6 +2507,83 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/integrations/test-slack:
+    post:
+      tags: [Admin]
+      summary: Test Slack webhook connection
+      description: Sends a test message to the configured or provided Slack webhook URL.
+      operationId: test_slack_connection
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slack_webhook_url:
+                  type: string
+                  description: Override webhook URL for testing
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationTestResult'
+
+  /api/v1/admin/integrations/test-servicenow:
+    post:
+      tags: [Admin]
+      summary: Test ServiceNow connection
+      description: Validates ServiceNow credentials by querying the incident table.
+      operationId: test_servicenow_connection
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                servicenow_instance_url:
+                  type: string
+                servicenow_username:
+                  type: string
+                servicenow_password:
+                  type: string
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationTestResult'
+
+  /api/v1/admin/integrations/test-pagerduty:
+    post:
+      tags: [Admin]
+      summary: Test PagerDuty integration key
+      description: Validates PagerDuty integration key format.
+      operationId: test_pagerduty_connection
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pagerduty_api_key:
+                  type: string
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationTestResult'
 
   /admin/mist/sites:
     get:
@@ -3340,6 +3465,9 @@ components:
         is_initialized:
           type: boolean
           description: Whether the system has been initialized (has at least one user)
+        maintenance_mode:
+          type: boolean
+          description: Whether system is in maintenance mode
         password_policy:
           type: object
           properties:
@@ -5400,6 +5528,46 @@ components:
         pagerduty_api_key_set:
           type: boolean
           description: Whether PagerDuty API key is configured
+        smtp_host:
+          type:
+            - string
+            - 'null'
+        smtp_port:
+          type: integer
+        smtp_username:
+          type:
+            - string
+            - 'null'
+        smtp_password_set:
+          type: boolean
+        smtp_from_email:
+          type: string
+        smtp_use_tls:
+          type: boolean
+        webhook_ip_whitelist:
+          type: array
+          items:
+            type: string
+        execution_retention_days:
+          type: integer
+        maintenance_mode:
+          type: boolean
+        syslog_enabled:
+          type: boolean
+        syslog_host:
+          type:
+            - string
+            - 'null'
+        syslog_port:
+          type: integer
+        syslog_protocol:
+          type: string
+          enum: [udp, tcp]
+        syslog_format:
+          type: string
+          enum: [rfc5424, cef]
+        syslog_facility:
+          type: string
         updated_at:
           type:
             - string
@@ -5473,6 +5641,46 @@ components:
         servicenow_password:
           type: string
         pagerduty_api_key:
+          type: string
+        smtp_host:
+          type: string
+        smtp_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        smtp_username:
+          type: string
+        smtp_password:
+          type: string
+        smtp_from_email:
+          type: string
+        smtp_use_tls:
+          type: boolean
+        webhook_ip_whitelist:
+          type: array
+          items:
+            type: string
+        execution_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+        maintenance_mode:
+          type: boolean
+        syslog_enabled:
+          type: boolean
+        syslog_host:
+          type: string
+        syslog_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        syslog_protocol:
+          type: string
+          enum: [udp, tcp]
+        syslog_format:
+          type: string
+          enum: [rfc5424, cef]
+        syslog_facility:
           type: string
 
     MistConnectionTestRequest:
@@ -5627,6 +5835,18 @@ components:
             - string
             - 'null'
           description: Error message if failed
+
+    IntegrationTestResult:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [connected, failed]
+        error:
+          type:
+            - string
+            - 'null'
 
     WorkerStatusResponse:
       type: object

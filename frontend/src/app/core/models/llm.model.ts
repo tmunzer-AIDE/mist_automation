@@ -75,6 +75,7 @@ export interface McpTool {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  metadata?: { tool_calls?: { tool: string; server: string; status: string; result_preview?: string }[]; thinking_texts?: string[] } | null;
   timestamp?: string;
 }
 

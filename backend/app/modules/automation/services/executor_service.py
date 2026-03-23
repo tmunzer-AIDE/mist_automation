@@ -905,6 +905,11 @@ class WorkflowExecutor:
                 return {"status": "mocked", "channel": config.get("notification_channel", "")}
             return await self._execute_notification(node_type, config, node=node, execution=execution)
 
+        if node_type == "syslog":
+            if dry_run:
+                return {"status": "mocked", "host": config.get("syslog_host", ""), "format": config.get("syslog_format", "rfc5424")}
+            return await self._execute_syslog(config)
+
         if node_type == "invoke_subflow":
             return await self._execute_invoke_subflow(node, execution, dry_run=dry_run, simulate=simulate)
 
@@ -1817,6 +1822,90 @@ class WorkflowExecutor:
             else:
                 logger.warning(f"Unknown notification type: {node_type}")
                 return {"status": "unsupported", "type": node_type}
+
+    async def _execute_syslog(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Execute a syslog action — send a formatted syslog message via UDP or TCP."""
+        import socket
+        from datetime import datetime, timezone
+
+        host = self._render_template(config.get("syslog_host", ""))
+        port = int(config.get("syslog_port", 514))
+        protocol = config.get("syslog_protocol", "udp").lower()
+        fmt = config.get("syslog_format", "rfc5424").lower()
+        facility_name = config.get("syslog_facility", "local0")
+        severity_name = config.get("syslog_severity", "informational")
+        message = self._render_template(config.get("notification_template", config.get("message", "")))
+
+        if not host:
+            raise WorkflowExecutionError("Syslog host is required")
+
+        # SSRF protection: resolve DNS off event loop, block private IPs, return safe IP
+        from app.utils.url_safety import validate_outbound_host_async
+
+        try:
+            safe_ip = await validate_outbound_host_async(host)
+        except ValueError as e:
+            raise WorkflowExecutionError(f"Syslog host blocked: {e}") from e
+
+        # Map facility and severity names to numeric values
+        facilities = {f"local{i}": 16 + i for i in range(8)}
+        severities = {
+            "emergency": 0, "alert": 1, "critical": 2, "error": 3,
+            "warning": 4, "notice": 5, "informational": 6, "debug": 7,
+        }
+        facility = facilities.get(facility_name, 16)
+        severity = severities.get(severity_name, 6)
+        pri = facility * 8 + severity
+
+        hostname = socket.gethostname()
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        if fmt == "cef":
+            vendor = self._render_template(config.get("cef_device_vendor", "Juniper"))
+            product = self._render_template(config.get("cef_device_product", "Mist"))
+            event_class = self._render_template(config.get("cef_event_class_id", "workflow"))
+            name = self._render_template(config.get("cef_name", message[:80]))
+            cef_severity = min(10, severity)  # CEF severity 0-10
+            syslog_msg = (
+                f"<{pri}>{timestamp} {hostname} "
+                f"CEF:0|{vendor}|{product}|1.0|{event_class}|{name}|{cef_severity}|"
+                f"msg={message}"
+            )
+        else:
+            # RFC 5424
+            syslog_msg = (
+                f"<{pri}>1 {timestamp} {hostname} mist-automation - - - {message}"
+            )
+
+        encoded = syslog_msg.encode("utf-8")
+
+        if protocol == "tcp":
+            # TCP: send with newline delimiter
+            reader, writer = await asyncio.open_connection(safe_ip, port)
+            try:
+                writer.write(encoded + b"\n")
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        else:
+            # UDP: fire and forget
+            transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+                asyncio.DatagramProtocol, remote_addr=(safe_ip, port)
+            )
+            try:
+                transport.sendto(encoded)
+            finally:
+                transport.close()
+
+        return {
+            "status": "sent",
+            "host": host,
+            "port": port,
+            "protocol": protocol,
+            "format": fmt,
+            "message": syslog_msg[:500],
+        }
 
     async def _execute_condition(
         self, node: WorkflowNode, execution: WorkflowExecution, dry_run: bool = False

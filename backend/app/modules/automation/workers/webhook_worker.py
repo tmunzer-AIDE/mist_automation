@@ -329,6 +329,13 @@ async def execute_workflow_for_webhook(
             nodes_executed=result.nodes_executed,
         )
 
+        # Dispatch failure notification if configured
+        if result.status in (ExecutionStatus.FAILED, ExecutionStatus.TIMEOUT) and workflow.failure_notification:
+            from app.core.tasks import create_background_task
+            from app.modules.automation.workers.notification_helper import notify_workflow_failure
+
+            create_background_task(notify_workflow_failure(workflow, result), name=f"notify_failure_{workflow.id}")
+
         return {
             "workflow_id": str(workflow.id),
             "workflow_name": workflow.name,
@@ -348,6 +355,13 @@ async def execute_workflow_for_webhook(
             execution.mark_completed(ExecutionStatus.FAILED, error="Workflow execution failed")
             execution.add_log("Workflow execution error", "error")
             await execution.save()
+
+        # Dispatch failure notification if configured
+        if workflow.failure_notification:
+            from app.core.tasks import create_background_task
+            from app.modules.automation.workers.notification_helper import notify_workflow_failure
+
+            create_background_task(notify_workflow_failure(workflow, execution), name=f"notify_failure_{workflow.id}")
 
         logger.error(
             "workflow_execution_error", workflow_id=str(workflow.id), execution_id=str(execution.id), error=str(e)

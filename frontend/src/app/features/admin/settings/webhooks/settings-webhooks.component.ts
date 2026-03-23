@@ -83,6 +83,33 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
         <mat-card>
           <mat-card-header>
+            <mat-card-title>IP Allowlist</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <p class="hint-text">
+              Restrict incoming webhooks to specific IP addresses or CIDR ranges.
+              Leave empty to allow all sources.
+            </p>
+            <mat-form-field appearance="outline" class="full-width">
+              <mat-label>Allowed IPs / CIDRs</mat-label>
+              <textarea
+                matInput
+                formControlName="webhook_ip_whitelist"
+                rows="5"
+                placeholder="One IP or CIDR per line, e.g.&#10;192.168.1.0/24&#10;10.0.0.1"
+              ></textarea>
+              <mat-hint>One IP address or CIDR range per line</mat-hint>
+            </mat-form-field>
+          </mat-card-content>
+          <mat-card-actions align="end">
+            <button mat-flat-button (click)="saveIpAllowlist()" [disabled]="saving()">
+              <mat-icon>save</mat-icon> {{ saving() ? 'Saving...' : 'Save' }}
+            </button>
+          </mat-card-actions>
+        </mat-card>
+
+        <mat-card>
+          <mat-card-header>
             <mat-card-title>
               Smee.io
               @if (smeeStatus()) {
@@ -175,6 +202,9 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
       .hint-text a {
         color: var(--mat-sys-primary);
       }
+      .full-width {
+        width: 100%;
+      }
       .smee-badge {
         margin-left: 12px;
       }
@@ -195,6 +225,7 @@ export class SettingsWebhooksComponent implements OnInit {
 
   form = this.fb.group({
     webhook_secret: [''],
+    webhook_ip_whitelist: [''],
     smee_enabled: [false],
     smee_channel_url: [''],
   });
@@ -221,6 +252,7 @@ export class SettingsWebhooksComponent implements OnInit {
   private populateForm(s: SystemSettings): void {
     this.form.patchValue({
       webhook_secret: s.webhook_secret || '',
+      webhook_ip_whitelist: s.webhook_ip_whitelist?.join('\n') || '',
       smee_enabled: s.smee_enabled,
       smee_channel_url: s.smee_channel_url || '',
     });
@@ -245,6 +277,25 @@ export class SettingsWebhooksComponent implements OnInit {
         this.saving.set(false);
         this.form.patchValue({ webhook_secret: '' });
         this.snackBar.open('Webhook secret saved', 'OK', { duration: 3000 });
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  saveIpAllowlist(): void {
+    this.saving.set(true);
+    const raw = this.form.value.webhook_ip_whitelist || '';
+    const webhook_ip_whitelist = raw
+      .split('\n')
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0);
+    this.settingsService.save({ webhook_ip_whitelist }).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.snackBar.open('IP allowlist saved', 'OK', { duration: 3000 });
       },
       error: (err) => {
         this.saving.set(false);

@@ -806,12 +806,22 @@ async def continue_conversation(
     if thread.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Thread not owned by user")
 
+    # Update MCP server selection if the client sent an override
+    if request.mcp_config_ids is not None and request.mcp_config_ids != thread.mcp_config_ids:
+        thread.mcp_config_ids = request.mcp_config_ids
+        logger.info("mcp_config_updated_mid_conversation", thread_id=str(thread.id), mcp_ids=request.mcp_config_ids)
+
     # Add user message and persist before LLM call (so it's not lost on failure)
     thread.add_message("user", request.message)
     await thread.save()
 
+    tool_calls_summary: list[dict] = []
+    msg_metadata = None
     if thread.feature in _MCP_ENABLED_FEATURES:
-        reply = await _continue_with_mcp(thread, request.message, current_user, stream_id=request.stream_id)
+        agent_result = await _continue_with_mcp(thread, request.message, current_user, stream_id=request.stream_id)
+        reply = agent_result.result
+        tool_calls_summary = [{"tool": tc.tool, "arguments": tc.arguments} for tc in agent_result.tool_calls]
+        msg_metadata = _agent_result_metadata(agent_result)
     else:
         llm = await create_llm_service()
         llm_messages = thread.to_llm_messages()
@@ -820,20 +830,24 @@ async def continue_conversation(
         await _log_llm_usage(current_user.id, thread.feature, llm, response)
 
     # Store assistant reply
-    thread.add_message("assistant", reply)
+    thread.add_message("assistant", reply, metadata=msg_metadata)
     await thread.save()
 
     return ChatResponse(
         reply=reply,
         thread_id=str(thread.id),
+        tool_calls=tool_calls_summary,
         usage={},
     )
 
 
 async def _continue_with_mcp(
     thread, message: str, current_user: User, stream_id: str | None = None
-) -> str:
-    """Run a follow-up message through the MCP agent loop with conversation history."""
+):
+    """Run a follow-up message through the MCP agent loop with conversation history.
+
+    Returns an ``AgentResult`` so callers can access tool_calls.
+    """
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
 
@@ -861,11 +875,11 @@ async def _continue_with_mcp(
         current_user.id, elicitation_channel=elicit_channel, extra_clients=external,
     ) as all_clients:
         agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=5)
-        result = await agent.run(
+        return await agent.run(
             task=message,
             system_prompt=system_prompt + context_summary,
+            on_tool_call=_make_tool_notifier(stream_id),
         )
-        return result.result
 
 
 async def _stream_or_complete(llm, messages, stream_id: str | None = None, json_mode: bool = False):
@@ -892,6 +906,32 @@ async def _stream_or_complete(llm, messages, stream_id: str | None = None, json_
     await ws_manager.broadcast(channel, {"type": "done", "content": content})
 
     return LLMResponse(content=content, model=llm.model)
+
+
+def _agent_result_metadata(result) -> dict | None:
+    """Build conversation message metadata from an AgentResult (tool_calls + thinking)."""
+    if not result.tool_calls:
+        return None
+    return {
+        "tool_calls": [
+            {"tool": tc.tool, "server": tc.server, "status": "error" if tc.is_error else "success", "result_preview": tc.result[:300]}
+            for tc in result.tool_calls
+        ],
+        "thinking_texts": result.thinking_texts,
+    }
+
+
+def _make_tool_notifier(stream_id: str | None):
+    """Build a WS-broadcasting callback for real-time tool call events."""
+    if not stream_id:
+        return None
+
+    async def _notify(event_type: str, data: dict) -> None:
+        from app.core.websocket import ws_manager
+
+        await ws_manager.broadcast(f"llm:{stream_id}", {"type": event_type, **data})
+
+    return _notify
 
 
 # ── Workflow Creation Assistant ───────────────────────────────────────────────
@@ -1265,6 +1305,7 @@ async def global_chat(
         result = await agent.run(
             task=request.message,
             system_prompt=system_prompt + context_summary,
+            on_tool_call=_make_tool_notifier(request.stream_id),
         )
 
         reply = result.result
@@ -1273,8 +1314,8 @@ async def global_chat(
             for tc in result.tool_calls
         ]
 
-    # Store assistant reply
-    thread.add_message("assistant", reply)
+    # Store assistant reply (with tool_calls + thinking metadata if MCP tools were used)
+    thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
     await thread.save()
 
     return GlobalChatResponse(
@@ -1387,7 +1428,7 @@ async def get_thread(
         feature=thread.feature,
         context_ref=thread.context_ref,
         messages=[
-            ConversationMessageResponse(role=m.role, content=m.content, timestamp=m.timestamp) for m in thread.messages
+            ConversationMessageResponse(role=m.role, content=m.content, metadata=m.metadata, timestamp=m.timestamp) for m in thread.messages
         ],
         mcp_config_ids=thread.mcp_config_ids,
         created_at=thread.created_at,

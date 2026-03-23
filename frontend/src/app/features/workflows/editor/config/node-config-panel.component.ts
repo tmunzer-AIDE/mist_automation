@@ -901,6 +901,94 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
               <mat-checkbox formControlName="email_html">Send as HTML</mat-checkbox>
             }
 
+            <!-- Syslog -->
+            @if (node.type === 'syslog') {
+              <div class="syslog-row">
+                <mat-form-field appearance="outline" class="syslog-host">
+                  <mat-label>Syslog Host</mat-label>
+                  <input matInput formControlName="syslog_host" placeholder="syslog.example.com" [appTemplateValidation]="variableTree" />
+                </mat-form-field>
+                <mat-form-field appearance="outline" class="syslog-port">
+                  <mat-label>Port</mat-label>
+                  <input matInput type="number" formControlName="syslog_port" />
+                </mat-form-field>
+              </div>
+
+              <div class="syslog-row">
+                <mat-form-field appearance="outline">
+                  <mat-label>Protocol</mat-label>
+                  <mat-select formControlName="syslog_protocol">
+                    <mat-option value="udp">UDP</mat-option>
+                    <mat-option value="tcp">TCP</mat-option>
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Format</mat-label>
+                  <mat-select formControlName="syslog_format">
+                    <mat-option value="rfc5424">RFC 5424</mat-option>
+                    <mat-option value="cef">CEF</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+
+              <div class="syslog-row">
+                <mat-form-field appearance="outline">
+                  <mat-label>Facility</mat-label>
+                  <mat-select formControlName="syslog_facility">
+                    @for (i of [0,1,2,3,4,5,6,7]; track i) {
+                      <mat-option [value]="'local' + i">local{{ i }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Severity</mat-label>
+                  <mat-select formControlName="syslog_severity">
+                    <mat-option value="emergency">Emergency</mat-option>
+                    <mat-option value="alert">Alert</mat-option>
+                    <mat-option value="critical">Critical</mat-option>
+                    <mat-option value="error">Error</mat-option>
+                    <mat-option value="warning">Warning</mat-option>
+                    <mat-option value="notice">Notice</mat-option>
+                    <mat-option value="informational">Informational</mat-option>
+                    <mat-option value="debug">Debug</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Message Template</mat-label>
+                <textarea matInput formControlName="notification_template" rows="3" [appTemplateValidation]="variableTree"></textarea>
+                <button mat-icon-button matSuffix [matMenuTriggerFor]="syslogVarMenu">
+                  <mat-icon>data_object</mat-icon>
+                </button>
+                <mat-menu #syslogVarMenu="matMenu">
+                  <app-variable-picker
+                    [variableTree]="variableTree"
+                    (variableSelected)="insertIntoControl(form.get('notification_template')!, $event)"
+                  />
+                </mat-menu>
+              </mat-form-field>
+
+              @if (form.value.syslog_format === 'cef') {
+                <mat-form-field appearance="outline">
+                  <mat-label>CEF Device Vendor</mat-label>
+                  <input matInput formControlName="cef_device_vendor" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>CEF Device Product</mat-label>
+                  <input matInput formControlName="cef_device_product" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>CEF Event Class ID</mat-label>
+                  <input matInput formControlName="cef_event_class_id" [appTemplateValidation]="variableTree" />
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>CEF Name</mat-label>
+                  <input matInput formControlName="cef_name" [appTemplateValidation]="variableTree" />
+                </mat-form-field>
+              }
+            }
+
             <!-- Device Utils -->
             @if (isDeviceUtilAction) {
               <mat-form-field appearance="outline">
@@ -1607,6 +1695,20 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
           margin-top: 1px;
         }
       }
+
+      .syslog-row {
+        display: flex;
+        gap: 12px;
+      }
+      .syslog-row mat-form-field {
+        flex: 1;
+      }
+      .syslog-host {
+        flex: 2 !important;
+      }
+      .syslog-port {
+        flex: 0 0 100px !important;
+      }
     `,
   ],
 })
@@ -1839,6 +1941,17 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       slack_json_variable: [config['slack_json_variable'] || ''],
       email_subject: [config['email_subject'] || ''],
       email_html: [config['email_html'] ?? false],
+      // Syslog
+      syslog_host: [config['syslog_host'] || ''],
+      syslog_port: [config['syslog_port'] || 514],
+      syslog_protocol: [config['syslog_protocol'] || 'udp'],
+      syslog_format: [config['syslog_format'] || 'rfc5424'],
+      syslog_facility: [config['syslog_facility'] || 'local0'],
+      syslog_severity: [config['syslog_severity'] || 'informational'],
+      cef_device_vendor: [config['cef_device_vendor'] || 'Juniper'],
+      cef_device_product: [config['cef_device_product'] || 'Mist'],
+      cef_event_class_id: [config['cef_event_class_id'] || ''],
+      cef_name: [config['cef_name'] || ''],
       target_workflow_id: [config['target_workflow_id'] || ''],
       du_device_type: [config['device_type'] || ''],
       du_function: [config['function'] || ''],
@@ -2220,6 +2333,22 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
           );
           config['slack_footer'] = raw.slack_footer || undefined;
           config['slack_json_variable'] = raw.slack_json_variable || undefined;
+        }
+      }
+
+      if (this.node.type === 'syslog') {
+        config['syslog_host'] = raw.syslog_host || '';
+        config['syslog_port'] = raw.syslog_port || 514;
+        config['syslog_protocol'] = raw.syslog_protocol || 'udp';
+        config['syslog_format'] = raw.syslog_format || 'rfc5424';
+        config['syslog_facility'] = raw.syslog_facility || 'local0';
+        config['syslog_severity'] = raw.syslog_severity || 'informational';
+        config['notification_template'] = raw.notification_template || '';
+        if (raw.syslog_format === 'cef') {
+          config['cef_device_vendor'] = raw.cef_device_vendor || 'Juniper';
+          config['cef_device_product'] = raw.cef_device_product || 'Mist';
+          config['cef_event_class_id'] = raw.cef_event_class_id || '';
+          config['cef_name'] = raw.cef_name || '';
         }
       }
 

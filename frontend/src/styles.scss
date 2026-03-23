@@ -486,3 +486,33 @@ mat-toolbar.mat-toolbar {
   --mat-dialog-container-max-width: 1200px;
   --mat-dialog-container-min-width: 600px;
 }
+
+// ── MCP toggle button (shared across chat components) ───────────────────────
+.mcp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mat-sys-on-surface-variant, #555);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--mat-sys-outline, rgba(0, 0, 0, 0.2));
+  background: var(--mat-sys-surface-container, rgba(0, 0, 0, 0.06));
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-highest, rgba(0, 0, 0, 0.12));
+  }
+
+  &.active {
+    color: var(--mat-sys-primary, #1976d2);
+    border-color: var(--mat-sys-primary, #1976d2);
+    background: var(--mat-sys-primary-container, rgba(25, 118, 210, 0.08));
+  }
+
+  mat-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+  }
+}

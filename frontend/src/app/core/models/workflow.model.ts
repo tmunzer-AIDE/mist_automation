@@ -23,10 +23,22 @@ export type ActionType =
   | 'device_utils'
   | 'ai_agent'
   | 'wait_for_callback'
+  | 'syslog'
   | 'trigger_backup'
   | 'restore_backup'
   | 'compare_backups';
 export type WorkflowType = 'standard' | 'subflow';
+export type SharingPermission = 'private' | 'read-only' | 'read-write';
+export type NotificationChannel = 'slack' | 'email' | 'pagerduty' | 'servicenow';
+
+export interface FailureNotificationConfig {
+  enabled: boolean;
+  channel: NotificationChannel;
+  slack_webhook_url?: string | null;
+  email_recipients?: string[];
+  pagerduty_integration_key?: string | null;
+  include_error_details?: boolean;
+}
 
 export interface DeviceUtilParam {
   name: string;
@@ -115,6 +127,7 @@ export interface VariableBinding {
 export interface WorkflowCreate {
   name: string;
   description?: string;
+  sharing?: string;
   workflow_type?: WorkflowType;
   timeout_seconds?: number;
   nodes: Record<string, unknown>[];
@@ -127,6 +140,7 @@ export interface WorkflowCreate {
 export interface WorkflowUpdate {
   name?: string;
   description?: string;
+  sharing?: string;
   status?: WorkflowStatus;
   timeout_seconds?: number;
   nodes?: Record<string, unknown>[];
@@ -134,6 +148,7 @@ export interface WorkflowUpdate {
   viewport?: Record<string, unknown> | null;
   input_parameters?: SubflowParameter[];
   output_parameters?: SubflowParameter[];
+  failure_notification?: FailureNotificationConfig | null;
 }
 
 export interface WorkflowResponse {
@@ -150,6 +165,7 @@ export interface WorkflowResponse {
   viewport: { x: number; y: number; zoom: number } | null;
   input_parameters: SubflowParameter[];
   output_parameters: SubflowParameter[];
+  failure_notification: FailureNotificationConfig | null;
   execution_count: number;
   success_count: number;
   failure_count: number;

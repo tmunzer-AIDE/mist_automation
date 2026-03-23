@@ -13,6 +13,7 @@ from app.core.database import Database
 from app.core.logger import configure_logging
 from app.core.middleware import (
     ExceptionHandlerMiddleware,
+    MaintenanceModeMiddleware,
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
@@ -153,6 +154,7 @@ app.add_middleware(
 # Add custom middleware (order matters: last-added runs outermost in Starlette)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(ExceptionHandlerMiddleware)
+app.add_middleware(MaintenanceModeMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)  # outermost — headers added to ALL responses including errors
 
 
@@ -168,12 +170,21 @@ async def health_check():
     except Exception:
         is_initialized = False
 
+    try:
+        from app.models.system import SystemConfig
+
+        sys_config = await SystemConfig.get_config()
+        maintenance = sys_config.maintenance_mode
+    except Exception:
+        maintenance = False
+
     return {
         "status": "healthy",
         "app": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
         "is_initialized": is_initialized,
+        "maintenance_mode": maintenance,
         "password_policy": {
             "min_length": settings.min_password_length,
             "require_uppercase": settings.require_uppercase,
@@ -211,12 +222,13 @@ for _module in MODULES:
 
 logger.info("api_routers_registered")
 
-# Mount MCP server
+# Mount MCP server with JWT authentication
 try:
+    from app.modules.mcp_server.auth_middleware import MCPAuthMiddleware
     from app.modules.mcp_server.server import mcp as _mcp_server
 
-    app.mount("/mcp", _mcp_server.http_app(path="/"))
-    logger.info("mcp_server_mounted", path="/mcp")
+    app.mount("/mcp", MCPAuthMiddleware(_mcp_server.http_app(path="/")))
+    logger.info("mcp_server_mounted", path="/mcp", auth="jwt")
 except Exception as e:
     logger.warning("mcp_server_mount_failed", error=str(e))
 

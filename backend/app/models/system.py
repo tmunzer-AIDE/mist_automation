@@ -51,6 +51,7 @@ class SystemConfig(TimestampMixin, Document):
     backup_enabled: bool = Field(default=True, description="Enable automatic backups")
     backup_full_schedule_cron: str = Field(default="0 2 * * *", description="Full backup cron schedule")
     backup_retention_days: int = Field(default=90, description="Backup retention in days")
+    execution_retention_days: int = Field(default=90, description="Workflow execution retention in days")
     backup_git_enabled: bool = Field(default=False, description="Enable Git backup integration")
     backup_git_repo_url: str | None = Field(default=None, description="Git repository URL")
     backup_git_branch: str = Field(default="main", description="Git branch name")
@@ -67,6 +68,14 @@ class SystemConfig(TimestampMixin, Document):
     servicenow_password: str | None = Field(default=None, description="Encrypted ServiceNow password")
 
     pagerduty_api_key: str | None = Field(default=None, description="Encrypted PagerDuty API key")
+
+    # Email / SMTP
+    smtp_host: str | None = Field(default=None, description="SMTP server hostname")
+    smtp_port: int = Field(default=587, description="SMTP server port")
+    smtp_username: str | None = Field(default=None, description="SMTP username")
+    smtp_password: str | None = Field(default=None, description="Encrypted SMTP password")
+    smtp_from_email: str = Field(default="noreply@example.com", description="SMTP sender address")
+    smtp_use_tls: bool = Field(default=True, description="Whether to use TLS for SMTP")
 
     slack_signing_secret: str | None = Field(
         default=None, description="Encrypted Slack signing secret for interactive callbacks"

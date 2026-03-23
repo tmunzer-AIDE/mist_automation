@@ -29,6 +29,7 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   wait_for_callback: { label: 'Wait for Callback', icon: 'hourglass_top', color: '#f4511e' },
   trigger_backup: { label: 'Trigger Backup', icon: 'backup', color: '#00897b' },
   restore_backup: { label: 'Restore Backup', icon: 'restore', color: '#e65100' },
+  syslog: { label: 'Syslog', icon: 'dns', color: '#607d8b' },
   compare_backups: { label: 'Compare Backups', icon: 'compare_arrows', color: '#5e35b1' },
 };
 

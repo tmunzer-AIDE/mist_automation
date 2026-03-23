@@ -95,8 +95,14 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
             </p>
 
             <mat-form-field appearance="outline">
-              <mat-label>Retention (days)</mat-label>
+              <mat-label>Backup Retention (days)</mat-label>
               <input matInput type="number" formControlName="backup_retention_days" min="1" />
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Execution Retention (days)</mat-label>
+              <input matInput type="number" formControlName="execution_retention_days" min="1" />
+              <mat-hint>Workflow execution logs older than this will be purged</mat-hint>
             </mat-form-field>
 
             <mat-divider></mat-divider>
@@ -195,6 +201,7 @@ export class SettingsBackupsComponent implements OnInit {
     schedule_day_of_week: ['0'],
     schedule_day_of_month: ['1'],
     backup_retention_days: [90],
+    execution_retention_days: [90],
     backup_git_enabled: [false],
     backup_git_repo_url: [''],
     backup_git_branch: ['main'],
@@ -233,6 +240,7 @@ export class SettingsBackupsComponent implements OnInit {
       schedule_day_of_week: parsed.dayOfWeek,
       schedule_day_of_month: parsed.dayOfMonth,
       backup_retention_days: s.backup_retention_days,
+      execution_retention_days: s.execution_retention_days,
       backup_git_enabled: s.backup_git_enabled,
       backup_git_repo_url: s.backup_git_repo_url || '',
       backup_git_branch: s.backup_git_branch,
@@ -248,6 +256,7 @@ export class SettingsBackupsComponent implements OnInit {
       backup_enabled: values.backup_enabled,
       backup_full_schedule_cron: this.buildCron(),
       backup_retention_days: values.backup_retention_days,
+      execution_retention_days: values.execution_retention_days,
       backup_git_enabled: values.backup_git_enabled,
       backup_git_branch: values.backup_git_branch,
     };

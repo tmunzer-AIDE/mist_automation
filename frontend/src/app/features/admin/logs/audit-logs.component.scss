@@ -19,3 +19,17 @@
   font-family: var(--app-font-mono);
   color: var(--mat-sys-on-surface-variant);
 }
+
+.status-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+
+  &.text-success {
+    color: var(--app-success, #22c55e);
+  }
+
+  &.text-error {
+    color: var(--app-error, #ef4444);
+  }
+}

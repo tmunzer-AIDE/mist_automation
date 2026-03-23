@@ -78,6 +78,27 @@ Two separate execution mechanisms:
 
 For simple fire-and-forget async work, use `create_background_task(coro, name)` from `app.core.tasks` — it wraps `asyncio.create_task()` with error logging via done callbacks.
 
+### Workflow Failure Notifications (app/modules/automation/workers/notification_helper.py)
+
+`notify_workflow_failure(workflow, execution)` dispatches failure alerts to Slack, Email, PagerDuty, or ServiceNow based on `workflow.failure_notification` config. Called from both `webhook_worker.py` and `cron_worker.py` via `create_background_task()` when execution status is FAILED or TIMEOUT. Catches all exceptions — notification failures never affect execution state.
+
+### Execution Cleanup (app/modules/automation/workers/cleanup_worker.py)
+
+`cleanup_old_executions()` deletes `WorkflowExecution` documents older than `SystemConfig.execution_retention_days` (default 90). Scheduled by APScheduler as a nightly job at 3:00 UTC.
+
+### Maintenance Mode (app/core/middleware.py)
+
+`MaintenanceModeMiddleware` returns 503 for all non-admin/auth requests when `SystemConfig.maintenance_mode` is True. Bypasses: `/health`, `/api/v1/auth/*`, `/api/v1/admin/*`, `/mcp`. Uses 5-second cache (`set_maintenance_cache()` invalidates on admin settings update).
+
+### Integration Test Endpoints
+
+Three admin-only POST endpoints for testing outbound notification channels:
+- `POST /admin/integrations/test-slack` — sends test Slack message
+- `POST /admin/integrations/test-servicenow` — validates ServiceNow auth
+- `POST /admin/integrations/test-pagerduty` — validates PagerDuty key format
+
+All accept optional config overrides in request body (test before saving). Return `{"status": "connected"|"failed", "error": ...}`.
+
 ### Variable Substitution (app/utils/variables.py)
 
 Workflow actions use Jinja2 `SandboxedEnvironment` with `ChainableUndefined` for safe nesting. Key functions:
@@ -135,6 +156,8 @@ Always instantiate via `create_mist_service()` from `app.services.mist_service_f
 - **Celery app**: Always import from `app.core.celery_app` — never create Celery instances in modules.
 - **User response**: `user_to_response()` from `app.schemas.user` — single canonical User→UserResponse builder.
 - **LLM service**: Always use `create_llm_service()` factory from `app.modules.llm.services.llm_service_factory`.
+- **Syslog format**: `_execute_syslog()` in `executor_service.py` handles both RFC 5424 and CEF format construction — do not create a separate syslog service.
+- **DB facet counts**: Use `facet_counts()` from `app.utils.db_helpers` for `$facet`-based count aggregations.
 
 ## Testing
 

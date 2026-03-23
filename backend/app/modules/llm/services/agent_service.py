@@ -7,12 +7,17 @@ limit is reached.
 """
 
 import json
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from typing import Any
 
 import structlog
 
 from app.modules.llm.services.llm_service import LLMMessage, LLMService
 from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPTool
+
+# Type alias for the optional progress callback
+ToolCallCallback = Callable[[str, dict], Coroutine[Any, Any, None]]
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +30,7 @@ class ToolCallRecord:
     arguments: dict
     result: str
     server: str
+    is_error: bool = False
 
 
 @dataclass
@@ -36,13 +42,19 @@ class AgentResult:
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     iterations: int = 0
     error: str | None = None
+    thinking_texts: list[str] = field(default_factory=list)  # Intermediate reasoning per iteration
 
     def to_dict(self) -> dict:
         return {
             "status": self.status,
             "result": self.result,
-            "tool_calls": [{"tool": tc.tool, "arguments": tc.arguments, "result": tc.result} for tc in self.tool_calls],
+            "tool_calls": [
+                {"tool": tc.tool, "arguments": tc.arguments, "result": tc.result, "is_error": tc.is_error}
+                for tc in self.tool_calls
+            ],
             "iterations": self.iterations,
+            "thinking_texts": self.thinking_texts,
+            "error": self.error,
         }
 
 
@@ -59,7 +71,13 @@ class AIAgentService:
         self.mcp_clients = mcp_clients
         self.max_iterations = max_iterations
 
-    async def run(self, task: str, system_prompt: str = "", context: dict | None = None) -> AgentResult:
+    async def run(
+        self,
+        task: str,
+        system_prompt: str = "",
+        context: dict | None = None,
+        on_tool_call: ToolCallCallback | None = None,
+    ) -> AgentResult:
         """Run the agent loop until task completion or iteration limit."""
         # Gather tools from all MCP servers
         all_tools: list[dict] = []
@@ -93,11 +111,21 @@ class AIAgentService:
         ]
 
         tool_calls: list[ToolCallRecord] = []
+        thinking_texts: list[str] = []
+
+        # Content callback for streaming intermediate thinking tokens
+        async def _on_content(chunk: str) -> None:
+            if on_tool_call:
+                await on_tool_call("thinking", {"content": chunk})
 
         for iteration in range(self.max_iterations):
             logger.info("agent_iteration", iteration=iteration + 1, max=self.max_iterations)
 
-            response = await self.llm.complete_with_tools(messages, all_tools)
+            if on_tool_call:
+
+                response = await self.llm.stream_with_tools(messages, all_tools, on_content=_on_content)
+            else:
+                response = await self.llm.complete_with_tools(messages, all_tools)
 
             # Check if the LLM wants to call tools
             raw_tool_calls = response.tool_calls
@@ -108,7 +136,12 @@ class AIAgentService:
                     result=response.content,
                     tool_calls=tool_calls,
                     iterations=iteration + 1,
+                    thinking_texts=thinking_texts,
                 )
+
+            # Collect intermediate thinking text before tool execution
+            if response.content:
+                thinking_texts.append(response.content)
 
             # Append the assistant message preserving raw tool_calls for the API protocol
             raw_tc_dicts = [
@@ -132,20 +165,37 @@ class AIAgentService:
                     continue
 
                 client = tool_server_map.get(tool_name)
+                server_name = client.config.name if client else "unknown"
+
+                if on_tool_call:
+                    await on_tool_call("tool_start", {"tool": tool_name, "server": server_name})
+
+                tool_is_error = False
                 if not client:
                     result_text = f"Error: tool '{tool_name}' not found"
+                    tool_is_error = True
                 else:
                     try:
-                        result_text = await client.call_tool(tool_name, arguments)
+                        result_text, tool_is_error = await client.call_tool(tool_name, arguments)
                     except Exception as e:
                         logger.warning("agent_tool_call_failed", tool=tool_name, error=str(e))
                         result_text = f"Error: tool '{tool_name}' failed to execute"
+                        tool_is_error = True
+
+                if on_tool_call:
+                    await on_tool_call("tool_end", {
+                        "tool": tool_name,
+                        "server": server_name,
+                        "status": "error" if tool_is_error else "success",
+                        "result_preview": result_text[:300],
+                    })
 
                 tool_calls.append(ToolCallRecord(
                     tool=tool_name,
                     arguments=arguments,
                     result=result_text[:2000],
                     server=client.config.name if client else "unknown",
+                    is_error=tool_is_error,
                 ))
 
                 messages.append(LLMMessage(
@@ -161,6 +211,7 @@ class AIAgentService:
             result=response.content,
             tool_calls=tool_calls,
             iterations=self.max_iterations,
+            thinking_texts=thinking_texts,
         )
 
 

@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { MatBadgeModule } from '@angular/material/badge';
@@ -7,16 +7,13 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Subscription } from 'rxjs';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { ConversationThreadSummary, McpConfigAvailable } from '../../core/models/llm.model';
 import { LlmService } from '../../core/services/llm.service';
-import { WebSocketService } from '../../core/services/websocket.service';
 import { TopbarService } from '../../core/services/topbar.service';
 import { AiChatPanelComponent, ChatMessage } from '../../shared/components/ai-chat-panel/ai-chat-panel.component';
 import { AiIconComponent } from '../../shared/components/ai-icon/ai-icon.component';
-import { extractErrorMessage } from '../../shared/utils/error.utils';
 
 interface ThreadGroup {
   label: string;
@@ -31,7 +28,7 @@ const FEATURE_LABELS: Record<string, string> = {
   webhook_summary: 'Webhooks',
 };
 
-function renderMd(md: string): string {
+function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(marked.parse(md, { async: false }) as string);
 }
 
@@ -139,22 +136,15 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
               ></textarea>
               <div class="welcome-input-actions">
                 @if (availableMcpConfigs().length > 0) {
-                  <button
-                    mat-icon-button
-                    [matMenuTriggerFor]="mcpMenu"
-                    matTooltip="External MCP Servers"
-                    [matBadge]="selectedMcpIds().length || null"
-                    matBadgeSize="small"
-                    matBadgeColor="primary"
-                  >
+                  <button class="mcp-toggle" [class.active]="selectedMcpIds().length > 0" [matMenuTriggerFor]="mcpMenu" [matTooltip]="mcpTooltipText()">
                     <mat-icon>hub</mat-icon>
+                    <span>{{ selectedMcpIds().length }}</span>
                   </button>
                   <mat-menu #mcpMenu="matMenu">
                     @for (cfg of availableMcpConfigs(); track cfg.id) {
                       <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
-                        <mat-checkbox [checked]="selectedMcpIds().includes(cfg.id)" (click)="$event.stopPropagation()" (change)="toggleMcp(cfg.id)">
-                          {{ cfg.name }}
-                        </mat-checkbox>
+                        <mat-icon>{{ selectedMcpIds().includes(cfg.id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
+                        {{ cfg.name }}
                       </button>
                     }
                   </mat-menu>
@@ -166,18 +156,20 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
               </div>
             </div>
           </div>
-        } @else {
-          <!-- Chat view -->
-          <div class="chat-view">
-            <app-ai-chat-panel
-              [threadId]="activeThreadId()"
-              [initialMessages]="loadedMessages()"
-              [parentLoading]="sending() || loadingThread()"
-              [loadingLabel]="loadingThread() ? 'Loading conversation...' : 'Thinking...'"
-              [mcpConfigs]="activeMcpConfigs()"
-            ></app-ai-chat-panel>
-          </div>
         }
+        <!-- Chat panel: always in DOM so startStream() can access it via viewChild -->
+        <div class="chat-view" [class.hidden]="!activeThreadId() && !sending()">
+          <app-ai-chat-panel
+            #chatPanel
+            [threadId]="activeThreadId()"
+            [initialSummary]="replySummary()"
+            [initialMessages]="loadedMessages()"
+            [parentLoading]="sending() || loadingThread()"
+            [loadingLabel]="loadingThread() ? 'Loading conversation...' : 'Thinking...'"
+            [mcpConfigs]="availableMcpConfigs()"
+            [(mcpConfigIds)]="selectedMcpIds"
+          ></app-ai-chat-panel>
+        </div>
       </main>
     </div>
   `,
@@ -366,6 +358,7 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
         min-width: 0;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
         position: relative;
       }
 
@@ -498,12 +491,17 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
 
       .chat-view {
         flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         max-width: 900px;
         width: 100%;
         margin: 0 auto;
+
+        &.hidden {
+          display: none;
+        }
       }
 
       /* ── Responsive ──────────────────────────────────────── */
@@ -525,22 +523,21 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
 })
 export class AiChatsComponent implements OnInit {
   private readonly llmService = inject(LlmService);
-  private readonly wsService = inject(WebSocketService);
   private readonly topbarService = inject(TopbarService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
-  private elicitSub: Subscription | null = null;
+  private readonly chatPanel = viewChild<AiChatPanelComponent>('chatPanel');
 
   threads = signal<ConversationThreadSummary[]>([]);
   activeThreadId = signal<string | null>(null);
   loadedMessages = signal<ChatMessage[]>([]);
+  replySummary = signal<string | null>(null);
   sending = signal(false);
   loadingThread = signal(false);
   sidebarCollapsed = signal(false);
   inputText = '';
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
   selectedMcpIds = signal<string[]>([]);
-  activeMcpConfigs = signal<McpConfigAvailable[]>([]);
 
   threadGroups = computed(() => groupByDate(this.threads()));
 
@@ -549,7 +546,7 @@ export class AiChatsComponent implements OnInit {
     this.loadThreads();
 
     // Load MCP configs
-    this.llmService.listAvailableMcpConfigs().subscribe({
+    this.llmService.listAvailableMcpConfigs().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (configs) => this.availableMcpConfigs.set(configs),
     });
 
@@ -566,6 +563,12 @@ export class AiChatsComponent implements OnInit {
     );
   }
 
+  mcpTooltipText = computed(() => {
+    const ids = new Set(this.selectedMcpIds());
+    const names = this.availableMcpConfigs().filter((c) => ids.has(c.id)).map((c) => c.name);
+    return names.length ? 'MCP: ' + names.join(', ') : 'No MCP servers active';
+  });
+
   featureLabel(feature: string): string {
     return FEATURE_LABELS[feature] ?? feature;
   }
@@ -581,6 +584,7 @@ export class AiChatsComponent implements OnInit {
     this.activeThreadId.set(thread.id);
     this.loadingThread.set(true);
     this.loadedMessages.set([]);
+    this.replySummary.set(null);
 
     this.llmService.getThread(thread.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (detail) => {
@@ -589,12 +593,12 @@ export class AiChatsComponent implements OnInit {
           .map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
-            html: m.role === 'assistant' ? renderMd(m.content) : '',
+            html: m.role === 'assistant' ? renderMarkdown(m.content) : '',
+            metadata: m.metadata,
           }));
         this.loadedMessages.set(msgs);
-        this.activeMcpConfigs.set(
-          this.availableMcpConfigs().filter((c) => detail.mcp_config_ids.includes(c.id)),
-        );
+        // Restore MCP selection from thread
+        this.selectedMcpIds.set(detail.mcp_config_ids || []);
         this.loadingThread.set(false);
       },
       error: () => {
@@ -604,11 +608,10 @@ export class AiChatsComponent implements OnInit {
   }
 
   newChat(): void {
-    this.elicitSub?.unsubscribe();
-    this.elicitSub = null;
     this.activeThreadId.set(null);
     this.loadedMessages.set([]);
-    this.activeMcpConfigs.set([]);
+    this.replySummary.set(null);
+    this.selectedMcpIds.set([]);
     this.inputText = '';
   }
 
@@ -645,40 +648,22 @@ export class AiChatsComponent implements OnInit {
 
     this.inputText = '';
     this.sending.set(true);
-    this.loadedMessages.set([{ role: 'user', content: text, html: '' }]);
-    this.activeMcpConfigs.set(
-      this.availableMcpConfigs().filter((c) => this.selectedMcpIds().includes(c.id)),
-    );
 
+    // Start WS subscription on the panel (handles thinking, tool events, elicitation)
     const streamId = crypto.randomUUID();
-    const channel = `llm:${streamId}`;
-    this.elicitSub?.unsubscribe();
-    this.elicitSub = this.wsService
-      .subscribe<{ type: string; request_id?: string; description?: string }>(channel)
-      .subscribe((msg) => {
-        if (msg.type === 'elicitation' && msg.request_id && msg.description) {
-          // Elicitation handled by AiChatPanelComponent if it's mounted
-        }
-      });
+    this.chatPanel()?.startStream(streamId, text);
 
     this.llmService
       .globalChat(text, undefined, undefined, streamId, this.selectedMcpIds())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.elicitSub?.unsubscribe();
-          this.elicitSub = null;
           this.activeThreadId.set(res.thread_id);
-          this.loadedMessages.set([
-            { role: 'user', content: text, html: '' },
-            { role: 'assistant', content: res.reply, html: renderMd(res.reply) },
-          ]);
+          this.replySummary.set(res.reply);
           this.sending.set(false);
           this.loadThreads();
         },
         error: () => {
-          this.elicitSub?.unsubscribe();
-          this.elicitSub = null;
           this.sending.set(false);
         },
       });

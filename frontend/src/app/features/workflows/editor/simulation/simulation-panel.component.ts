@@ -141,6 +141,11 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
                         @if (result.duration_ms) {
                           <span class="snap-duration">{{ result.duration_ms }}ms</span>
                         }
+                        @if (getToolCallCount(result); as tcCount) {
+                          <span class="tool-count-badge">
+                            <mat-icon class="tool-count-icon">hub</mat-icon>{{ tcCount }} tool{{ tcCount > 1 ? 's' : '' }}
+                          </span>
+                        }
                         @if (result.error) {
                           <div class="snap-error">{{ result.error }}</div>
                         }
@@ -193,10 +198,34 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
                       }
 
                       @if (snap.output_data) {
-                        <div class="snap-section">
-                          <div class="snap-section-title">Output</div>
-                          <pre class="snap-json">{{ snap.output_data | json }}</pre>
-                        </div>
+                        @if (getOutputToolCalls(snap.output_data); as toolCalls) {
+                          @if (snap.output_data['result']) {
+                            <div class="snap-section">
+                              <div class="snap-section-title">Result</div>
+                              <pre class="snap-json">{{ snap.output_data['result'] }}</pre>
+                            </div>
+                          }
+                          <div class="snap-section">
+                            <div class="snap-section-title">Tool Calls ({{ toolCalls.length }})</div>
+                            <div class="tool-calls-list">
+                              @for (tc of toolCalls; track $index) {
+                                <div class="tool-call-item" (click)="toggleToolCall($index)">
+                                  <mat-icon class="tool-call-icon">hub</mat-icon>
+                                  <span class="tool-call-name">{{ tc['tool'] }}</span>
+                                  <mat-icon class="tool-call-chevron">{{ expandedToolCalls().has($index) ? 'expand_less' : 'expand_more' }}</mat-icon>
+                                </div>
+                                @if (expandedToolCalls().has($index)) {
+                                  <pre class="tool-call-detail">{{ formatToolCallDetail(tc) }}</pre>
+                                }
+                              }
+                            </div>
+                          </div>
+                        } @else {
+                          <div class="snap-section">
+                            <div class="snap-section-title">Output</div>
+                            <pre class="snap-json">{{ snap.output_data | json }}</pre>
+                          </div>
+                        }
                       }
 
                       @if (snap.input_variables && Object.keys(snap.input_variables).length) {
@@ -564,6 +593,78 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
         font-size: 13px;
       }
 
+      .tool-count-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+        font-weight: 500;
+        padding: 1px 6px;
+        border-radius: 8px;
+        background: var(--app-purple-bg);
+        color: var(--app-purple);
+      }
+
+      .tool-count-icon {
+        font-size: 11px;
+        width: 11px;
+        height: 11px;
+      }
+
+      .tool-calls-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .tool-call-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.1s;
+
+        &:hover {
+          background: var(--mat-sys-surface-variant, #f0f0f0);
+        }
+      }
+
+      .tool-call-icon {
+        font-size: 13px;
+        width: 13px;
+        height: 13px;
+        color: var(--app-purple);
+      }
+
+      .tool-call-name {
+        font-family: var(--app-font-mono, monospace);
+        font-weight: 500;
+      }
+
+      .tool-call-chevron {
+        margin-left: auto;
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        color: var(--mat-sys-on-surface-variant);
+      }
+
+      .tool-call-detail {
+        font-size: 11px;
+        font-family: var(--app-font-mono, monospace);
+        background: var(--mat-sys-surface-variant, #f5f5f5);
+        padding: 6px 8px;
+        border-radius: 4px;
+        max-height: 150px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 0 0 4px 22px;
+      }
+
       .ai-debug-section {
         border-top: 1px solid var(--mat-sys-outline-variant);
         border-bottom: 1px solid var(--mat-sys-outline-variant);
@@ -617,6 +718,43 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
   selectedSampleId = signal<string | null>(null);
 
   protected readonly Object = Object;
+
+  /** Track which tool call indices are expanded in the step-through view */
+  expandedToolCalls = signal<Set<number>>(new Set());
+
+  getToolCallCount(result: NodeExecutionResult): number {
+    const tc = result.output_data?.['tool_calls'];
+    return Array.isArray(tc) ? tc.length : 0;
+  }
+
+  getOutputToolCalls(output: Record<string, unknown>): Record<string, unknown>[] | null {
+    const tc = output['tool_calls'];
+    return Array.isArray(tc) && tc.length > 0 ? tc : null;
+  }
+
+  toggleToolCall(index: number): void {
+    this.expandedToolCalls.update((set) => {
+      const next = new Set(set);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }
+
+  formatToolCallDetail(tc: Record<string, unknown>): string {
+    const parts: string[] = [];
+    if (tc['arguments']) {
+      parts.push('Arguments: ' + JSON.stringify(tc['arguments'], null, 2));
+    }
+    if (tc['result']) {
+      const result = String(tc['result']);
+      parts.push('Result: ' + (result.length > 500 ? result.slice(0, 500) + '...' : result));
+    }
+    return parts.join('\n\n');
+  }
 
   get currentSnapshot(): NodeSnapshot | null {
     if (!this.simulationState?.execution?.node_snapshots) return null;

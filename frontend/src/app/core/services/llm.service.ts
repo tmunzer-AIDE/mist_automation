@@ -160,11 +160,15 @@ export class LlmService {
   }
 
   /** Send a follow-up message in an existing conversation thread */
-  followUp(threadId: string, message: string, streamId?: string): Observable<ChatResponse> {
-    return this.api.post<ChatResponse>(`/llm/chat/${threadId}`, {
+  followUp(threadId: string, message: string, streamId?: string, mcpConfigIds?: string[]): Observable<ChatResponse> {
+    const body: Record<string, unknown> = {
       message,
       stream_id: streamId ?? null,
-    });
+    };
+    if (mcpConfigIds !== undefined) {
+      body['mcp_config_ids'] = mcpConfigIds;
+    }
+    return this.api.post<ChatResponse>(`/llm/chat/${threadId}`, body);
   }
 
   /** Pass 1: select relevant API categories for a workflow description */

@@ -15,6 +15,11 @@
   </mat-sidenav>
 
   <mat-sidenav-content>
+    @if (maintenanceMode()) {
+      <div class="maintenance-banner">
+        System is in maintenance mode. Some features may be restricted.
+      </div>
+    }
     <app-topbar (toggleSidebar)="toggleSidebar()"></app-topbar>
     <main class="content" [class.full-width]="isFullWidth()">
       <router-outlet></router-outlet>

@@ -472,20 +472,35 @@ class NotificationService:
 
         import aiosmtplib
 
-        if not settings.smtp_host:
+        # Prefer DB config (SystemConfig), fall back to env vars
+        from app.models.system import SystemConfig
+        from app.core.security import decrypt_sensitive_data
+
+        config = await SystemConfig.get_config()
+        host = config.smtp_host or settings.smtp_host
+        if not host:
             raise ConfigurationError("SMTP not configured")
+
+        port = config.smtp_port if config.smtp_host else settings.smtp_port
+        username = config.smtp_username or settings.smtp_username
+        password = (
+            decrypt_sensitive_data(config.smtp_password) if config.smtp_password else None
+        ) or settings.smtp_password
+        sender = from_address or (config.smtp_from_email if config.smtp_host else None) or settings.smtp_from_email
+        use_tls = config.smtp_use_tls if config.smtp_host else settings.smtp_use_tls
+
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = from_address or settings.smtp_from_email
+        msg["From"] = sender
         msg["To"] = ", ".join(to) if isinstance(to, list) else to
         msg.attach(MIMEText(body, "html" if html else "plain"))
         await aiosmtplib.send(
             msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            use_tls=settings.smtp_use_tls,
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            use_tls=use_tls,
         )
 
         logger.info("email_sent", to=to, subject=subject)

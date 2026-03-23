@@ -58,6 +58,7 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "backup_enabled": config.backup_enabled,
         "backup_full_schedule_cron": config.backup_full_schedule_cron,
         "backup_retention_days": config.backup_retention_days,
+        "execution_retention_days": config.execution_retention_days,
         "backup_git_enabled": config.backup_git_enabled,
         "backup_git_repo_url": config.backup_git_repo_url,
         "backup_git_branch": config.backup_git_branch,
@@ -70,6 +71,17 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "servicenow_password_set": bool(config.servicenow_password),
         "pagerduty_api_key_set": bool(config.pagerduty_api_key),
         "slack_signing_secret_set": bool(config.slack_signing_secret),
+        # Email / SMTP
+        "smtp_host": config.smtp_host,
+        "smtp_port": config.smtp_port,
+        "smtp_username": config.smtp_username,
+        "smtp_password_set": bool(config.smtp_password),
+        "smtp_from_email": config.smtp_from_email,
+        "smtp_use_tls": config.smtp_use_tls,
+        # Webhook
+        "webhook_ip_whitelist": config.webhook_ip_whitelist,
+        # System
+        "maintenance_mode": config.maintenance_mode,
         # LLM (global toggle — configs managed via /llm/configs)
         "llm_enabled": config.llm_enabled,
         "updated_at": config.updated_at,
@@ -96,15 +108,25 @@ async def update_system_settings(
         "servicenow_password",
         "pagerduty_api_key",
         "slack_signing_secret",
+        "smtp_password",
     }
     for field, value in updates.items():
         if field in sensitive_encrypt:
-            setattr(config, field, encrypt_sensitive_data(value))
+            if value and (not isinstance(value, str) or value.strip()):  # Non-empty: encrypt and store
+                setattr(config, field, encrypt_sensitive_data(value))
+            else:  # Empty/None: clear the field
+                setattr(config, field, None)
         else:
             setattr(config, field, value)
 
     config.update_timestamp()
     await config.save()
+
+    # Invalidate maintenance mode cache if changed
+    if "maintenance_mode" in updates:
+        from app.core.middleware import set_maintenance_cache
+
+        set_maintenance_cache(bool(updates["maintenance_mode"]))
 
     # Invalidate cached Mist config so next API call picks up changes
     mist_config_fields = {"mist_api_token", "mist_org_id", "mist_cloud_region"}
@@ -153,45 +175,153 @@ async def update_system_settings(
     return {"status": "success", "message": "Settings updated"}
 
 
+def _audit_log_to_dict(log: AuditLog) -> dict:
+    """Build a response dict from an AuditLog document."""
+    return {
+        "id": str(log.id),
+        "event_type": log.event_type,
+        "event_category": log.event_category,
+        "description": log.description,
+        "user_id": str(log.user_id) if log.user_id else None,
+        "user_email": log.user_email,
+        "source_ip": log.source_ip,
+        "target_type": log.target_type,
+        "target_id": log.target_id,
+        "target_name": log.target_name,
+        "success": log.success,
+        "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+        "details": log.details,
+    }
+
+
+def _build_audit_query(
+    event_type: str | None = None,
+    user_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
+    """Build a MongoDB query dict for audit log filtering."""
+    query: dict = {}
+    if event_type:
+        query["event_type"] = event_type
+    if user_id:
+        query["user_id"] = user_id
+    if start_date or end_date:
+        from datetime import datetime, timezone
+
+        def _parse_date(value: str) -> datetime:
+            try:
+                dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {value!r}")
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+
+        ts_query: dict = {}
+        if start_date:
+            ts_query["$gte"] = _parse_date(start_date)
+        if end_date:
+            ts_query["$lte"] = _parse_date(end_date)
+        query["timestamp"] = ts_query
+    return query
+
+
 @router.get("/admin/logs", tags=["Admin"])
 async def get_audit_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     event_type: str | None = Query(None, description="Filter by event type"),
     user_id: str | None = Query(None, description="Filter by user ID"),
+    start_date: str | None = Query(None, description="Start date (ISO 8601)"),
+    end_date: str | None = Query(None, description="End date (ISO 8601)"),
     _current_user: User = Depends(require_admin),
 ):
     """
-    Get system audit logs (admin only).
+    Get system audit logs with optional date range filtering (admin only).
     """
-    # Build query
-    query = {}
-    if event_type:
-        query["event_type"] = event_type
-    if user_id:
-        query["user_id"] = user_id
-
-    # Get total count
+    query = _build_audit_query(event_type, user_id, start_date, end_date)
     total = await AuditLog.find(query).count()
-
-    # Get logs with pagination
     logs = await AuditLog.find(query).sort("-timestamp").skip(skip).limit(limit).to_list()
 
     return {
-        "logs": [
-            {
-                "id": str(log.id),
-                "event_type": log.event_type,
-                "user_id": str(log.user_id) if log.user_id else None,
-                "user_email": log.user_email,
-                "source_ip": log.source_ip,
-                "timestamp": log.timestamp,
-                "details": log.details,
-            }
-            for log in logs
-        ],
+        "logs": [_audit_log_to_dict(log) for log in logs],
         "total": total,
     }
+
+
+@router.post("/admin/logs/export", tags=["Admin"])
+async def export_audit_logs(
+    request: Request,
+    _current_user: User = Depends(require_admin),
+):
+    """
+    Export audit logs as CSV with optional filters (admin only).
+    """
+    import csv
+    import io
+    import json
+    from datetime import datetime, timezone
+
+    from starlette.responses import StreamingResponse
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    query = _build_audit_query(
+        event_type=body.get("event_type"),
+        user_id=body.get("user_id"),
+        start_date=body.get("start_date"),
+        end_date=body.get("end_date"),
+    )
+
+    filename = f"audit_logs_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.csv"
+
+    async def _generate_csv():
+        """Stream CSV in batches to avoid loading all rows into memory."""
+        header = io.StringIO()
+        csv.writer(header).writerow([
+            "Timestamp", "Event Type", "Category", "Description",
+            "User Email", "Source IP", "Target Type", "Target Name",
+            "Success", "Details",
+        ])
+        yield header.getvalue().encode("utf-8")
+
+        batch_size = 5000
+        skip = 0
+        while True:
+            batch = await AuditLog.find(query).sort("-timestamp").skip(skip).limit(batch_size).to_list()
+            if not batch:
+                break
+
+            chunk = io.StringIO()
+            writer = csv.writer(chunk)
+            for log in batch:
+                writer.writerow([
+                    log.timestamp.isoformat() if log.timestamp else "",
+                    log.event_type or "",
+                    log.event_category or "",
+                    log.description or "",
+                    log.user_email or "",
+                    log.source_ip or "",
+                    log.target_type or "",
+                    log.target_name or "",
+                    "Yes" if log.success else "No",
+                    json.dumps(log.details, default=str) if log.details else "",
+                ])
+            yield chunk.getvalue().encode("utf-8")
+
+            skip += batch_size
+            if len(batch) < batch_size or skip >= 50_000:
+                break
+
+    return StreamingResponse(
+        _generate_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/admin/stats", tags=["Admin"])
@@ -307,6 +437,89 @@ async def test_mist_connection(
     except Exception as e:
         logger.warning("mist_connection_test_failed", error=str(e))
         return {"status": "failed", "error": "Connection test failed. Check your credentials and configuration."}
+
+
+@router.post("/admin/integrations/test-slack", tags=["Admin"])
+async def test_slack_connection(request: Request, current_user: User = Depends(require_admin)):
+    """Test Slack webhook connection by sending a test message."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    config = await SystemConfig.get_config()
+    webhook_url = body.get("slack_webhook_url") or config.slack_webhook_url
+    if not webhook_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack webhook URL not configured")
+
+    from app.services.notification_service import NotificationService
+
+    service = NotificationService()
+    try:
+        success, error = await service.test_slack_connection(webhook_url=webhook_url)
+        return {"status": "connected" if success else "failed", "error": error}
+    except Exception:
+        return {"status": "failed", "error": "Slack connection test failed"}
+    finally:
+        await service.close()
+
+
+@router.post("/admin/integrations/test-servicenow", tags=["Admin"])
+async def test_servicenow_connection(request: Request, current_user: User = Depends(require_admin)):
+    """Test ServiceNow connection."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    config = await SystemConfig.get_config()
+    instance_url = body.get("servicenow_instance_url") or config.servicenow_instance_url
+    username = body.get("servicenow_username") or config.servicenow_username
+    raw_pw = body.get("servicenow_password")
+    password = raw_pw if raw_pw else (decrypt_sensitive_data(config.servicenow_password) if config.servicenow_password else None)
+
+    if not all([instance_url, username, password]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ServiceNow credentials not configured")
+
+    from app.services.notification_service import NotificationService
+
+    service = NotificationService()
+    try:
+        success, error = await service.test_servicenow_connection(
+            instance_url=instance_url, username=username, password=password
+        )
+        return {"status": "connected" if success else "failed", "error": error}
+    except Exception:
+        return {"status": "failed", "error": "ServiceNow connection test failed"}
+    finally:
+        await service.close()
+
+
+@router.post("/admin/integrations/test-pagerduty", tags=["Admin"])
+async def test_pagerduty_connection(request: Request, current_user: User = Depends(require_admin)):
+    """Test PagerDuty integration key (format validation)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    config = await SystemConfig.get_config()
+    raw_key = body.get("pagerduty_api_key")
+    key = raw_key if raw_key else (decrypt_sensitive_data(config.pagerduty_api_key) if config.pagerduty_api_key else None)
+
+    if not key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PagerDuty integration key not configured")
+
+    from app.services.notification_service import NotificationService
+
+    service = NotificationService()
+    try:
+        success, error = await service.test_pagerduty_connection(integration_key=key)
+        return {"status": "connected" if success else "failed", "error": error}
+    except Exception:
+        return {"status": "failed", "error": "PagerDuty connection test failed"}
+    finally:
+        await service.close()
 
 
 @router.get("/admin/mist/sites", tags=["Admin"])

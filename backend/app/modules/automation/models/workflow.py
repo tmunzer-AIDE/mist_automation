@@ -32,6 +32,24 @@ class SharingPermission(str, Enum):
     READ_WRITE = "read-write"
 
 
+class NotificationChannel(str, Enum):
+    """Notification channel for workflow failure alerts."""
+    SLACK = "slack"
+    EMAIL = "email"
+    PAGERDUTY = "pagerduty"
+    SERVICENOW = "servicenow"
+
+
+class FailureNotificationConfig(BaseModel):
+    """Per-workflow configuration for failure notifications."""
+    enabled: bool = Field(default=True, description="Whether failure notifications are active")
+    channel: NotificationChannel = Field(default=NotificationChannel.SLACK, description="Notification channel")
+    # Channel-specific overrides (fall back to SystemConfig defaults if not set)
+    slack_webhook_url: str | None = Field(default=None, description="Override Slack webhook URL")
+    email_recipients: list[str] = Field(default_factory=list, description="Email recipient addresses")
+    pagerduty_integration_key: str | None = Field(default=None, description="Override PagerDuty key")
+    include_error_details: bool = Field(default=True, description="Include node error details in notification")
+
 
 class ActionType(str, Enum):
     """Action type enumeration."""
@@ -54,6 +72,7 @@ class ActionType(str, Enum):
     SUBFLOW_OUTPUT = "subflow_output"
     DEVICE_UTILS = "device_utils"
     AI_AGENT = "ai_agent"
+    SYSLOG = "syslog"
     TRIGGER_BACKUP = "trigger_backup"
     RESTORE_BACKUP = "restore_backup"
     COMPARE_BACKUPS = "compare_backups"
@@ -140,6 +159,11 @@ class Workflow(TimestampMixin, Document):
     nodes: list[WorkflowNode] = Field(default_factory=list, description="Graph nodes")
     edges: list[WorkflowEdge] = Field(default_factory=list, description="Graph edges")
     viewport: dict | None = Field(default=None, description="Canvas viewport state (pan/zoom)")
+
+    # Failure notifications
+    failure_notification: FailureNotificationConfig | None = Field(
+        default=None, description="Notification config for failed executions"
+    )
 
     # Statistics
     execution_count: int = Field(default=0, description="Total number of executions")

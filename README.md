@@ -8,7 +8,10 @@ A self-hosted platform for automating Juniper Mist network operations and managi
 - **Webhook-driven Automation** — Receive Mist webhooks and trigger workflows automatically. Includes a visual graph editor for building workflows (see the [workflow guide](docs/workflows.md) for details).
 - **Post-deployment Reports** — Validate AP, switch, and gateway health after changes. Checks firmware, port status, cable tests, virtual chassis consistency. Export to PDF or CSV.
 - **Webhook Monitor** — Real-time view of incoming Mist webhook events with filtering and history.
+- **AI Assistance** — Multi-provider LLM integration (OpenAI, Anthropic, Ollama, LM Studio, etc.) with MCP tool calling. Global chat panel, workflow AI agent nodes, and autonomous backup analysis.
+- **Notifications** — Per-workflow failure alerts via Slack, Email (SMTP), PagerDuty, or ServiceNow. Integration test buttons for all channels.
 - **User Management** — Role-based access (admin, automation, backup, reports), JWT auth with optional 2FA (TOTP), session management.
+- **Maintenance Mode** — Admin toggle that returns 503 to non-admin users. Health endpoint stays available for monitoring.
 - **Dashboard** — Overview of system activity, backup status, and recent executions.
 - **Dark Mode** — Because of course.
 

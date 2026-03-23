@@ -101,8 +101,8 @@ class MCPClientWrapper:
             for t in result.tools
         ]
 
-    async def call_tool(self, name: str, arguments: dict) -> str:
-        """Call a tool on the MCP server and return the result as a string."""
+    async def call_tool(self, name: str, arguments: dict) -> tuple[str, bool]:
+        """Call a tool on the MCP server. Returns ``(text, is_error)``."""
         if not self._session:
             raise RuntimeError("Not connected")
 
@@ -113,7 +113,8 @@ class MCPClientWrapper:
                 parts.append(block.text)
             else:
                 parts.append(str(block))
-        return "\n".join(parts) if parts else ""
+        text = "\n".join(parts) if parts else ""
+        return text, bool(getattr(result, "isError", False))
 
     def _build_verify(self) -> str | bool:
         """Determine the httpx verify setting."""
@@ -168,8 +169,8 @@ class InProcessMCPClient:
             for t in tools
         ]
 
-    async def call_tool(self, name: str, arguments: dict) -> str:
-        """Call a tool on the in-process server and return the result as a string."""
+    async def call_tool(self, name: str, arguments: dict) -> tuple[str, bool]:
+        """Call a tool on the in-process server. Returns ``(text, is_error)``."""
         if not self._client:
             raise RuntimeError("Not connected")
 
@@ -182,8 +183,8 @@ class InProcessMCPClient:
                     parts.append(block.text)
                 else:
                     parts.append(str(block))
-            return "\n".join(parts) if parts else ""
-        return str(result) if result else ""
+            return ("\n".join(parts) if parts else ""), False
+        return (str(result) if result else ""), False
 
 
 async def load_external_mcp_clients(config_ids: list[str]) -> list[MCPClientWrapper]:

@@ -56,8 +56,39 @@ class SystemSettingsUpdate(BaseModel):
     pagerduty_api_key: str | None = None
     slack_signing_secret: str | None = None
 
+    # Webhook IP allowlist
+    webhook_ip_whitelist: list[str] | None = None
+
+    # Execution retention
+    execution_retention_days: int | None = Field(None, ge=1, le=3650)
+
+    # Maintenance mode
+    maintenance_mode: bool | None = None
+
+    # Email / SMTP
+    smtp_host: str | None = None
+    smtp_port: int | None = Field(None, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool | None = None
+
     # LLM (global toggle only — individual configs managed via /llm/configs)
     llm_enabled: bool | None = None
+
+    @field_validator("webhook_ip_whitelist")
+    @classmethod
+    def validate_ip_whitelist(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        import ipaddress
+
+        for entry in v:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError as e:
+                raise ValueError(f"Invalid IP/CIDR '{entry}': {e}") from e
+        return v
 
     @field_validator("backup_full_schedule_cron")
     @classmethod
