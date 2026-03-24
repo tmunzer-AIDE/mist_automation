@@ -241,7 +241,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
               typeof p['node_id'] === 'string' &&
               typeof p['field_path'] === 'string' &&
               typeof p['label'] === 'string' &&
-              /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(p['field_path'] as string)
+              /^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(p['field_path'] as string)
           );
           this.pendingPlaceholders.set(validated);
         }
@@ -701,8 +701,19 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
     this.graph.update((g) => {
       const nodes = g.nodes.map((n) => {
         if (n.id === event.nodeId) {
-          const config = { ...n.config };
-          config[event.fieldPath] = event.value;
+          const config = JSON.parse(JSON.stringify(n.config));
+          // Support dot-path notation (e.g., "variables.0.expression")
+          const parts = event.fieldPath.split('.');
+          let target: any = config;
+          for (let i = 0; i < parts.length - 1; i++) {
+            const key = /^\d+$/.test(parts[i]) ? parseInt(parts[i], 10) : parts[i];
+            target = target[key];
+            if (target === undefined || target === null) break;
+          }
+          if (target) {
+            const lastKey = /^\d+$/.test(parts[parts.length - 1]) ? parseInt(parts[parts.length - 1], 10) : parts[parts.length - 1];
+            target[lastKey] = event.value;
+          }
           return { ...n, config };
         }
         return n;

@@ -57,6 +57,7 @@ export const BLOCK_CATEGORIES: BlockCategory[] = [
     options: [
       blockOption('data_transform', 'Extract and filter fields from data'),
       blockOption('format_report', 'Format data as table report'),
+      blockOption('script', 'Run custom JavaScript code on workflow data'),
     ],
   },
   {

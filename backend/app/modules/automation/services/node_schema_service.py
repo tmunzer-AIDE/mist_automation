@@ -148,8 +148,14 @@ def get_node_output_schema(node: WorkflowNode, workflow: Workflow | None = None)
         return {"status_code": "integer", "body": {}}
 
     if node_type == "set_variable":
+        variables = node.config.get("variables")
+        if variables:
+            return {v.get("name", "value"): "expression result" for v in variables if v.get("name")}
         var_name = node.config.get("variable_name", "value")
         return {var_name: "expression result"}
+
+    if node_type == "script":
+        return {"result": "any"}
 
     if node_type == "webhook":
         return {"status_code": "integer", "response": "string"}
@@ -309,8 +315,15 @@ def get_available_variables(workflow: Workflow, target_node_id: str) -> dict[str
 
             # Expose set_variable results as top-level variables
             if node.type == "set_variable":
-                var_name = node.config.get("variable_name", "value")
-                result["results"][var_name] = "expression result"
+                variables = node.config.get("variables")
+                if variables:
+                    for v in variables:
+                        vname = v.get("name", "")
+                        if vname:
+                            result["results"][vname] = "expression result"
+                else:
+                    var_name = node.config.get("variable_name", "value")
+                    result["results"][var_name] = "expression result"
 
     return result
 

@@ -30,6 +30,7 @@ export const ACTION_META: Record<ActionType, ActionMeta> = {
   trigger_backup: { label: 'Trigger Backup', icon: 'backup', color: '#00897b' },
   restore_backup: { label: 'Restore Backup', icon: 'restore', color: '#e65100' },
   syslog: { label: 'Syslog', icon: 'dns', color: '#607d8b' },
+  script: { label: 'Script', icon: 'code', color: '#455a64' },
   compare_backups: { label: 'Compare Backups', icon: 'compare_arrows', color: '#5e35b1' },
 };
 

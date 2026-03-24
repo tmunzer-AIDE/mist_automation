@@ -63,6 +63,7 @@ function renderMarkdown(md: string): string {
 
         @for (item of timeline(); track $index) {
           @if (item.kind === 'message') {
+          @if (item.role === 'user' || item.content?.trim()) {
             <div
               class="chat-message"
               [class.user]="item.role === 'user'"
@@ -86,6 +87,7 @@ function renderMarkdown(md: string): string {
                 </div>
               }
             </div>
+          }
           } @else {
             <div class="tool-call-inline" [class.running]="item.status === 'running'" [class.success]="item.status === 'success'" [class.error]="item.status === 'error'">
               <div class="tool-call-header" (click)="toggleToolExpand($index)">
@@ -845,7 +847,10 @@ export class AiChatPanelComponent {
             }
           }
         }
-        tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '' });
+        // Skip empty assistant messages (tool-call-only responses have no text content)
+        if (m.role === 'user' || m.content?.trim()) {
+          tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '' });
+        }
       }
       this.timeline.set(tl);
       if (msgs.length > 0) this.scrollToBottom();

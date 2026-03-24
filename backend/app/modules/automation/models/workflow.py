@@ -73,6 +73,7 @@ class ActionType(str, Enum):
     DEVICE_UTILS = "device_utils"
     AI_AGENT = "ai_agent"
     SYSLOG = "syslog"
+    SCRIPT = "script"
     TRIGGER_BACKUP = "trigger_backup"
     RESTORE_BACKUP = "restore_backup"
     COMPARE_BACKUPS = "compare_backups"

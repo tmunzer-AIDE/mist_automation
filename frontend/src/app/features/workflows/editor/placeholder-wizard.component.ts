@@ -1,11 +1,14 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { ReactiveFormsModule, FormArray, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { MatStepperModule } from '@angular/material/stepper';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { RecipePlaceholder } from '../../../core/services/recipe.service';
+import { ApiService } from '../../../core/services/api.service';
 
 @Component({
   selector: 'app-placeholder-wizard',
@@ -16,7 +19,9 @@ import { RecipePlaceholder } from '../../../core/services/recipe.service';
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatSelectModule,
     MatStepperModule,
+    MatProgressSpinnerModule,
   ],
   template: `
     <div class="wizard-container">
@@ -37,13 +42,41 @@ import { RecipePlaceholder } from '../../../core/services/recipe.service';
               }
               <mat-form-field appearance="outline" class="step-field">
                 <mat-label>{{ ph.label }}</mat-label>
-                <input
-                  matInput
-                  [type]="ph.placeholder_type === 'url' ? 'url' : 'text'"
-                  [placeholder]="getPlaceholderHint(ph)"
-                  [formControl]="controls.at(i)"
-                  (input)="onValueChange(i)"
-                />
+
+                @if (ph.placeholder_type === 'site_id') {
+                  @if (loadingSites()) {
+                    <mat-select disabled>
+                      <mat-option>Loading sites...</mat-option>
+                    </mat-select>
+                  } @else {
+                    <mat-select [formControl]="controls.at(i)" (selectionChange)="onSiteSelected(i)">
+                      @for (site of siteOptions(); track site.id) {
+                        <mat-option [value]="site.id">{{ site.name }}</mat-option>
+                      }
+                    </mat-select>
+                  }
+                } @else if (ph.placeholder_type === 'ap_mac_list') {
+                  @if (loadingAps()) {
+                    <mat-select multiple disabled>
+                      <mat-option>Select a site first...</mat-option>
+                    </mat-select>
+                  } @else {
+                    <mat-select multiple [formControl]="apMultiControl" (selectionChange)="onApSelectionChange(i)">
+                      @for (ap of apOptions(); track ap.mac) {
+                        <mat-option [value]="ap.mac">{{ ap.name || ap.mac }}</mat-option>
+                      }
+                    </mat-select>
+                  }
+                } @else {
+                  <input
+                    matInput
+                    [type]="ph.placeholder_type === 'url' ? 'url' : 'text'"
+                    [placeholder]="getPlaceholderHint(ph)"
+                    [formControl]="controls.at(i)"
+                    (input)="onValueChange(i)"
+                  />
+                }
+
               </mat-form-field>
               <div class="step-actions">
                 @if (i > 0) {
@@ -133,13 +166,33 @@ export class PlaceholderWizardComponent implements OnChanges {
   @Output() placeholderFilled = new EventEmitter<{ nodeId: string; fieldPath: string; value: string }>();
   @Output() completed = new EventEmitter<void>();
 
+  private readonly api = inject(ApiService);
+
   controls = new FormArray<FormControl<string>>([]);
+  apMultiControl = new FormControl<string[]>([], { nonNullable: true });
+  siteOptions = signal<{ id: string; name: string }[]>([]);
+  apOptions = signal<{ mac: string; name: string }[]>([]);
+  loadingSites = signal(false);
+  loadingAps = signal(true);  // starts true = "select a site first"
+  private selectedSiteId: string | null = null;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['placeholders']) {
       this.controls = new FormArray(
         this.placeholders.map(() => new FormControl('', { nonNullable: true }))
       );
+
+      // Fetch dynamic options for placeholder types that need them
+      if (this.placeholders.some((p) => p.placeholder_type === 'site_id')) {
+        this.loadingSites.set(true);
+        this.api.get<{ sites: { id: string; name: string }[] }>('/admin/mist/sites').subscribe({
+          next: (res) => {
+            this.siteOptions.set(res.sites);
+            this.loadingSites.set(false);
+          },
+          error: () => this.loadingSites.set(false),
+        });
+      }
     }
   }
 
@@ -149,11 +202,42 @@ export class PlaceholderWizardComponent implements OnChanges {
     this.placeholderFilled.emit({ nodeId: ph.node_id, fieldPath: ph.field_path, value });
   }
 
+  onSiteSelected(index: number): void {
+    this.onValueChange(index);
+    const siteId = this.controls.at(index).value;
+    if (siteId && siteId !== this.selectedSiteId) {
+      this.selectedSiteId = siteId;
+      // Fetch APs for the selected site (used by ap_mac_list placeholders)
+      if (this.placeholders.some((p) => p.placeholder_type === 'ap_mac_list')) {
+        this.loadingAps.set(true);
+        this.api.get<{ aps: { mac: string; name: string }[] }>(
+          `/admin/mist/sites/${siteId}/aps`
+        ).subscribe({
+          next: (res) => {
+            this.apOptions.set(res.aps || []);
+            this.loadingAps.set(false);
+          },
+          error: () => {
+            this.apOptions.set([]);
+            this.loadingAps.set(false);
+          },
+        });
+      }
+    }
+  }
+
+  onApSelectionChange(index: number): void {
+    const selected = this.apMultiControl.value;
+    const ph = this.placeholders[index];
+    // Store as comma-separated MAC list for use in Jinja2 templates
+    this.placeholderFilled.emit({ nodeId: ph.node_id, fieldPath: ph.field_path, value: selected.join(',') });
+  }
+
   getPlaceholderHint(ph: RecipePlaceholder): string {
     switch (ph.placeholder_type) {
       case 'url': return 'https://hooks.slack.com/services/...';
       case 'cron': return '0 */6 * * *';
-      case 'site_id': return 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
+      case 'site_id': return 'Select a site';
       default: return '';
     }
   }

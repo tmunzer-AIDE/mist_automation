@@ -538,6 +538,21 @@ async def list_mist_sites(_current_user: User = Depends(require_admin)):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch sites from Mist") from e
 
 
+@router.get("/admin/mist/sites/{site_id}/aps", tags=["Admin"])
+async def list_site_aps(site_id: str, _current_user: User = Depends(require_admin)):
+    """List APs for a specific Mist site (for dropdowns)."""
+    from app.services.mist_service_factory import create_mist_service
+
+    try:
+        service = await create_mist_service()
+        devices = await service.api_get(f"/api/v1/sites/{site_id}/stats/devices", params={"type": "ap", "limit": "1000"})
+        aps = [{"mac": d.get("mac", ""), "name": d.get("name", d.get("mac", ""))} for d in devices]
+        return {"aps": aps}
+    except Exception as e:
+        logger.error("mist_aps_fetch_failed", site_id=site_id, error=str(e))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch APs from Mist") from e
+
+
 @router.get("/admin/mist/object-types", tags=["Admin"])
 async def list_mist_object_types(_current_user: User = Depends(require_admin)):
     """

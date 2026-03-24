@@ -57,8 +57,8 @@ _STEPS = [
     ("config_events", "Configuration Events"),
     ("aps", "Access Points"),
     ("switches", "Switches"),
-    ("cable_tests", "Cable Tests"),
     ("gateways", "Gateways"),
+    ("cable_tests", "Cable Tests"),
 ]
 
 
@@ -101,7 +101,7 @@ class _ProgressTracker:
     def set_execution_total(self, cable_test_ports: int) -> None:
         """Switch from discovery (indeterminate) to execution (determinate).
 
-        Execution-phase steps: aps, switches, cable_tests (N ports), gateways.
+        Execution-phase steps: aps, switches, gateways, cable_tests (N ports).
         If cable_test_ports == 0, cable_tests still counts as 1 step.
         """
         self.overall_total = 3 + max(cable_test_ports, 1)  # aps + switches + gateways + cable tests
@@ -239,7 +239,14 @@ async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
         result["switches"] = _validate_switch_health(switch_stats, config_events)
         await tracker.complete_step("switches", f"{len(result['switches'])} switches validated")
 
-        # Step 7: Cable tests (sequential across all switches)
+        # Step 7: Gateway validation
+        tracker.update_label("gateways", "Gateways")
+        await tracker.start_step("gateways", "Validating gateways...")
+        result["gateways"] = await _validate_gateways(session, site_id, config_events, site_vars)
+        tracker.update_label("gateways", f"Gateways ({len(result['gateways'])})")
+        await tracker.complete_step("gateways", f"{len(result['gateways'])} gateways validated")
+
+        # Step 8: Cable tests (run last to avoid impacting device stats validation)
         if total_cable_ports > 0:
             tracker.update_label("cable_tests", f"Cable Tests ({total_cable_ports} ports)")
             await tracker.start_step("cable_tests", f"Testing {total_cable_ports} ports...")
@@ -249,13 +256,6 @@ async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
         else:
             await tracker.start_step("cable_tests", "No cable test ports")
             await tracker.complete_step("cable_tests", "No cable test ports")
-
-        # Step 8: Gateway validation
-        tracker.update_label("gateways", "Gateways")
-        await tracker.start_step("gateways", "Validating gateways...")
-        result["gateways"] = await _validate_gateways(session, site_id, config_events, site_vars)
-        tracker.update_label("gateways", f"Gateways ({len(result['gateways'])})")
-        await tracker.complete_step("gateways", f"{len(result['gateways'])} gateways validated")
 
         # Compute device summary and overall summary
         result["site_info"]["device_summary"] = _compute_device_summary(result)

@@ -690,23 +690,26 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
 
             <!-- Set Variable -->
             @if (node.type === 'set_variable') {
-              <mat-form-field appearance="outline">
-                <mat-label>Variable Name</mat-label>
-                <input matInput formControlName="variable_name" />
-              </mat-form-field>
-              <mat-form-field appearance="outline">
-                <mat-label>Expression</mat-label>
-                <textarea matInput formControlName="variable_expression" rows="2" [appTemplateValidation]="variableTree"></textarea>
-                <button mat-icon-button matSuffix [matMenuTriggerFor]="varMenu">
-                  <mat-icon>data_object</mat-icon>
-                </button>
-                <mat-menu #varMenu="matMenu">
-                  <app-variable-picker
-                    [variableTree]="variableTree"
-                    (variableSelected)="insertIntoControl(form.get('variable_expression')!, $event)"
-                  />
-                </mat-menu>
-              </mat-form-field>
+              @for (ctrl of variablesArray.controls; track $index; let i = $index) {
+                <div class="variable-row">
+                  <mat-form-field appearance="outline" class="var-name">
+                    <mat-label>Name</mat-label>
+                    <input matInput [formControl]="$any(ctrl).controls.name" placeholder="my_variable" />
+                  </mat-form-field>
+                  <mat-form-field appearance="outline" class="var-expr">
+                    <mat-label>Value</mat-label>
+                    <input matInput [formControl]="$any(ctrl).controls.expression" [appTemplateValidation]="variableTree" />
+                  </mat-form-field>
+                  @if (variablesArray.length > 1) {
+                    <button mat-icon-button (click)="removeVariable(i)" class="var-remove">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  }
+                </div>
+              }
+              <button mat-button (click)="addVariable()" class="add-variable-btn">
+                <mat-icon>add</mat-icon> Add Variable
+              </button>
             }
 
             <!-- For Each -->
@@ -987,6 +990,45 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
                   <input matInput formControlName="cef_name" [appTemplateValidation]="variableTree" />
                 </mat-form-field>
               }
+            }
+
+            <!-- Script (JavaScript) -->
+            @if (node.type === 'script') {
+              <p class="field-help">
+                Write JavaScript code. Access upstream data via <code>inputs</code> object
+                (<code>inputs.trigger</code>, <code>inputs.nodes.NodeName</code>).
+                Return a value with <code>return</code>.
+              </p>
+              <mat-form-field appearance="outline">
+                <mat-label>JavaScript Code</mat-label>
+                <textarea
+                  matInput
+                  formControlName="script_code"
+                  rows="12"
+                  class="code-editor"
+                  spellcheck="false"
+                  placeholder="// Example: cross-reference two datasets
+var apList = inputs.nodes.Get_AP_Stats;
+var neighbors = inputs.nodes.Get_RRM_Neighbors.results;
+
+// Find APs safe to disable
+var activeMacs = new Set(
+  apList.filter(ap => ap.num_clients > 0).map(ap => ap.mac)
+);
+
+var protectedMacs = new Set();
+neighbors.forEach(entry => {
+  if (activeMacs.has(entry.mac)) {
+    entry.neighbors.forEach(n => protectedMacs.add(n.mac));
+  }
+});
+
+return apList.filter(ap =>
+  ap.num_clients === 0 &&
+  !protectedMacs.has(ap.mac)
+).map(ap => ({ id: ap.id, mac: ap.mac, name: ap.name }));"
+                ></textarea>
+              </mat-form-field>
             }
 
             <!-- Device Utils -->
@@ -1709,6 +1751,46 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
       .syslog-port {
         flex: 0 0 100px !important;
       }
+
+      .variable-row {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .var-name {
+        flex: 0 0 140px;
+      }
+      .var-expr {
+        flex: 1;
+      }
+      .var-remove {
+        margin-top: 8px;
+      }
+      .add-variable-btn {
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+
+      .code-editor {
+        font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        tab-size: 2;
+        white-space: pre;
+      }
+
+      .field-help {
+        font-size: 12px;
+        color: var(--app-neutral, #6b7280);
+        margin: 0 0 12px;
+        line-height: 1.5;
+      }
+      .field-help code {
+        background: rgba(0, 0, 0, 0.06);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 11px;
+      }
     `,
   ],
 })
@@ -1912,8 +1994,14 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       branches: this.fb.array(branchControls),
       delay_seconds: [config['delay_seconds'] || 0],
       save_as: this.fb.array(saveAsControls),
-      variable_name: [config['variable_name'] || ''],
-      variable_expression: [config['variable_expression'] || ''],
+      variables: this.fb.array(
+        (() => {
+          const vars = (config['variables'] as { name: string; expression: string }[])
+            ?? (config['variable_name'] ? [{ name: config['variable_name'] as string, expression: (config['variable_expression'] || '') as string }] : []);
+          const initial = vars.length > 0 ? vars : [{ name: '', expression: '' }];
+          return initial.map((v: { name: string; expression: string }) => this.fb.group({ name: [v.name || ''], expression: [v.expression || ''] }));
+        })()
+      ),
       loop_over: [config['loop_over'] || ''],
       loop_variable: [config['loop_variable'] || 'item'],
       max_iterations: [config['max_iterations'] ?? 100],
@@ -1952,6 +2040,8 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       cef_device_product: [config['cef_device_product'] || 'Mist'],
       cef_event_class_id: [config['cef_event_class_id'] || ''],
       cef_name: [config['cef_name'] || ''],
+      // Script
+      script_code: [config['script_code'] || ''],
       target_workflow_id: [config['target_workflow_id'] || ''],
       du_device_type: [config['device_type'] || ''],
       du_function: [config['function'] || ''],
@@ -2061,6 +2151,20 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
 
   removeSaveAsBinding(index: number): void {
     this.saveAsArray.removeAt(index);
+  }
+
+  // ── Set Variable (multi) ────────────────────────────────────────
+
+  get variablesArray(): FormArray {
+    return this.form?.get('variables') as FormArray;
+  }
+
+  addVariable(): void {
+    this.variablesArray.push(this.fb.group({ name: [''], expression: [''] }));
+  }
+
+  removeVariable(index: number): void {
+    this.variablesArray.removeAt(index);
   }
 
   // ── Variable picker helper ────────────────────────────────────────
@@ -2352,6 +2456,10 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         }
       }
 
+      if (this.node.type === 'script') {
+        config['script_code'] = raw.script_code || '';
+      }
+
       if (this.node.type === 'wait_for_callback') {
         config['notification_channel'] = raw.notification_channel;
         config['notification_template'] = raw.notification_template;
@@ -2375,8 +2483,9 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       }
 
       if (this.node.type === 'set_variable') {
-        config['variable_name'] = raw.variable_name;
-        config['variable_expression'] = raw.variable_expression;
+        config['variables'] = (raw.variables || []).filter(
+          (v: { name: string; expression: string }) => v.name || v.expression
+        );
       }
 
       if (this.node.type === 'for_each') {

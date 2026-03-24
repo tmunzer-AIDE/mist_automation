@@ -9,7 +9,9 @@ import {
   Output,
   SimpleChanges,
   ViewChild,
+  computed,
   inject,
+  signal,
 } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -85,30 +87,34 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   @ViewChild('svgCanvas', { static: true }) svgCanvas!: ElementRef<SVGSVGElement>;
 
-  viewport: CanvasViewport = { x: 0, y: 0, zoom: 1 };
-  drag: DragState = initialDragState();
+  viewport = signal<CanvasViewport>({ x: 0, y: 0, zoom: 1 });
+  drag = signal<DragState>(initialDragState());
   nodeMap: Map<string, WorkflowNode> = new Map();
 
   // Pre-computed per-node render data (rebuilt in ngOnChanges)
-  nodeRenderData = new Map<
-    string,
-    { color: string; icon: string; label: string; simStatus: string | null; simColor: string; hasErrors: boolean }
-  >();
+  nodeRenderData = signal(
+    new Map<
+      string,
+      { color: string; icon: string; label: string; simStatus: string | null; simColor: string; hasErrors: boolean }
+    >()
+  );
 
   // Computed edge paths
-  edgePaths: {
-    edge: WorkflowEdge;
-    path: string;
-    midX: number;
-    midY: number;
-  }[] = [];
+  edgePaths = signal<
+    {
+      edge: WorkflowEdge;
+      path: string;
+      midX: number;
+      midY: number;
+    }[]
+  >([]);
 
   // Pending edge (being dragged from a port)
-  pendingEdgePath: string | null = null;
+  pendingEdgePath = signal<string | null>(null);
 
   // Multi-selection
-  multiSelectedIds = new Set<string>();
-  selectionRect: { x: number; y: number; w: number; h: number } | null = null;
+  multiSelectedIds = signal(new Set<string>());
+  selectionRect = signal<{ x: number; y: number; w: number; h: number } | null>(null);
   private multiDragStartPositions = new Map<string, { x: number; y: number }>();
 
   // Immutable drag offsets (applied during drag without mutating node.position)
@@ -176,10 +182,13 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private rebuildRenderData(): void {
-    this.nodeRenderData.clear();
+    const newMap = new Map<
+      string,
+      { color: string; icon: string; label: string; simStatus: string | null; simColor: string; hasErrors: boolean }
+    >();
     for (const node of this.nodes) {
       const simStatus = this.simulationState?.nodeStatuses?.[node.id] ?? null;
-      this.nodeRenderData.set(node.id, {
+      newMap.set(node.id, {
         color: this.getNodeColor(node),
         icon: this.getNodeIcon(node),
         label: this.getNodeLabel(node),
@@ -188,6 +197,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
         hasErrors: !isNodeConfigValid(node),
       });
     }
+    this.nodeRenderData.set(newMap);
   }
 
   isEdgeActive(edgeId: string): boolean {
@@ -195,7 +205,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   isNodeHighlighted(nodeId: string): boolean {
-    return nodeId === this.selectedNodeId || this.multiSelectedIds.has(nodeId);
+    return nodeId === this.selectedNodeId || this.multiSelectedIds().has(nodeId);
   }
 
   // ── Edge path computation ─────────────────────────────────────────────
@@ -208,7 +218,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   recalcEdgePaths(): void {
-    this.edgePaths = [];
+    const paths: { edge: WorkflowEdge; path: string; midX: number; midY: number }[] = [];
     for (const edge of this.edges) {
       const sourceNode = this.nodeMap.get(edge.source_node_id);
       const targetNode = this.nodeMap.get(edge.target_node_id);
@@ -228,25 +238,26 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       );
       const to = getInputPortPosition(targetPos.x, targetPos.y);
 
-      this.edgePaths.push({
+      paths.push({
         edge,
         path: buildEdgePath(from, to),
         midX: (from.x + to.x) / 2,
         midY: (from.y + to.y) / 2,
       });
     }
+    this.edgePaths.set(paths);
   }
 
   /** Recalculate edge paths only for edges connected to the given node IDs. */
   recalcEdgePathsForNodes(nodeIds: Set<string>): void {
-    for (let i = 0; i < this.edgePaths.length; i++) {
-      const ep = this.edgePaths[i];
+    const current = this.edgePaths();
+    const updated = current.map((ep) => {
       const edge = ep.edge;
-      if (!nodeIds.has(edge.source_node_id) && !nodeIds.has(edge.target_node_id)) continue;
+      if (!nodeIds.has(edge.source_node_id) && !nodeIds.has(edge.target_node_id)) return ep;
 
       const sourceNode = this.nodeMap.get(edge.source_node_id);
       const targetNode = this.nodeMap.get(edge.target_node_id);
-      if (!sourceNode || !targetNode) continue;
+      if (!sourceNode || !targetNode) return ep;
 
       const sourcePos = this.getEffectivePosition(sourceNode);
       const targetPos = this.getEffectivePosition(targetNode);
@@ -260,13 +271,14 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       );
       const to = getInputPortPosition(targetPos.x, targetPos.y);
 
-      this.edgePaths[i] = {
+      return {
         edge,
         path: buildEdgePath(from, to),
         midX: (from.x + to.x) / 2,
         midY: (from.y + to.y) / 2,
       };
-    }
+    });
+    this.edgePaths.set(updated);
   }
 
   // ── Viewport controls ─────────────────────────────────────────────────
@@ -274,37 +286,49 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   onWheel(event: WheelEvent): void {
     event.preventDefault();
 
+    const vp = this.viewport();
     if (event.ctrlKey || event.metaKey) {
       // Zoom (pinch-to-zoom OR Ctrl+scroll wheel)
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const mouseY = event.clientY - rect.top;
 
-      const oldZoom = this.viewport.zoom;
+      const oldZoom = vp.zoom;
       const zoomFactor = 1 - event.deltaY * 0.01;
       const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom * zoomFactor));
 
       // Zoom toward cursor
-      this.viewport.x = mouseX - ((mouseX - this.viewport.x) / oldZoom) * newZoom;
-      this.viewport.y = mouseY - ((mouseY - this.viewport.y) / oldZoom) * newZoom;
-      this.viewport.zoom = newZoom;
+      const newVp = {
+        x: mouseX - ((mouseX - vp.x) / oldZoom) * newZoom,
+        y: mouseY - ((mouseY - vp.y) / oldZoom) * newZoom,
+        zoom: newZoom,
+      };
+      this.viewport.set(newVp);
+      this.viewportChanged.emit({ ...newVp });
     } else {
       // Pan (two-finger scroll OR mouse wheel without Ctrl)
-      this.viewport.x -= event.deltaX;
-      this.viewport.y -= event.deltaY;
+      const newVp = {
+        x: vp.x - event.deltaX,
+        y: vp.y - event.deltaY,
+        zoom: vp.zoom,
+      };
+      this.viewport.set(newVp);
+      this.viewportChanged.emit({ ...newVp });
     }
-
-    this.viewportChanged.emit({ ...this.viewport });
   }
 
   zoomIn(): void {
-    this.viewport.zoom = Math.min(MAX_ZOOM, this.viewport.zoom + ZOOM_STEP);
-    this.viewportChanged.emit({ ...this.viewport });
+    const vp = this.viewport();
+    const newVp = { ...vp, zoom: Math.min(MAX_ZOOM, vp.zoom + ZOOM_STEP) };
+    this.viewport.set(newVp);
+    this.viewportChanged.emit({ ...newVp });
   }
 
   zoomOut(): void {
-    this.viewport.zoom = Math.max(MIN_ZOOM, this.viewport.zoom - ZOOM_STEP);
-    this.viewportChanged.emit({ ...this.viewport });
+    const vp = this.viewport();
+    const newVp = { ...vp, zoom: Math.max(MIN_ZOOM, vp.zoom - ZOOM_STEP) };
+    this.viewport.set(newVp);
+    this.viewportChanged.emit({ ...newVp });
   }
 
   fitToView(): void {
@@ -330,10 +354,13 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       MAX_ZOOM
     );
 
-    this.viewport.zoom = zoom;
-    this.viewport.x = (rect.width - graphW * zoom) / 2 - minX * zoom + 40 * zoom;
-    this.viewport.y = (rect.height - graphH * zoom) / 2 - minY * zoom + 40 * zoom;
-    this.viewportChanged.emit({ ...this.viewport });
+    const newVp = {
+      zoom,
+      x: (rect.width - graphW * zoom) / 2 - minX * zoom + 40 * zoom,
+      y: (rect.height - graphH * zoom) / 2 - minY * zoom + 40 * zoom,
+    };
+    this.viewport.set(newVp);
+    this.viewportChanged.emit({ ...newVp });
   }
 
   // ── Pointer handlers ──────────────────────────────────────────────────
@@ -342,74 +369,84 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     // Middle mouse or ctrl+left for pan
     if (event.button === 1 || (event.button === 0 && event.ctrlKey)) {
       event.preventDefault();
-      this.drag = {
+      const vp = this.viewport();
+      this.drag.set({
         type: 'pan',
-        startX: event.clientX - this.viewport.x,
-        startY: event.clientY - this.viewport.y,
+        startX: event.clientX - vp.x,
+        startY: event.clientY - vp.y,
         offsetX: 0,
         offsetY: 0,
-      };
+      });
       return;
     }
 
     // Left click on canvas → start rubber-band selection (or deselect if no drag)
     if (event.button === 0) {
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
-      this.drag = {
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
+      this.drag.set({
         type: 'select',
         startX: event.clientX,
         startY: event.clientY,
         offsetX: pos.x, // canvas-space start
         offsetY: pos.y,
-      };
+      });
     }
   }
 
   onCanvasPointerMove(event: PointerEvent): void {
-    if (this.drag.type === 'pan') {
-      this.viewport.x = event.clientX - this.drag.startX;
-      this.viewport.y = event.clientY - this.drag.startY;
+    const d = this.drag();
+
+    if (d.type === 'pan') {
+      const vp = this.viewport();
+      this.viewport.set({
+        x: event.clientX - d.startX,
+        y: event.clientY - d.startY,
+        zoom: vp.zoom,
+      });
       return;
     }
 
-    if (this.drag.type === 'select') {
-      const dx = event.clientX - this.drag.startX;
-      const dy = event.clientY - this.drag.startY;
+    if (d.type === 'select') {
+      const dx = event.clientX - d.startX;
+      const dy = event.clientY - d.startY;
       if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
 
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
-      const sx = this.drag.offsetX;
-      const sy = this.drag.offsetY;
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
+      const sx = d.offsetX;
+      const sy = d.offsetY;
 
-      this.selectionRect = {
+      const sr = {
         x: Math.min(sx, pos.x),
         y: Math.min(sy, pos.y),
         w: Math.abs(pos.x - sx),
         h: Math.abs(pos.y - sy),
       };
+      this.selectionRect.set(sr);
 
       // Update multi-selection based on nodes intersecting the rect
-      this.multiSelectedIds.clear();
+      const newSelected = new Set<string>();
       for (const node of this.nodes) {
-        if (this.nodeIntersectsRect(node, this.selectionRect)) {
-          this.multiSelectedIds.add(node.id);
+        if (this.nodeIntersectsRect(node, sr)) {
+          newSelected.add(node.id);
         }
       }
+      this.multiSelectedIds.set(newSelected);
       return;
     }
 
-    if (this.drag.type === 'node' && this.drag.nodeId) {
+    if (d.type === 'node' && d.nodeId) {
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
+      const msi = this.multiSelectedIds();
 
-      if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)) {
+      if (msi.size > 1 && msi.has(d.nodeId)) {
         // Multi-drag: compute offsets for all selected nodes
-        const primaryStart = this.multiDragStartPositions.get(this.drag.nodeId);
+        const primaryStart = this.multiDragStartPositions.get(d.nodeId);
         if (primaryStart) {
-          const newX = snapToGrid(pos.x - this.drag.offsetX);
-          const newY = snapToGrid(pos.y - this.drag.offsetY);
+          const newX = snapToGrid(pos.x - d.offsetX);
+          const newY = snapToGrid(pos.y - d.offsetY);
           const dx = newX - primaryStart.x;
           const dy = newY - primaryStart.y;
 
@@ -422,34 +459,31 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
         }
       } else {
         // Single node drag
-        const node = this.nodeMap.get(this.drag.nodeId);
+        const node = this.nodeMap.get(d.nodeId);
         if (node) {
-          this.dragOffsets.set(this.drag.nodeId, {
-            dx: snapToGrid(pos.x - this.drag.offsetX) - node.position.x,
-            dy: snapToGrid(pos.y - this.drag.offsetY) - node.position.y,
+          this.dragOffsets.set(d.nodeId, {
+            dx: snapToGrid(pos.x - d.offsetX) - node.position.x,
+            dy: snapToGrid(pos.y - d.offsetY) - node.position.y,
           });
         }
       }
       const draggedIds = new Set<string>(
-        this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)
-          ? this.multiSelectedIds
-          : [this.drag.nodeId]
+        msi.size > 1 && msi.has(d.nodeId) ? msi : [d.nodeId]
       );
       this.recalcEdgePathsForNodes(draggedIds);
       return;
     }
 
-    if (this.drag.type === 'edge') {
+    if (d.type === 'edge') {
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
-      this.drag.edgeEndX = pos.x;
-      this.drag.edgeEndY = pos.y;
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
+      this.drag.set({ ...d, edgeEndX: pos.x, edgeEndY: pos.y });
 
       // Compute pending edge path
-      const sourceNode = this.nodeMap.get(this.drag.sourceNodeId!);
+      const sourceNode = this.nodeMap.get(d.sourceNodeId!);
       if (sourceNode) {
         const portIndex = sourceNode.output_ports.findIndex(
-          (p) => p.id === this.drag.sourcePortId
+          (p) => p.id === d.sourcePortId
         );
         const from = getOutputPortPosition(
           sourceNode.position.x,
@@ -457,33 +491,36 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
           Math.max(0, portIndex),
           sourceNode.output_ports.length || 1
         );
-        this.pendingEdgePath = buildEdgePath(from, { x: pos.x, y: pos.y });
+        this.pendingEdgePath.set(buildEdgePath(from, { x: pos.x, y: pos.y }));
       }
     }
   }
 
   onCanvasPointerUp(event: PointerEvent): void {
-    if (this.drag.type === 'pan') {
-      this.viewportChanged.emit({ ...this.viewport });
+    const d = this.drag();
+
+    if (d.type === 'pan') {
+      this.viewportChanged.emit({ ...this.viewport() });
     }
 
-    if (this.drag.type === 'select') {
-      const dx = event.clientX - this.drag.startX;
-      const dy = event.clientY - this.drag.startY;
+    if (d.type === 'select') {
+      const dx = event.clientX - d.startX;
+      const dy = event.clientY - d.startY;
 
       if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
         // Click (no drag) → deselect all
-        this.multiSelectedIds.clear();
+        this.multiSelectedIds.set(new Set());
         this.nodeDeselected.emit();
       }
       // else: rubber-band completed, multiSelectedIds is already populated
-      this.selectionRect = null;
+      this.selectionRect.set(null);
     }
 
-    if (this.drag.type === 'node' && this.drag.nodeId) {
-      if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(this.drag.nodeId)) {
+    if (d.type === 'node' && d.nodeId) {
+      const msi = this.multiSelectedIds();
+      if (msi.size > 1 && msi.has(d.nodeId)) {
         // Emit nodeMoved for each moved node using effective positions
-        for (const id of this.multiSelectedIds) {
+        for (const id of msi) {
           const n = this.nodeMap.get(id);
           if (n) {
             const offset = this.dragOffsets.get(id);
@@ -495,11 +532,11 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
           }
         }
       } else {
-        const node = this.nodeMap.get(this.drag.nodeId);
+        const node = this.nodeMap.get(d.nodeId);
         if (node) {
-          const offset = this.dragOffsets.get(this.drag.nodeId);
+          const offset = this.dragOffsets.get(d.nodeId);
           this.nodeMoved.emit({
-            nodeId: this.drag.nodeId,
+            nodeId: d.nodeId,
             x: node.position.x + (offset?.dx ?? 0),
             y: node.position.y + (offset?.dy ?? 0),
           });
@@ -509,21 +546,21 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       this.multiDragStartPositions.clear();
     }
 
-    if (this.drag.type === 'edge' && this.drag.sourceNodeId) {
+    if (d.type === 'edge' && d.sourceNodeId) {
       // Check if pointer is over an input port
       const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+      const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
 
       for (const node of this.nodes) {
-        if (node.id === this.drag.sourceNodeId) continue;
+        if (node.id === d.sourceNodeId) continue;
         const inputPos = getInputPortPosition(node.position.x, node.position.y);
         const dist = Math.sqrt(
           Math.pow(pos.x - inputPos.x, 2) + Math.pow(pos.y - inputPos.y, 2)
         );
         if (dist < 20) {
           this.edgeCreated.emit({
-            sourceNodeId: this.drag.sourceNodeId,
-            sourcePortId: this.drag.sourcePortId || 'default',
+            sourceNodeId: d.sourceNodeId,
+            sourcePortId: d.sourcePortId || 'default',
             targetNodeId: node.id,
           });
           break;
@@ -531,8 +568,8 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       }
     }
 
-    this.drag = initialDragState();
-    this.pendingEdgePath = null;
+    this.drag.set(initialDragState());
+    this.pendingEdgePath.set(null);
   }
 
   // ── Node interaction ──────────────────────────────────────────────────
@@ -542,57 +579,60 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     if (event.button !== 0) return;
 
     const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-    const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+    const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
 
     if (event.shiftKey) {
       // Shift+click: toggle node in multi-selection
-      if (this.multiSelectedIds.has(node.id)) {
-        this.multiSelectedIds.delete(node.id);
+      const msi = new Set(this.multiSelectedIds());
+      if (msi.has(node.id)) {
+        msi.delete(node.id);
       } else {
-        this.multiSelectedIds.add(node.id);
+        msi.add(node.id);
         // Also include the currently single-selected node if any
-        if (this.selectedNodeId && !this.multiSelectedIds.has(this.selectedNodeId)) {
-          this.multiSelectedIds.add(this.selectedNodeId);
+        if (this.selectedNodeId && !msi.has(this.selectedNodeId)) {
+          msi.add(this.selectedNodeId);
         }
       }
+      this.multiSelectedIds.set(msi);
       this.nodeSelected.emit(node.id);
       return;
     }
 
     // Not shift: check if this node is part of a multi-selection
-    if (this.multiSelectedIds.size > 1 && this.multiSelectedIds.has(node.id)) {
+    const currentMsi = this.multiSelectedIds();
+    if (currentMsi.size > 1 && currentMsi.has(node.id)) {
       // Start multi-drag — keep selection, record start positions
       this.multiDragStartPositions.clear();
-      for (const id of this.multiSelectedIds) {
+      for (const id of currentMsi) {
         const n = this.nodeMap.get(id);
         if (n) {
           this.multiDragStartPositions.set(id, { x: n.position.x, y: n.position.y });
         }
       }
 
-      this.drag = {
+      this.drag.set({
         type: 'node',
         nodeId: node.id,
         startX: event.clientX,
         startY: event.clientY,
         offsetX: pos.x - node.position.x,
         offsetY: pos.y - node.position.y,
-      };
+      });
       this.nodeSelected.emit(node.id);
       return;
     }
 
     // Click on unselected node: clear multi-selection, single select + drag
-    this.multiSelectedIds.clear();
+    this.multiSelectedIds.set(new Set());
 
-    this.drag = {
+    this.drag.set({
       type: 'node',
       nodeId: node.id,
       startX: event.clientX,
       startY: event.clientY,
       offsetX: pos.x - node.position.x,
       offsetY: pos.y - node.position.y,
-    };
+    });
 
     this.nodeSelected.emit(node.id);
   }
@@ -607,7 +647,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     event.stopPropagation();
     if (event.button !== 0) return;
 
-    this.drag = {
+    this.drag.set({
       type: 'edge',
       sourceNodeId: node.id,
       sourcePortId: port.id,
@@ -615,7 +655,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
       startY: event.clientY,
       offsetX: 0,
       offsetY: 0,
-    };
+    });
   }
 
   // ── Edge interaction ──────────────────────────────────────────────────
@@ -640,7 +680,7 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     if (!data) return;
 
     const rect = this.svgCanvas.nativeElement.getBoundingClientRect();
-    const pos = screenToCanvas(event.clientX, event.clientY, this.viewport, rect);
+    const pos = screenToCanvas(event.clientX, event.clientY, this.viewport(), rect);
 
     this.canvasDropped.emit({
       type: data,
@@ -655,13 +695,13 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     const mod = event.ctrlKey || event.metaKey;
 
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (this.multiSelectedIds.size > 0) {
+      if (this.multiSelectedIds().size > 0) {
         // Delete all multi-selected nodes (except trigger)
-        const toRemove = [...this.multiSelectedIds].filter((id) => {
+        const toRemove = [...this.multiSelectedIds()].filter((id) => {
           const n = this.nodeMap.get(id);
           return n && n.type !== 'trigger';
         });
-        this.multiSelectedIds.clear();
+        this.multiSelectedIds.set(new Set());
         for (const id of toRemove) {
           this.nodeRemoved.emit(id);
         }
@@ -678,10 +718,11 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     // Ctrl/Cmd+A: select all nodes
     if (mod && event.key === 'a') {
       event.preventDefault();
-      this.multiSelectedIds.clear();
+      const allIds = new Set<string>();
       for (const node of this.nodes) {
-        this.multiSelectedIds.add(node.id);
+        allIds.add(node.id);
       }
+      this.multiSelectedIds.set(allIds);
     }
 
     // Ctrl/Cmd+Z: undo
@@ -712,9 +753,10 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
   // ── Copy / Paste ────────────────────────────────────────────────────────
 
   private copySelectedNodes(): void {
+    const msi = this.multiSelectedIds();
     const ids =
-      this.multiSelectedIds.size > 0
-        ? [...this.multiSelectedIds]
+      msi.size > 0
+        ? [...msi]
         : this.selectedNodeId
           ? [this.selectedNodeId]
           : [];
@@ -824,6 +866,11 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     return NODE_HEIGHT;
   }
 
+  getSourcePortCount(edge: WorkflowEdge): number {
+    const node = this.nodes.find((n) => n.id === edge.source_node_id);
+    return node?.output_ports?.length ?? 1;
+  }
+
   getInputPortX(): number {
     return NODE_WIDTH / 2;
   }
@@ -846,13 +893,12 @@ export class GraphCanvasComponent implements OnInit, OnChanges, OnDestroy {
     return `translate(${pos.x}, ${pos.y})`;
   }
 
-  get viewTransform(): string {
-    return `translate(${this.viewport.x}, ${this.viewport.y}) scale(${this.viewport.zoom})`;
-  }
+  viewTransform = computed(() => {
+    const vp = this.viewport();
+    return `translate(${vp.x}, ${vp.y}) scale(${vp.zoom})`;
+  });
 
-  getZoomPercent(): number {
-    return Math.round(this.viewport.zoom * 100);
-  }
+  zoomPercent = computed(() => Math.round(this.viewport().zoom * 100));
 
   getEdgeStroke(edgeId: string): string {
     if (this.isEdgeActive(edgeId)) return 'var(--app-canvas-active)';

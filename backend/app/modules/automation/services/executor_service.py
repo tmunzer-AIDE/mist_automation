@@ -910,6 +910,12 @@ class WorkflowExecutor:
                 return {"status": "mocked", "host": config.get("syslog_host", ""), "format": config.get("syslog_format", "rfc5424")}
             return await self._execute_syslog(config)
 
+        if node_type == "script":
+            code = config.get("script_code", "")
+            if dry_run:
+                return {"status": "mocked", "script_length": len(code)}
+            return await self._execute_script(config)
+
         if node_type == "invoke_subflow":
             return await self._execute_invoke_subflow(node, execution, dry_run=dry_run, simulate=simulate)
 
@@ -1907,6 +1913,52 @@ class WorkflowExecutor:
             "message": syslog_msg[:500],
         }
 
+    async def _execute_script(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Execute a JavaScript script in a sandboxed V8 isolate with access to workflow variables.
+
+        Security: PyMiniRacer runs code in a V8 isolate with no filesystem, network, or process
+        access. Memory and execution time are capped. This is the same isolation model used by
+        Chrome for untrusted web content.
+        """
+        from py_mini_racer import MiniRacer
+
+        code = self._render_template(config.get("script_code", ""))
+        if not code.strip():
+            raise WorkflowExecutionError("Script code is empty")
+
+        # Build inputs from variable context
+        inputs = {
+            "trigger": self.variable_context.get("trigger", {}),
+            "nodes": self.variable_context.get("nodes", {}),
+            "results": self.variable_context.get("results", {}),
+        }
+
+        # Run in V8 isolate — sandboxed, no file/network/process access
+        ctx = MiniRacer()
+        try:
+            inputs_json = json.dumps(inputs, default=str)
+            # Inject inputs and wrap user code in an IIFE that returns the result
+            wrapped = (
+                f"var inputs = JSON.parse('{inputs_json.replace(chr(92), chr(92)*2).replace(chr(39), chr(92)+chr(39))}');\n"
+                f"(function() {{\n{code}\n}})();"
+            )
+            result = ctx.eval(wrapped, timeout=5, max_memory=50 * 1024 * 1024)  # 5s timeout, 50MB memory
+
+            # Convert result to Python dict
+            if result is None:
+                return {"result": None}
+            if isinstance(result, (dict, list)):
+                return result if isinstance(result, dict) else {"result": result}
+            return {"result": result}
+
+        except Exception as e:
+            error_msg = str(e)
+            if "timeout" in error_msg.lower():
+                raise WorkflowExecutionError("Script execution timed out (5 second limit)") from e
+            if "memory" in error_msg.lower():
+                raise WorkflowExecutionError("Script exceeded memory limit (50MB)") from e
+            raise WorkflowExecutionError(f"Script execution error: {_sanitize_execution_error(e)}") from e
+
     async def _execute_condition(
         self, node: WorkflowNode, execution: WorkflowExecution, dry_run: bool = False
     ) -> dict[str, Any]:
@@ -1924,19 +1976,27 @@ class WorkflowExecutor:
         return {"matched_branch": "else"}
 
     async def _execute_set_variable(self, config: dict) -> dict[str, Any]:
-        """Execute a set_variable node."""
-        expression = config.get("variable_expression", "")
-        rendered = self._render_template(expression).strip()
+        """Execute a set_variable node — supports multiple variables."""
+        variables = config.get("variables")
+        if not variables:
+            # Backward compat: single variable_name/variable_expression
+            variables = [{"name": config.get("variable_name", ""), "expression": config.get("variable_expression", "")}]
 
-        try:
-            value = json.loads(rendered)
-        except (json.JSONDecodeError, ValueError):
-            value = rendered
+        results: dict[str, Any] = {}
+        for var_def in variables:
+            name = (var_def.get("name") or "").strip()
+            if not name:
+                continue
+            rendered = self._render_template(var_def.get("expression", "")).strip()
+            try:
+                value = json.loads(rendered)
+            except (json.JSONDecodeError, ValueError):
+                value = rendered
+            self.variable_context["results"][name] = value
+            results[name] = value
+            logger.info("set_variable_executed", variable_name=name, value=str(value)[:200])
 
-        var_name = config.get("variable_name", "unnamed")
-        self.variable_context["results"][var_name] = value
-        logger.info("set_variable_executed", variable_name=var_name, value=str(value)[:200])
-        return {"variable_name": var_name, "value": value}
+        return results
 
     async def _execute_for_each(
         self, node: WorkflowNode, execution: WorkflowExecution, dry_run: bool = False

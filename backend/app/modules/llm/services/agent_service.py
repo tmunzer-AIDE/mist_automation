@@ -130,10 +130,29 @@ class AIAgentService:
             # Check if the LLM wants to call tools
             raw_tool_calls = response.tool_calls
             if not raw_tool_calls:
+                content = response.content or ""
+
+                # Detect XML tool_call format — LLM failed to use function calling API
+                if "<tool_call>" in content or "<function=" in content:
+                    logger.warning("llm_xml_tool_call_detected", iteration=iteration + 1)
+                    return AgentResult(
+                        status="error",
+                        result=(
+                            "The LLM attempted to call tools using an unsupported XML format "
+                            "instead of the native function calling API. This typically means "
+                            "the model does not support tool/function calling, or has "
+                            "'Enable Thinking' turned on (which breaks tool calling in LM Studio). "
+                            "Please check your LLM configuration."
+                        ),
+                        tool_calls=tool_calls,
+                        iterations=iteration + 1,
+                        thinking_texts=thinking_texts,
+                    )
+
                 # No tool calls — agent is done
                 return AgentResult(
                     status="completed",
-                    result=response.content,
+                    result=content,
                     tool_calls=tool_calls,
                     iterations=iteration + 1,
                     thinking_texts=thinking_texts,

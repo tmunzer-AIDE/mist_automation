@@ -24,6 +24,7 @@ export type ActionType =
   | 'ai_agent'
   | 'wait_for_callback'
   | 'syslog'
+  | 'script'
   | 'trigger_backup'
   | 'restore_backup'
   | 'compare_backups';
