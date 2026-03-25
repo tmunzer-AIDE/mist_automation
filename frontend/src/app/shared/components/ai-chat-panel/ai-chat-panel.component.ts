@@ -63,7 +63,7 @@ function renderMarkdown(md: string): string {
 
         @for (item of timeline(); track $index) {
           @if (item.kind === 'message') {
-          @if (item.role === 'user' || item.content?.trim()) {
+          @if (item.role === 'user' || item.content.trim()) {
             <div
               class="chat-message"
               [class.user]="item.role === 'user'"
