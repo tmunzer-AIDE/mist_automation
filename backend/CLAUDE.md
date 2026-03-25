@@ -78,6 +78,10 @@ Two separate execution mechanisms:
 
 For simple fire-and-forget async work, use `create_background_task(coro, name)` from `app.core.tasks` — it wraps `asyncio.create_task()` with error logging via done callbacks.
 
+### Impact Analysis Workers
+
+The impact analysis module uses `create_background_task()` async coroutines (not Celery) for long-lived monitoring sessions. `recover_active_sessions()` is called during application startup to resume interrupted sessions. `SiteDataCoordinator` manages shared API call batching across concurrent sessions.
+
 ### Workflow Failure Notifications (app/modules/automation/workers/notification_helper.py)
 
 `notify_workflow_failure(workflow, execution)` dispatches failure alerts to Slack, Email, PagerDuty, or ServiceNow based on `workflow.failure_notification` config. Called from both `webhook_worker.py` and `cron_worker.py` via `create_background_task()` when execution status is FAILED or TIMEOUT. Catches all exceptions — notification failures never affect execution state.
@@ -101,28 +105,13 @@ All accept optional config overrides in request body (test before saving). Retur
 
 ### Variable Substitution (app/utils/variables.py)
 
-Workflow actions use Jinja2 `SandboxedEnvironment` with `ChainableUndefined` for safe nesting. Key functions:
-- `substitute_variables(template_string, context)` — resolves `{{variable}}` expressions
-- `_substitute_value(value, **kwargs)` — core recursive dispatcher for str/dict/list types
-- `substitute_in_dict(data, context)` / `substitute_in_list(data, context)` — thin wrappers around `_substitute_value`
-- `build_context()` — combines webhook data, API results, workflow context, and allowed env vars
-- `get_nested_value(data, dotted_path)` — dot-notation access like `event.device.name`
+Workflow actions use Jinja2 `SandboxedEnvironment` with `ChainableUndefined` for safe nesting. Entry point: `substitute_variables(template_string, context)`. `build_context()` combines webhook data, API results, workflow context, and allowed env vars. `get_nested_value(data, dotted_path)` for dot-notation access.
 
-### Encryption
+### Encryption & Mist API
 
-`app/core/security.py` provides AES-256-GCM encryption via `encrypt_sensitive_data()` / `decrypt_sensitive_data()` using PBKDF2 key derivation from `settings.secret_key`. Used for storing Mist API tokens in `SystemConfig`.
-
-### Mist API Integration
-
-Always instantiate via `create_mist_service()` from `app.services.mist_service_factory` — it handles config lookup and token decryption. `MistService` wraps the `mistapi` library with `asyncio.to_thread()` for async compatibility. Cloud regions map to: `global_01` → api.mist.com, `emea_01` → api.eu.mist.com, `apac_01` → api.ac5.mist.com.
-
-### SSRF Protection (app/utils/url_safety.py)
-
-`validate_outbound_url(url)` validates scheme (http/https only), resolves hostname, and blocks private/reserved/loopback/link-local IP ranges. Must be called before any outbound HTTP request to a user-controlled URL (webhook actions, generic webhook notifications).
-
-### Admin Settings Validation (app/schemas/admin.py)
-
-`SystemSettingsUpdate` is a Pydantic model with `field_validator` for cron expressions and URLs, plus `Field(ge=, le=)` bounds on numeric settings. Used by `PUT /admin/settings` instead of raw `dict`.
+- `app/core/security.py`: AES-256-GCM via `encrypt_sensitive_data()` / `decrypt_sensitive_data()` using PBKDF2 from `settings.secret_key`.
+- `create_mist_service()` from `app.services.mist_service_factory` handles config lookup and token decryption. `MistService` wraps `mistapi` with `asyncio.to_thread()`. Regions: `global_01` → api.mist.com, `emea_01` → api.eu.mist.com, `apac_01` → api.ac5.mist.com.
+- `validate_outbound_url()` from `app/utils/url_safety.py` blocks private/reserved/loopback IPs. Required before outbound HTTP to user-controlled URLs.
 
 ## Key Patterns
 
@@ -135,29 +124,19 @@ Always instantiate via `create_mist_service()` from `app.services.mist_service_f
 
 ## Security Conventions
 
-- **Access control**: Every endpoint must use the appropriate auth dependency: `require_admin`, `require_automation_role`, `require_backup_role`, or `get_current_user_from_token`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
-- **Sensitive data**: Use `encrypt_sensitive_data()` / `decrypt_sensitive_data()` for tokens and passwords stored in `SystemConfig`. Return `*_set: bool` fields in API responses instead of actual values.
-- **Error messages**: Never leak `str(e)` to API clients. Log full errors server-side with structlog, return generic messages in HTTP responses. Use `_sanitize_execution_error()` from `executor_service.py` for workflow/node error fields.
-- **SSRF**: Call `validate_outbound_url()` before any outbound HTTP request to a user-controlled URL.
-- **Session invalidation**: Password changes must invalidate all other sessions. Login enforces `max_concurrent_sessions`.
-- **Input validation**: Admin settings use Pydantic schemas with validators, not raw dicts.
-- **Re-raise from**: Always use `raise ... from e` or `raise ... from None` in except clauses (ruff B904).
-- **Password policy**: Use `validate_password_with_policy()` (reads from `SystemConfig` at runtime) instead of `validate_password_strength()` (reads from env only) in endpoint code.
-- **MCP access control**: MCP write tools must enforce role/ownership checks via `mcp_user_id_var`, mirroring REST API enforcement.
+See root `CLAUDE.md` Security section for full conventions. Backend-specific additions:
+- Use `_sanitize_execution_error()` from `executor_service.py` for workflow/node error fields
+- Use `validate_password_with_policy()` (reads from `SystemConfig`) not `validate_password_strength()` (env only)
+- MCP write tools must enforce role/ownership checks via `mcp_user_id_var`
+- Always use `raise ... from e` or `raise ... from None` in except clauses (ruff B904)
 
 ## DRY Conventions
 
-- **MistService**: Always instantiate via `create_mist_service()` factory — never inline config+decrypt.
-- **Template braces**: Use `strip_template_braces()` from `app/utils/variables.py` for `{{ }}` stripping.
-- **API methods**: `MistService._api_call()` is the single implementation; thin wrappers for each HTTP verb.
-- **Shared helpers**: Extract common field construction into helpers (e.g., `_event_fields()`, `user_to_response()`).
-- **Variable substitution dispatch**: `_substitute_value()` is the single recursive dispatcher; `substitute_in_dict`/`substitute_in_list` are thin wrappers.
-- **Report response helpers**: `_dict_to_response()` for raw aggregation dicts, `_job_to_response()` for `ReportJob` documents — never inline `ReportJobResponse(...)` construction.
-- **Celery app**: Always import from `app.core.celery_app` — never create Celery instances in modules.
-- **User response**: `user_to_response()` from `app.schemas.user` — single canonical User→UserResponse builder.
-- **LLM service**: Always use `create_llm_service()` factory from `app.modules.llm.services.llm_service_factory`.
-- **Syslog format**: `_execute_syslog()` in `executor_service.py` handles both RFC 5424 and CEF format construction — do not create a separate syslog service.
-- **DB facet counts**: Use `facet_counts()` from `app.utils.db_helpers` for `$facet`-based count aggregations.
+See root `CLAUDE.md` DRY section for full conventions. Backend-specific additions:
+- `MistService._api_call()` is the single implementation; thin wrappers for each HTTP verb
+- `_event_fields()` in `webhooks.py` provides shared webhook monitor fields
+- `_execution_summary()`, `_node_result_to_dict()` in `automation/router.py` for execution responses
+- `_execute_syslog()` in `executor_service.py` handles both RFC 5424 and CEF — do not create a separate syslog service
 
 ## Testing
 
@@ -170,7 +149,7 @@ Key fixtures in `tests/conftest.py`:
 
 ## API Testing
 
-- **Swagger UI**: http://localhost:8000/api/v1/docs
+- **Swagger UI**: http://localhost:8000/api/v1/docs — full endpoint reference
 - **ReDoc**: http://localhost:8000/api/v1/redoc
 - **Health check**: `curl http://localhost:8000/health`
 
@@ -182,20 +161,6 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
 
 # Authenticated request
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/workflows/
-
-# Common endpoints
-# GET  /api/v1/workflows/              — list workflows
-# POST /api/v1/workflows/              — create workflow
-# GET  /api/v1/workflows/{id}          — get workflow
-# PUT  /api/v1/workflows/{id}          — update workflow
-# POST /api/v1/workflows/{id}/simulate — simulate workflow
-# GET  /api/v1/backup/jobs             — list backup jobs
-# POST /api/v1/backup/jobs             — create backup job
-# GET  /api/v1/admin/stats             — system stats (admin only)
-# GET  /api/v1/admin/settings          — system settings (admin only)
-# PUT  /api/v1/admin/settings          — update settings (admin only)
-# GET  /api/v1/admin/users             — list users (admin only)
-# GET  /api/v1/admin/audit-logs        — audit logs (admin only)
 ```
 
 ## Code Style

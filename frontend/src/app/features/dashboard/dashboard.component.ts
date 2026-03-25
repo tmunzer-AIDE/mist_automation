@@ -12,10 +12,13 @@ import { ChartConfiguration } from 'chart.js/auto';
 import { selectCurrentUser } from '../../core/state/auth/auth.selectors';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ImpactAnalysisService } from '../../core/services/impact-analysis.service';
 import { TopbarService } from '../../core/services/topbar.service';
 import { GlobalChatService } from '../../core/services/global-chat.service';
+import { WebSocketService } from '../../core/services/websocket.service';
 import { HealthResponse } from '../../core/models/session.model';
 import { UserResponse } from '../../core/models/user.model';
+import { SessionSummary } from '../impact-analysis/models/impact-analysis.model';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { AiIconComponent } from '../../shared/components/ai-icon/ai-icon.component';
 import { DateTimePipe } from '../../shared/pipes/date-time.pipe';
@@ -51,6 +54,8 @@ export class DashboardComponent implements OnInit {
   private readonly store = inject(Store);
   private readonly api = inject(ApiService);
   private readonly authService = inject(AuthService);
+  private readonly impactService = inject(ImpactAnalysisService);
+  private readonly wsService = inject(WebSocketService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly topbarService = inject(TopbarService);
@@ -59,6 +64,7 @@ export class DashboardComponent implements OnInit {
   user = signal<UserResponse | null>(null);
   stats = signal<DashboardStats | null>(null);
   health = signal<HealthResponse | null>(null);
+  impactSummary = signal<SessionSummary | null>(null);
   loading = signal(true);
   chartConfig = signal<ChartConfiguration<'bar'> | null>(null);
 
@@ -74,10 +80,15 @@ export class DashboardComponent implements OnInit {
   });
   hasReports = computed(() => {
     const r = this.user()?.roles ?? [];
-    return r.includes('admin') || r.includes('reports');
+    return r.includes('admin') || r.includes('post_deployment');
+  });
+  hasImpactAnalysis = computed(() => {
+    const r = this.user()?.roles ?? [];
+    return r.includes('admin') || r.includes('impact_analysis');
   });
   hasAnyModuleRole = computed(
-    () => this.hasAutomation() || this.hasBackup() || this.hasReports(),
+    () =>
+      this.hasAutomation() || this.hasBackup() || this.hasReports() || this.hasImpactAnalysis(),
   );
 
   recentItems = computed(() => this.stats()?.recent ?? []);
@@ -102,6 +113,7 @@ export class DashboardComponent implements OnInit {
         take(1),
         switchMap((u) => {
           this.user.set(u);
+          this.loadImpactSummary(u);
           return this.api
             .get<DashboardStats>('/dashboard/stats')
             .pipe(catchError(() => of(null)));
@@ -144,6 +156,26 @@ export class DashboardComponent implements OnInit {
         this.router.navigate(['/reports', item.id]);
         break;
     }
+  }
+
+  private loadImpactSummary(user: UserResponse): void {
+    const roles = user.roles ?? [];
+    if (!roles.includes('admin') && !roles.includes('impact_analysis')) {
+      return;
+    }
+    this.impactService
+      .getSummary()
+      .pipe(catchError(() => of(null)))
+      .subscribe((summary) => this.impactSummary.set(summary));
+
+    this.wsService
+      .subscribe<{ type: string }>('impact:summary')
+      .pipe(
+        filter((msg) => msg.type === 'summary_update'),
+        switchMap(() => this.impactService.getSummary()),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((summary) => this.impactSummary.set(summary));
   }
 
   private buildChart(activity: DashboardActivity): void {

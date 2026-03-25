@@ -39,7 +39,13 @@
           [matTooltip]="collapsed ? item.label : ''"
           matTooltipPosition="right"
         >
-          <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
+          <mat-icon
+            matListItemIcon
+            [matBadge]="impactAlertCount()"
+            [matBadgeHidden]="item.route !== '/impact-analysis' || impactAlertCount() === 0"
+            matBadgeColor="warn"
+            matBadgeSize="small"
+          >{{ item.icon }}</mat-icon>
           @if (!collapsed) {
             <span matListItemTitle>{{ item.label }}</span>
           }

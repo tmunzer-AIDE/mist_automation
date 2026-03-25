@@ -10,9 +10,10 @@ A self-hosted platform for automating Juniper Mist network operations and managi
 - **Webhook Monitor** — Real-time view of incoming Mist webhook events with filtering and history.
 - **AI Assistance** — Multi-provider LLM integration (OpenAI, Anthropic, Ollama, LM Studio, etc.) with MCP tool calling. Global chat panel, workflow AI agent nodes, and autonomous backup analysis.
 - **Notifications** — Per-workflow failure alerts via Slack, Email (SMTP), PagerDuty, or ServiceNow. Integration test buttons for all channels.
-- **User Management** — Role-based access (admin, automation, backup, reports), JWT auth with optional 2FA (TOTP), session management.
+- **User Management** — Role-based access (admin, automation, backup, post_deployment, impact_analysis), JWT auth with optional 2FA (TOTP), session management.
 - **Maintenance Mode** — Admin toggle that returns 503 to non-admin users. Health endpoint stays available for monitoring.
-- **Dashboard** — Overview of system activity, backup status, and recent executions.
+- **Config Change Impact Analysis** — Automated post-change monitoring triggered by device-events webhooks (`AP_CONFIGURED`, `SW_CONFIGURED`, `GW_CONFIGURED`). Captures SLE baselines, monitors for degradation over a configurable window (default 60 minutes), correlates device incidents, and runs 14 validation checks (connectivity, SLE performance, stability, loop/black hole detection, client impact, alarm correlation, port flapping, DHCP health, VC/MCLAG integrity, routing adjacency, config drift, PoE budget, WAN failover). Uses a two-tier SLE strategy: site-level polling at every interval (shared across sessions via `SiteDataCoordinator`) with device-level drill-down only when degradation is detected. An AI Agent analyzes all collected data to produce severity assessments and actionable recommendations, with a rule-based fallback when LLM is unavailable. Dedicated UI with session list, detail view (SLE charts, topology diagrams, event timeline), and a dashboard widget with live WebSocket updates.
+- **Dashboard** — Overview of system activity, backup status, recent executions, and active impact analysis sessions.
 - **Dark Mode** — Because of course.
 
 ## Tech Stack

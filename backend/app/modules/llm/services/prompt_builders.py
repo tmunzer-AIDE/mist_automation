@@ -116,7 +116,7 @@ def build_workflow_editor_context() -> str:
     )
 
 
-_KNOWN_ROLES = {"admin", "automation", "backup", "reports"}
+_KNOWN_ROLES = {"admin", "automation", "backup", "post_deployment", "impact_analysis"}
 
 
 def build_global_chat_system_prompt(user_roles: list[str]) -> str:

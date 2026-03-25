@@ -86,6 +86,16 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("seed_recipes_failed", error=str(e))
 
+        # Recover active impact analysis sessions
+        try:
+            from app.modules.impact_analysis.workers.monitoring_worker import recover_active_sessions
+
+            recovered = await recover_active_sessions()
+            if recovered:
+                logger.info("impact_sessions_recovered", count=recovered)
+        except Exception as e:
+            logger.warning("impact_session_recovery_failed", error=str(e))
+
         # Start WebSocket heartbeat
         from app.core.websocket import ws_manager
 

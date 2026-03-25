@@ -142,6 +142,11 @@
   color: var(--app-success);
 }
 
+.chip-impact_analysis {
+  background: var(--app-purple-bg, rgba(156, 39, 176, 0.1));
+  color: var(--app-purple, #9c27b0);
+}
+
 .http-status {
   font-family: monospace;
   font-weight: 600;

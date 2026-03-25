@@ -8,55 +8,9 @@ Mist Automation & Backup — a full-stack application for automating Juniper Mis
 
 ## Commands
 
-### Backend (run from `backend/`, using `.venv/`)
+See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for build, test, and lint commands.
 
-```bash
-# Activate venv (or prefix commands with .venv/bin/)
-source .venv/bin/activate
-
-.venv/bin/python -m app.main          # Dev server with auto-reload at http://localhost:8000
-.venv/bin/pip install -e ".[dev,test]" # Install with dev + test dependencies
-
-# Testing
-.venv/bin/pytest                      # All tests with coverage
-.venv/bin/pytest tests/unit/test_security.py    # Single test file
-.venv/bin/pytest -m "unit"            # Only unit tests
-.venv/bin/pytest -m "integration"     # Only integration tests
-
-# Code quality
-.venv/bin/black .                     # Format
-.venv/bin/ruff check .                # Lint
-.venv/bin/mypy app                    # Type check
-```
-
-### Frontend (run from `frontend/`)
-
-```bash
-npm start                             # Dev server at http://localhost:4200 (proxies /api → backend)
-npx ng build                          # Production build
-npx ng test                           # Unit tests (Vitest)
-```
-
-### Prerequisites
-
-- MongoDB on localhost:27017 and Redis on localhost:6379 (or configure via `.env`)
-- Copy `.env.example` to `.env` and set `SECRET_KEY`, `MIST_API_TOKEN`, `MIST_ORG_ID`
-
-### API Testing
-
-- **Swagger UI**: http://localhost:8000/api/v1/docs
-- **ReDoc**: http://localhost:8000/api/v1/redoc
-- **Health check**: `curl http://localhost:8000/health`
-
-```bash
-# Login and get JWT token
-TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"YourPassword"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-# Authenticated request
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/workflows/
-```
+**Prerequisites**: MongoDB on localhost:27017, Redis on localhost:6379 (or configure via `.env`). Copy `.env.example` to `.env` and set `SECRET_KEY`, `MIST_API_TOKEN`, `MIST_ORG_ID`.
 
 ## Architecture
 
@@ -66,7 +20,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/workflows/
 
 **Key layers**:
 - `app/api/v1/` — Route handlers for auth, users, admin, and the unified webhook gateway (receives all Mist webhooks, routes to automation/backup, manages Smee.io)
-- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning), `reports` (post-deployment validation reports with PDF/CSV export)
+- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning), `reports` (post-deployment validation reports with PDF/CSV export), `impact_analysis` (automated config change impact monitoring)
 - `app/models/` — Beanie Document models (User, UserSession, SystemConfig, AuditLog). Module-specific models live in their module dirs.
 - `app/services/` — Business logic: `auth_service`, `mist_service`, `mist_service_factory` (shared async factory for MistService), `notification_service`
 - `app/core/` — Database init, security, logging (structlog), middleware, custom exceptions, `smee_service` (dev webhook forwarding), `tasks` (safe background task creation)
@@ -89,7 +43,7 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 - **Zoneless** with `provideZonelessChangeDetection()`; all component state uses `signal()` / `computed()` — no `ChangeDetectorRef`
 - NgRx for auth state only; features use service-local observables
 - `ApiService` is the single HTTP client (base URL `/api/v1`)
-- Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile, reports
+- Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile, reports, impact-analysis
 - Angular Material with CSS custom property theming; dark mode via `ThemeService` toggling `html.dark-theme` class
 - All custom colors use `--app-*` CSS custom properties (defined in `styles.scss` with light defaults + `.dark-theme` overrides) — never hardcode hex colors in component SCSS
 - Dev proxy: `/api` and `/health` → `http://localhost:8000` (see `proxy.conf.json`)
@@ -101,7 +55,7 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 - **Validation service** (`services/validation_service.py`): Runs post-deployment validation as a background task. Checks template variables (Jinja2 extraction across all string values), AP health (name, firmware, eth0 speed with < 1Gbps warning, connection status), switch health (name, firmware, status, virtual chassis consistency, cable tests run sequentially per switch), and gateway health (name, firmware, WAN/LAN port status with pass/warn/fail for full/partial/no connectivity). Template fetching and gateway data fetching are parallelized via `asyncio.gather`.
 - **Export service** (`services/export_service.py`): Generates PDF (via `reportlab`) and CSV (ZIP of CSVs) from completed reports.
 - **WebSocket progress**: Broadcasts real-time progress on channel `report:{id}` using existing `ws_manager`.
-- **Access control**: `require_reports_role` dependency — requires `reports` or `admin` role.
+- **Access control**: `require_post_deployment_role` dependency — requires `post_deployment` or `admin` role. `require_reports_role` kept as backwards-compat alias.
 
 **Frontend** (`features/reports/`):
 - **Report list**: Table of past reports with create dialog (site picker dropdown).
@@ -170,6 +124,32 @@ Most complex feature, spanning both backend and frontend:
 - **LlmService**: `getStatus()` cached with `shareReplay(1)`. `globalChat()`, `followUp()`, config CRUD, `testConnectionAnonymous()`, `discoverModels()`.
 - **Page context**: Components call `globalChatService.setContext({page, details})` on init so the global chat LLM knows what the user is viewing.
 
+### Impact Analysis Module
+
+**Backend** (`app/modules/impact_analysis/`):
+- **MonitoringSession model**: Beanie Document tracking config change impact. States: PENDING → BASELINE_CAPTURE → MONITORING → ANALYZING → COMPLETED/ALERT/FAILED/CANCELLED. Single active session per `device_mac` (merge on new config events during active monitoring).
+- **Event handler** (`workers/event_handler.py`): Routes device-events webhooks to session manager. Four event categories: TRIGGER (`AP/SW/GW_CONFIGURED` → create/merge session), INCIDENT (disconnects, failures → append to session), REVERT (`SW/GW_CONFIG_REVERTED` → critical incident + early analysis), RESOLUTION (reconnects → resolve incidents).
+- **SLE service** (`services/sle_service.py`): Two-tier SLE monitoring. Site-level at every poll via `SiteDataCoordinator` (zero extra API calls per device). Device-level drill-down only when degradation detected (`impacted-aps`, `impacted-switches`, etc.). Baseline captured with 1h lookback before config change. Metrics by device type: AP (`time-to-connect`, `throughput`, `roaming`, `coverage`, `capacity`, `ap-availability`), Switch (`sw-throughput`, `sw-health`), Gateway (`wan-throughput`, `wan-link-health`, `gw-health`).
+- **Topology integration** (`topology/`): Copied from `mist_topology` project. BFS path finding, link classification (VC/MCLAG/LAG/Fabric), VLAN segment analysis. Used for connectivity, loop detection, and black hole checks. Topology service adapts `MistService` to the topology builder with parallel data fetching. Per-site topology cached with 30s TTL.
+- **Site data coordinator** (`services/site_data_coordinator.py`): Fetches site-level data once per poll interval, shares across all active sessions at that site. Org-level upgrade for non-SLE data when 3+ sites active (`maybe_upgrade_to_org_level()`). `get_or_create(site_id)` factory. Cleanup when no more active sessions at a site.
+- **Monitoring pipeline** (`workers/monitoring_worker.py`): Single async coroutine per session via `create_background_task()`. 5s PENDING batch → baseline capture → multi-turn polling (default 10min x 6 = 60min) → validation + AI analysis. Interruptible sleep with 10s DB checks for cancellation/merge detection.
+- **Validation service** (`services/validation_service.py`): 14 post-change checks by device type. AP: 1-8, 12. Switch: 1-13. Gateway: 1-8, 11, 12, 14. Checks: (1) upstream/downstream connectivity, (2) SLE performance degradation, (3) stability/unresolved incidents, (4) loop detection via VLAN segment analysis, (5) black hole detection via BFS path loss, (6) client impact (count drop), (7) alarm correlation, (8) port flapping, (9) DHCP health, (10) VC/MCLAG integrity, (11) routing adjacency (BGP/OSPF), (12) configuration drift, (13) PoE budget, (14) WAN failover state. Each check returns `{status: "pass|warn|fail", details}`.
+- **AI analysis service** (`services/analysis_service.py`): Uses `AIAgentService` + in-process MCP for analysis. Builds prompt with config change details, SLE delta, incidents timeline, topology diff, and validation results. Returns structured `{has_impact, severity, summary, recommendations, culprit_field}`. Rule-based fallback when LLM unavailable.
+- **Access control**: `require_impact_role` dependency — requires `impact_analysis` or `admin` role.
+- **WebSocket channels**: `impact:{session_id}` for per-session updates (status changes, SLE snapshots, incidents, validation/analysis completion), `impact:summary` for dashboard widget (active/alert count changes), `impact:alerts` for new alert notifications.
+- **Cleanup worker**: APScheduler job `cleanup_old_sessions()` runs nightly (3:30 UTC), purges `MonitoringSession` documents older than `SystemConfig.impact_analysis_retention_days`.
+- **MCP tools**: Impact analysis search/details exposed via MCP server for AI chat context.
+
+**Frontend** (`features/impact-analysis/`):
+- **Session list** (`session-list/`): `mat-table` with status badge, device name, site, device type, change count, timing. Filters by status and device type. "Start Analysis" button opens manual trigger dialog (site picker, device MAC, optional duration/interval).
+- **Session detail** (`session-detail/`): Progress bar during active monitoring. Expandable sections: config changes timeline, SLE metrics table (baseline vs current with delta), incidents list with resolution status, validation check panels (pass/warn/fail per check), AI assessment (rendered markdown with severity badge and recommendations). "Cancel" button for active sessions, "Reanalyze" button for completed sessions.
+- **SLE chart** (`sle-chart/`): Pre/post SLE comparison via Chart.js (ng2-charts). Baseline vs snapshot trend lines.
+- **Topology view** (`topology-view/`): Mermaid diagram with pre/post toggle and impact radius highlight.
+- **Event timeline** (`event-timeline/`): Chronological incidents with resolution status indicators.
+- **AI assessment** (`ai-assessment/`): Rendered markdown (marked + DOMPurify), severity badge, recommendations list.
+- **Dashboard widget**: Active/alert session counts with live WS updates via `impact:summary` channel. Click navigates to `/impact-analysis`.
+- **Impact analysis service** (`core/services/impact-analysis.service.ts`): API client for sessions CRUD, summary, SLE data, and settings.
+
 ## Code Style
 
 **Backend**: Black (120 char lines), Ruff (isort, pycodestyle, pyflakes, bugbear), MyPy with Pydantic plugin. Python 3.10+.
@@ -180,30 +160,15 @@ Most complex feature, spanning both backend and frontend:
 
 ### Security
 
-- **Access control**: All endpoints MUST enforce role-based access via `require_admin`, `require_automation_role`, `require_backup_role`, or `require_reports_role` from `app/dependencies.py`. Workflow-scoped endpoints must also check `workflow.can_be_accessed_by(current_user)`.
-- **SSRF protection**: Outbound HTTP requests to user-controlled URLs MUST call `validate_outbound_url()` from `app/utils/url_safety.py` before sending.
-- **Sensitive data in responses**: Never leak internal error details (`str(e)`) to API clients. Log full errors server-side, return generic messages to the user. Use `*_set: bool` fields for sensitive config (tokens, passwords) instead of returning actual values.
-- **Session management**: Password changes invalidate all other sessions. Login enforces `max_concurrent_sessions`. Sessions use JTI-based revocation via `UserSession` DB lookup.
-- **Input validation**: Admin settings use `SystemSettingsUpdate` Pydantic model (`app/schemas/admin.py`) with field validators for cron expressions, URLs, and numeric bounds. Never accept raw `dict = Body(...)`.
-- **CSP & security headers**: `SecurityHeadersMiddleware` in `app/core/middleware.py` adds CSP, Permissions-Policy, HSTS, X-Frame-Options, X-Content-Type-Options.
-- **CORS**: Restricted to specific methods (`GET, POST, PUT, DELETE, OPTIONS`) and headers (`Authorization, Content-Type, X-Request-ID`).
-- **LLM API keys**: Stored encrypted in `LLMConfig.api_key` via `encrypt_sensitive_data()`. Admin API returns `api_key_set: bool`. Anonymous test/discover endpoints accept raw key or `config_id` to use stored key.
-- **MCP server URLs**: Must pass `validate_outbound_url()` before connecting (SSRF protection). Exception: local providers (lm_studio, ollama) skip validation.
-- **XSS on LLM output**: All LLM markdown rendered via `marked.parse()` + `DOMPurify.sanitize()` before `[innerHTML]` binding.
-- **Agent tool errors**: Sanitize `str(e)` — log full error server-side, send generic message to LLM ("Error: tool 'X' failed to execute").
-- **Execution ownership**: `debug_execution` endpoint verifies `workflow.can_be_accessed_by(current_user)` before exposing execution data.
-- **`max_iterations` cap**: AI Agent node config `max_iterations` clamped to 25 server-side regardless of user input.
-- **Conversation thread ownership**: `_load_or_create_thread()` raises 403 if thread belongs to another user. Raises 404 if thread_id provided but not found (never silently creates new).
-- **Password policy**: Use `validate_password_with_policy()` from `app/core/security.py` (reads policy from `SystemConfig` at runtime) instead of `validate_password_strength()` (reads from env only) in all endpoint code.
-- **Prompt safety**: Use `_sanitize_for_prompt()` from `app/modules/llm/services/prompt_builders.py` for all user-sourced values injected into LLM prompts (strips markdown control chars, truncates).
-- **MCP tool access control**: MCP write tools (workflow update, backup trigger) must check user roles/permissions via `mcp_user_id_var` — mirrors REST API enforcement. Read-only tools (search, details) do not need role checks.
-- **Error sanitization**: Use `_sanitize_execution_error()` from `executor_service.py` for all exception messages stored in execution/node results. Never store raw `str(e)` in client-visible fields.
-- **MCP HTTP auth**: `MCPAuthMiddleware` validates Bearer JWT on all HTTP requests to `/mcp`. In-process memory transport is unaffected.
-- **Webhook IP allowlist**: `SystemConfig.webhook_ip_whitelist` list of CIDR ranges. Enforced in `receive_mist_webhook()` via `_ip_in_allowlist()` before signature verification. Smee-forwarded localhost requests bypass.
-- **SMTP credentials**: `smtp_password` encrypted via `encrypt_sensitive_data()`. Admin API returns `smtp_password_set: bool`.
-- **Sensitive field clearing**: Empty string values for sensitive fields (tokens, passwords) in `PUT /admin/settings` clear the field (`setattr(config, field, None)`) instead of encrypting the empty string.
-- **Notification failure isolation**: `notify_workflow_failure()` catches all exceptions — notification failures must never affect workflow execution status.
-- **Maintenance mode**: `MaintenanceModeMiddleware` returns 503 for non-admin/auth paths when `SystemConfig.maintenance_mode` is True. `/health`, `/api/v1/auth/*`, `/api/v1/admin/*`, and `/mcp` are always allowed.
+- **Access control**: All endpoints enforce role-based access via `require_admin`, `require_automation_role`, `require_backup_role`, `require_post_deployment_role`, or `require_impact_role` from `app/dependencies.py`. Workflow-scoped endpoints also check `workflow.can_be_accessed_by(current_user)`. MCP write tools mirror REST enforcement via `mcp_user_id_var`.
+- **SSRF protection**: Call `validate_outbound_url()` before any outbound HTTP to user-controlled URLs. Exception: local LLM providers (lm_studio, ollama) skip validation.
+- **Error sanitization**: Never leak `str(e)` to API clients. Log full errors server-side, return generic messages. Use `_sanitize_execution_error()` for workflow/node error fields.
+- **Sensitive data**: Use `encrypt_sensitive_data()` for stored tokens/passwords. Return `*_set: bool` fields in API responses. Empty string in `PUT /admin/settings` clears the field.
+- **Session management**: Password changes invalidate all sessions. Login enforces `max_concurrent_sessions`. JTI-based revocation via `UserSession`.
+- **Input validation**: Use Pydantic schemas with field validators. Never accept raw `dict = Body(...)`.
+- **XSS on LLM output**: All markdown rendered via `marked.parse()` + `DOMPurify.sanitize()`.
+- **Password policy**: Use `validate_password_with_policy()` (reads from `SystemConfig`) not `validate_password_strength()` (env only).
+- **Prompt safety**: Use `_sanitize_for_prompt()` for all user-sourced values injected into LLM prompts.
 
 ### KISS (Keep It Simple)
 
@@ -214,38 +179,24 @@ Most complex feature, spanning both backend and frontend:
 
 ### DRY (Don't Repeat Yourself)
 
-- **MistService instantiation**: Always use `create_mist_service()` from `app.services.mist_service_factory` — never manually create MistService with config+decrypt inline.
-- **LLM service instantiation**: Always use `create_llm_service(config_id=None)` from `app.modules.llm.services.llm_service_factory` — never manually create LLMService.
-- **LLM router helpers**: `_usage_dict(response)` for API response usage dicts, `_log_llm_usage()` for DB logging, `_load_or_create_thread()` for conversation thread lifecycle, `_mcp_user_session()` for MCP client connect/disconnect, `_agent_result_metadata(result)` for building conversation metadata from `AgentResult`, `_make_tool_notifier(stream_id)` for WS tool event callbacks.
-- **Deep diff utility**: Use `deep_diff()` from `app.modules.backup.utils` — not from `backup/router.py` (moved to shared utility).
-- **Conversation thread messages**: Use `thread.to_llm_messages()` — not inline list comprehension converting dicts to LLMMessage objects.
-- **Template brace stripping**: Use `strip_template_braces()` from `app/utils/variables.py` instead of inline `{{ }}` removal.
-- **MistService API methods**: `_api_call()` is the single implementation for GET/POST/PUT/DELETE; thin wrappers (`api_get`, `api_post`, etc.) delegate to it.
-- **Webhook response helpers**: `_event_fields()` in `webhooks.py` provides shared fields used by both REST responses and WebSocket monitor dicts.
-- **Variable substitution dispatch**: `_substitute_value()` in `app/utils/variables.py` is the single recursive dispatcher for str/dict/list types; `substitute_in_dict` and `substitute_in_list` are thin wrappers.
-- **Node name sanitization**: Use `_sanitize_name()` from `executor_service.py` (spaces→underscores) when storing or referencing node names as variable keys. The schema service, executor, and frontend variable picker all use the same convention.
-- **Workflow execution response helpers**: `_execution_summary()`, `_node_result_to_dict()`, and `_snapshot_to_dict()` in `automation/router.py` build response dicts from aggregation results, `NodeExecutionResult`, and `NodeSnapshot` objects respectively — never inline these dict comprehensions.
-- **Report response construction**: `_dict_to_response()` in `reports/router.py` builds `ReportJobResponse` from raw MongoDB aggregation dicts; `_job_to_response()` builds from `ReportJob` documents.
-- **Celery app**: Import `celery_app` from `app.core.celery_app` — never create Celery instances in module workers directly.
-- **User response construction**: Use `user_to_response()` from `app.schemas.user` — single canonical User→UserResponse builder used by both `auth.py` and `users.py`.
-- **MCP paginated search**: Use `_paginated_query()` from `app/modules/mcp_server/tools/search.py` for `$facet`-based MongoDB aggregations with pagination.
-- **Workflow failure notification**: Use `notify_workflow_failure()` from `app.modules.automation.workers.notification_helper` — do not inline notification dispatch in workers.
-- **DB facet counts**: Use `facet_counts()` from `app.utils.db_helpers` for `$facet`-based count aggregations — shared by `admin.py` and `dashboard.py`.
+- **Service factories**: Always use `create_mist_service()`, `create_llm_service()`, `create_local_mcp_client()` — never instantiate manually.
+- **Response helpers**: Extract `_*_to_response()` helpers for building API responses from documents (e.g., `user_to_response()`, `_dict_to_response()`, `_execution_summary()`).
+- **Shared utilities**: Use `facet_counts()`, `strip_template_braces()`, `_sanitize_for_prompt()`, `deep_diff()`, `_paginated_query()` — search codebase before creating new helpers.
+- **Variable substitution**: `_substitute_value()` is the single recursive dispatcher; `substitute_in_dict`/`substitute_in_list` are thin wrappers.
+- **Node name sanitization**: Use `_sanitize_name()` (spaces to underscores) — consistent across executor, schema service, and frontend variable picker.
+- **Celery app**: Import from `app.core.celery_app` — never create Celery instances in modules.
+- **Impact analysis sessions**: Use `session_manager` functions — never query/update `MonitoringSession` directly from other modules.
+- **Site data coordinator**: Use `SiteDataCoordinator.get_or_create(site_id)` for shared site-level data.
 
 ### Efficiency
 
-- **MongoDB `$facet` aggregation**: Admin stats endpoint uses `$facet` to batch multiple count queries into a single DB round-trip per collection.
-- **DB-level filtering**: Webhook worker uses `$elemMatch` queries to filter workflows at the database level instead of loading all enabled workflows and filtering in Python.
-- **Render context caching**: Executor service caches the Jinja2 render context per node execution (`_cached_render_context`), invalidated after each node completes.
-- **Batch gateway API calls**: Validation service pre-fetches all gateway device configs (`listSiteDevices`) and port stats (`searchSiteSwOrGwPorts`) in a single parallel call, then distributes to per-gateway validators — avoids N+1 API calls.
-- **Parallel template fetching**: `_fetch_all_templates` uses `asyncio.gather` to fetch all 6 derived template types concurrently instead of sequentially.
-- **WebSocket connection reuse**: `WebSocketService` is a singleton that multiplexes channels over one connection. Do NOT close the connection when the last channel unsubscribes — keep it alive for reuse.
-- **LLM status caching**: `LlmService.getStatus()` uses `shareReplay(1)` — all components share one cached HTTP call. Do NOT call `getStatus()` independently per component.
-- **MCP connections in parallel**: AI Agent node connects to multiple MCP servers via `asyncio.gather()`, not sequentially.
-- **Simulation task tracking**: Running simulation `asyncio.Task` objects tracked in module-level `_simulation_tasks` dict for cancellation support.
-- **MistService config caching**: Factory caches resolved config (token, region, org_id) with 30s TTL. Call `invalidate_mist_config_cache()` from `app.services.mist_service_factory` when admin updates Mist settings.
-- **Maintenance mode cache**: `MaintenanceModeMiddleware` caches `SystemConfig.maintenance_mode` with 5s TTL. Call `set_maintenance_cache()` from `app.core.middleware` when admin updates the setting.
-- **Execution cleanup**: APScheduler job `cleanup_old_executions()` runs nightly (3:00 UTC), purges `WorkflowExecution` documents older than `SystemConfig.execution_retention_days`.
+- **`$facet` aggregation**: Batch multiple count queries into a single DB round-trip per collection.
+- **DB-level filtering**: Use MongoDB query operators instead of loading all documents and filtering in Python.
+- **Parallel API calls**: Use `asyncio.gather()` for independent API calls (template fetching, MCP connections, gateway data).
+- **Caching**: `MistService` config cached with 30s TTL. Topology cached with 30s TTL. LLM status cached with `shareReplay(1)`. Maintenance mode cached with 5s TTL. Call `invalidate_*()` when admin updates settings.
+- **WebSocket reuse**: Singleton connection, multiplexed channels. Never close on last unsubscribe.
+- **Site data coordinator**: Fetches site-level data once per poll, shares across all active sessions. Org-level upgrade when 3+ sites active.
+- **Nightly cleanup**: APScheduler purges old `WorkflowExecution` (3:00 UTC) and `MonitoringSession` (3:30 UTC) based on retention settings.
 
 ## Mist Cloud Object Model
 

@@ -1,0 +1,353 @@
+<!-- Topbar actions (shown when completed) -->
+<ng-template #actions>
+  <button mat-button (click)="reanalyze()" [disabled]="reanalyzing()">
+    <mat-icon>refresh</mat-icon>
+    Re-analyze
+  </button>
+</ng-template>
+
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+@if (session(); as s) {
+  <!-- Header -->
+  <div class="detail-header">
+    <button mat-icon-button (click)="goBack()" matTooltip="Back to list">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-info">
+      <div class="header-title">
+        <mat-icon class="device-type-icon">{{ deviceTypeIcon(s.device_type) }}</mat-icon>
+        <h2>{{ s.device_name || s.device_mac }}</h2>
+        <app-status-badge [status]="s.status"></app-status-badge>
+        @if (s.has_impact && isCompleted()) {
+          <span class="impact-badge alert">Impact Detected</span>
+        }
+        @if (!s.has_impact && isCompleted()) {
+          <span class="impact-badge ok">No Impact</span>
+        }
+      </div>
+      <div class="header-meta">
+        <span>
+          <mat-icon>location_on</mat-icon>
+          {{ s.site_name }}
+        </span>
+        <span>
+          <mat-icon>category</mat-icon>
+          {{ formatDeviceType(s.device_type) }}
+        </span>
+        <span>
+          <mat-icon>schedule</mat-icon>
+          Detected {{ s.created_at | dateTime: 'short' }}
+        </span>
+        @if (s.completed_at) {
+          <span>
+            <mat-icon>check_circle</mat-icon>
+            Completed {{ s.completed_at | dateTime: 'short' }}
+          </span>
+        }
+      </div>
+    </div>
+    <div class="header-actions">
+      @if (isActive()) {
+        <button
+          mat-stroked-button
+          color="warn"
+          (click)="cancelSession()"
+          [disabled]="cancelling()"
+        >
+          <mat-icon>stop</mat-icon>
+          Cancel
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- Progress bar for active sessions -->
+  @if (isActive()) {
+    <mat-card class="progress-card">
+      <mat-card-content>
+        <div class="progress-info">
+          <span class="progress-phase">{{ s.progress.phase | titlecase }}</span>
+          <span class="progress-message">{{ s.progress.message }}</span>
+        </div>
+        <mat-progress-bar
+          [mode]="progressMode()"
+          [value]="progressPercent()"
+        ></mat-progress-bar>
+        @if (s.progress.percent > 0) {
+          <div class="progress-percent">{{ s.progress.percent }}%</div>
+        }
+        @if (s.monitoring_ends_at) {
+          <div class="next-poll">Monitoring ends: {{ s.monitoring_ends_at | dateTime: 'short' }}</div>
+        }
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <!-- Failed state -->
+  @if (s.status === 'failed') {
+    <mat-card class="error-card">
+      <mat-card-header>
+        <mat-card-title>Analysis Failed</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <p class="error-message">An error occurred during the impact analysis.</p>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <!-- Event Timeline (unified config changes + incidents) -->
+  <section class="detail-section">
+    <div class="section-header">
+      <h3>
+        <mat-icon>timeline</mat-icon>
+        Event Timeline
+      </h3>
+      <span class="event-count">{{ eventTimeline().length }} events</span>
+    </div>
+    <div class="timeline">
+      @for (entry of eventTimeline(); track $index) {
+        <div class="timeline-entry" [class]="'entry-' + entry.type">
+          <div class="timeline-dot">
+            <mat-icon
+              [class]="
+                entry.type === 'config_change'
+                  ? 'dot-config'
+                  : 'dot-' + (entry.severity || 'warning')
+              "
+            >
+              @if (entry.type === 'config_change') {
+                settings
+              } @else if (entry.is_revert) {
+                undo
+              } @else if (entry.severity === 'critical') {
+                error
+              } @else {
+                warning
+              }
+            </mat-icon>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="event-type-label">{{ entry.event_type }}</span>
+              @if (entry.type === 'config_change') {
+                <span class="event-chip config">Trigger</span>
+              }
+              @if (entry.is_revert) {
+                <span class="event-chip revert">Config Revert</span>
+              }
+              @if (entry.severity === 'critical' && entry.type === 'incident') {
+                <span class="event-chip critical">Critical</span>
+              }
+              @if (entry.resolved) {
+                <span class="event-chip resolved">
+                  <mat-icon>check_circle</mat-icon>
+                  Resolved
+                </span>
+              }
+            </div>
+            <div class="timeline-meta">
+              <span>{{ entry.timestamp | dateTime: 'short' }}</span>
+              <span class="meta-sep">&middot;</span>
+              <span>{{ entry.device_name || entry.device_mac }}</span>
+              @if (entry.device_model) {
+                <span class="meta-sep">&middot;</span>
+                <span>{{ entry.device_model }}</span>
+              }
+              @if (entry.commit_user) {
+                <span class="meta-sep">&middot;</span>
+                <span>by {{ entry.commit_user }} ({{ entry.commit_method }})</span>
+              }
+              @if (entry.firmware_version) {
+                <span class="meta-sep">&middot;</span>
+                <span>v{{ entry.firmware_version }}</span>
+              }
+              @if (entry.resolved_at) {
+                <span class="meta-sep">&middot;</span>
+                <span>Resolved {{ entry.resolved_at | dateTime: 'short' }}</span>
+              }
+            </div>
+            @if (entry.config_diff) {
+              <details class="config-diff">
+                <summary>View Config Diff</summary>
+                <pre class="diff-content">{{ entry.config_diff }}</pre>
+              </details>
+            }
+          </div>
+        </div>
+      } @empty {
+        <p class="empty-state">No events recorded during monitoring</p>
+      }
+    </div>
+  </section>
+
+  <!-- SLE Metrics Section -->
+  @if (s.sle_data) {
+    <section class="detail-section">
+      <div class="section-header">
+        <h3><mat-icon>speed</mat-icon> SLE Metrics</h3>
+        @if (sleOverallDegraded()) {
+          <span class="overall-badge badge-fail">Degraded</span>
+        }
+      </div>
+
+      <!-- Delta comparison table (post-analysis) -->
+      @if (deltaMetrics().length > 0) {
+        <table class="sle-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Baseline</th>
+              <th>Current</th>
+              <th>Change</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (m of deltaMetrics(); track m.name) {
+              <tr [class]="m.degraded ? 'row-degraded' : ''">
+                <td class="metric-name">{{ m.name }}</td>
+                <td>{{ m.baseline_value }}</td>
+                <td>{{ m.current_value }}</td>
+                <td [class]="m.change_percent != null && m.change_percent < 0 ? 'delta-negative' : 'delta-positive'">
+                  @if (m.change_percent != null) {
+                    {{ m.change_percent > 0 ? '+' : '' }}{{ m.change_percent }}%
+                  } @else {
+                    —
+                  }
+                </td>
+                <td>
+                  <span class="sle-status" [class]="'sle-' + m.status">{{ m.status }}</span>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+
+      <!-- Baseline info (before analysis completes) -->
+      @else if (baselineMetrics().length > 0) {
+        <div class="sle-baseline-info">
+          <p>Baseline captured with {{ baselineMetrics().length }} metric(s) — 60-min history</p>
+          <div class="baseline-chips">
+            @for (m of baselineMetrics(); track m.name) {
+              <span class="baseline-chip">
+                {{ m.name }}
+                @if (m.hasDeviceTrend) {
+                  <mat-icon class="trend-icon">trending_up</mat-icon>
+                }
+              </span>
+            }
+          </div>
+          @if (sleSnapshotCount() > 0) {
+            <p class="snapshot-count">{{ sleSnapshotCount() }} monitoring snapshot(s) collected</p>
+          }
+        </div>
+      }
+
+      @else {
+        <p class="empty-state">SLE data not yet available</p>
+      }
+    </section>
+  }
+
+  <!-- Validation Checks Section -->
+  @if (session()?.validation_results) {
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>
+          <mat-icon>fact_check</mat-icon>
+          Validation Checks
+        </h3>
+        <span class="overall-badge" [class]="'badge-' + overallValidationStatus()">
+          {{ overallValidationStatus() | titlecase }}
+        </span>
+      </div>
+      <mat-accordion multi>
+        @for (check of validationChecks(); track check.name) {
+          <mat-expansion-panel [expanded]="check.status !== 'pass'">
+            <mat-expansion-panel-header>
+              <mat-panel-title>
+                <mat-icon [class]="'check-icon check-' + check.status">
+                  @switch (check.status) {
+                    @case ('pass') {
+                      check_circle
+                    }
+                    @case ('warn') {
+                      warning
+                    }
+                    @case ('fail') {
+                      error
+                    }
+                    @case ('error') {
+                      error_outline
+                    }
+                    @default {
+                      help_outline
+                    }
+                  }
+                </mat-icon>
+                <span>{{ check.label }}</span>
+              </mat-panel-title>
+              <mat-panel-description>
+                <span [class]="'status-text status-' + check.status">
+                  {{ check.status | titlecase }}
+                </span>
+              </mat-panel-description>
+            </mat-expansion-panel-header>
+            @if (check.details.length > 0) {
+              <ul class="check-details">
+                @for (detail of check.details; track $index) {
+                  <li>{{ detail }}</li>
+                }
+              </ul>
+            } @else {
+              <p class="no-details">No additional details</p>
+            }
+          </mat-expansion-panel>
+        }
+      </mat-accordion>
+    </section>
+  }
+
+  <!-- AI Assessment Section -->
+  @if (s.ai_assessment) {
+    <mat-expansion-panel [expanded]="true" class="section-panel">
+      <mat-expansion-panel-header>
+        <mat-panel-title>
+          <mat-icon>psychology</mat-icon>
+          AI Assessment
+          @if (s.ai_assessment['severity']) {
+            <span [class]="'severity-badge ' + severityClass()">
+              {{ s.ai_assessment['severity'] }}
+            </span>
+          }
+        </mat-panel-title>
+      </mat-expansion-panel-header>
+
+      <div class="ai-assessment-content">
+        <!-- Summary -->
+        @if (s.ai_assessment['summary']) {
+          <p class="assessment-summary">{{ s.ai_assessment['summary'] }}</p>
+        }
+
+        <!-- Rendered markdown -->
+        @if (aiAssessmentHtml()) {
+          <div class="assessment-markdown" [innerHTML]="aiAssessmentHtml()"></div>
+        }
+      </div>
+    </mat-expansion-panel>
+  }
+
+  <!-- AI Assessment Error -->
+  @if (s.ai_assessment_error) {
+    <mat-card class="ai-error-card">
+      <mat-card-content>
+        <mat-icon>warning</mat-icon>
+        <span>AI assessment could not be generated. The analysis results above are still valid.</span>
+      </mat-card-content>
+    </mat-card>
+  }
+}

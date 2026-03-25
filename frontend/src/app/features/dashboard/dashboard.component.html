@@ -72,6 +72,18 @@
               </div>
             </div>
           }
+          @if (hasImpactAnalysis() && impactSummary(); as ia) {
+            <div class="hero-stat" (click)="navigateTo('/impact-analysis')">
+              <div class="hero-stat-number">{{ ia.total }}</div>
+              <div class="hero-stat-label">Impact Analysis</div>
+              <div class="hero-stat-detail">
+                {{ ia.active }} active
+                @if (ia.alert > 0) {
+                  &middot; <span class="impact-alert">{{ ia.alert }} alert{{ ia.alert > 1 ? 's' : '' }}</span>
+                }
+              </div>
+            </div>
+          }
         </div>
       }
     </div>

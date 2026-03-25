@@ -1,0 +1,139 @@
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+<div class="page-header">
+  <h2>Config Change Impact Analysis</h2>
+</div>
+
+<!-- Filters toolbar -->
+<div class="filters-toolbar">
+  <mat-form-field appearance="outline" class="status-filter">
+    <mat-label>Status</mat-label>
+    <mat-select [formControl]="statusFilter" (selectionChange)="onStatusChange()">
+      <mat-option value="">All</mat-option>
+      <mat-option value="monitoring">Monitoring</mat-option>
+      <mat-option value="analyzing">Analyzing</mat-option>
+      <mat-option value="completed">Completed</mat-option>
+      <mat-option value="cancelled">Cancelled</mat-option>
+      <mat-option value="failed">Failed</mat-option>
+    </mat-select>
+  </mat-form-field>
+
+  <div class="device-type-chips">
+    @for (type of deviceTypes; track type) {
+      <button
+        mat-stroked-button
+        [class.active]="activeDeviceType() === type"
+        (click)="toggleDeviceType(type)"
+      >
+        <mat-icon>{{ deviceTypeIcon(type) }}</mat-icon>
+        {{ formatDeviceType(type) }}
+      </button>
+    }
+  </div>
+</div>
+
+@if (!loading() && sessions().length === 0) {
+  <app-empty-state
+    icon="analytics"
+    title="No impact analysis sessions"
+    message="Sessions are created automatically when config changes are detected via webhooks."
+  ></app-empty-state>
+} @else {
+  <div class="table-card">
+    <table mat-table [dataSource]="sessions()" class="mat-elevation-z0">
+      <!-- Status -->
+      <ng-container matColumnDef="status">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let row">
+          <app-status-badge [status]="row.status"></app-status-badge>
+        </td>
+      </ng-container>
+
+      <!-- Device Name -->
+      <ng-container matColumnDef="device_name">
+        <th mat-header-cell *matHeaderCellDef>Device</th>
+        <td mat-cell *matCellDef="let row">
+          <div class="device-cell">
+            <mat-icon class="device-icon">{{ deviceTypeIcon(row.device_type) }}</mat-icon>
+            <span>{{ row.device_name || row.device_mac }}</span>
+          </div>
+        </td>
+      </ng-container>
+
+      <!-- Device Type -->
+      <ng-container matColumnDef="device_type">
+        <th mat-header-cell *matHeaderCellDef>Type</th>
+        <td mat-cell *matCellDef="let row">{{ formatDeviceType(row.device_type) }}</td>
+      </ng-container>
+
+      <!-- Site Name -->
+      <ng-container matColumnDef="site_name">
+        <th mat-header-cell *matHeaderCellDef>Site</th>
+        <td mat-cell *matCellDef="let row">{{ row.site_name }}</td>
+      </ng-container>
+
+      <!-- Config Changes Count -->
+      <ng-container matColumnDef="config_change_count">
+        <th mat-header-cell *matHeaderCellDef>Changes</th>
+        <td mat-cell *matCellDef="let row">{{ row.config_change_count }}</td>
+      </ng-container>
+
+      <!-- Monitoring Progress -->
+      <ng-container matColumnDef="progress">
+        <th mat-header-cell *matHeaderCellDef>Progress</th>
+        <td mat-cell *matCellDef="let row">
+          <div class="progress-cell">
+            @if (row.status === 'monitoring' && row.polls_total > 0) {
+              <mat-progress-bar
+                mode="determinate"
+                [value]="progressPercent(row)"
+                class="inline-progress"
+              ></mat-progress-bar>
+              <span class="progress-label">{{ progressText(row) }}</span>
+            } @else {
+              <span class="progress-label">{{ progressText(row) }}</span>
+            }
+          </div>
+        </td>
+      </ng-container>
+
+      <!-- Created At -->
+      <ng-container matColumnDef="created_at">
+        <th mat-header-cell *matHeaderCellDef>Detected</th>
+        <td mat-cell *matCellDef="let row">{{ row.created_at | dateTime: 'short' }}</td>
+      </ng-container>
+
+      <!-- Has Impact -->
+      <ng-container matColumnDef="has_impact">
+        <th mat-header-cell *matHeaderCellDef>Impact</th>
+        <td mat-cell *matCellDef="let row">
+          @if (row.status === 'completed') {
+            @if (row.has_impact) {
+              <mat-icon class="impact-icon alert" matTooltip="Impact detected">warning</mat-icon>
+            } @else {
+              <mat-icon class="impact-icon ok" matTooltip="No impact">check_circle</mat-icon>
+            }
+          }
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr
+        mat-row
+        *matRowDef="let row; columns: displayedColumns"
+        class="clickable-row"
+        (click)="viewSession(row)"
+      ></tr>
+    </table>
+
+    <mat-paginator
+      [length]="total()"
+      [pageSize]="pageSize"
+      [pageIndex]="pageIndex"
+      [pageSizeOptions]="[25, 50, 100]"
+      (page)="onPage($event)"
+    ></mat-paginator>
+  </div>
+}

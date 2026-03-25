@@ -84,6 +84,21 @@ class SystemConfig(TimestampMixin, Document):
     # LLM Configuration (individual configs stored in LLMConfig collection)
     llm_enabled: bool = Field(default=False, description="Global LLM kill switch")
 
+    # Impact Analysis Configuration
+    impact_analysis_enabled: bool = Field(default=True, description="Enable config change impact analysis")
+    impact_analysis_default_duration_minutes: int = Field(
+        default=60, ge=10, le=360, description="Default monitoring duration in minutes"
+    )
+    impact_analysis_default_interval_minutes: int = Field(
+        default=10, ge=5, le=60, description="Default polling interval in minutes"
+    )
+    impact_analysis_sle_threshold_percent: float = Field(
+        default=10.0, ge=1.0, le=50.0, description="SLE degradation threshold percentage"
+    )
+    impact_analysis_retention_days: int = Field(
+        default=30, ge=1, le=365, description="Monitoring session retention in days"
+    )
+
     # System Status
     is_initialized: bool = Field(default=False, description="Whether initial setup is complete")
     maintenance_mode: bool = Field(default=False, description="Whether system is in maintenance mode")

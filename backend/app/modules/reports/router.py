@@ -13,7 +13,7 @@ from fastapi.responses import Response
 
 from app.core.exceptions import AuthorizationException
 from app.core.tasks import create_background_task
-from app.dependencies import require_reports_role
+from app.dependencies import require_post_deployment_role
 from app.models.user import User
 from app.modules.reports.models import ReportJob, ReportStatus, ReportType
 from app.modules.reports.schemas import (
@@ -87,7 +87,7 @@ def _safe_filename(name: str) -> str:
 
 
 @router.get("/reports/sites", tags=["Reports"])
-async def list_sites(_current_user: User = Depends(require_reports_role)):
+async def list_sites(_current_user: User = Depends(require_post_deployment_role)):
     """List organization sites for the report site picker."""
     from app.services.mist_service_factory import create_mist_service
 
@@ -111,7 +111,7 @@ async def list_sites(_current_user: User = Depends(require_reports_role)):
 )
 async def create_validation_report(
     request: ValidationReportCreate,
-    current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_post_deployment_role),
 ):
     """Create a new post-deployment validation report for a site."""
     job = ReportJob(
@@ -144,7 +144,7 @@ async def list_validation_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
     site_id: str | None = Query(None, description="Filter by site ID"),
-    _current_user: User = Depends(require_reports_role),
+    _current_user: User = Depends(require_post_deployment_role),
 ):
     """List past validation reports."""
     match: dict = {"report_type": ReportType.POST_DEPLOYMENT_VALIDATION.value}
@@ -177,7 +177,7 @@ async def list_validation_reports(
 @router.get("/reports/validation/{report_id}", response_model=ReportJobDetailResponse, tags=["Reports"])
 async def get_validation_report(
     report_id: str,
-    current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_post_deployment_role),
 ):
     """Get a validation report with full results."""
     job = await _get_report(report_id)
@@ -201,7 +201,7 @@ async def get_validation_report(
 @router.delete("/reports/validation/{report_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Reports"])
 async def delete_validation_report(
     report_id: str,
-    current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_post_deployment_role),
 ):
     """Delete a validation report."""
     job = await _get_report(report_id)
@@ -217,7 +217,7 @@ async def delete_validation_report(
 @router.get("/reports/validation/{report_id}/export/pdf", tags=["Reports"])
 async def export_validation_pdf(
     report_id: str,
-    current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_post_deployment_role),
 ):
     """Export a completed validation report as PDF."""
     job = await _get_report(report_id)
@@ -242,7 +242,7 @@ async def export_validation_pdf(
 @router.get("/reports/validation/{report_id}/export/csv", tags=["Reports"])
 async def export_validation_csv(
     report_id: str,
-    current_user: User = Depends(require_reports_role),
+    current_user: User = Depends(require_post_deployment_role),
 ):
     """Export a completed validation report as a ZIP of CSV files."""
     job = await _get_report(report_id)

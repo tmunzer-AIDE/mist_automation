@@ -76,6 +76,13 @@ class SystemSettingsUpdate(BaseModel):
     # LLM (global toggle only — individual configs managed via /llm/configs)
     llm_enabled: bool | None = None
 
+    # Impact Analysis
+    impact_analysis_enabled: bool | None = None
+    impact_analysis_default_duration_minutes: int | None = Field(None, ge=10, le=360)
+    impact_analysis_default_interval_minutes: int | None = Field(None, ge=5, le=60)
+    impact_analysis_sle_threshold_percent: float | None = Field(None, ge=1.0, le=50.0)
+    impact_analysis_retention_days: int | None = Field(None, ge=1, le=365)
+
     @field_validator("webhook_ip_whitelist")
     @classmethod
     def validate_ip_whitelist(cls, v: list[str] | None) -> list[str] | None:
@@ -101,9 +108,7 @@ class SystemSettingsUpdate(BaseModel):
             raise ValueError(f"Invalid cron expression: {e}") from e
         return v
 
-    @field_validator(
-        "backup_git_repo_url", "slack_webhook_url", "servicenow_instance_url", "smee_channel_url"
-    )
+    @field_validator("backup_git_repo_url", "slack_webhook_url", "servicenow_instance_url", "smee_channel_url")
     @classmethod
     def validate_url(cls, v: str | None) -> str | None:
         if v is None or v == "":

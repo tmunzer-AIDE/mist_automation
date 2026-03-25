@@ -77,6 +77,13 @@ mat-nav-list {
   opacity: 0.5;
 }
 
+// ── Impact alert snackbar ────────────────────────────────────────────────
+:host ::ng-deep .impact-alert-snackbar {
+  .mdc-snackbar__surface {
+    background: var(--app-warning);
+  }
+}
+
 // ── Expandable group (folder) styling ────────────────────────────────────
 .nav-group {
   box-shadow: none !important;

@@ -372,7 +372,7 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user_from
     has_admin = current_user.is_admin()
     has_automation = current_user.can_manage_workflows()
     has_backup = current_user.can_manage_backups()
-    has_reports = current_user.can_manage_reports()
+    has_reports = current_user.can_manage_post_deployment()
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=ACTIVITY_DAYS)
     stats_cutoff = datetime.now(timezone.utc) - timedelta(days=STATS_WINDOW_DAYS)

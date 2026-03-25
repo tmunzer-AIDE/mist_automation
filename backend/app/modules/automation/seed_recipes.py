@@ -850,6 +850,180 @@ def _build_offhours_neighbor_enable() -> WorkflowRecipe:
     )
 
 
+def _build_config_impact_analysis() -> WorkflowRecipe:
+    """Config Change Impact Analysis: audit → backup → delay → fetch health data → AI analysis → rollback proposal."""
+    # 1. Trigger on audit webhook (config change)
+    n1 = _node(
+        "trigger-1", "trigger", "Config Change Detected", 400, 200,
+        {"trigger_type": "webhook", "webhook_topic": "audits"},
+    )
+    # 2. Configuration — site_id comes from the webhook payload
+    n2 = _node(
+        "var-config", "set_variable", "Configuration", 400, 320,
+        {
+            "variables": [
+                {"name": "site_id", "expression": "{{ trigger.site_id }}"},
+                {"name": "slack_url", "expression": "PLACEHOLDER_SLACK_URL"},
+            ],
+        },
+    )
+    # 4. Wait 10 minutes for the change to take effect
+    n3 = _node(
+        "delay-1", "delay", "Wait 10 Minutes", 400, 440,
+        {"delay_seconds": 600},
+    )
+    # 5. Search recent alarms
+    n4 = _node(
+        "api-alarms", "mist_api_get", "Search Recent Alarms", 400, 560,
+        {"api_endpoint": "/api/v1/sites/{{ site_id }}/alarms/search?duration=15m&limit=50"},
+        save_as=[VariableBinding(name="recent_alarms", expression="{{ output.body }}")],
+    )
+    # 6. Search config failure events
+    n5 = _node(
+        "api-events", "mist_api_get", "Search Config Failures", 400, 680,
+        {"api_endpoint": "/api/v1/sites/{{ site_id }}/devices/events/search?type=AP_CONFIG_FAILED,SW_CONFIG_FAILED,GW_CONFIG_FAILED,AP_CONFIGURED,SW_CONFIGURED,GW_CONFIGURED&duration=15m&limit=50"},
+        save_as=[VariableBinding(name="config_events", expression="{{ output.body }}")],
+    )
+    # 7. Get device stats
+    n6 = _node(
+        "api-stats", "mist_api_get", "Get Device Stats", 400, 800,
+        {"api_endpoint": "/api/v1/sites/{{ site_id }}/stats/devices?type=ap&limit=200"},
+        save_as=[VariableBinding(name="device_stats", expression="{{ output.body }}")],
+    )
+    # 8. Get site SLE metrics
+    n7 = _node(
+        "api-sle", "mist_api_get", "Get Site SLE", 400, 920,
+        {"api_endpoint": "/api/v1/orgs/{{ trigger.org_id }}/insights/sites-sle?site_id={{ site_id }}&duration=1h"},
+        save_as=[VariableBinding(name="sle_data", expression="{{ output.body }}")],
+    )
+    # 9. Get connected clients
+    n8 = _node(
+        "api-clients", "mist_api_get", "Get Connected Clients", 400, 1040,
+        {"api_endpoint": "/api/v1/sites/{{ site_id }}/clients/search?limit=100"},
+        save_as=[VariableBinding(name="client_list", expression="{{ output.body }}")],
+    )
+    # 10. AI Agent: comprehensive impact analysis
+    n9 = _node(
+        "agent-analyze", "ai_agent", "Analyze Config Impact", 400, 1200,
+        {
+            "agent_task": (
+                "A configuration change was just made on the Mist network. After waiting 10 minutes, "
+                "you need to assess whether this change caused any degradation.\n\n"
+                "**Change details:**\n{{ trigger | tojson }}\n\n"
+                "**Data collected after 10 minutes:**\n"
+                "- Recent alarms: {{ recent_alarms | tojson }}\n"
+                "- Config/device events: {{ config_events | tojson }}\n"
+                "- Device stats (APs): {{ device_stats | tojson }}\n"
+                "- Site SLE metrics: {{ sle_data | tojson }}\n"
+                "- Connected clients: {{ client_list | tojson }}\n\n"
+                "**Your tasks:**\n"
+                "1. Use the backup search tool to find the most recent backup versions for this site\n"
+                "2. Compare the latest two versions to see exactly which config fields changed\n"
+                "3. Check SLE metrics for degradation (throughput, coverage, roaming, capacity)\n"
+                "4. Check if any clients show poor signal, frequent disconnections, or roaming issues\n"
+                "5. Check alarms and config failure events\n"
+                "6. Correlate the specific changed config fields with any detected degradation\n"
+                "7. Identify which specific setting most likely caused the issue (if any)\n\n"
+                "Return a JSON object:\n"
+                '{"has_impact": true/false, "summary": "detailed Slack-formatted analysis", '
+                '"culprit_field": "the specific config field or null", "severity": "critical/warning/info"}'
+            ),
+            "agent_system_prompt": (
+                "You are a senior network operations analyst specializing in Juniper Mist networks. "
+                "Your job is to assess the impact of configuration changes on network health. "
+                "Be thorough: check SLEs, client experience, device status, and alarms. "
+                "Be specific: identify the exact config field that caused the issue. "
+                "Be actionable: recommend whether to rollback and explain why. "
+                "Format your summary for Slack (use *bold* for emphasis)."
+            ),
+            "max_iterations": 15,
+        },
+        save_as=[
+            VariableBinding(name="analysis_result", expression="{{ output.result }}"),
+        ],
+    )
+    # 11. Condition: did the AI find impact?
+    n10 = _node(
+        "cond-impact", "condition", "Impact Detected?", 400, 1400,
+        {"branches": [{"condition": "{{ analysis_result.has_impact is defined and analysis_result.has_impact }}"}]},
+        output_ports=[
+            NodePort(id="branch_0", label="Impact", type="branch"),
+            NodePort(id="else", label="OK", type="branch"),
+        ],
+    )
+    # 12. Slack with interactive rollback button (wait_for_callback)
+    n11 = _node(
+        "wait-rollback", "wait_for_callback", "Propose Rollback", 250, 1600,
+        {
+            "notification_channel": "{{ slack_url }}",
+            "notification_template": "{{ analysis_result.summary }}\n\nClick below to rollback the change.",
+            "slack_header": "Config Impact Alert — Rollback?",
+            "slack_actions": [
+                {"text": "Approve Rollback", "action_id": "approve_rollback", "style": "danger"},
+                {"text": "Dismiss", "action_id": "dismiss"},
+            ],
+            "timeout_seconds": 3600,
+        },
+        output_ports=[
+            NodePort(id="approve_rollback", label="Rollback", type="callback"),
+            NodePort(id="dismiss", label="Dismiss", type="callback"),
+        ],
+    )
+    # 13. Restore backup (on rollback approval)
+    n12 = _node(
+        "restore-1", "restore_backup", "Restore Previous Config", 150, 1800,
+        {"dry_run": False, "cascade": False},
+    )
+    # 14. Slack OK (no impact branch)
+    n13 = _node(
+        "slack-ok", "slack", "Confirm: Change OK", 550, 1600,
+        {
+            "notification_channel": "{{ slack_url }}",
+            "notification_template": "{{ analysis_result.summary }}",
+            "slack_header": "Config Change Validated",
+        },
+    )
+
+    edges = [
+        _edge("e1", "trigger-1", "var-config"),
+        _edge("e2", "var-config", "delay-1"),
+        _edge("e4", "delay-1", "api-alarms"),
+        _edge("e5", "api-alarms", "api-events"),
+        _edge("e6", "api-events", "api-stats"),
+        _edge("e7", "api-stats", "api-sle"),
+        _edge("e8", "api-sle", "api-clients"),
+        _edge("e9", "api-clients", "agent-analyze"),
+        _edge("e10", "agent-analyze", "cond-impact"),
+        _edge("e11", "cond-impact", "wait-rollback", "branch_0", "Impact"),
+        _edge("e12", "wait-rollback", "restore-1", "approve_rollback", "Rollback"),
+        _edge("e13", "cond-impact", "slack-ok", "else", "OK"),
+    ]
+
+    return WorkflowRecipe(
+        name="Config Change Impact Analysis",
+        description=(
+            "Self-driving network recipe: when a configuration change is detected via audit webhook, "
+            "captures a backup, waits 10 minutes, then fetches SLE metrics, alarms, device stats, "
+            "and client data. An AI Agent analyzes all data, compares backup versions to identify "
+            "the exact changed fields, and correlates with any detected degradation. If impact is found, "
+            "sends a Slack message with an interactive 'Approve Rollback' button that restores the previous config."
+        ),
+        category=RecipeCategory.INCIDENT_RESPONSE,
+        tags=["config", "drift", "sle", "alarms", "rollback", "audit", "ai", "self-driving"],
+        difficulty=RecipeDifficulty.ADVANCED,
+        nodes=[n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11, n12, n13],
+        edges=edges,
+        placeholders=[
+            RecipePlaceholder(
+                node_id="var-config", field_path="variables.1.expression",
+                label="Slack Webhook URL", description="Slack webhook for impact alerts and rollback proposals",
+                placeholder_type="url",
+            ),
+        ],
+        built_in=True,
+    )
+
+
 SEED_RECIPES = [
     _build_ap_offline_alert,
     _build_config_change_notification,
@@ -859,6 +1033,7 @@ SEED_RECIPES = [
     _build_ap_power_down,
     _build_ap_power_up,
     _build_offhours_neighbor_enable,
+    _build_config_impact_analysis,
 ]
 
 

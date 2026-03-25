@@ -22,7 +22,7 @@ interface DialogData {
   user?: UserResponse;
 }
 
-const AVAILABLE_ROLES = ['admin', 'automation', 'backup'];
+const AVAILABLE_ROLES = ['admin', 'automation', 'backup', 'post_deployment', 'impact_analysis'];
 const TIMEZONES = [
   'UTC',
   'America/New_York',

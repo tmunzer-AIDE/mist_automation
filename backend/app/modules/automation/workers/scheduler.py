@@ -69,6 +69,9 @@ class WorkflowScheduler:
         # Load execution cleanup schedule
         await self._load_execution_cleanup_schedule()
 
+        # Load impact analysis session cleanup schedule
+        await self._load_impact_cleanup_schedule()
+
         # Start the scheduler
         self.scheduler.start()
         self._initialized = True
@@ -258,6 +261,31 @@ class WorkflowScheduler:
             await cleanup_old_executions()
         except Exception as e:
             logger.error("execution_cleanup_failed", error=str(e))
+
+    async def _load_impact_cleanup_schedule(self):
+        """Register the nightly impact analysis session cleanup job."""
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+
+            self.scheduler.add_job(
+                self._run_impact_cleanup,
+                trigger=CronTrigger(hour=3, minute=30, timezone="UTC"),
+                id="impact_session_cleanup_daily",
+                name="Nightly Impact Session Cleanup",
+                replace_existing=True,
+            )
+            logger.info("impact_session_cleanup_scheduled")
+        except Exception as e:
+            logger.error("failed_to_load_impact_cleanup_schedule", error=str(e))
+
+    async def _run_impact_cleanup(self):
+        """Execute the nightly impact analysis session cleanup."""
+        from app.modules.impact_analysis.workers.cleanup_worker import cleanup_old_sessions
+
+        try:
+            await cleanup_old_sessions()
+        except Exception as e:
+            logger.error("impact_session_cleanup_failed", error=str(e))
 
     async def schedule_backup(self, cron_expression: str):
         """Add or update the scheduled backup job."""

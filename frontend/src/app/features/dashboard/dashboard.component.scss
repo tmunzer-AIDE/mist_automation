@@ -127,6 +127,11 @@
   text-overflow: ellipsis;
 }
 
+.impact-alert {
+  color: var(--app-warning);
+  font-weight: 600;
+}
+
 // ── Highlights ─────────────────────────────────────────────────────────
 
 .highlights-section {

@@ -13,7 +13,13 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Reports',
     icon: 'assessment',
     route: '/reports',
-    roles: ['reports', 'admin'],
+    roles: ['post_deployment', 'admin'],
+  },
+  {
+    label: 'Impact Analysis',
+    icon: 'analytics',
+    route: '/impact-analysis',
+    roles: ['impact_analysis', 'admin'],
   },
   {
     label: 'Backups',

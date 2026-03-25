@@ -130,6 +130,12 @@ MODULES: list[AppModule] = [
         ],
         tags=["LLM"],
     ),
+    AppModule(
+        name="impact_analysis",
+        router_module="app.modules.impact_analysis.router",
+        model_imports=[("app.modules.impact_analysis.models", "MonitoringSession")],
+        tags=["Impact Analysis"],
+    ),
 ]
 
 

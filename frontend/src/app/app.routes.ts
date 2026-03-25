@@ -54,6 +54,10 @@ export const routes: Routes = [
         path: 'ai-chats',
         loadChildren: () => import('./features/ai-chats/ai-chats.routes'),
       },
+      {
+        path: 'impact-analysis',
+        loadChildren: () => import('./features/impact-analysis/impact-analysis.routes'),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

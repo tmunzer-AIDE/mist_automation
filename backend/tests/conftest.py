@@ -54,7 +54,7 @@ async def test_user(test_db) -> User:
     user = User(
         email="test@example.com",
         password_hash=password_hash,
-        roles=["admin", "automation", "backup"],
+        roles=["admin", "automation", "backup", "post_deployment", "impact_analysis"],
         timezone="UTC",
         is_active=True,
     )

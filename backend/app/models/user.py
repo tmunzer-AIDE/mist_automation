@@ -16,7 +16,10 @@ class User(TimestampMixin, Document):
     
     email: EmailStr = Field(..., description="User email address")
     password_hash: str = Field(..., description="Hashed password")
-    roles: list[str] = Field(default_factory=list, description="User roles: admin, automation, backup, reports")
+    roles: list[str] = Field(
+        default_factory=list,
+        description="User roles: admin, automation, backup, post_deployment, impact_analysis",
+    )
 
     # Profile information
     first_name: str | None = Field(default=None, description="User first name")
@@ -61,9 +64,17 @@ class User(TimestampMixin, Document):
         """Check if user can manage backups."""
         return self.has_any_role("admin", "backup")
 
+    def can_manage_post_deployment(self) -> bool:
+        """Check if user can manage post-deployment reports."""
+        return self.has_any_role("admin", "post_deployment", "reports")
+
+    def can_manage_impact_analysis(self) -> bool:
+        """Check if user can manage impact analysis."""
+        return self.has_any_role("admin", "impact_analysis")
+
     def can_manage_reports(self) -> bool:
-        """Check if user can manage reports."""
-        return self.has_any_role("admin", "reports")
+        """Backwards-compatible alias for can_manage_post_deployment()."""
+        return self.can_manage_post_deployment()
 
     def display_name(self) -> str:
         """Return a display-friendly name, falling back to the email local part."""
@@ -82,7 +93,7 @@ class User(TimestampMixin, Document):
         json_schema_extra = {
             "example": {
                 "email": "admin@example.com",
-                "roles": ["admin", "automation", "backup", "reports"],
+                "roles": ["admin", "automation", "backup", "post_deployment", "impact_analysis"],
                 "timezone": "America/Los_Angeles",
                 "is_active": True,
                 "totp_enabled": False,

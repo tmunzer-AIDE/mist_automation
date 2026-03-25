@@ -49,6 +49,8 @@ tags:
     description: Post-deployment validation reports
   - name: LLM
     description: LLM-powered assistance features
+  - name: Impact Analysis
+    description: Config change impact monitoring and analysis
   - name: WebSocket
     description: Real-time WebSocket connections
 
@@ -3367,6 +3369,358 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # Impact Analysis Endpoints
+  # ═══════════════════════════════════════════════════════════════════════════
+  /impact-analysis/sessions:
+    get:
+      tags:
+        - Impact Analysis
+      summary: List monitoring sessions
+      description: List monitoring sessions with optional filtering by status, site, and device type
+      operationId: listImpactSessions
+      parameters:
+        - name: status
+          in: query
+          description: Comma-separated status filter (e.g. "monitoring,alert")
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Filter by site ID
+          schema:
+            type: string
+        - name: device_type
+          in: query
+          description: Filter by device type
+          schema:
+            type: string
+            enum: [ap, switch, gateway]
+        - name: limit
+          in: query
+          description: Number of sessions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: skip
+          in: query
+          description: Number of sessions to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated list of monitoring sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSessionListResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Impact Analysis
+      summary: Create monitoring session
+      description: Manually trigger a monitoring session for a specific device
+      operationId: createImpactSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImpactCreateSessionRequest'
+      responses:
+        '201':
+          description: Monitoring session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSessionResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Failed to fetch site info from Mist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /impact-analysis/sessions/{session_id}:
+    get:
+      tags:
+        - Impact Analysis
+      summary: Get session detail
+      description: Get full session detail including SLE data, incidents, config changes, and AI assessment
+      operationId: getImpactSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Monitoring session ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Full session detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSessionDetailResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /impact-analysis/sessions/{session_id}/cancel:
+    post:
+      tags:
+        - Impact Analysis
+      summary: Cancel monitoring session
+      description: Cancel an active or alert monitoring session
+      operationId: cancelImpactSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Monitoring session ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSessionResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found or not in a cancellable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /impact-analysis/sessions/{session_id}/reanalyze:
+    post:
+      tags:
+        - Impact Analysis
+      summary: Re-run AI analysis
+      description: Re-run AI analysis on a completed or alert session
+      operationId: reanalyzeImpactSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Monitoring session ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session with updated AI assessment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSessionDetailResponse'
+        '400':
+          description: Session not in a reanalyzable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /impact-analysis/sessions/{session_id}/sle-data:
+    get:
+      tags:
+        - Impact Analysis
+      summary: Get SLE chart data
+      description: Get SLE chart data for a session (baseline, snapshots, delta, drill-down)
+      operationId: getImpactSessionSleData
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Monitoring session ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SLE data for the session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSleDataResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /impact-analysis/summary:
+    get:
+      tags:
+        - Impact Analysis
+      summary: Dashboard summary
+      description: Get dashboard summary counts for impact analysis sessions (active, alert, completed in 24h, total)
+      operationId: getImpactSummary
+      responses:
+        '200':
+          description: Summary counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSessionSummaryResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Impact analysis role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /impact-analysis/settings:
+    get:
+      tags:
+        - Impact Analysis
+      summary: Get impact analysis settings
+      description: Get current impact analysis settings. Admin only.
+      operationId: getImpactSettings
+      responses:
+        '200':
+          description: Current impact analysis settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSettingsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Impact Analysis
+      summary: Update impact analysis settings
+      description: Update impact analysis settings. Admin only.
+      operationId: updateImpactSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImpactSettingsUpdate'
+      responses:
+        '200':
+          description: Updated impact analysis settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImpactSettingsResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # WebSocket Endpoints
   # ═══════════════════════════════════════════════════════════════════════════
   /ws:
@@ -3390,6 +3744,9 @@ paths:
         - simulation:<stream_id> - Real-time simulation progress updates
         - webhooks:monitor - Live webhook event stream
         - report:<report_id> - Real-time report generation progress
+        - impact:<session_id> - Real-time session updates (status, progress, incidents, SLE snapshots, completion)
+        - impact:summary - Dashboard widget updates (active/alert counts)
+        - impact:alerts - Global alert notifications when sessions reach ALERT status
       operationId: websocketConnect
       security: []
       responses:
@@ -6247,6 +6604,382 @@ components:
         total:
           type: integer
           description: Total number of reports
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Impact Analysis Schemas
+    # ─────────────────────────────────────────────────────────────────────────
+    ImpactSessionResponse:
+      type: object
+      required:
+        - id
+        - site_id
+        - site_name
+        - device_mac
+        - device_name
+        - device_type
+        - status
+        - config_change_count
+        - incident_count
+        - has_impact
+        - duration_minutes
+        - polls_completed
+        - polls_total
+        - progress
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          description: Monitoring session ID
+        site_id:
+          type: string
+          description: Mist site ID
+        site_name:
+          type: string
+          description: Site name
+        device_mac:
+          type: string
+          description: Device MAC address
+        device_name:
+          type: string
+          description: Device name
+        device_type:
+          type: string
+          enum: [ap, switch, gateway]
+          description: Device type
+        status:
+          type: string
+          enum: [pending, baseline_capture, monitoring, analyzing, completed, alert, failed, cancelled]
+          description: Session status
+        config_change_count:
+          type: integer
+          description: Number of config change events
+        incident_count:
+          type: integer
+          description: Number of incidents
+        has_impact:
+          type: boolean
+          description: Whether the session detected impact
+        duration_minutes:
+          type: integer
+          description: Total monitoring duration in minutes
+        polls_completed:
+          type: integer
+          description: Number of polling cycles completed
+        polls_total:
+          type: integer
+          description: Total number of polling cycles planned
+        progress:
+          type: object
+          additionalProperties: true
+          description: Progress information
+        monitoring_started_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When monitoring started
+        monitoring_ends_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When monitoring is scheduled to end
+        completed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the session completed
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    ImpactSessionDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ImpactSessionResponse'
+        - type: object
+          properties:
+            org_id:
+              type: string
+              description: Mist organization ID
+            config_changes:
+              type: array
+              items:
+                $ref: '#/components/schemas/ImpactConfigChangeEventResponse'
+              description: Config change events captured during monitoring
+            incidents:
+              type: array
+              items:
+                $ref: '#/components/schemas/ImpactDeviceIncidentResponse'
+              description: Device incidents captured during monitoring
+            sle_data:
+              oneOf:
+                - $ref: '#/components/schemas/ImpactSleDataResponse'
+                - type: 'null'
+              description: SLE data (baseline, snapshots, delta, drill-down)
+            topology_baseline:
+              type:
+                - object
+                - 'null'
+              additionalProperties: true
+              description: Topology snapshot at baseline
+            topology_latest:
+              type:
+                - object
+                - 'null'
+              additionalProperties: true
+              description: Latest topology snapshot
+            validation_results:
+              type:
+                - object
+                - 'null'
+              additionalProperties: true
+              description: Validation results from health checks
+            ai_assessment:
+              type:
+                - object
+                - 'null'
+              additionalProperties: true
+              description: AI-generated impact assessment
+            ai_assessment_error:
+              type:
+                - string
+                - 'null'
+              description: Error message if AI assessment failed
+
+    ImpactSessionListResponse:
+      type: object
+      required:
+        - sessions
+        - total
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImpactSessionResponse'
+          description: List of monitoring sessions
+        total:
+          type: integer
+          description: Total number of sessions matching the filter
+
+    ImpactCreateSessionRequest:
+      type: object
+      required:
+        - site_id
+        - device_mac
+        - device_type
+      properties:
+        site_id:
+          type: string
+          description: Mist site ID
+        device_mac:
+          type: string
+          pattern: '^[0-9a-f]{12}$'
+          description: Device MAC address (12 hex chars, lowercase)
+        device_type:
+          type: string
+          enum: [ap, switch, gateway]
+          description: Device type
+        duration_minutes:
+          type: integer
+          default: 60
+          minimum: 10
+          maximum: 360
+          description: Monitoring duration in minutes
+        interval_minutes:
+          type: integer
+          default: 10
+          minimum: 5
+          maximum: 60
+          description: Polling interval in minutes
+
+    ImpactSessionSummaryResponse:
+      type: object
+      required:
+        - active
+        - alert
+        - completed_24h
+        - total
+      properties:
+        active:
+          type: integer
+          description: Sessions currently monitoring
+        alert:
+          type: integer
+          description: Sessions in alert state
+        completed_24h:
+          type: integer
+          description: Sessions completed in the last 24 hours
+        total:
+          type: integer
+          description: Total sessions
+
+    ImpactSleDataResponse:
+      type: object
+      properties:
+        baseline:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+          description: SLE baseline snapshot
+        snapshots:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: SLE snapshots over time
+        delta:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+          description: SLE delta from baseline
+        drill_down:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+          description: SLE drill-down data
+
+    ImpactSettingsResponse:
+      type: object
+      required:
+        - impact_analysis_enabled
+        - impact_analysis_default_duration_minutes
+        - impact_analysis_default_interval_minutes
+        - impact_analysis_sle_threshold_percent
+        - impact_analysis_retention_days
+      properties:
+        impact_analysis_enabled:
+          type: boolean
+          description: Whether impact analysis is enabled
+        impact_analysis_default_duration_minutes:
+          type: integer
+          description: Default monitoring duration in minutes
+        impact_analysis_default_interval_minutes:
+          type: integer
+          description: Default polling interval in minutes
+        impact_analysis_sle_threshold_percent:
+          type: number
+          description: SLE degradation threshold percentage
+        impact_analysis_retention_days:
+          type: integer
+          description: Number of days to retain session data
+
+    ImpactSettingsUpdate:
+      type: object
+      properties:
+        impact_analysis_enabled:
+          type: boolean
+          description: Whether impact analysis is enabled
+        impact_analysis_default_duration_minutes:
+          type: integer
+          minimum: 10
+          maximum: 360
+          description: Default monitoring duration in minutes
+        impact_analysis_default_interval_minutes:
+          type: integer
+          minimum: 5
+          maximum: 60
+          description: Default polling interval in minutes
+        impact_analysis_sle_threshold_percent:
+          type: number
+          minimum: 1
+          maximum: 50
+          description: SLE degradation threshold percentage
+        impact_analysis_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: Number of days to retain session data
+
+    ImpactConfigChangeEventResponse:
+      type: object
+      properties:
+        event_type:
+          type: string
+          description: Config change event type
+        device_mac:
+          type: string
+          description: Device MAC address
+        device_name:
+          type: string
+          description: Device name
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp
+        webhook_event_id:
+          type:
+            - string
+            - 'null'
+          description: Associated webhook event ID
+        payload_summary:
+          type: object
+          additionalProperties: true
+          description: Summary of the config change payload
+        config_diff:
+          type:
+            - string
+            - 'null'
+          description: Junos config diff (EX/SRX only)
+        device_model:
+          type: string
+          description: Device hardware model
+        firmware_version:
+          type: string
+          description: Firmware version at time of config change
+        commit_user:
+          type: string
+          description: User who committed the config change
+        commit_method:
+          type: string
+          description: Commit method (netconf, cli, etc.)
+
+    ImpactDeviceIncidentResponse:
+      type: object
+      properties:
+        event_type:
+          type: string
+          description: Incident event type
+        device_mac:
+          type: string
+          description: Device MAC address
+        device_name:
+          type: string
+          description: Device name
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp
+        webhook_event_id:
+          type:
+            - string
+            - 'null'
+          description: Associated webhook event ID
+        severity:
+          type: string
+          enum: [warning, critical]
+          description: Incident severity
+        is_revert:
+          type: boolean
+          description: Whether this incident represents a config revert
+        resolved:
+          type: boolean
+          description: Whether the incident has been resolved
+        resolved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the incident was resolved
 
     # ─────────────────────────────────────────────────────────────────────────
     # LLM Schemas

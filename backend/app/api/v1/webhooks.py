@@ -172,6 +172,8 @@ async def receive_mist_webhook(
     routed_to = ["automation"]
     if topic == "audits":
         routed_to.append("backup")
+    if webhook_type == "device-events":
+        routed_to.append("impact_analysis")
 
     # Split webhook into individual events
     events = payload.get("events", [])
@@ -234,6 +236,15 @@ async def receive_mist_webhook(
             process_webhook(str(webhook_event.id), webhook_type, enriched, event_type=fields["event_type"]),
             name=f"webhook-automation-{evt_webhook_id}",
         )
+
+        # Route device-events to impact analysis
+        if webhook_type == "device-events":
+            from app.modules.impact_analysis.workers.event_handler import handle_device_event
+
+            create_background_task(
+                handle_device_event(str(webhook_event.id), fields["event_type"], enriched),
+                name=f"impact-{evt_webhook_id}",
+            )
 
         # Broadcast to WebSocket monitor
         create_background_task(

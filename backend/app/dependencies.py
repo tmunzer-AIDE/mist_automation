@@ -202,31 +202,62 @@ async def require_backup_role(
     return current_user
 
 
-async def require_reports_role(
+async def require_post_deployment_role(
     current_user: User = Depends(get_current_active_user),
 ) -> User:
     """
-    Require user to have reports or admin role.
+    Require user to have post_deployment or admin role.
 
     Args:
         current_user: Authenticated user
 
     Returns:
-        User: User with reports or admin role
+        User: User with post_deployment or admin role
 
     Raises:
         AuthorizationException: If user lacks required role
     """
-    if not current_user.can_manage_reports():
+    if not current_user.can_manage_post_deployment():
         logger.warning(
             "authorization_failed",
             user_id=str(current_user.id),
             user_email=current_user.email,
-            required_role="reports",
+            required_role="post_deployment",
         )
-        raise AuthorizationException("Reports role required")
+        raise AuthorizationException("Post-deployment role required")
 
     return current_user
+
+
+async def require_impact_role(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Require user to have impact_analysis or admin role.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        User: User with impact_analysis or admin role
+
+    Raises:
+        AuthorizationException: If user lacks required role
+    """
+    if not current_user.can_manage_impact_analysis():
+        logger.warning(
+            "authorization_failed",
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            required_role="impact_analysis",
+        )
+        raise AuthorizationException("Impact analysis role required")
+
+    return current_user
+
+
+# Backwards-compatible alias
+require_reports_role = require_post_deployment_role
 
 
 def get_client_info(request: Request) -> dict:

@@ -25,4 +25,4 @@ mcp = FastMCP(
 
 # Import tool modules to register them with the mcp instance.
 # Each module uses @mcp.tool() to register its tools at import time.
-from app.modules.mcp_server.tools import backup, details, search, workflow  # noqa: E402, F401
+from app.modules.mcp_server.tools import backup, details, impact_analysis, search, workflow  # noqa: E402, F401

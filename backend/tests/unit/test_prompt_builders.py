@@ -191,8 +191,8 @@ class TestBuildGlobalChatSystemPrompt:
         assert "automation" in result
 
     def test_all_known_roles(self):
-        result = build_global_chat_system_prompt(["admin", "automation", "backup", "reports"])
-        for role in ["admin", "automation", "backup", "reports"]:
+        result = build_global_chat_system_prompt(["admin", "automation", "backup", "post_deployment", "impact_analysis"])
+        for role in ["admin", "automation", "backup", "post_deployment", "impact_analysis"]:
             assert role in result
 
     def test_unknown_roles_filtered_out(self):
