@@ -1,11 +1,11 @@
-import { Component, DestroyRef, inject, OnDestroy, OnInit, signal, TemplateRef, ViewChild } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnDestroy, OnInit, signal, TemplateRef, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
+import { ReactiveFormsModule, FormBuilder, FormControl } from '@angular/forms';
+import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -36,11 +36,11 @@ const EVENT_TYPES = [
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
     MatTableModule,
     MatPaginatorModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
@@ -68,6 +68,14 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
   exporting = signal(false);
   eventTypes = EVENT_TYPES;
   displayedColumns = ['timestamp', 'event_type', 'description', 'user_email', 'source_ip', 'success'];
+
+  eventTypeSearch = signal('');
+  eventTypeInput = new FormControl('');
+
+  filteredEventTypes = computed(() => {
+    const term = this.eventTypeSearch().toLowerCase();
+    return term ? this.eventTypes.filter((t) => t.toLowerCase().includes(term)) : this.eventTypes;
+  });
 
   filterForm = this.fb.group({
     event_type: [''],
@@ -124,6 +132,10 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
     this.pageIndex.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
     this.loadLogs();
+  }
+
+  onEventTypeSelected(event: MatAutocompleteSelectedEvent): void {
+    this.filterForm.get('event_type')!.setValue(event.option.value);
   }
 
   applyFilters(): void {

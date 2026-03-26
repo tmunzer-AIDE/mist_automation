@@ -166,7 +166,10 @@ class LLMService:
             await client.close()
 
     async def _complete_openai_with_tools(
-        self, messages: list[LLMMessage], tools: list[dict], tool_choice: dict | str | None = None,
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict],
+        tool_choice: dict | str | None = None,
     ) -> LLMResponse:
         client = self._get_openai_client()
         start = monotonic()
@@ -324,7 +327,10 @@ class LLMService:
             completion_tokens=response.usage.completion_tokens if response.usage else 0,
             total_tokens=response.usage.total_tokens if response.usage else 0,
         )
-        choice = response.choices[0]
+        choices = response.choices or []
+        if not choices:
+            return LLMResponse(content="", model=response.model or model_fallback, usage=usage, duration_ms=duration_ms)
+        choice = choices[0]
         return LLMResponse(
             content=choice.message.content or "",
             model=response.model or model_fallback,
@@ -367,7 +373,10 @@ class LLMService:
             raise
 
     async def _complete_litellm_with_tools(
-        self, messages: list[LLMMessage], tools: list[dict], tool_choice: dict | str | None = None,
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict],
+        tool_choice: dict | str | None = None,
     ) -> LLMResponse:
         import litellm
 

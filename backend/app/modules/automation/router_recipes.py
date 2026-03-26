@@ -223,13 +223,22 @@ async def publish_as_recipe(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Strip sensitive config values from nodes
+    _SENSITIVE_KEYWORDS = (
+        "secret",
+        "password",
+        "token",
+        "_set",
+        "api_key",
+        "url",
+        "username",
+        "webhook",
+        "channel",
+        "header",
+    )
     sanitized_nodes: list[WorkflowNode] = []
     for node in workflow.nodes:
         clean_node = node.model_copy(deep=True)
-        keys_to_remove = [
-            k for k in clean_node.config
-            if any(s in k.lower() for s in ("secret", "password", "token", "_set"))
-        ]
+        keys_to_remove = [k for k in clean_node.config if any(s in k.lower() for s in _SENSITIVE_KEYWORDS)]
         for key in keys_to_remove:
             del clean_node.config[key]
         sanitized_nodes.append(clean_node)

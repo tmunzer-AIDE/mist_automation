@@ -1,12 +1,14 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -42,12 +44,14 @@ const TIMEZONES = [
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
+    MatChipsModule,
     MatDialogModule,
     MatFormFieldModule,
+    MatIconModule,
     MatInputModule,
     MatButtonModule,
     MatCheckboxModule,
-    MatSelectModule,
     MatSnackBarModule,
   ],
   template: `
@@ -86,20 +90,31 @@ const TIMEZONES = [
 
         <mat-form-field appearance="outline">
           <mat-label>Roles</mat-label>
-          <mat-select formControlName="roles" multiple>
-            @for (role of availableRoles; track role) {
+          <mat-chip-grid #rolesChipGrid>
+            @for (role of selectedRoles(); track role) {
+              <mat-chip-row (removed)="removeRole(role)">{{ role }}
+                <button matChipRemove><mat-icon>cancel</mat-icon></button>
+              </mat-chip-row>
+            }
+          </mat-chip-grid>
+          <input [matChipInputFor]="rolesChipGrid" [matAutocomplete]="rolesAuto"
+                 (input)="roleSearch.set($any($event.target).value)">
+          <mat-autocomplete #rolesAuto (optionSelected)="addRole($event)">
+            @for (role of filteredRoles(); track role) {
               <mat-option [value]="role">{{ role }}</mat-option>
             }
-          </mat-select>
+          </mat-autocomplete>
         </mat-form-field>
 
         <mat-form-field appearance="outline">
           <mat-label>Timezone</mat-label>
-          <mat-select formControlName="timezone">
-            @for (tz of timezones; track tz) {
+          <input matInput [matAutocomplete]="timezoneAuto"
+                 (input)="timezoneSearch.set($any($event.target).value)">
+          <mat-autocomplete #timezoneAuto (optionSelected)="form.get('timezone')!.setValue($event.option.value)">
+            @for (tz of filteredTimezones(); track tz) {
               <mat-option [value]="tz">{{ tz }}</mat-option>
             }
-          </mat-select>
+          </mat-autocomplete>
         </mat-form-field>
       </form>
     </mat-dialog-content>
@@ -143,6 +158,24 @@ export class UserDialogComponent implements OnInit {
   availableRoles = AVAILABLE_ROLES;
   timezones = TIMEZONES;
   saving = signal(false);
+  selectedRoles = signal<string[]>(this.data.user?.roles || []);
+
+  roleSearch = signal('');
+  timezoneSearch = signal('');
+
+  filteredRoles = computed(() => {
+    const term = this.roleSearch().toLowerCase();
+    return term
+      ? this.availableRoles.filter((r) => r.toLowerCase().includes(term))
+      : this.availableRoles;
+  });
+
+  filteredTimezones = computed(() => {
+    const term = this.timezoneSearch().toLowerCase();
+    return term
+      ? this.timezones.filter((tz) => tz.toLowerCase().includes(term))
+      : this.timezones;
+  });
 
   form = this.fb.group({
     first_name: [this.data.user?.first_name || ''],
@@ -175,6 +208,23 @@ export class UserDialogComponent implements OnInit {
         },
       });
     }
+  }
+
+  addRole(event: MatAutocompleteSelectedEvent): void {
+    const value = event.option.value;
+    const current = this.selectedRoles();
+    if (!current.includes(value)) {
+      const updated = [...current, value];
+      this.selectedRoles.set(updated);
+      this.form.get('roles')!.setValue(updated);
+    }
+    this.roleSearch.set('');
+  }
+
+  removeRole(role: string): void {
+    const updated = this.selectedRoles().filter((r) => r !== role);
+    this.selectedRoles.set(updated);
+    this.form.get('roles')!.setValue(updated);
   }
 
   save(): void {

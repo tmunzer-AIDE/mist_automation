@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
@@ -6,8 +6,9 @@ import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -36,8 +37,9 @@ import {
     MatPaginatorModule,
     MatButtonModule,
     MatIconModule,
-    MatSelectModule,
+    MatAutocompleteModule,
     MatFormFieldModule,
+    MatInputModule,
     MatChipsModule,
     MatProgressBarModule,
     MatTooltipModule,
@@ -63,24 +65,46 @@ export class SessionListComponent implements OnInit {
   pageIndex = 0;
 
   statusFilter = new FormControl<string>('');
+  readonly statusOptions = [
+    { value: 'awaiting_config', label: 'Awaiting Config' },
+    { value: 'monitoring', label: 'Monitoring' },
+    { value: 'validating', label: 'Validating' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' },
+    { value: 'failed', label: 'Failed' },
+  ];
+  statusSearch = signal('');
+  statusDisplayValue = computed(() => {
+    const val = this.statusFilter.value;
+    if (!val) return 'All';
+    return this.statusOptions.find((o) => o.value === val)?.label ?? val;
+  });
+  filteredStatuses = computed(() => {
+    const term = this.statusSearch().toLowerCase();
+    return term
+      ? this.statusOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.statusOptions;
+  });
   activeDeviceType = signal<string>('');
 
   displayedColumns = [
-    'status',
+    'has_impact',
     'device_name',
     'device_type',
     'site_name',
     'config_change_count',
-    'progress',
     'created_at',
-    'has_impact',
+    'progress',
   ];
 
   readonly deviceTypes = ['ap', 'switch', 'gateway'];
 
   ngOnInit(): void {
     this.topbarService.setTitle('Impact Analysis');
-    this.globalChatService.setContext({ page: 'Impact Analysis', details: { view: 'Session list' } });
+    this.globalChatService.setContext({
+      page: 'Impact Analysis',
+      details: { view: 'Session list' },
+    });
     this.loadSessions();
     this.subscribeToSummary();
   }
@@ -134,6 +158,12 @@ export class SessionListComponent implements OnInit {
   progressText(session: SessionResponse): string {
     if (session.status === 'completed' || session.status === 'cancelled') {
       return session.status;
+    }
+    if (session.status === 'awaiting_config') {
+      return 'Awaiting config';
+    }
+    if (session.status === 'validating') {
+      return 'SLE monitoring';
     }
     if (session.polls_total > 0) {
       return `${session.polls_completed} / ${session.polls_total}`;

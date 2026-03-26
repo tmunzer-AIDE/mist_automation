@@ -2,6 +2,7 @@
 Authentication API endpoints.
 """
 
+import random
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -66,6 +67,12 @@ def _check_login_rate_limit(key: str) -> None:
         )
     _login_attempts[key].append(now)
 
+    # Probabilistic cleanup of stale entries to prevent memory leak
+    if random.random() < 0.01:
+        stale_keys = [k for k, v in _login_attempts.items() if now - v[-1] > _RATE_LIMIT_WINDOW]
+        for k in stale_keys:
+            del _login_attempts[k]
+
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["Authentication"])
 async def login(request: Request, login_data: LoginRequest):
@@ -124,11 +131,7 @@ async def login(request: Request, login_data: LoginRequest):
     # Enforce max concurrent sessions by trimming oldest
     sys_config = await SystemConfig.get_config()
     max_sessions = sys_config.max_concurrent_sessions or 5
-    excess = (
-        await UserSession.find(UserSession.user_id == user.id)
-        .sort("last_activity")
-        .to_list()
-    )
+    excess = await UserSession.find(UserSession.user_id == user.id).sort("last_activity").to_list()
     if len(excess) > max_sessions:
         for old_session in excess[: len(excess) - max_sessions]:
             await old_session.delete()
@@ -221,6 +224,7 @@ async def update_profile(
         current_user.last_name = data.last_name
     if data.timezone is not None:
         current_user.timezone = data.timezone
+    current_user.update_timestamp()
     await current_user.save()
 
     logger.info("profile_updated", user_id=str(current_user.id))
@@ -276,6 +280,7 @@ async def onboard(request: Request, data: OnboardRequest):
     await session.insert()
 
     user.update_last_login()
+    user.update_timestamp()
     await user.save()
 
     logger.info("system_onboarded", user_id=str(user.id), email=user.email)
@@ -300,6 +305,7 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
 
     current_user.password_hash = hash_password(data.new_password)
+    current_user.update_timestamp()
     await current_user.save()
 
     # Invalidate all other sessions (keep current)

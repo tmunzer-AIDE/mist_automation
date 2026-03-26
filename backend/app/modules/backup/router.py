@@ -38,19 +38,29 @@ from app.modules.backup.utils import deep_diff as _deep_diff
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 
+# Module-level cache for site name API fallback (avoids repeated Mist API calls)
+_site_name_cache: dict[str, str] = {}
+_site_name_cache_time: float = 0.0
+_SITE_NAME_CACHE_TTL: float = 300.0  # 5 minutes
+
 
 async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
     """Batch-resolve site IDs to site names.
 
     Resolution order:
     1. Backed-up site data (``object_type="sites"``) — no API call needed.
-    2. Mist API ``get_sites()`` — fallback for sites not yet backed up.
+    2. Module-level cache from previous API calls (5 min TTL).
+    3. Mist API ``get_sites()`` — fallback for sites not yet backed up.
 
     Returns:
         Mapping of site_id → site_name.
     """
+    global _site_name_cache, _site_name_cache_time
+
     if not site_ids:
         return {}
+
+    import time
 
     names: dict[str, str] = {}
 
@@ -66,20 +76,31 @@ async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
         if d.object_id not in names:
             names[d.object_id] = d.object_name or d.configuration.get("name") or d.object_id[:8]
 
-    # 2. Fallback to Mist API for any unresolved IDs
+    # 2. Check module-level cache for remaining IDs
     missing = site_ids - names.keys()
-    if missing:
-        try:
-            from app.services.mist_service_factory import create_mist_service
+    if missing and _site_name_cache:
+        for sid in list(missing):
+            if sid in _site_name_cache:
+                names[sid] = _site_name_cache[sid]
+        missing = site_ids - names.keys()
 
-            service = await create_mist_service()
-            sites = await service.get_sites()
-            for s in sites:
-                sid = s.get("id", "")
-                if sid in missing:
-                    names[sid] = s.get("name", sid[:8])
-        except Exception as exc:
-            logger.debug("site_name_api_fallback_failed", error=str(exc))
+    # 3. Fallback to Mist API for any still-unresolved IDs (refresh cache if stale)
+    if missing:
+        now = time.monotonic()
+        if now - _site_name_cache_time > _SITE_NAME_CACHE_TTL:
+            try:
+                from app.services.mist_service_factory import create_mist_service
+
+                service = await create_mist_service()
+                sites = await service.get_sites()
+                _site_name_cache = {s.get("id", ""): s.get("name", s.get("id", "")[:8]) for s in sites}
+                _site_name_cache_time = now
+            except Exception as exc:
+                logger.debug("site_name_api_fallback_failed", error=str(exc))
+
+        for sid in missing:
+            if sid in _site_name_cache:
+                names[sid] = _site_name_cache[sid]
 
     return names
 
@@ -390,6 +411,8 @@ async def get_backup_timeline(
     site_id: str | None = Query(None, description="Site ID (optional)"),
     start_date: str | None = Query(None, description="Start date (ISO format)"),
     end_date: str | None = Query(None, description="End date (ISO format)"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
     _current_user: User = Depends(require_backup_role),
 ):
     """
@@ -409,7 +432,7 @@ async def get_backup_timeline(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date format") from exc
 
     # Get backups
-    backups = await BackupJob.find(query).sort("-created_at").to_list()
+    backups = await BackupJob.find(query).sort("-created_at").skip(skip).limit(limit).to_list()
 
     return {
         "org_id": org_id,

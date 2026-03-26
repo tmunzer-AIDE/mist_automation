@@ -227,6 +227,17 @@ def _build_audit_query(
     return query
 
 
+@router.get("/admin/system-logs", tags=["Admin"])
+async def get_system_logs(
+    limit: int = Query(default=500, ge=1, le=500),
+    _current_user: User = Depends(require_admin),
+):
+    """Get recent system logs from the in-memory ring buffer."""
+    from app.core.log_broadcaster import get_recent_logs
+
+    return {"logs": get_recent_logs(limit)}
+
+
 @router.get("/admin/logs", tags=["Admin"])
 async def get_audit_logs(
     skip: int = Query(0, ge=0),
@@ -282,11 +293,20 @@ async def export_audit_logs(
     async def _generate_csv():
         """Stream CSV in batches to avoid loading all rows into memory."""
         header = io.StringIO()
-        csv.writer(header).writerow([
-            "Timestamp", "Event Type", "Category", "Description",
-            "User Email", "Source IP", "Target Type", "Target Name",
-            "Success", "Details",
-        ])
+        csv.writer(header).writerow(
+            [
+                "Timestamp",
+                "Event Type",
+                "Category",
+                "Description",
+                "User Email",
+                "Source IP",
+                "Target Type",
+                "Target Name",
+                "Success",
+                "Details",
+            ]
+        )
         yield header.getvalue().encode("utf-8")
 
         batch_size = 5000
@@ -299,18 +319,20 @@ async def export_audit_logs(
             chunk = io.StringIO()
             writer = csv.writer(chunk)
             for log in batch:
-                writer.writerow([
-                    log.timestamp.isoformat() if log.timestamp else "",
-                    log.event_type or "",
-                    log.event_category or "",
-                    log.description or "",
-                    log.user_email or "",
-                    log.source_ip or "",
-                    log.target_type or "",
-                    log.target_name or "",
-                    "Yes" if log.success else "No",
-                    json.dumps(log.details, default=str) if log.details else "",
-                ])
+                writer.writerow(
+                    [
+                        log.timestamp.isoformat() if log.timestamp else "",
+                        log.event_type or "",
+                        log.event_category or "",
+                        log.description or "",
+                        log.user_email or "",
+                        log.source_ip or "",
+                        log.target_type or "",
+                        log.target_name or "",
+                        "Yes" if log.success else "No",
+                        json.dumps(log.details, default=str) if log.details else "",
+                    ]
+                )
             yield chunk.getvalue().encode("utf-8")
 
             skip += batch_size
@@ -452,6 +474,10 @@ async def test_slack_connection(request: Request, current_user: User = Depends(r
     if not webhook_url:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack webhook URL not configured")
 
+    from app.utils.url_safety import validate_outbound_url
+
+    validate_outbound_url(webhook_url)
+
     from app.services.notification_service import NotificationService
 
     service = NotificationService()
@@ -476,10 +502,18 @@ async def test_servicenow_connection(request: Request, current_user: User = Depe
     instance_url = body.get("servicenow_instance_url") or config.servicenow_instance_url
     username = body.get("servicenow_username") or config.servicenow_username
     raw_pw = body.get("servicenow_password")
-    password = raw_pw if raw_pw else (decrypt_sensitive_data(config.servicenow_password) if config.servicenow_password else None)
+    password = (
+        raw_pw
+        if raw_pw
+        else (decrypt_sensitive_data(config.servicenow_password) if config.servicenow_password else None)
+    )
 
     if not all([instance_url, username, password]):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ServiceNow credentials not configured")
+
+    from app.utils.url_safety import validate_outbound_url
+
+    validate_outbound_url(instance_url)
 
     from app.services.notification_service import NotificationService
 
@@ -505,7 +539,9 @@ async def test_pagerduty_connection(request: Request, current_user: User = Depen
 
     config = await SystemConfig.get_config()
     raw_key = body.get("pagerduty_api_key")
-    key = raw_key if raw_key else (decrypt_sensitive_data(config.pagerduty_api_key) if config.pagerduty_api_key else None)
+    key = (
+        raw_key if raw_key else (decrypt_sensitive_data(config.pagerduty_api_key) if config.pagerduty_api_key else None)
+    )
 
     if not key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PagerDuty integration key not configured")
@@ -545,7 +581,9 @@ async def list_site_aps(site_id: str, _current_user: User = Depends(require_admi
 
     try:
         service = await create_mist_service()
-        devices = await service.api_get(f"/api/v1/sites/{site_id}/stats/devices", params={"type": "ap", "limit": "1000"})
+        devices = await service.api_get(
+            f"/api/v1/sites/{site_id}/stats/devices", params={"type": "ap", "limit": "1000"}
+        )
         aps = [{"mac": d.get("mac", ""), "name": d.get("name", d.get("mac", ""))} for d in devices]
         return {"aps": aps}
     except Exception as e:

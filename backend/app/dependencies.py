@@ -3,6 +3,7 @@ Dependency injection utilities for FastAPI.
 Provides reusable dependencies for authentication, authorization, and common operations.
 """
 
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -31,78 +32,83 @@ async def get_current_user_from_token(
 ) -> User:
     """
     Extract and validate JWT token, return current user.
-    
+
     Args:
         request: FastAPI request object
         credentials: HTTP Authorization header credentials
-    
+
     Returns:
         User: Authenticated user
-    
+
     Raises:
         AuthenticationException: If token is missing or invalid
     """
     if not credentials:
         logger.warning("authentication_failed", reason="no_token_provided")
         raise AuthenticationException("Authentication required")
-    
+
     token = credentials.credentials
-    
+
     # Decode and validate token
     payload = decode_token(token)
     if not payload:
         logger.warning("authentication_failed", reason="invalid_token")
         raise InvalidTokenException()
-    
+
     # Extract user ID and token JTI
     user_id_str = payload.get("sub")
     token_jti = payload.get("jti")
-    
+
     if not user_id_str or not token_jti:
         logger.warning("authentication_failed", reason="missing_claims")
         raise InvalidTokenException("Token missing required claims")
-    
+
     # Check if session exists and is valid
     session = await UserSession.find_one(UserSession.token_jti == token_jti)
     if not session:
         logger.warning("authentication_failed", reason="session_not_found", token_jti=token_jti)
         raise InvalidTokenException("Session not found or has been revoked")
-    
+
     if session.is_expired():
         logger.warning("authentication_failed", reason="session_expired", token_jti=token_jti)
         raise TokenExpiredException()
-    
+
     # Get user
     try:
         user_id = ObjectId(user_id_str)
     except Exception as exc:
         logger.warning("authentication_failed", reason="invalid_user_id", user_id=user_id_str)
         raise InvalidTokenException("Invalid user ID") from exc
-    
+
     user = await User.get(user_id)
     if not user:
         logger.warning("authentication_failed", reason="user_not_found", user_id=user_id_str)
         raise AuthenticationException("User not found")
-    
+
     if not user.is_active:
         logger.warning("authentication_failed", reason="user_inactive", user_id=user_id_str)
         raise AuthenticationException("User account is inactive")
-    
-    # Update session activity
-    session.update_activity()
-    await session.save()
-    
+
+    # Update session activity (throttled to once per 5 minutes)
+    now = datetime.now(timezone.utc)
+    last = session.last_activity
+    if last and not last.tzinfo:
+        last = last.replace(tzinfo=timezone.utc)
+    if not last or (now - last).total_seconds() > 300:
+        session.last_activity = now
+        await session.save()
+
     # Attach session to request state for later use
     request.state.session = session
     request.state.token_jti = token_jti
-    
+
     logger.info(
         "user_authenticated",
         user_id=str(user.id),
         user_email=user.email,
         request_id=getattr(request.state, "request_id", None),
     )
-    
+
     return user
 
 
@@ -111,10 +117,10 @@ async def get_current_active_user(
 ) -> User:
     """
     Get current active user (alias for get_current_user_from_token).
-    
+
     Args:
         current_user: User from token validation
-    
+
     Returns:
         User: Active authenticated user
     """
@@ -126,13 +132,13 @@ async def require_admin(
 ) -> User:
     """
     Require user to have admin role.
-    
+
     Args:
         current_user: Authenticated user
-    
+
     Returns:
         User: User with admin role
-    
+
     Raises:
         AuthorizationException: If user is not an admin
     """
@@ -144,7 +150,7 @@ async def require_admin(
             required_role="admin",
         )
         raise AuthorizationException("Admin privileges required")
-    
+
     return current_user
 
 
@@ -153,13 +159,13 @@ async def require_automation_role(
 ) -> User:
     """
     Require user to have automation or admin role.
-    
+
     Args:
         current_user: Authenticated user
-    
+
     Returns:
         User: User with automation or admin role
-    
+
     Raises:
         AuthorizationException: If user lacks required role
     """
@@ -171,7 +177,7 @@ async def require_automation_role(
             required_role="automation",
         )
         raise AuthorizationException("Automation role required")
-    
+
     return current_user
 
 
@@ -263,10 +269,10 @@ require_reports_role = require_post_deployment_role
 def get_client_info(request: Request) -> dict:
     """
     Extract client information from request.
-    
+
     Args:
         request: FastAPI request object
-    
+
     Returns:
         dict: Client information (IP, user agent, etc.)
     """
@@ -284,10 +290,10 @@ async def get_optional_user(
     """
     Get current user if authenticated, otherwise return None.
     Useful for endpoints that have different behavior for authenticated vs anonymous users.
-    
+
     Args:
         credentials: HTTP Authorization header credentials
-    
+
     Returns:
         Optional[User]: Authenticated user or None
     """
@@ -317,8 +323,13 @@ async def get_optional_user(
         user = await User.get(user_id)
 
         if user and user.is_active:
-            session.update_activity()
-            await session.save()
+            now = datetime.now(timezone.utc)
+            last = session.last_activity
+            if last and not last.tzinfo:
+                last = last.replace(tzinfo=timezone.utc)
+            if not last or (now - last).total_seconds() > 300:
+                session.last_activity = now
+                await session.save()
             return user
 
         return None

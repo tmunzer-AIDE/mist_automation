@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, FormControl } from '@angular/forms';
@@ -13,7 +13,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
@@ -55,7 +55,7 @@ import {
     MatSnackBarModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
+    MatAutocompleteModule,
     BaseChartDirective,
     EmptyStateComponent,
     StatusBadgeComponent,
@@ -99,6 +99,69 @@ export class BackupObjectListComponent implements OnInit {
   objectType = signal<MistObjectTypeOption[]>([]);
 
   siteOptions = signal<MistSiteOption[]>([]);
+
+  // ── Select search ──────────────────────────────────────────────────
+  scopeSearch = signal('');
+  typeSearch = signal('');
+  siteSearch = signal('');
+  statusSearch = signal('');
+
+  private readonly scopeOptions = [
+    { value: '', label: 'All' },
+    { value: 'org', label: 'Org' },
+    { value: 'site', label: 'Site' },
+  ];
+  filteredScopeOptions = computed(() => {
+    const q = this.scopeSearch().toLowerCase();
+    return q ? this.scopeOptions.filter((o) => o.label.toLowerCase().includes(q)) : this.scopeOptions;
+  });
+
+  filteredTypeOptions = computed(() => {
+    const q = this.typeSearch().toLowerCase();
+    const all = this.objectTypeOptions();
+    return q ? all.filter((o) => o.label.toLowerCase().includes(q)) : all;
+  });
+
+  filteredSiteOptions = computed(() => {
+    const q = this.siteSearch().toLowerCase();
+    const all = this.siteOptions();
+    return q ? all.filter((s) => s.name.toLowerCase().includes(q)) : all;
+  });
+
+  private readonly statusOptions = [
+    { value: '', label: 'All' },
+    { value: 'active', label: 'Active' },
+    { value: 'deleted', label: 'Deleted' },
+  ];
+  filteredStatusOptions = computed(() => {
+    const q = this.statusSearch().toLowerCase();
+    return q
+      ? this.statusOptions.filter((o) => o.label.toLowerCase().includes(q))
+      : this.statusOptions;
+  });
+
+  // ── Display values for autocomplete inputs ─────────────────────────
+  scopeDisplayValue = computed(() => {
+    const val = this.filterForm.get('scope')?.value;
+    return this.scopeOptions.find((o) => o.value === val)?.label ?? '';
+  });
+
+  typeDisplayValue = computed(() => {
+    const val = this.filterForm.get('object_type')?.value;
+    if (!val) return 'All';
+    return this.objectTypeOptions().find((o) => o.value.split(':')[1] === val)?.label ?? '';
+  });
+
+  siteDisplayValue = computed(() => {
+    const val = this.filterForm.get('site_id')?.value;
+    if (!val) return 'All';
+    return this.siteOptions().find((s) => s.id === val)?.name ?? '';
+  });
+
+  statusDisplayValue = computed(() => {
+    const val = this.filterForm.get('status')?.value;
+    return this.statusOptions.find((o) => o.value === val)?.label ?? '';
+  });
 
   filterForm = this.fb.group({
     object_type: [''],

@@ -68,6 +68,11 @@ const routes: Routes = [
     loadComponent: () => import('./logs/audit-logs.component').then((m) => m.AuditLogsComponent),
   },
   {
+    path: 'system-logs',
+    loadComponent: () =>
+      import('./system-logs/system-logs.component').then((m) => m.SystemLogsComponent),
+  },
+  {
     path: 'stats',
     loadComponent: () => import('./stats/stats.component').then((m) => m.StatsComponent),
   },

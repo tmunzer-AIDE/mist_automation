@@ -29,11 +29,15 @@ async def get_details(
     ],
     id: Annotated[
         str,
-        Field(description="MongoDB document ID of the item. Required for type='webhook_event' and type='report'. Get this from search results."),
+        Field(
+            description="MongoDB document ID of the item. Required for type='webhook_event' and type='report'. Get this from search results."
+        ),
     ] = "",
     section: Annotated[
         str,
-        Field(description="For type='report' only: return full data for one section instead of the summary. One of: 'aps', 'switches', 'gateways', 'template_variables'."),
+        Field(
+            description="For type='report' only: return full data for one section instead of the summary. One of: 'aps', 'switches', 'gateways', 'template_variables'."
+        ),
     ] = "",
 ) -> str:
     """Get detailed information about a webhook event (with full payload), a validation report (with health results), or the system dashboard overview."""
@@ -156,6 +160,8 @@ def _item_status(item: dict) -> str:
 
 async def _dashboard(**_kwargs) -> str:
     """Get compact dashboard overview stats for the last 7 days."""
+    import asyncio
+
     from app.modules.automation.models.execution import WorkflowExecution
     from app.modules.automation.models.webhook import WebhookEvent
     from app.modules.automation.models.workflow import Workflow
@@ -164,81 +170,76 @@ async def _dashboard(**_kwargs) -> str:
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
 
-    # Workflow counts
-    wf_results = await Workflow.aggregate(
-        [
-            {
-                "$facet": {
-                    "total": [{"$count": "n"}],
-                    "enabled": [{"$match": {"status": "enabled"}}, {"$count": "n"}],
-                }
-            }
-        ]
-    ).to_list()
-    wf_row = wf_results[0] if wf_results else {}
-
     def _cnt(row: dict, key: str) -> int:
         bucket = row.get(key, [])
         return bucket[0]["n"] if bucket else 0
 
-    # Execution counts (7d)
-    ex_results = await WorkflowExecution.aggregate(
-        [
-            {"$match": {"started_at": {"$gte": cutoff}, "is_simulation": False}},
-            {
-                "$facet": {
-                    "total": [{"$count": "n"}],
-                    "succeeded": [{"$match": {"status": "success"}}, {"$count": "n"}],
-                    "failed": [{"$match": {"status": {"$in": ["failed", "timeout"]}}}, {"$count": "n"}],
+    # Run all 5 aggregation queries in parallel
+    wf_fut, ex_fut, bk_fut, wh_fut, rp_fut = await asyncio.gather(
+        Workflow.aggregate(
+            [
+                {
+                    "$facet": {
+                        "total": [{"$count": "n"}],
+                        "enabled": [{"$match": {"status": "enabled"}}, {"$count": "n"}],
+                    }
                 }
-            },
-        ]
-    ).to_list()
-    ex_row = ex_results[0] if ex_results else {}
+            ]
+        ).to_list(),
+        WorkflowExecution.aggregate(
+            [
+                {"$match": {"started_at": {"$gte": cutoff}, "is_simulation": False}},
+                {
+                    "$facet": {
+                        "total": [{"$count": "n"}],
+                        "succeeded": [{"$match": {"status": "success"}}, {"$count": "n"}],
+                        "failed": [{"$match": {"status": {"$in": ["failed", "timeout"]}}}, {"$count": "n"}],
+                    }
+                },
+            ]
+        ).to_list(),
+        BackupJob.aggregate(
+            [
+                {"$match": {"created_at": {"$gte": cutoff}}},
+                {
+                    "$facet": {
+                        "total": [{"$count": "n"}],
+                        "completed": [{"$match": {"status": "completed"}}, {"$count": "n"}],
+                        "failed": [{"$match": {"status": "failed"}}, {"$count": "n"}],
+                    }
+                },
+            ]
+        ).to_list(),
+        WebhookEvent.aggregate(
+            [
+                {"$match": {"received_at": {"$gte": cutoff}}},
+                {
+                    "$facet": {
+                        "total": [{"$count": "n"}],
+                        "processed": [{"$match": {"processed": True}}, {"$count": "n"}],
+                    }
+                },
+            ]
+        ).to_list(),
+        ReportJob.aggregate(
+            [
+                {"$match": {"created_at": {"$gte": cutoff}}},
+                {
+                    "$facet": {
+                        "total": [{"$count": "n"}],
+                        "completed": [{"$match": {"status": "completed"}}, {"$count": "n"}],
+                        "failed": [{"$match": {"status": "failed"}}, {"$count": "n"}],
+                    }
+                },
+            ]
+        ).to_list(),
+    )
 
-    # Backup counts (7d)
-    bk_results = await BackupJob.aggregate(
-        [
-            {"$match": {"created_at": {"$gte": cutoff}}},
-            {
-                "$facet": {
-                    "total": [{"$count": "n"}],
-                    "completed": [{"$match": {"status": "completed"}}, {"$count": "n"}],
-                    "failed": [{"$match": {"status": "failed"}}, {"$count": "n"}],
-                }
-            },
-        ]
-    ).to_list()
-    bk_row = bk_results[0] if bk_results else {}
-
-    # Webhook counts (7d)
-    wh_results = await WebhookEvent.aggregate(
-        [
-            {"$match": {"received_at": {"$gte": cutoff}}},
-            {
-                "$facet": {
-                    "total": [{"$count": "n"}],
-                    "processed": [{"$match": {"processed": True}}, {"$count": "n"}],
-                }
-            },
-        ]
-    ).to_list()
-    wh_row = wh_results[0] if wh_results else {}
-
-    # Report counts (7d)
-    rp_results = await ReportJob.aggregate(
-        [
-            {"$match": {"created_at": {"$gte": cutoff}}},
-            {
-                "$facet": {
-                    "total": [{"$count": "n"}],
-                    "completed": [{"$match": {"status": "completed"}}, {"$count": "n"}],
-                    "failed": [{"$match": {"status": "failed"}}, {"$count": "n"}],
-                }
-            },
-        ]
-    ).to_list()
-    rp_row = rp_results[0] if rp_results else {}
+    wf_row = wf_fut[0] if wf_fut else {}
+    ex_row = ex_fut[0] if ex_fut else {}
+    bk_row = bk_fut[0] if bk_fut else {}
+    wh_row = wh_fut[0] if wh_fut else {}
+    rp_row = rp_fut[0] if rp_fut else {}
 
     return to_json(
         {

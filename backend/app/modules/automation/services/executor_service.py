@@ -67,9 +67,7 @@ def _sanitize_execution_error(exc: Exception) -> str:
     return msg[:200] if len(msg) > 200 else msg
 
 
-async def _update_workflow_stats_atomic(
-    workflow: Workflow, *, success: bool, timestamp: datetime
-) -> None:
+async def _update_workflow_stats_atomic(workflow: Workflow, *, success: bool, timestamp: datetime) -> None:
     """Atomically increment workflow execution stats using MongoDB $inc/$set."""
     inc_fields: dict[str, int] = {"execution_count": 1}
     set_fields: dict[str, Any] = {"last_execution": timestamp, "updated_at": datetime.now(timezone.utc)}
@@ -174,9 +172,7 @@ async def resume_from_callback(
             execution.mark_completed(ExecutionStatus.PARTIAL)
 
         end_time = datetime.now(timezone.utc)
-        execution.duration_ms = (execution.duration_ms or 0) + int(
-            (end_time - start_time).total_seconds() * 1000
-        )
+        execution.duration_ms = (execution.duration_ms or 0) + int((end_time - start_time).total_seconds() * 1000)
         await execution.save()
 
         # Update workflow stats
@@ -300,9 +296,7 @@ class WorkflowExecutor:
             await execution.save()
 
             await _update_workflow_stats_atomic(workflow, success=False, timestamp=start_time)
-            raise WorkflowTimeoutError(
-                f"Workflow execution timed out after {workflow.timeout_seconds} seconds"
-            ) from e
+            raise WorkflowTimeoutError(f"Workflow execution timed out after {workflow.timeout_seconds} seconds") from e
 
         except Exception as e:
             logger.error("workflow_execution_error", workflow_id=str(workflow.id), error=str(e))
@@ -712,9 +706,7 @@ class WorkflowExecutor:
                 execution.paused_node_id = node.id
                 execution.paused_variable_context = copy.deepcopy(self.variable_context)
                 execution.paused_visited = list(visited)
-                execution.add_log(
-                    f"Execution paused at node '{node.name or node.id}' — awaiting callback", "info"
-                )
+                execution.add_log(f"Execution paused at node '{node.name or node.id}' — awaiting callback", "info")
                 if not getattr(execution, "_in_memory_only", False):
                     await execution.save()
                 raise  # Re-raise to break out of _execute_graph → execute_workflow
@@ -907,7 +899,11 @@ class WorkflowExecutor:
 
         if node_type == "syslog":
             if dry_run:
-                return {"status": "mocked", "host": config.get("syslog_host", ""), "format": config.get("syslog_format", "rfc5424")}
+                return {
+                    "status": "mocked",
+                    "host": config.get("syslog_host", ""),
+                    "format": config.get("syslog_format", "rfc5424"),
+                }
             return await self._execute_syslog(config)
 
         if node_type == "script":
@@ -1326,9 +1322,7 @@ class WorkflowExecutor:
             "data": response.ws_data,
         }
 
-    async def _execute_ai_agent(
-        self, node: WorkflowNode, execution: WorkflowExecution
-    ) -> dict[str, Any]:
+    async def _execute_ai_agent(self, node: WorkflowNode, execution: WorkflowExecution) -> dict[str, Any]:
         """Execute an AI agent node: LLM + MCP tool-calling loop."""
         try:
             from app.modules.llm.services.agent_service import AIAgentService
@@ -1366,12 +1360,14 @@ class WorkflowExecutor:
             for srv in mcp_configs:
                 validate_outbound_url(srv.get("url", ""))
             external = [
-                MCPClientWrapper(MCPServerConfig(
-                    name=srv.get("name", "unnamed"),
-                    url=srv.get("url", ""),
-                    headers=srv.get("headers") or None,
-                    ssl_verify=srv.get("ssl_verify", True),
-                ))
+                MCPClientWrapper(
+                    MCPServerConfig(
+                        name=srv.get("name", "unnamed"),
+                        url=srv.get("url", ""),
+                        headers=srv.get("headers") or None,
+                        ssl_verify=srv.get("ssl_verify", True),
+                    )
+                )
                 for srv in mcp_configs
             ]
 
@@ -1498,7 +1494,8 @@ class WorkflowExecutor:
         # Fallback: JSON mode completion (no tool calling)
         field_descriptions = "; ".join(
             f"{f.get('name')} ({f.get('type', 'string')}): {f.get('description', '')}"
-            for f in output_fields if f.get("name")
+            for f in output_fields
+            if f.get("name")
         )
         fallback_msg = [
             LLMMessage(
@@ -1782,10 +1779,15 @@ class WorkflowExecutor:
     ) -> dict[str, Any]:
         """Execute a notification action (slack, servicenow, pagerduty)."""
         from app.services.notification_service import NotificationService
+        from app.utils.url_safety import validate_outbound_url
 
         template = config.get("notification_template", "")
         message = self._render_template(template)
         channel = config.get("notification_channel", "")
+
+        # SSRF protection for URL-based notification channels
+        if node_type in ("slack",) and channel:
+            validate_outbound_url(channel)
 
         async with NotificationService() as ns:
             if node_type == "slack":
@@ -1856,8 +1858,14 @@ class WorkflowExecutor:
         # Map facility and severity names to numeric values
         facilities = {f"local{i}": 16 + i for i in range(8)}
         severities = {
-            "emergency": 0, "alert": 1, "critical": 2, "error": 3,
-            "warning": 4, "notice": 5, "informational": 6, "debug": 7,
+            "emergency": 0,
+            "alert": 1,
+            "critical": 2,
+            "error": 3,
+            "warning": 4,
+            "notice": 5,
+            "informational": 6,
+            "debug": 7,
         }
         facility = facilities.get(facility_name, 16)
         severity = severities.get(severity_name, 6)
@@ -1879,9 +1887,7 @@ class WorkflowExecutor:
             )
         else:
             # RFC 5424
-            syslog_msg = (
-                f"<{pri}>1 {timestamp} {hostname} mist-automation - - - {message}"
-            )
+            syslog_msg = f"<{pri}>1 {timestamp} {hostname} mist-automation - - - {message}"
 
         encoded = syslog_msg.encode("utf-8")
 
@@ -1937,11 +1943,16 @@ class WorkflowExecutor:
         ctx = MiniRacer()
         try:
             inputs_json = json.dumps(inputs, default=str)
-            # Inject inputs and wrap user code in an IIFE that returns the result
-            wrapped = (
-                f"var inputs = JSON.parse('{inputs_json.replace(chr(92), chr(92)*2).replace(chr(39), chr(92)+chr(39))}');\n"
-                f"(function() {{\n{code}\n}})();"
+            # Escape special characters to safely embed in a JS string literal
+            safe_json = (
+                inputs_json.replace(chr(92), chr(92) * 2)
+                .replace(chr(39), chr(92) + chr(39))
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
             )
+            # Inject inputs and wrap user code in an IIFE that returns the result
+            wrapped = f"var inputs = JSON.parse('{safe_json}');\n" f"(function() {{\n{code}\n}})();"
             result = ctx.eval(wrapped, timeout=5, max_memory=50 * 1024 * 1024)  # 5s timeout, 50MB memory
 
             # Convert result to Python dict
@@ -2084,10 +2095,10 @@ class WorkflowExecutor:
                 raw_path = raw_path.strip()
 
                 if "|" in raw_path:
-                    dot_path, filter_expr = raw_path.split("|", 1)
+                    dot_path, pipe_filter = raw_path.split("|", 1)
                     raw_value = self._get_nested_field(item, dot_path.strip())
                     try:
-                        tpl = self._jinja_env.from_string(f"{{{{ value | {filter_expr.strip()} }}}}")
+                        tpl = self._jinja_env.from_string(f"{{{{ value | {pipe_filter.strip()} }}}}")
                         value = tpl.render(value=raw_value)
                     except Exception:
                         value = raw_value
@@ -2297,7 +2308,7 @@ class WorkflowExecutor:
                 # Not a Slack payload — skip past this object and try the next one
                 text = text[end:]
             except json.JSONDecodeError:
-                text = text[idx + 1:]
+                text = text[idx + 1 :]
 
         return None
 

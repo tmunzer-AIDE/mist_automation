@@ -1,11 +1,12 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -29,8 +30,9 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
     MatPaginatorModule,
     MatButtonModule,
     MatIconModule,
-    MatSelectModule,
+    MatAutocompleteModule,
     MatFormFieldModule,
+    MatInputModule,
     MatSnackBarModule,
     MatDialogModule,
     MatTooltipModule,
@@ -44,28 +46,40 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
     <div class="filters-bar">
       <mat-form-field appearance="outline" class="filter-field">
         <mat-label>Status</mat-label>
-        <mat-select [(value)]="statusFilter" (selectionChange)="applyFilters()">
+        <input
+          matInput
+          [matAutocomplete]="statusAuto"
+          [value]="statusDisplayValue()"
+          (input)="statusSearch.set($any($event.target).value)"
+        />
+        <mat-autocomplete
+          #statusAuto
+          (optionSelected)="statusFilter = $event.option.value; applyFilters()"
+        >
           <mat-option [value]="''">All</mat-option>
-          <mat-option value="pending">Pending</mat-option>
-          <mat-option value="running">Running</mat-option>
-          <mat-option value="success">Success</mat-option>
-          <mat-option value="failed">Failed</mat-option>
-          <mat-option value="cancelled">Cancelled</mat-option>
-          <mat-option value="timeout">Timeout</mat-option>
-          <mat-option value="filtered">Filtered</mat-option>
-          <mat-option value="partial">Partial</mat-option>
-        </mat-select>
+          @for (opt of filteredStatuses(); track opt.value) {
+            <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+          }
+        </mat-autocomplete>
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="filter-field">
         <mat-label>Trigger</mat-label>
-        <mat-select [(value)]="triggerFilter" (selectionChange)="applyFilters()">
+        <input
+          matInput
+          [matAutocomplete]="triggerAuto"
+          [value]="triggerDisplayValue()"
+          (input)="triggerSearch.set($any($event.target).value)"
+        />
+        <mat-autocomplete
+          #triggerAuto
+          (optionSelected)="triggerFilter = $event.option.value; applyFilters()"
+        >
           <mat-option [value]="''">All</mat-option>
-          <mat-option value="webhook">Webhook</mat-option>
-          <mat-option value="cron">Cron</mat-option>
-          <mat-option value="manual">Manual</mat-option>
-          <mat-option value="simulation">Simulation</mat-option>
-        </mat-select>
+          @for (opt of filteredTriggers(); track opt.value) {
+            <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+          }
+        </mat-autocomplete>
       </mat-form-field>
     </div>
 
@@ -196,6 +210,48 @@ export class ExecutionListComponent implements OnInit {
   statusFilter = '';
   triggerFilter = '';
 
+  readonly statusOptions = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'running', label: 'Running' },
+    { value: 'success', label: 'Success' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'cancelled', label: 'Cancelled' },
+    { value: 'timeout', label: 'Timeout' },
+    { value: 'filtered', label: 'Filtered' },
+    { value: 'partial', label: 'Partial' },
+  ];
+  statusSearch = signal('');
+  filteredStatuses = computed(() => {
+    const term = this.statusSearch().toLowerCase();
+    return term
+      ? this.statusOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.statusOptions;
+  });
+  statusDisplayValue = computed(() => {
+    if (!this.statusFilter) return 'All';
+    return this.statusOptions.find((o) => o.value === this.statusFilter)?.label ?? this.statusFilter;
+  });
+
+  readonly triggerOptions = [
+    { value: 'webhook', label: 'Webhook' },
+    { value: 'cron', label: 'Cron' },
+    { value: 'manual', label: 'Manual' },
+    { value: 'simulation', label: 'Simulation' },
+  ];
+  triggerSearch = signal('');
+  filteredTriggers = computed(() => {
+    const term = this.triggerSearch().toLowerCase();
+    return term
+      ? this.triggerOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.triggerOptions;
+  });
+  triggerDisplayValue = computed(() => {
+    if (!this.triggerFilter) return 'All';
+    return (
+      this.triggerOptions.find((o) => o.value === this.triggerFilter)?.label ?? this.triggerFilter
+    );
+  });
+
   displayedColumns = [
     'status',
     'workflow_name',
@@ -274,5 +330,4 @@ export class ExecutionListComponent implements OnInit {
       }
     });
   }
-
 }

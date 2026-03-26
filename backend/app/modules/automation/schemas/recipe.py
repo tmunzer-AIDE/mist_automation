@@ -9,6 +9,7 @@ from app.modules.automation.models.recipe import RecipeCategory, RecipeDifficult
 
 class RecipeResponse(BaseModel):
     """Public recipe response."""
+
     id: str
     name: str
     description: str
@@ -25,12 +26,14 @@ class RecipeResponse(BaseModel):
 
 class RecipeDetailResponse(RecipeResponse):
     """Detailed recipe response including graph data."""
+
     nodes: list[dict]
     edges: list[dict]
 
 
 class RecipeCreateRequest(BaseModel):
     """Admin request to create a recipe."""
+
     name: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="")
     category: RecipeCategory
@@ -44,6 +47,7 @@ class RecipeCreateRequest(BaseModel):
 
 class RecipeInstantiateResponse(BaseModel):
     """Response after instantiating a recipe into a new workflow."""
+
     workflow_id: str
     workflow_name: str
     placeholders: list[RecipePlaceholder]
@@ -51,6 +55,7 @@ class RecipeInstantiateResponse(BaseModel):
 
 class PublishAsRecipeRequest(BaseModel):
     """Request to publish an existing workflow as a recipe."""
+
     name: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="")
     category: RecipeCategory

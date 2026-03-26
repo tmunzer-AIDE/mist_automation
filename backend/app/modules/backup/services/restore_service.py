@@ -108,7 +108,9 @@ class RestoreService:
             else:
                 restored_config = await self._prepare_deleted_object_config(backup)
                 result = await self._create_object_in_mist(
-                    backup.object_type, restored_config, site_id=backup.site_id,
+                    backup.object_type,
+                    restored_config,
+                    site_id=backup.site_id,
                 )
                 new_object_id = result.get("id")
                 if new_object_id:
@@ -171,10 +173,14 @@ class RestoreService:
             if backup and backup.is_deleted and backup.previous_version_id:
                 backup = await BackupObject.get(backup.previous_version_id)
         else:
-            deleted_backup = await BackupObject.find(
-                BackupObject.object_id == object_id,
-                BackupObject.is_deleted == True,
-            ).sort([("version", -1)]).first_or_none()
+            deleted_backup = (
+                await BackupObject.find(
+                    BackupObject.object_id == object_id,
+                    BackupObject.is_deleted == True,
+                )
+                .sort([("version", -1)])
+                .first_or_none()
+            )
 
             if not deleted_backup:
                 raise ValidationError(f"Object {object_id} is not deleted")
@@ -212,7 +218,9 @@ class RestoreService:
         restored_config = await self._prepare_deleted_object_config(backup)
 
         result = await self._create_object_in_mist(
-            backup.object_type, restored_config, site_id=backup.site_id,
+            backup.object_type,
+            restored_config,
+            site_id=backup.site_id,
         )
 
         new_object_id = result.get("id")
@@ -272,21 +280,25 @@ class RestoreService:
                 parent_ver = await self._get_last_active_version(dep["object_id"])
                 if parent_ver:
                     parent_backups.append(parent_ver)
-                    plan.append({
-                        "role": "parent",
-                        "object_id": dep["object_id"],
-                        "object_type": dep["object_type"],
-                        "object_name": dep.get("object_name"),
-                        "field_path": dep["field_path"],
-                    })
+                    plan.append(
+                        {
+                            "role": "parent",
+                            "object_id": dep["object_id"],
+                            "object_type": dep["object_type"],
+                            "object_name": dep.get("object_name"),
+                            "field_path": dep["field_path"],
+                        }
+                    )
 
         # Target
-        plan.append({
-            "role": "target",
-            "object_id": backup.object_id,
-            "object_type": backup.object_type,
-            "object_name": backup.object_name,
-        })
+        plan.append(
+            {
+                "role": "target",
+                "object_id": backup.object_id,
+                "object_type": backup.object_type,
+                "object_name": backup.object_name,
+            }
+        )
 
         # Collect children
         child_backups: list[BackupObject] = []
@@ -295,26 +307,30 @@ class RestoreService:
                 child_ver = await self._get_last_active_version(child_info["object_id"])
                 if child_ver:
                     child_backups.append(child_ver)
-                    plan.append({
-                        "role": "child",
-                        "object_id": child_info["object_id"],
-                        "object_type": child_info["object_type"],
-                        "object_name": child_info.get("object_name"),
-                        "field_path": child_info["field_path"],
-                    })
+                    plan.append(
+                        {
+                            "role": "child",
+                            "object_id": child_info["object_id"],
+                            "object_type": child_info["object_type"],
+                            "object_name": child_info.get("object_name"),
+                            "field_path": child_info["field_path"],
+                        }
+                    )
 
         # Collect active children that need their reference updated
         active_child_infos: list[dict[str, Any]] = []
         if include_children:
             for child_info in validation.get("active_children", []):
                 active_child_infos.append(child_info)
-                plan.append({
-                    "role": "update",
-                    "object_id": child_info["object_id"],
-                    "object_type": child_info["object_type"],
-                    "object_name": child_info.get("object_name"),
-                    "field_path": child_info["field_path"],
-                })
+                plan.append(
+                    {
+                        "role": "update",
+                        "object_id": child_info["object_id"],
+                        "object_type": child_info["object_type"],
+                        "object_name": child_info.get("object_name"),
+                        "field_path": child_info["field_path"],
+                    }
+                )
 
         if dry_run:
             return {
@@ -332,7 +348,9 @@ class RestoreService:
         for parent_backup in parent_backups:
             parent_config = await self._prepare_deleted_object_config(parent_backup)
             result = await self._create_object_in_mist(
-                parent_backup.object_type, parent_config, site_id=parent_backup.site_id,
+                parent_backup.object_type,
+                parent_config,
+                site_id=parent_backup.site_id,
             )
             new_id = result.get("id")
             if new_id:
@@ -345,18 +363,22 @@ class RestoreService:
                     restored_by=restored_by,
                     id_remap=id_remap,
                 )
-            restored_objects.append({
-                "role": "parent",
-                "original_object_id": parent_backup.object_id,
-                "new_object_id": new_id,
-                "object_type": parent_backup.object_type,
-                "object_name": parent_backup.object_name,
-            })
+            restored_objects.append(
+                {
+                    "role": "parent",
+                    "original_object_id": parent_backup.object_id,
+                    "new_object_id": new_id,
+                    "object_type": parent_backup.object_type,
+                    "object_name": parent_backup.object_name,
+                }
+            )
 
         # 2. Restore target
         target_config = await self._prepare_deleted_object_config(backup, id_remap=id_remap)
         target_result = await self._create_object_in_mist(
-            backup.object_type, target_config, site_id=backup.site_id,
+            backup.object_type,
+            target_config,
+            site_id=backup.site_id,
         )
         target_new_id = target_result.get("id")
         if target_new_id:
@@ -369,21 +391,26 @@ class RestoreService:
                 restored_by=restored_by,
                 id_remap=id_remap,
             )
-        restored_objects.append({
-            "role": "target",
-            "original_object_id": backup.object_id,
-            "new_object_id": target_new_id,
-            "object_type": backup.object_type,
-            "object_name": backup.object_name,
-        })
+        restored_objects.append(
+            {
+                "role": "target",
+                "original_object_id": backup.object_id,
+                "new_object_id": target_new_id,
+                "object_type": backup.object_type,
+                "object_name": backup.object_name,
+            }
+        )
 
         # 3. Restore children
         for child_backup in child_backups:
             child_config = await self._prepare_deleted_object_config(
-                child_backup, id_remap=id_remap,
+                child_backup,
+                id_remap=id_remap,
             )
             child_result = await self._create_object_in_mist(
-                child_backup.object_type, child_config, site_id=child_backup.site_id,
+                child_backup.object_type,
+                child_config,
+                site_id=child_backup.site_id,
             )
             child_new_id = child_result.get("id")
             if child_new_id:
@@ -396,19 +423,25 @@ class RestoreService:
                     restored_by=restored_by,
                     id_remap=id_remap,
                 )
-            restored_objects.append({
-                "role": "child",
-                "original_object_id": child_backup.object_id,
-                "new_object_id": child_new_id,
-                "object_type": child_backup.object_type,
-                "object_name": child_backup.object_name,
-            })
+            restored_objects.append(
+                {
+                    "role": "child",
+                    "original_object_id": child_backup.object_id,
+                    "new_object_id": child_new_id,
+                    "object_type": child_backup.object_type,
+                    "object_name": child_backup.object_name,
+                }
+            )
 
         # 4. Update active children — patch their reference to the new parent ID
         for child_info in active_child_infos:
             try:
                 await self._update_active_child_in_mist(
-                    child_info, id_remap, backup, restored_by, restored_objects,
+                    child_info,
+                    id_remap,
+                    backup,
+                    restored_by,
+                    restored_objects,
                 )
             except Exception as exc:
                 logger.error(
@@ -538,9 +571,13 @@ class RestoreService:
             # is active or deleted.  Old versions always have is_deleted=False
             # even after a deletion record is added, so we must look at the
             # most recent version.
-            ref_latest = await BackupObject.find(
-                BackupObject.object_id == ref["target_id"],
-            ).sort([("version", -1)]).first_or_none()
+            ref_latest = (
+                await BackupObject.find(
+                    BackupObject.object_id == ref["target_id"],
+                )
+                .sort([("version", -1)])
+                .first_or_none()
+            )
 
             if ref_latest and not ref_latest.is_deleted:
                 continue
@@ -551,14 +588,16 @@ class RestoreService:
                 if ref_latest.previous_version_id:
                     latest_version_id = str(ref_latest.previous_version_id)
 
-                deleted_dependencies.append({
-                    "object_id": ref["target_id"],
-                    "object_type": ref["target_type"],
-                    "object_name": ref_latest.object_name,
-                    "field_path": ref["field_path"],
-                    "relationship": "parent",
-                    "latest_version_id": latest_version_id,
-                })
+                deleted_dependencies.append(
+                    {
+                        "object_id": ref["target_id"],
+                        "object_type": ref["target_type"],
+                        "object_name": ref_latest.object_name,
+                        "field_path": ref["field_path"],
+                        "relationship": "parent",
+                        "latest_version_id": latest_version_id,
+                    }
+                )
                 warnings.append(
                     f"Referenced {ref['target_type']} ({ref['target_id']}) "
                     f"via '{ref['field_path']}' is deleted — cascade restore available"
@@ -571,9 +610,11 @@ class RestoreService:
 
         # Collect deleted children that reference this object
         deleted_children: list[dict[str, Any]] = []
-        child_docs = await BackupObject.find(
-            {"references.target_id": backup.object_id, "is_deleted": True}
-        ).sort([("version", -1)]).to_list()
+        child_docs = (
+            await BackupObject.find({"references.target_id": backup.object_id, "is_deleted": True})
+            .sort([("version", -1)])
+            .to_list()
+        )
 
         seen_children: set[str] = set()
         for doc in child_docs:
@@ -586,14 +627,16 @@ class RestoreService:
                     if doc.previous_version_id:
                         latest_version_id = str(doc.previous_version_id)
 
-                    deleted_children.append({
-                        "object_id": doc.object_id,
-                        "object_type": doc.object_type,
-                        "object_name": doc.object_name,
-                        "field_path": ref.field_path,
-                        "relationship": "child",
-                        "latest_version_id": latest_version_id,
-                    })
+                    deleted_children.append(
+                        {
+                            "object_id": doc.object_id,
+                            "object_type": doc.object_type,
+                            "object_name": doc.object_name,
+                            "field_path": ref.field_path,
+                            "relationship": "child",
+                            "latest_version_id": latest_version_id,
+                        }
+                    )
                     break
 
         # Collect active children that reference this object (only when target
@@ -601,9 +644,9 @@ class RestoreService:
         # the old ID and need updating).
         active_children: list[dict[str, Any]] = []
         if not exists:
-            active_child_docs = await BackupObject.find(
-                {"references.target_id": backup.object_id}
-            ).sort([("version", -1)]).to_list()
+            active_child_docs = (
+                await BackupObject.find({"references.target_id": backup.object_id}).sort([("version", -1)]).to_list()
+            )
             seen_active: set[str] = set()
             for doc in active_child_docs:
                 if doc.object_id in seen_active or doc.object_id in seen_children:
@@ -613,14 +656,16 @@ class RestoreService:
                     continue
                 for ref in doc.references:
                     if ref.target_id == backup.object_id:
-                        active_children.append({
-                            "object_id": doc.object_id,
-                            "object_type": doc.object_type,
-                            "object_name": doc.object_name,
-                            "field_path": ref.field_path,
-                            "relationship": "active_child",
-                            "site_id": doc.site_id,
-                        })
+                        active_children.append(
+                            {
+                                "object_id": doc.object_id,
+                                "object_type": doc.object_type,
+                                "object_name": doc.object_name,
+                                "field_path": ref.field_path,
+                                "relationship": "active_child",
+                                "site_id": doc.site_id,
+                            }
+                        )
                         break
 
         return {
@@ -634,10 +679,14 @@ class RestoreService:
 
     async def _get_last_active_version(self, object_id: str) -> Optional[BackupObject]:
         """Find the last non-deleted version of an object."""
-        deleted_record = await BackupObject.find(
-            BackupObject.object_id == object_id,
-            BackupObject.is_deleted == True,
-        ).sort([("version", -1)]).first_or_none()
+        deleted_record = (
+            await BackupObject.find(
+                BackupObject.object_id == object_id,
+                BackupObject.is_deleted == True,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         if not deleted_record or not deleted_record.previous_version_id:
             return None
@@ -689,9 +738,13 @@ class RestoreService:
         restored_by: Optional[str],
     ) -> BackupObject:
         """Create a backup record marking the restore event."""
-        latest = await BackupObject.find(
-            BackupObject.object_id == original_backup.object_id,
-        ).sort([("version", -1)]).first_or_none()
+        latest = (
+            await BackupObject.find(
+                BackupObject.object_id == original_backup.object_id,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         version = await BackupObject.next_version(original_backup.object_id)
 
@@ -742,9 +795,7 @@ class RestoreService:
 
         next_ver = await BackupObject.next_version(new_object_id)
 
-        config_hash = hashlib.sha256(
-            json.dumps(result, sort_keys=True).encode()
-        ).hexdigest()
+        config_hash = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
 
         # Extract references from the new configuration returned by Mist
         refs = [ObjectReference(**r) for r in extract_references(backup.object_type, result)]
@@ -795,7 +846,9 @@ class RestoreService:
 
         # 1. Fetch current config from Mist
         current_config = await self._fetch_current_config(
-            child_object_type, child_object_id, child_site_id,
+            child_object_type,
+            child_object_id,
+            child_site_id,
         )
 
         # 2. Patch the reference field with the new parent ID
@@ -832,7 +885,9 @@ class RestoreService:
 
         if child_object_type == "wlans" and child_site_id:
             result = await self.mist_service.update_wlan(
-                child_site_id, child_object_id, put_config,
+                child_site_id,
+                child_object_id,
+                put_config,
             )
         elif child_site_id:
             endpoint = f"/api/v1/sites/{child_site_id}/{child_object_type}/{child_object_id}"
@@ -842,15 +897,17 @@ class RestoreService:
             result = await self.mist_service.api_put(endpoint, put_config)
 
         # 4. Create a backup record for the updated child
-        latest = await BackupObject.find(
-            BackupObject.object_id == child_object_id,
-            BackupObject.is_deleted == False,
-        ).sort([("version", -1)]).first_or_none()
+        latest = (
+            await BackupObject.find(
+                BackupObject.object_id == child_object_id,
+                BackupObject.is_deleted == False,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         version = await BackupObject.next_version(child_object_id)
-        config_hash = hashlib.sha256(
-            json.dumps(result, sort_keys=True).encode()
-        ).hexdigest()
+        config_hash = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
 
         refs = [ObjectReference(**r) for r in extract_references(child_object_type, result)]
         # Remap old IDs in the extracted references
@@ -890,13 +947,15 @@ class RestoreService:
             if changed:
                 await ver.save()
 
-        restored_objects.append({
-            "role": "update",
-            "original_object_id": child_object_id,
-            "new_object_id": child_object_id,
-            "object_type": child_object_type,
-            "object_name": child_info.get("object_name"),
-        })
+        restored_objects.append(
+            {
+                "role": "update",
+                "original_object_id": child_object_id,
+                "new_object_id": child_object_id,
+                "object_type": child_object_type,
+                "object_name": child_info.get("object_name"),
+            }
+        )
 
         logger.info(
             "active_child_updated",
@@ -933,18 +992,18 @@ class RestoreService:
         extracted = extract_references(backup.object_type, config)
 
         # Also include stored references not caught by extraction
-        seen_keys: set[tuple[str, str]] = {
-            (r["target_id"], r["field_path"]) for r in extracted
-        }
+        seen_keys: set[tuple[str, str]] = {(r["target_id"], r["field_path"]) for r in extracted}
         for ref in backup.references:
             key = (ref.target_id, ref.field_path)
             if key not in seen_keys:
                 seen_keys.add(key)
-                extracted.append({
-                    "target_type": ref.target_type,
-                    "target_id": ref.target_id,
-                    "field_path": ref.field_path,
-                })
+                extracted.append(
+                    {
+                        "target_type": ref.target_type,
+                        "target_id": ref.target_id,
+                        "field_path": ref.field_path,
+                    }
+                )
 
         for ref_info in extracted:
             # Find matching descriptor to know if it's a list field
@@ -970,9 +1029,13 @@ class RestoreService:
                 # Check if target is deleted by looking at its LATEST version.
                 # Old versions keep is_deleted=False even after deletion, so
                 # we must check the most recent version.
-                target_latest = await BackupObject.find(
-                    BackupObject.object_id == target_id,
-                ).sort([("version", -1)]).first_or_none()
+                target_latest = (
+                    await BackupObject.find(
+                        BackupObject.object_id == target_id,
+                    )
+                    .sort([("version", -1)])
+                    .first_or_none()
+                )
                 if not target_latest or target_latest.is_deleted:
                     # Target is deleted/missing — strip the stale reference
                     if is_list:
@@ -1005,44 +1068,22 @@ class RestoreService:
         config2: dict[str, Any],
         prefix: str = "",
     ) -> list[dict[str, Any]]:
-        """Find differences between two configurations."""
-        differences = []
+        """Find differences between two configurations.
 
-        all_keys = set(config1.keys()) | set(config2.keys())
+        Delegates to the shared ``deep_diff`` utility and adapts the output
+        format to use ``old_value``/``new_value`` keys expected by callers.
+        """
+        from app.modules.backup.utils import deep_diff
 
-        for key in all_keys:
-            path = f"{prefix}.{key}" if prefix else key
-
-            if key not in config1:
-                differences.append({
-                    "path": path,
-                    "type": "added",
-                    "old_value": None,
-                    "new_value": config2[key],
-                })
-                continue
-
-            if key not in config2:
-                differences.append({
-                    "path": path,
-                    "type": "removed",
-                    "old_value": config1[key],
-                    "new_value": None,
-                })
-                continue
-
-            val1 = config1[key]
-            val2 = config2[key]
-
-            if isinstance(val1, dict) and isinstance(val2, dict):
-                nested_diffs = self._find_differences(val1, val2, path)
-                differences.extend(nested_diffs)
-            elif val1 != val2:
-                differences.append({
-                    "path": path,
-                    "type": "modified",
-                    "old_value": val1,
-                    "new_value": val2,
-                })
-
+        raw = deep_diff(config1, config2)
+        differences: list[dict[str, Any]] = []
+        for d in raw:
+            if d["type"] == "added":
+                differences.append({"path": d["path"], "type": "added", "old_value": None, "new_value": d["value"]})
+            elif d["type"] == "removed":
+                differences.append({"path": d["path"], "type": "removed", "old_value": d["value"], "new_value": None})
+            elif d["type"] == "modified":
+                differences.append(
+                    {"path": d["path"], "type": "modified", "old_value": d["old"], "new_value": d["new"]}
+                )
         return differences

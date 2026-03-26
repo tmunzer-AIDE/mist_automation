@@ -239,12 +239,12 @@ async def cleanup_old_backups() -> dict[str, Any]:
         latest_results = await BackupObject.aggregate(latest_ids_pipeline).to_list()
         latest_doc_ids = {r["latest_doc_id"] for r in latest_results}
 
-        old_objects = await BackupObject.find(BackupObject.backed_up_at < cutoff_date).to_list()
-        obj_deleted = 0
-        for obj in old_objects:
-            if obj.id not in latest_doc_ids:
-                await obj.delete()
-                obj_deleted += 1
+        # Bulk delete old BackupObject versions, excluding the latest version of each object_id
+        delete_result = await BackupObject.find(
+            BackupObject.backed_up_at < cutoff_date,
+            {"_id": {"$nin": list(latest_doc_ids)}},
+        ).delete()
+        obj_deleted = delete_result.deleted_count if delete_result else 0
 
         logger.info(
             "backup_cleanup_completed",
@@ -721,6 +721,8 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
         backup_service = BackupService(mist_service=mist_service, backup_logger=backup_logger)
 
         backed_up = 0
+        errors = 0
+        attempted = 0  # events with a recognized obj_type (not skipped)
         for event in audit_events:
             obj_type, obj_id, site_id = _extract_object_info(event)
 
@@ -731,6 +733,8 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
                     keys=list(event.keys()),
                 )
                 continue
+
+            attempted += 1
 
             # Determine scope-prefixed object type
             scope = "site" if site_id and obj_type in SITE_OBJECTS else "org"
@@ -821,13 +825,14 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
                     site_id=site_id,
                 )
             except Exception as exc:
+                errors += 1
                 logger.warning(
                     "incremental_backup_object_failed",
                     object_type=prefixed_type,
                     object_id=obj_id,
                     error=str(exc),
                 )
-                await backup_logger.warning(
+                await backup_logger.error(
                     "org_objects" if not site_id else "site_objects",
                     f"Incremental backup failed for {prefixed_type}: {str(exc)}",
                     object_type=prefixed_type,
@@ -840,21 +845,30 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             "incremental_backup_completed",
             org_id=org_id,
             events=len(audit_events),
+            attempted=attempted,
             backed_up=backed_up,
+            errors=errors,
         )
 
-        if backed_up == 0:
-            # No objects were actually backed up — discard the job and its logs
-            # to avoid cluttering the database with empty webhook jobs.
+        if attempted == 0:
+            # All events were unknown types (heartbeat/ping) — discard
             await BackupLogEntry.find(BackupLogEntry.backup_job_id == backup_job.id).delete()
             await backup_job.delete()
-            logger.info("incremental_backup_discarded", org_id=org_id, reason="no objects backed up")
+            logger.info("incremental_backup_discarded", org_id=org_id, reason="no recognized event types")
             return
 
-        await backup_logger.info(
-            "complete", f"Incremental backup completed: {backed_up}/{len(audit_events)} events processed"
-        )
-        backup_job.status = BackupStatus.COMPLETED
+        if errors > 0 and backed_up == 0:
+            await backup_logger.error("complete", f"Incremental backup failed: {errors} error(s), 0 objects backed up")
+            backup_job.status = BackupStatus.FAILED
+            backup_job.error = f"{errors} event(s) failed to backup"
+        else:
+            await backup_logger.info(
+                "complete",
+                f"Incremental backup completed: {backed_up}/{attempted} events processed"
+                + (f", {errors} error(s)" if errors else ""),
+            )
+            backup_job.status = BackupStatus.COMPLETED
+
         backup_job.completed_at = datetime.now(timezone.utc)
         backup_job.object_count = backed_up
         await backup_job.save()

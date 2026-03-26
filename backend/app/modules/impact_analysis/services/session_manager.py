@@ -17,9 +17,48 @@ from app.modules.impact_analysis.models import (
     DeviceType,
     MonitoringSession,
     SessionStatus,
+    TimelineEntry,
+    TimelineEntryType,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+async def _merge_into_session(
+    existing: MonitoringSession,
+    config_event: ConfigChangeEvent,
+    duration_minutes: int,
+    interval_minutes: int,
+) -> MonitoringSession:
+    """Atomically merge a config event into an existing session using MongoDB $push/$set.
+
+    Avoids the read-modify-save race where two concurrent events could both read the same
+    config_changes array, both append locally, and the second save overwrites the first.
+    """
+    config_event_dict = config_event.model_dump(mode="json")
+    update_ops: dict = {
+        "$push": {"config_changes": config_event_dict},
+    }
+    if existing.status not in {SessionStatus.PENDING, SessionStatus.BASELINE_CAPTURE, SessionStatus.AWAITING_CONFIG}:
+        # Already monitoring: reset polls for a fresh monitoring window
+        update_ops["$set"] = {
+            "duration_minutes": duration_minutes,
+            "interval_minutes": interval_minutes,
+            "polls_total": max(1, duration_minutes // interval_minutes),
+            "polls_completed": 0,
+            "sle_snapshots": [],
+            "monitoring_started_at": None,
+            "monitoring_ends_at": None,
+            "updated_at": datetime.now(timezone.utc),
+        }
+    else:
+        # Pre-monitoring: just append the event, don't reset anything
+        update_ops["$set"] = {"updated_at": datetime.now(timezone.utc)}
+
+    await MonitoringSession.find_one(MonitoringSession.id == existing.id).update(update_ops)
+    # Re-fetch to get updated state for return
+    updated = await MonitoringSession.get(existing.id)
+    return updated  # type: ignore[return-value]
 
 
 async def create_or_merge_session(
@@ -50,24 +89,15 @@ async def create_or_merge_session(
     )
 
     if existing:
-        existing.config_changes.append(config_event)
-        existing.duration_minutes = duration_minutes
-        existing.interval_minutes = interval_minutes
-        existing.polls_total = max(1, duration_minutes // interval_minutes)
-        existing.polls_completed = 0
-        existing.sle_snapshots = []
-        existing.monitoring_started_at = None
-        existing.monitoring_ends_at = None
-        existing.update_timestamp()
-        await existing.save()
+        merged = await _merge_into_session(existing, config_event, duration_minutes, interval_minutes)
         logger.info(
             "session_merged",
-            session_id=str(existing.id),
+            session_id=str(merged.id),
             device_mac=device_mac,
-            total_changes=len(existing.config_changes),
+            total_changes=len(merged.config_changes),
         )
-        await broadcast_session_update(existing)
-        return existing, False
+        await broadcast_session_update(merged)
+        return merged, False
 
     polls_total = max(1, duration_minutes // interval_minutes)
     session = MonitoringSession(
@@ -93,24 +123,15 @@ async def create_or_merge_session(
             }
         )
         if existing:
-            existing.config_changes.append(config_event)
-            existing.duration_minutes = duration_minutes
-            existing.interval_minutes = interval_minutes
-            existing.polls_total = max(1, duration_minutes // interval_minutes)
-            existing.polls_completed = 0
-            existing.sle_snapshots = []
-            existing.monitoring_started_at = None
-            existing.monitoring_ends_at = None
-            existing.update_timestamp()
-            await existing.save()
+            merged = await _merge_into_session(existing, config_event, duration_minutes, interval_minutes)
             logger.info(
                 "session_merged_after_race",
-                session_id=str(existing.id),
+                session_id=str(merged.id),
                 device_mac=device_mac,
-                total_changes=len(existing.config_changes),
+                total_changes=len(merged.config_changes),
             )
-            await broadcast_session_update(existing)
-            return existing, False
+            await broadcast_session_update(merged)
+            return merged, False
         raise  # Should not happen — re-raise if somehow the session vanished
 
     logger.info("session_created", session_id=str(session.id), device_mac=device_mac, device_type=device_type)
@@ -132,11 +153,22 @@ async def transition(session: MonitoringSession, new_status: SessionStatus) -> N
     session.status = new_status
 
     # Set completed_at for terminal states
-    if new_status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.ALERT}:
+    if new_status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED}:
         session.completed_at = datetime.now(timezone.utc)
 
     session.update_timestamp()
     await session.save()
+
+    # Record transition in timeline
+    await append_timeline_entry(
+        session,
+        TimelineEntry(
+            type=TimelineEntryType.STATUS_CHANGE,
+            title=f"{old_status.value} \u2192 {new_status.value}",
+            severity="info",
+        ),
+    )
+
     logger.info(
         "session_transition",
         session_id=str(session.id),
@@ -145,6 +177,23 @@ async def transition(session: MonitoringSession, new_status: SessionStatus) -> N
     )
     await broadcast_session_update(session)
     await _broadcast_summary_update()
+
+
+async def config_applied(
+    session: MonitoringSession,
+    config_event: ConfigChangeEvent | None = None,
+) -> None:
+    """Handle CONFIGURED event arriving during AWAITING_CONFIG.
+
+    Appends the CONFIGURED event, records the apply timestamp, and
+    transitions the session to MONITORING.
+    """
+    if config_event:
+        session.config_changes.append(config_event)
+    session.config_applied_at = datetime.now(timezone.utc)
+    session.update_timestamp()
+    await session.save()
+    await transition(session, SessionStatus.MONITORING)
 
 
 async def add_incident(session: MonitoringSession, incident: DeviceIncident) -> None:
@@ -219,10 +268,30 @@ async def cancel_session(session_id: str) -> MonitoringSession | None:
     session = await MonitoringSession.get(session_id)
     if not session:
         return None
-    if session.status not in ACTIVE_STATUSES and session.status != SessionStatus.ALERT:
+    if session.status not in ACTIVE_STATUSES:
         return None
     await transition(session, SessionStatus.CANCELLED)
     return session
+
+
+async def escalate_impact(session: MonitoringSession, severity: str) -> None:
+    """Escalate impact severity — only goes up, never down."""
+    from app.core.websocket import ws_manager
+
+    severity_order = {"none": 0, "info": 1, "warning": 2, "critical": 3}
+    current = severity_order.get(session.impact_severity, 0)
+    new = severity_order.get(severity, 0)
+    if new <= current:
+        return  # Don't downgrade
+
+    session.impact_severity = severity
+    session.update_timestamp()
+    await session.save()
+    await broadcast_session_update(session)
+    await ws_manager.broadcast(
+        f"impact:{session.id}",
+        {"type": "impact_severity_changed", "data": {"severity": severity}},
+    )
 
 
 async def get_session_summary() -> dict[str, int]:
@@ -241,8 +310,8 @@ async def get_session_summary() -> dict[str, int]:
                     {"$match": {"status": {"$in": [s.value for s in ACTIVE_STATUSES]}}},
                     {"$count": "n"},
                 ],
-                "alert": [
-                    {"$match": {"status": SessionStatus.ALERT.value}},
+                "impacted": [
+                    {"$match": {"impact_severity": {"$ne": "none"}}},
                     {"$count": "n"},
                 ],
                 "completed_24h": [
@@ -267,10 +336,29 @@ async def get_session_summary() -> dict[str, int]:
 
     return {
         "active": _extract("active"),
-        "alert": _extract("alert"),
+        "impacted": _extract("impacted"),
         "completed_24h": _extract("completed_24h"),
         "total": _extract("total"),
     }
+
+
+# ── Timeline ─────────────────────────────────────────────────────────────
+
+
+async def append_timeline_entry(session: MonitoringSession, entry: TimelineEntry) -> None:
+    """Atomically push a timeline entry and broadcast via WebSocket.
+
+    Uses MongoDB $push so parallel writers (validation branch, SLE branch,
+    event handler) never overwrite each other's entries.
+    """
+    from app.core.websocket import ws_manager
+
+    entry_dict = entry.model_dump(mode="json")
+    await MonitoringSession.find_one(MonitoringSession.id == session.id).update({"$push": {"timeline": entry_dict}})
+    await ws_manager.broadcast(
+        f"impact:{session.id}",
+        {"type": "timeline_entry", "data": entry_dict},
+    )
 
 
 # ── WebSocket broadcasting ────────────────────────────────────────────────
@@ -288,6 +376,7 @@ async def broadcast_session_update(session: MonitoringSession) -> None:
             "data": {
                 "id": str(session.id),
                 "status": session.status.value,
+                "impact_severity": session.impact_severity,
                 "progress": session.progress,
                 "incident_count": len(session.incidents),
                 "polls_completed": session.polls_completed,

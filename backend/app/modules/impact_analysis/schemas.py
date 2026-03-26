@@ -63,6 +63,7 @@ class SessionResponse(BaseModel):
     config_change_count: int
     incident_count: int
     has_impact: bool
+    impact_severity: str = Field(default="none")
     duration_minutes: int
     polls_completed: int
     polls_total: int
@@ -72,6 +73,16 @@ class SessionResponse(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class TimelineEntryResponse(BaseModel):
+    """Single timeline entry."""
+
+    timestamp: datetime
+    type: str
+    title: str
+    severity: str = ""
+    data: dict = Field(default_factory=dict)
 
 
 class SessionDetailResponse(SessionResponse):
@@ -86,12 +97,32 @@ class SessionDetailResponse(SessionResponse):
     validation_results: dict | None = None
     ai_assessment: dict | None = None
     ai_assessment_error: str | None = None
+    timeline: list[TimelineEntryResponse] = Field(default_factory=list)
 
 
 class SessionListResponse(BaseModel):
     """Paginated list of sessions."""
 
     sessions: list[SessionResponse]
+    total: int
+
+
+class SessionLogEntryResponse(BaseModel):
+    """A single session log entry."""
+
+    id: str
+    session_id: str
+    timestamp: datetime
+    level: str
+    phase: str
+    message: str
+    details: dict | None = None
+
+
+class SessionLogListResponse(BaseModel):
+    """Paginated session logs."""
+
+    logs: list[SessionLogEntryResponse]
     total: int
 
 
@@ -112,8 +143,12 @@ class CreateSessionRequest(BaseModel):
         description="Device type: ap, switch, or gateway",
         pattern=r"^(ap|switch|gateway)$",
     )
-    duration_minutes: int = Field(default=60, ge=10, le=360, description="Monitoring duration in minutes")
-    interval_minutes: int = Field(default=10, ge=5, le=60, description="Polling interval in minutes")
+    duration_minutes: int | None = Field(
+        default=None, ge=1, le=360, description="Monitoring duration in minutes (omit for device-type default)"
+    )
+    interval_minutes: int | None = Field(
+        default=None, ge=1, le=60, description="Polling interval in minutes (omit for device-type default)"
+    )
 
 
 # ── Dashboard summary ─────────────────────────────────────────────────────
@@ -123,7 +158,7 @@ class SessionSummaryResponse(BaseModel):
     """Dashboard counts for impact analysis sessions."""
 
     active: int = Field(default=0, description="Sessions currently monitoring")
-    alert: int = Field(default=0, description="Sessions in alert state")
+    impacted: int = Field(default=0, description="Sessions with detected impact")
     completed_24h: int = Field(default=0, description="Sessions completed in the last 24 hours")
     total: int = Field(default=0, description="Total sessions")
 
@@ -145,7 +180,7 @@ class ImpactSettingsUpdate(BaseModel):
     """Partial update for impact analysis settings."""
 
     impact_analysis_enabled: bool | None = None
-    impact_analysis_default_duration_minutes: int | None = Field(None, ge=10, le=360)
-    impact_analysis_default_interval_minutes: int | None = Field(None, ge=5, le=60)
+    impact_analysis_default_duration_minutes: int | None = Field(None, ge=1, le=360)
+    impact_analysis_default_interval_minutes: int | None = Field(None, ge=1, le=60)
     impact_analysis_sle_threshold_percent: float | None = Field(None, ge=1.0, le=50.0)
     impact_analysis_retention_days: int | None = Field(None, ge=1, le=365)

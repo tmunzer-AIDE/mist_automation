@@ -133,7 +133,10 @@ MODULES: list[AppModule] = [
     AppModule(
         name="impact_analysis",
         router_module="app.modules.impact_analysis.router",
-        model_imports=[("app.modules.impact_analysis.models", "MonitoringSession")],
+        model_imports=[
+            ("app.modules.impact_analysis.models", "MonitoringSession"),
+            ("app.modules.impact_analysis.models", "SessionLogEntry"),
+        ],
         tags=["Impact Analysis"],
     ),
 ]

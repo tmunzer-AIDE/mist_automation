@@ -364,32 +364,55 @@ _ASSIGNED_TEMPLATE_FIELDS = [
 ]
 
 
+async def _fetch_one_assigned_template(
+    session, org_id: str, field: str, tmpl_type: str, api_fn, tmpl_id: str
+) -> tuple[str, str, str, dict | None]:
+    """Fetch a single assigned template. Returns (field, tmpl_type, tmpl_id, data_or_None)."""
+    try:
+        resp = await mistapi.arun(api_fn, session, org_id, tmpl_id)
+        if resp.status_code == 200 and isinstance(resp.data, dict):
+            return field, tmpl_type, tmpl_id, resp.data
+    except Exception as e:
+        logger.warning("assigned_template_fetch_error", tmpl_type=tmpl_type, tmpl_id=tmpl_id, error=str(e))
+    return field, tmpl_type, tmpl_id, None
+
+
 async def _fetch_assigned_templates(
     session, org_id: str, site_data: dict
 ) -> tuple[list[dict], list[tuple[str, list[dict]]]]:
     """Fetch assigned templates by ID from site info.
+
+    Fetches all assigned templates in parallel via ``asyncio.gather()``.
 
     Returns:
         (site_info_entries, template_data_for_var_scan)
         - site_info_entries: list of {"type", "name", "id"} for site_info display
         - template_data_for_var_scan: list of (template_type, [full_template_dict]) for variable extraction
     """
+    # Build tasks for all assigned templates
+    tasks = []
+    for field, tmpl_type, api_fn in _ASSIGNED_TEMPLATE_FIELDS:
+        tmpl_id = site_data.get(field)
+        if tmpl_id:
+            tasks.append(_fetch_one_assigned_template(session, org_id, field, tmpl_type, api_fn, tmpl_id))
+
+    if not tasks:
+        return [], []
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
     site_info_entries: list[dict] = []
     var_scan_data: list[tuple[str, list[dict]]] = []
 
-    for field, tmpl_type, api_fn in _ASSIGNED_TEMPLATE_FIELDS:
-        tmpl_id = site_data.get(field)
-        if not tmpl_id:
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("assigned_template_fetch_error", error=str(result))
             continue
-        try:
-            resp = await mistapi.arun(api_fn, session, org_id, tmpl_id)
-            if resp.status_code == 200 and isinstance(resp.data, dict):
-                site_info_entries.append({"type": tmpl_type, "name": resp.data.get("name", tmpl_id[:8]), "id": tmpl_id})
-                var_scan_data.append((tmpl_type, [resp.data]))
-            else:
-                site_info_entries.append({"type": tmpl_type, "name": tmpl_id[:8], "id": tmpl_id})
-        except Exception as e:
-            logger.warning("assigned_template_fetch_error", tmpl_type=tmpl_type, tmpl_id=tmpl_id, error=str(e))
+        _field, tmpl_type, tmpl_id, data = result
+        if data:
+            site_info_entries.append({"type": tmpl_type, "name": data.get("name", tmpl_id[:8]), "id": tmpl_id})
+            var_scan_data.append((tmpl_type, [data]))
+        else:
             site_info_entries.append({"type": tmpl_type, "name": tmpl_id[:8], "id": tmpl_id})
 
     return site_info_entries, var_scan_data

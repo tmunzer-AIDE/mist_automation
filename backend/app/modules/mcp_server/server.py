@@ -10,9 +10,7 @@ import contextvars
 from fastmcp import FastMCP
 
 # User context for write tools — set by the agent service before running
-mcp_user_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "mcp_user_id", default=None
-)
+mcp_user_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("mcp_user_id", default=None)
 
 mcp = FastMCP(
     name="mist-automation",

@@ -42,6 +42,7 @@ export interface SessionResponse {
   config_change_count: number;
   incident_count: number;
   has_impact: boolean;
+  impact_severity: string;
   duration_minutes: number;
   polls_completed: number;
   polls_total: number;
@@ -51,6 +52,14 @@ export interface SessionResponse {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface TimelineEntryResponse {
+  timestamp: string;
+  type: string;
+  title: string;
+  severity: string;
+  data: Record<string, unknown>;
 }
 
 export interface SessionDetailResponse extends SessionResponse {
@@ -63,6 +72,7 @@ export interface SessionDetailResponse extends SessionResponse {
   validation_results: Record<string, unknown> | null;
   ai_assessment: Record<string, unknown> | null;
   ai_assessment_error: string | null;
+  timeline: TimelineEntryResponse[];
 }
 
 export const VALIDATION_CHECK_LABELS: Record<string, string> = {
@@ -84,7 +94,7 @@ export const VALIDATION_CHECK_LABELS: Record<string, string> = {
 
 export interface SessionSummary {
   active: number;
-  alert: number;
+  impacted: number;
   completed_24h: number;
   total: number;
 }

@@ -29,6 +29,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import {
   SessionDetailResponse,
+  TimelineEntryResponse,
   VALIDATION_CHECK_LABELS,
 } from '../models/impact-analysis.model';
 import {
@@ -41,24 +42,6 @@ import { marked } from 'marked';
 function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
   return DOMPurify.sanitize(raw);
-}
-
-interface TimelineEntry {
-  type: 'config_change' | 'incident';
-  timestamp: string;
-  event_type: string;
-  device_name: string;
-  device_mac: string;
-  webhook_event_id?: string | null;
-  severity?: string;
-  is_revert?: boolean;
-  resolved?: boolean;
-  resolved_at?: string | null;
-  config_diff?: string | null;
-  device_model?: string;
-  firmware_version?: string;
-  commit_user?: string;
-  commit_method?: string;
 }
 
 @Component({
@@ -104,14 +87,21 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     const s = this.session()?.status;
     return (
       s === 'monitoring' ||
+      s === 'validating' ||
       s === 'baseline_capture' ||
-      s === 'analyzing' ||
+      s === 'awaiting_config' ||
       s === 'pending' ||
       s === 'running'
     );
   });
 
-  isCompleted = computed(() => this.session()?.status === 'completed');
+  isCompleted = computed(() => {
+    const s = this.session()?.status;
+    return s === 'completed';
+  });
+
+  impactSeverity = computed(() => this.session()?.impact_severity ?? 'none');
+  hasImpact = computed(() => this.impactSeverity() !== 'none');
 
   progressMode = computed<'determinate' | 'indeterminate'>(() => {
     const s = this.session();
@@ -188,39 +178,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     return (results?.['overall_status'] as string) || 'unknown';
   });
 
-  eventTimeline = computed((): TimelineEntry[] => {
-    const s = this.session();
-    if (!s) return [];
-    const entries: TimelineEntry[] = [
-      ...s.config_changes.map((c) => ({
-        type: 'config_change' as const,
-        timestamp: c.timestamp,
-        event_type: c.event_type,
-        device_name: c.device_name,
-        device_mac: c.device_mac,
-        webhook_event_id: c.webhook_event_id,
-        config_diff: c.config_diff,
-        device_model: c.device_model,
-        firmware_version: c.firmware_version,
-        commit_user: c.commit_user,
-        commit_method: c.commit_method,
-      })),
-      ...s.incidents.map((i) => ({
-        type: 'incident' as const,
-        timestamp: i.timestamp,
-        event_type: i.event_type,
-        device_name: i.device_name,
-        device_mac: i.device_mac,
-        severity: i.severity,
-        is_revert: i.is_revert,
-        resolved: i.resolved,
-        resolved_at: i.resolved_at,
-      })),
-    ];
-    return entries.sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-  });
+  eventTimeline = computed(() => this.session()?.timeline ?? []);
 
   private sessionId = '';
 
@@ -242,9 +200,9 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
           details: { device: session.device_name || session.device_mac, status: session.status },
         });
 
-        const rawMd = session.ai_assessment?.['raw_markdown'];
-        if (rawMd) {
-          this.aiAssessmentHtml.set(renderMarkdown(rawMd as string));
+        const summary = session.ai_assessment?.['summary'];
+        if (summary) {
+          this.aiAssessmentHtml.set(renderMarkdown(summary as string));
         }
 
         if (this.isActive()) {
@@ -309,14 +267,32 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     }
   }
 
-  incidentSeverityClass(severity: string): string {
+  timelineIcon(type: string): string {
+    switch (type) {
+      case 'webhook_event':
+      case 'config_change':
+        return 'settings';
+      case 'validation':
+        return 'fact_check';
+      case 'sle_check':
+        return 'speed';
+      case 'ai_analysis':
+        return 'psychology';
+      case 'status_change':
+        return 'swap_vert';
+      default:
+        return 'info';
+    }
+  }
+
+  timelineSeverityClass(severity: string): string {
     switch (severity) {
       case 'critical':
-        return 'incident-critical';
+        return 'severity-chip-critical';
       case 'warning':
-        return 'incident-warning';
+        return 'severity-chip-warning';
       case 'info':
-        return 'incident-info';
+        return 'severity-chip-info';
       default:
         return '';
     }
@@ -354,6 +330,29 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
               this.session.set({
                 ...current,
                 polls_completed: (msg.data?.['poll_number'] as number) ?? current.polls_completed,
+              });
+            }
+            break;
+          case 'timeline_entry':
+            // Append new timeline entry without full reload
+            if (current && msg.data) {
+              const entry = msg.data as unknown as TimelineEntryResponse;
+              this.session.set({
+                ...current,
+                timeline: [...current.timeline, entry],
+              });
+            }
+            break;
+          case 'validation_completed':
+          case 'ai_analysis_completed':
+            // Validation or AI analysis done — reload to get full updated data
+            this.loadSession();
+            break;
+          case 'impact_severity_changed':
+            if (current && msg.data) {
+              this.session.set({
+                ...current,
+                impact_severity: (msg.data['severity'] as string) || current.impact_severity,
               });
             }
             break;

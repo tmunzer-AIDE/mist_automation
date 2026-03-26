@@ -87,10 +87,10 @@ class SystemConfig(TimestampMixin, Document):
     # Impact Analysis Configuration
     impact_analysis_enabled: bool = Field(default=True, description="Enable config change impact analysis")
     impact_analysis_default_duration_minutes: int = Field(
-        default=60, ge=10, le=360, description="Default monitoring duration in minutes"
+        default=60, ge=1, le=360, description="Default monitoring duration in minutes"
     )
     impact_analysis_default_interval_minutes: int = Field(
-        default=10, ge=5, le=60, description="Default polling interval in minutes"
+        default=10, ge=1, le=60, description="Default polling interval in minutes"
     )
     impact_analysis_sle_threshold_percent: float = Field(
         default=10.0, ge=1.0, le=50.0, description="SLE degradation threshold percentage"

@@ -2,30 +2,32 @@
 Backup service for fetching and storing Mist configuration backups.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Optional
 import hashlib
 import json
+from datetime import datetime, timezone
+from typing import Any, Optional
+
 import mistapi
 import structlog
 from beanie import PydanticObjectId
+from pymongo.errors import DuplicateKeyError
 
+from app.config import settings
+from app.core.exceptions import BackupError, ConfigurationError
 from app.modules.backup.models import (
-    BackupObject,
     BackupEventType,
+    BackupObject,
     BackupStatus,
     ObjectReference,
 )
-from app.modules.backup.reference_map import extract_references
 from app.modules.backup.object_registry import (
     ORG_OBJECTS,
     SITE_OBJECTS,
     ObjectDef,
     get_object_name,
 )
+from app.modules.backup.reference_map import extract_references
 from app.services.mist_service import MistService
-from app.core.exceptions import BackupError, ConfigurationError
-from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -44,14 +46,13 @@ async def fetch_objects(
     if obj_def.request_type:
         kwargs["type"] = obj_def.request_type
 
+    if obj_def.is_list:
+        kwargs["limit"] = 1000
+
     if site_id:
-        result = await mistapi.arun(
-            obj_def.mistapi_function, session, site_id, **kwargs
-        )
+        result = await mistapi.arun(obj_def.mistapi_function, session, site_id, **kwargs)
     else:
-        result = await mistapi.arun(
-            obj_def.mistapi_function, session, org_id, **kwargs
-        )
+        result = await mistapi.arun(obj_def.mistapi_function, session, org_id, **kwargs)
 
     if result.status_code != 200:
         raise BackupError(f"API returned {result.status_code}")
@@ -59,8 +60,16 @@ async def fetch_objects(
     data = result.data
     if not obj_def.is_list:
         return [data] if isinstance(data, dict) else []
+
+    # Handle pagination — get_all fetches remaining pages automatically.
+    # mistapi.get_all() is a SYNC function that returns the complete list.
+    all_items = mistapi.get_all(session, result)
+    if isinstance(all_items, list):
+        return all_items
+
+    # Fallback for search endpoints that wrap results in a dict
     if isinstance(data, dict) and "results" in data:
-        return data["results"]  # search endpoints
+        return data["results"]
     return data if isinstance(data, list) else []
 
 
@@ -90,8 +99,8 @@ class BackupService:
             await self.backup_logger.info("init", "Full backup started", details={"org_id": self.org_id})
 
         try:
-            await self._backup_org_objects(stats)
-            await self._backup_site_objects(stats)
+            sites = await self._backup_org_objects(stats)
+            await self._backup_site_objects(stats, sites=sites)
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             logger.info(
@@ -116,8 +125,13 @@ class BackupService:
                 await self.backup_logger.error("complete", f"Full backup failed: {str(e)}", details={"error": str(e)})
             raise BackupError(f"Full backup failed: {str(e)}")
 
-    async def _backup_org_objects(self, stats: dict[str, Any]) -> None:
-        """Backup all organization-level objects from the registry."""
+    async def _backup_org_objects(self, stats: dict[str, Any]) -> list[dict]:
+        """Backup all organization-level objects from the registry.
+
+        Returns the list of sites fetched during org backup so that
+        ``_backup_site_objects`` can reuse it without a redundant API call.
+        """
+        sites: list[dict] = []
         for obj_type_key, obj_def in ORG_OBJECTS.items():
             try:
                 objects = await fetch_objects(
@@ -134,6 +148,8 @@ class BackupService:
                         name_override=get_object_name(obj, obj_def),
                     )
                     self._update_stats(stats, obj_type_key, result)
+                if obj_type_key == "sites":
+                    sites = objects
                 logger.debug(f"org_{obj_type_key}_backed_up", count=len(objects))
                 if self.backup_logger:
                     type_stats = stats["by_type"].get(obj_type_key, {})
@@ -153,14 +169,21 @@ class BackupService:
                         details={"error": str(e)},
                     )
                 stats["errors"] += 1
+        return sites
 
-    async def _backup_site_objects(self, stats: dict[str, Any]) -> None:
-        """Backup site-level objects for all sites."""
+    async def _backup_site_objects(self, stats: dict[str, Any], sites: list[dict] | None = None) -> None:
+        """Backup site-level objects for all sites.
+
+        Args:
+            sites: Pre-fetched sites list from ``_backup_org_objects``. If None,
+                   sites are fetched from the API (fallback for manual backups).
+        """
         try:
-            sites_def = ORG_OBJECTS["sites"]
-            all_sites = await fetch_objects(
-                self.mist_service.session, sites_def, org_id=self.org_id
-            )
+            if sites:
+                all_sites = sites
+            else:
+                sites_def = ORG_OBJECTS["sites"]
+                all_sites = await fetch_objects(self.mist_service.session, sites_def, org_id=self.org_id)
 
             for site in all_sites:
                 site_id = site["id"]
@@ -232,10 +255,14 @@ class BackupService:
         refs = [ObjectReference(**r) for r in extract_references(object_type, config)]
 
         # Check if object already exists (latest version)
-        existing = await BackupObject.find(
-            BackupObject.object_id == object_id,
-            BackupObject.is_deleted == False,
-        ).sort([("version", -1)]).first_or_none()
+        existing = (
+            await BackupObject.find(
+                BackupObject.object_id == object_id,
+                BackupObject.is_deleted == False,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         now = datetime.now(timezone.utc)
 
@@ -253,25 +280,32 @@ class BackupService:
                 return "unchanged"
 
             changed_fields = self._find_changed_fields(existing.configuration, config)
-            next_ver = await BackupObject.next_version(object_id)
 
-            new_backup = BackupObject(
-                object_type=object_type,
-                object_id=object_id,
-                object_name=object_name,
-                org_id=org_id,
-                site_id=site_id,
-                configuration=config,
-                configuration_hash=config_hash,
-                version=next_ver,
-                previous_version_id=existing.id,
-                event_type=BackupEventType.UPDATED,
-                changed_fields=changed_fields,
-                backed_up_at=now,
-                last_modified_at=now,
-                references=refs,
-            )
-            await new_backup.insert()
+            for _attempt in range(3):
+                try:
+                    next_ver = await BackupObject.next_version(object_id)
+                    new_backup = BackupObject(
+                        object_type=object_type,
+                        object_id=object_id,
+                        object_name=object_name,
+                        org_id=org_id,
+                        site_id=site_id,
+                        configuration=config,
+                        configuration_hash=config_hash,
+                        version=next_ver,
+                        previous_version_id=existing.id,
+                        event_type=BackupEventType.UPDATED,
+                        changed_fields=changed_fields,
+                        backed_up_at=now,
+                        last_modified_at=now,
+                        references=refs,
+                    )
+                    await new_backup.insert()
+                    break
+                except DuplicateKeyError:
+                    continue
+            else:
+                raise BackupError(f"Failed to create backup version for {object_id} after retries")
 
             logger.info(
                 "object_updated",
@@ -294,31 +328,42 @@ class BackupService:
             return "updated"
 
         else:
-            # Check if a deleted version exists (object was deleted then re-created)
-            latest_any = await BackupObject.find(
-                BackupObject.object_id == object_id,
-            ).sort([("version", -1)]).first_or_none()
+            for _attempt in range(3):
+                try:
+                    # Check if a deleted version exists (object was deleted then re-created)
+                    latest_any = (
+                        await BackupObject.find(
+                            BackupObject.object_id == object_id,
+                        )
+                        .sort([("version", -1)])
+                        .first_or_none()
+                    )
 
-            next_ver_new = (latest_any.version + 1) if latest_any else 1
-            prev_id = latest_any.id if latest_any else None
+                    next_ver_new = (latest_any.version + 1) if latest_any else 1
+                    prev_id = latest_any.id if latest_any else None
 
-            new_backup = BackupObject(
-                object_type=object_type,
-                object_id=object_id,
-                object_name=object_name,
-                org_id=org_id,
-                site_id=site_id,
-                configuration=config,
-                configuration_hash=config_hash,
-                version=next_ver_new,
-                previous_version_id=prev_id,
-                event_type=event_type_if_new,
-                changed_fields=[],
-                backed_up_at=now,
-                last_modified_at=now,
-                references=refs,
-            )
-            await new_backup.insert()
+                    new_backup = BackupObject(
+                        object_type=object_type,
+                        object_id=object_id,
+                        object_name=object_name,
+                        org_id=org_id,
+                        site_id=site_id,
+                        configuration=config,
+                        configuration_hash=config_hash,
+                        version=next_ver_new,
+                        previous_version_id=prev_id,
+                        event_type=event_type_if_new,
+                        changed_fields=[],
+                        backed_up_at=now,
+                        last_modified_at=now,
+                        references=refs,
+                    )
+                    await new_backup.insert()
+                    break
+                except DuplicateKeyError:
+                    continue
+            else:
+                raise BackupError(f"Failed to create backup version for {object_id} after retries")
 
             logger.info(
                 "object_created",
@@ -387,9 +432,7 @@ class BackupService:
             else:
                 fetch_kwargs["org_id"] = self.org_id
 
-            raw_objects = await fetch_objects(
-                self.mist_service.session, obj_def, **fetch_kwargs
-            )
+            raw_objects = await fetch_objects(self.mist_service.session, obj_def, **fetch_kwargs)
 
             # Filter to selected IDs if provided (for list types)
             if obj_def.is_list and object_ids:
@@ -452,9 +495,13 @@ class BackupService:
                 event_type_if_new=event_type,
             )
 
-            backup = await BackupObject.find(
-                BackupObject.object_id == object_id,
-            ).sort([("version", -1)]).first_or_none()
+            backup = (
+                await BackupObject.find(
+                    BackupObject.object_id == object_id,
+                )
+                .sort([("version", -1)])
+                .first_or_none()
+            )
 
             return backup
 
@@ -473,10 +520,14 @@ class BackupService:
         deleted_by: Optional[str] = None,
     ) -> Optional[BackupObject]:
         """Mark an object as deleted."""
-        existing = await BackupObject.find(
-            BackupObject.object_id == object_id,
-            BackupObject.is_deleted == False,
-        ).sort([("version", -1)]).first_or_none()
+        existing = (
+            await BackupObject.find(
+                BackupObject.object_id == object_id,
+                BackupObject.is_deleted == False,
+            )
+            .sort([("version", -1)])
+            .first_or_none()
+        )
 
         if not existing:
             logger.warning("object_not_found_for_deletion", object_id=object_id)
@@ -531,10 +582,14 @@ class BackupService:
         timestamp: datetime,
     ) -> Optional[BackupObject]:
         """Get object version at a specific point in time."""
-        backup = await BackupObject.find(
-            BackupObject.object_id == object_id,
-            BackupObject.backed_up_at <= timestamp,
-        ).sort([("backed_up_at", -1)]).first_or_none()
+        backup = (
+            await BackupObject.find(
+                BackupObject.object_id == object_id,
+                BackupObject.backed_up_at <= timestamp,
+            )
+            .sort([("backed_up_at", -1)])
+            .first_or_none()
+        )
 
         return backup
 
@@ -552,29 +607,9 @@ class BackupService:
         prefix: str = "",
     ) -> list[str]:
         """Find which fields changed between two configurations."""
-        changed = []
-        all_keys = set(old_config.keys()) | set(new_config.keys())
+        from app.modules.backup.utils import deep_diff
 
-        for key in all_keys:
-            field_path = f"{prefix}.{key}" if prefix else key
-
-            if key not in old_config:
-                changed.append(field_path)
-                continue
-            if key not in new_config:
-                changed.append(field_path)
-                continue
-
-            old_value = old_config[key]
-            new_value = new_config[key]
-
-            if isinstance(old_value, dict) and isinstance(new_value, dict):
-                nested_changes = self._find_changed_fields(old_value, new_value, field_path)
-                changed.extend(nested_changes)
-            elif old_value != new_value:
-                changed.append(field_path)
-
-        return changed
+        return [d["path"] for d in deep_diff(old_config, new_config)]
 
     def _update_stats(
         self,

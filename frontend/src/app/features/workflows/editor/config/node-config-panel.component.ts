@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   DestroyRef,
   EventEmitter,
   Input,
@@ -20,8 +21,8 @@ import {
 } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
@@ -48,6 +49,7 @@ import { WorkflowService } from '../../../../core/services/workflow.service';
 import { VariablePickerComponent } from './variable-picker.component';
 import { JsonSectionToggleComponent } from './json-section-toggle.component';
 import { TemplateValidationDirective } from '../../../../shared/directives/template-validation.directive';
+import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
 
 @Component({
   selector: 'app-node-config-panel',
@@ -56,8 +58,8 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
     ReactiveFormsModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
     MatCheckboxModule,
+    MatChipsModule,
     MatIconModule,
     MatButtonModule,
     MatAutocompleteModule,
@@ -85,25 +87,27 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
 
             <mat-form-field appearance="outline">
               <mat-label>Trigger Type</mat-label>
-              <mat-select formControlName="trigger_type">
-                <mat-option value="webhook">Webhook</mat-option>
-                <mat-option value="aggregated_webhook">Aggregated Webhook</mat-option>
-                <mat-option value="cron">Cron Schedule</mat-option>
-                <mat-option value="manual">Manual</mat-option>
-              </mat-select>
+              <input matInput [matAutocomplete]="triggerTypeAuto"
+                     [value]="triggerTypeDisplayValue()"
+                     (input)="triggerTypeSearch.set($any($event.target).value)">
+              <mat-autocomplete #triggerTypeAuto (optionSelected)="form.get('trigger_type')!.setValue($event.option.value)">
+                @for (opt of filteredTriggerTypes(); track opt.value) {
+                  <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                }
+              </mat-autocomplete>
             </mat-form-field>
 
             @if (form.get('trigger_type')?.value === 'webhook') {
               <mat-form-field appearance="outline">
                 <mat-label>Webhook Topic</mat-label>
-                <mat-select formControlName="webhook_topic">
-                  <mat-option value="alarms">Alarms</mat-option>
-                  <mat-option value="audits">Audits</mat-option>
-                  <mat-option value="device-updowns">Device Up/Downs</mat-option>
-                  <mat-option value="device-events">Device Events</mat-option>
-                  <mat-option value="occupancy-alerts">Occupancy Alerts</mat-option>
-                  <mat-option value="sdkclient-scan-data">SDK Client Scan</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="whTopicAuto"
+                       [value]="webhookTopicDisplayValue()"
+                       (input)="webhookTopicSearch.set($any($event.target).value)">
+                <mat-autocomplete #whTopicAuto (optionSelected)="form.get('webhook_topic')!.setValue($event.option.value)">
+                  @for (opt of filteredWebhookTopics(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
@@ -115,23 +119,26 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
             @if (form.get('trigger_type')?.value === 'aggregated_webhook') {
               <mat-form-field appearance="outline">
                 <mat-label>Event Pair</mat-label>
-                <mat-select (selectionChange)="onEventPairSelected($event.value)">
+                <input matInput [matAutocomplete]="eventPairAuto"
+                       (input)="eventPairSearch.set($any($event.target).value)">
+                <mat-autocomplete #eventPairAuto (optionSelected)="onEventPairSelected($event.option.value)">
                   <mat-option value="">Custom</mat-option>
-                  @for (pair of eventPairs(); track pair.opening) {
+                  @for (pair of filteredEventPairs(); track pair.opening) {
                     <mat-option [value]="pair.opening">{{ pair.label }}</mat-option>
                   }
-                </mat-select>
+                </mat-autocomplete>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
                 <mat-label>Webhook Topic</mat-label>
-                <mat-select formControlName="webhook_topic">
-                  <mat-option value="device-events">Device Events</mat-option>
-                  <mat-option value="mxedge-events">Mist Edge Events</mat-option>
-                  <mat-option value="nac-events">NAC Events</mat-option>
-                  <mat-option value="alarms">Alarms</mat-option>
-                  <mat-option value="device-updowns">Device Up/Downs</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="aggWhTopicAuto"
+                       [value]="aggWebhookTopicDisplayValue()"
+                       (input)="aggWebhookTopicSearch.set($any($event.target).value)">
+                <mat-autocomplete #aggWhTopicAuto (optionSelected)="form.get('webhook_topic')!.setValue($event.option.value)">
+                  @for (opt of filteredAggWebhookTopics(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
@@ -156,11 +163,14 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
 
               <mat-form-field appearance="outline">
                 <mat-label>Group By</mat-label>
-                <mat-select formControlName="group_by">
-                  <mat-option value="site_id">Site</mat-option>
-                  <mat-option value="org_id">Organization</mat-option>
-                  <mat-option value="device_mac">Device</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="groupByAuto"
+                       [value]="groupByDisplayValue()"
+                       (input)="groupBySearch.set($any($event.target).value)">
+                <mat-autocomplete #groupByAuto (optionSelected)="form.get('group_by')!.setValue($event.option.value)">
+                  @for (opt of filteredGroupByOptions(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
@@ -313,10 +323,14 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
 
               <mat-form-field appearance="outline">
                 <mat-label>Authentication</mat-label>
-                <mat-select formControlName="webhook_auth_type">
-                  <mat-option value="none">None</mat-option>
-                  <mat-option value="oauth2_password">OAuth 2.0 Password Grant</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="whAuthAuto"
+                       [value]="webhookAuthDisplayValue()"
+                       (input)="webhookAuthSearch.set($any($event.target).value)">
+                <mat-autocomplete #whAuthAuto (optionSelected)="form.get('webhook_auth_type')!.setValue($event.option.value)">
+                  @for (opt of filteredWebhookAuthTypes(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               @if (form.get('webhook_auth_type')?.value === 'oauth2_password') {
@@ -377,12 +391,14 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
             @if (node.type === 'servicenow') {
               <mat-form-field appearance="outline">
                 <mat-label>HTTP Method</mat-label>
-                <mat-select formControlName="servicenow_method">
-                  <mat-option value="GET">GET</mat-option>
-                  <mat-option value="POST">POST</mat-option>
-                  <mat-option value="PUT">PUT</mat-option>
-                  <mat-option value="DELETE">DELETE</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="snowMethodAuto"
+                       [value]="snowMethodDisplayValue()"
+                       (input)="snowMethodSearch.set($any($event.target).value)">
+                <mat-autocomplete #snowMethodAuto (optionSelected)="form.get('servicenow_method')!.setValue($event.option.value)">
+                  @for (opt of filteredSnowMethods(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
@@ -401,10 +417,14 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
 
               <mat-form-field appearance="outline">
                 <mat-label>Authentication</mat-label>
-                <mat-select formControlName="servicenow_auth_type">
-                  <mat-option value="basic">Basic Auth</mat-option>
-                  <mat-option value="oauth2_password">OAuth 2.0 Password Grant</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="snowAuthAuto"
+                       [value]="snowAuthDisplayValue()"
+                       (input)="snowAuthSearch.set($any($event.target).value)">
+                <mat-autocomplete #snowAuthAuto (optionSelected)="form.get('servicenow_auth_type')!.setValue($event.option.value)">
+                  @for (opt of filteredSnowAuthTypes(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               @if (form.get('servicenow_auth_type')?.value === 'basic') {
@@ -658,11 +678,14 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
                   </mat-form-field>
                   <mat-form-field appearance="outline" style="width: 120px">
                     <mat-label>Style</mat-label>
-                    <mat-select [formControl]="$any(action).controls.style">
-                      <mat-option value="">Default</mat-option>
-                      <mat-option value="primary">Primary</mat-option>
-                      <mat-option value="danger">Danger</mat-option>
-                    </mat-select>
+                    <input matInput [matAutocomplete]="waitStyleAuto"
+                           [value]="waitStyleDisplay($any(action).controls.style.value)"
+                           readonly>
+                    <mat-autocomplete #waitStyleAuto (optionSelected)="$any(action).controls.style.setValue($event.option.value)">
+                      @for (opt of waitStyleOptions; track opt.value) {
+                        <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                      }
+                    </mat-autocomplete>
                   </mat-form-field>
                   <button mat-icon-button color="warn" (click)="removeWaitAction(i)">
                     <mat-icon>delete</mat-icon>
@@ -846,12 +869,14 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
 
               <mat-form-field appearance="outline">
                 <mat-label>Format</mat-label>
-                <mat-select formControlName="fr_format">
-                  <mat-option value="markdown">Markdown</mat-option>
-                  <mat-option value="slack">Slack</mat-option>
-                  <mat-option value="csv">CSV</mat-option>
-                  <mat-option value="text">Plain Text</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="frFormatAuto"
+                       [value]="frFormatDisplayValue()"
+                       (input)="frFormatSearch.set($any($event.target).value)">
+                <mat-autocomplete #frFormatAuto (optionSelected)="form.get('fr_format')!.setValue($event.option.value)">
+                  @for (opt of filteredFrFormats(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               <mat-form-field appearance="outline">
@@ -920,41 +945,50 @@ import { TemplateValidationDirective } from '../../../../shared/directives/templ
               <div class="syslog-row">
                 <mat-form-field appearance="outline">
                   <mat-label>Protocol</mat-label>
-                  <mat-select formControlName="syslog_protocol">
-                    <mat-option value="udp">UDP</mat-option>
-                    <mat-option value="tcp">TCP</mat-option>
-                  </mat-select>
+                  <input matInput [matAutocomplete]="sysProtocolAuto"
+                         [value]="syslogProtocolDisplayValue()"
+                         (input)="syslogProtocolSearch.set($any($event.target).value)">
+                  <mat-autocomplete #sysProtocolAuto (optionSelected)="form.get('syslog_protocol')!.setValue($event.option.value)">
+                    @for (opt of filteredSyslogProtocols(); track opt.value) {
+                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                    }
+                  </mat-autocomplete>
                 </mat-form-field>
                 <mat-form-field appearance="outline">
                   <mat-label>Format</mat-label>
-                  <mat-select formControlName="syslog_format">
-                    <mat-option value="rfc5424">RFC 5424</mat-option>
-                    <mat-option value="cef">CEF</mat-option>
-                  </mat-select>
+                  <input matInput [matAutocomplete]="sysFormatAuto"
+                         [value]="syslogFormatDisplayValue()"
+                         (input)="syslogFormatSearch.set($any($event.target).value)">
+                  <mat-autocomplete #sysFormatAuto (optionSelected)="form.get('syslog_format')!.setValue($event.option.value)">
+                    @for (opt of filteredSyslogFormats(); track opt.value) {
+                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                    }
+                  </mat-autocomplete>
                 </mat-form-field>
               </div>
 
               <div class="syslog-row">
                 <mat-form-field appearance="outline">
                   <mat-label>Facility</mat-label>
-                  <mat-select formControlName="syslog_facility">
-                    @for (i of [0,1,2,3,4,5,6,7]; track i) {
-                      <mat-option [value]="'local' + i">local{{ i }}</mat-option>
+                  <input matInput [matAutocomplete]="sysFacilityAuto"
+                         [value]="syslogFacilityDisplayValue()"
+                         (input)="syslogFacilitySearch.set($any($event.target).value)">
+                  <mat-autocomplete #sysFacilityAuto (optionSelected)="form.get('syslog_facility')!.setValue($event.option.value)">
+                    @for (opt of filteredSyslogFacilities(); track opt.value) {
+                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                     }
-                  </mat-select>
+                  </mat-autocomplete>
                 </mat-form-field>
                 <mat-form-field appearance="outline">
                   <mat-label>Severity</mat-label>
-                  <mat-select formControlName="syslog_severity">
-                    <mat-option value="emergency">Emergency</mat-option>
-                    <mat-option value="alert">Alert</mat-option>
-                    <mat-option value="critical">Critical</mat-option>
-                    <mat-option value="error">Error</mat-option>
-                    <mat-option value="warning">Warning</mat-option>
-                    <mat-option value="notice">Notice</mat-option>
-                    <mat-option value="informational">Informational</mat-option>
-                    <mat-option value="debug">Debug</mat-option>
-                  </mat-select>
+                  <input matInput [matAutocomplete]="sysSeverityAuto"
+                         [value]="syslogSeverityDisplayValue()"
+                         (input)="syslogSeveritySearch.set($any($event.target).value)">
+                  <mat-autocomplete #sysSeverityAuto (optionSelected)="form.get('syslog_severity')!.setValue($event.option.value)">
+                    @for (opt of filteredSyslogSeverities(); track opt.value) {
+                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                    }
+                  </mat-autocomplete>
                 </mat-form-field>
               </div>
 
@@ -1035,22 +1069,27 @@ return apList.filter(ap =>
             @if (isDeviceUtilAction) {
               <mat-form-field appearance="outline">
                 <mat-label>Device Type</mat-label>
-                <mat-select formControlName="du_device_type">
-                  <mat-option value="ap">AP (Access Point)</mat-option>
-                  <mat-option value="ex">EX (Switch)</mat-option>
-                  <mat-option value="srx">SRX (Firewall)</mat-option>
-                  <mat-option value="ssr">SSR (Router)</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="duDeviceTypeAuto"
+                       [value]="duDeviceTypeDisplayValue()"
+                       (input)="duDeviceTypeSearch.set($any($event.target).value)">
+                <mat-autocomplete #duDeviceTypeAuto (optionSelected)="form.get('du_device_type')!.setValue($event.option.value)">
+                  @for (opt of filteredDuDeviceTypes(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               @if (form.get('du_device_type')?.value) {
                 <mat-form-field appearance="outline">
                   <mat-label>Utility Function</mat-label>
-                  <mat-select formControlName="du_function">
-                    @for (entry of filteredDeviceFunctions; track entry.id) {
+                  <input matInput [matAutocomplete]="duFunctionAuto"
+                         [value]="duFunctionDisplayValue()"
+                         (input)="duFunctionSearch.set($any($event.target).value)">
+                  <mat-autocomplete #duFunctionAuto (optionSelected)="form.get('du_function')!.setValue($event.option.value)">
+                    @for (entry of searchFilteredDeviceFunctions(); track entry.id) {
                       <mat-option [value]="entry.function">{{ entry.label }}</mat-option>
                     }
-                  </mat-select>
+                  </mat-autocomplete>
                 </mat-form-field>
               }
 
@@ -1111,15 +1150,18 @@ return apList.filter(ap =>
             @if (isAiAgentAction) {
               <mat-form-field appearance="outline">
                 <mat-label>LLM Configuration</mat-label>
-                <mat-select formControlName="llm_config_id">
+                <input matInput [matAutocomplete]="llmConfigAuto"
+                       [value]="llmConfigDisplayValue()"
+                       (input)="llmConfigSearch.set($any($event.target).value)">
+                <mat-autocomplete #llmConfigAuto (optionSelected)="form.get('llm_config_id')!.setValue($event.option.value)">
                   <mat-option value="">Default</mat-option>
-                  @for (cfg of availableLlmConfigs(); track cfg.id) {
+                  @for (cfg of filteredLlmConfigs(); track cfg.id) {
                     <mat-option [value]="cfg.id">
                       {{ cfg.name }} ({{ cfg.provider }})
                       @if (cfg.is_default) { — Default }
                     </mat-option>
                   }
-                </mat-select>
+                </mat-autocomplete>
                 <mat-hint>Select which LLM to use for this agent</mat-hint>
               </mat-form-field>
 
@@ -1153,11 +1195,20 @@ return apList.filter(ap =>
 
               <mat-form-field appearance="outline">
                 <mat-label>MCP Servers</mat-label>
-                <mat-select formControlName="mcp_config_ids" multiple>
-                  @for (cfg of availableMcpConfigs(); track cfg.id) {
+                <mat-chip-grid #mcpChipGrid>
+                  @for (id of selectedMcpIds(); track id) {
+                    <mat-chip-row (removed)="removeMcpConfig(id)">{{ mcpDisplayName(id) }}
+                      <button matChipRemove><mat-icon>cancel</mat-icon></button>
+                    </mat-chip-row>
+                  }
+                </mat-chip-grid>
+                <input [matChipInputFor]="mcpChipGrid" [matAutocomplete]="mcpAuto"
+                       (input)="mcpConfigSearch.set($any($event.target).value)">
+                <mat-autocomplete #mcpAuto (optionSelected)="addMcpConfig($event)">
+                  @for (cfg of filteredMcpConfigs(); track cfg.id) {
                     <mat-option [value]="cfg.id">{{ cfg.name }}</mat-option>
                   }
-                </mat-select>
+                </mat-autocomplete>
                 <mat-hint>Select MCP servers for tool access (configure in Admin > MCP Servers)</mat-hint>
               </mat-form-field>
 
@@ -1175,11 +1226,12 @@ return apList.filter(ap =>
                       </mat-form-field>
                       <mat-form-field appearance="outline" class="field-type">
                         <mat-label>Type</mat-label>
-                        <mat-select [value]="field.type" (selectionChange)="updateOutputField($index, 'type', $event)">
+                        <input matInput [matAutocomplete]="ofTypeAuto" [value]="field.type" readonly>
+                        <mat-autocomplete #ofTypeAuto (optionSelected)="updateOutputField($index, 'type', { value: $event.option.value })">
                           <mat-option value="string">String</mat-option>
                           <mat-option value="number">Number</mat-option>
                           <mat-option value="boolean">Boolean</mat-option>
-                        </mat-select>
+                        </mat-autocomplete>
                       </mat-form-field>
                       <mat-form-field appearance="outline" class="field-desc">
                         <mat-label>Description</mat-label>
@@ -1206,10 +1258,14 @@ return apList.filter(ap =>
             @if (node.type === 'trigger_backup') {
               <mat-form-field appearance="outline">
                 <mat-label>Backup Type</mat-label>
-                <mat-select formControlName="backup_type">
-                  <mat-option value="full">Full Backup</mat-option>
-                  <mat-option value="manual">Manual (selective)</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="backupTypeAuto"
+                       [value]="backupTypeDisplayValue()"
+                       (input)="backupTypeSearch.set($any($event.target).value)">
+                <mat-autocomplete #backupTypeAuto (optionSelected)="form.get('backup_type')!.setValue($event.option.value)">
+                  @for (opt of filteredBackupTypes(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
               @if (form.get('backup_type')?.value === 'manual') {
                 <mat-form-field appearance="outline">
@@ -1290,14 +1346,12 @@ return apList.filter(ap =>
                   </mat-form-field>
                   <mat-form-field appearance="outline">
                     <mat-label>Type</mat-label>
-                    <mat-select [value]="param.type" (selectionChange)="updateSubflowInputParam(i, 'type', $event.value)">
-                      <mat-option value="any">Any</mat-option>
-                      <mat-option value="string">String</mat-option>
-                      <mat-option value="number">Number</mat-option>
-                      <mat-option value="boolean">Boolean</mat-option>
-                      <mat-option value="object">Object</mat-option>
-                      <mat-option value="array">Array</mat-option>
-                    </mat-select>
+                    <input matInput [matAutocomplete]="sfInTypeAuto" [value]="param.type" readonly>
+                    <mat-autocomplete #sfInTypeAuto (optionSelected)="updateSubflowInputParam(i, 'type', $event.option.value)">
+                      @for (opt of paramTypeOptions; track opt) {
+                        <mat-option [value]="opt">{{ opt }}</mat-option>
+                      }
+                    </mat-autocomplete>
                   </mat-form-field>
                   <mat-checkbox [checked]="param.required" (change)="updateSubflowInputParam(i, 'required', $event.checked)">Required</mat-checkbox>
                   <mat-form-field appearance="outline">
@@ -1318,11 +1372,14 @@ return apList.filter(ap =>
             @if (node.type === 'invoke_subflow') {
               <mat-form-field appearance="outline">
                 <mat-label>Target Sub-Flow</mat-label>
-                <mat-select formControlName="target_workflow_id" (selectionChange)="onSubflowTargetChanged($event.value)">
-                  @for (sf of availableSubflows; track sf.id) {
+                <input matInput [matAutocomplete]="subflowTargetAuto"
+                       [value]="subflowTargetDisplayValue()"
+                       (input)="subflowSearch.set($any($event.target).value)">
+                <mat-autocomplete #subflowTargetAuto (optionSelected)="form.get('target_workflow_id')!.setValue($event.option.value); onSubflowTargetChanged($event.option.value)">
+                  @for (sf of filteredSubflows(); track sf.id) {
                     <mat-option [value]="sf.id">{{ sf.name }}</mat-option>
                   }
-                </mat-select>
+                </mat-autocomplete>
               </mat-form-field>
 
               @if (selectedSubflowSchema) {
@@ -1372,14 +1429,12 @@ return apList.filter(ap =>
                   </mat-form-field>
                   <mat-form-field appearance="outline">
                     <mat-label>Type</mat-label>
-                    <mat-select [value]="param.type" (selectionChange)="updateSubflowOutputParam(i, 'type', $event.value)">
-                      <mat-option value="any">Any</mat-option>
-                      <mat-option value="string">String</mat-option>
-                      <mat-option value="number">Number</mat-option>
-                      <mat-option value="boolean">Boolean</mat-option>
-                      <mat-option value="object">Object</mat-option>
-                      <mat-option value="array">Array</mat-option>
-                    </mat-select>
+                    <input matInput [matAutocomplete]="sfOutTypeAuto" [value]="param.type" readonly>
+                    <mat-autocomplete #sfOutTypeAuto (optionSelected)="updateSubflowOutputParam(i, 'type', $event.option.value)">
+                      @for (opt of paramTypeOptions; track opt) {
+                        <mat-option [value]="opt">{{ opt }}</mat-option>
+                      }
+                    </mat-autocomplete>
                   </mat-form-field>
                   <button mat-icon-button (click)="removeSubflowOutputParam(i)">
                     <mat-icon>close</mat-icon>
@@ -1799,9 +1854,347 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
   private readonly workflowService = inject(WorkflowService);
   private readonly llmService = inject(LlmService);
   availableLlmConfigs = signal<LlmConfigAvailable[]>([]);
+  llmConfigSearch = signal('');
+  filteredLlmConfigs = computed(() => {
+    const term = this.llmConfigSearch().toLowerCase();
+    return term
+      ? this.availableLlmConfigs().filter(
+          (c) => c.name.toLowerCase().includes(term) || c.provider.toLowerCase().includes(term),
+        )
+      : this.availableLlmConfigs();
+  });
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
+  mcpConfigSearch = signal('');
+  filteredMcpConfigs = computed(() => {
+    const term = this.mcpConfigSearch().toLowerCase();
+    const selected = new Set(this.selectedMcpIds());
+    const available = this.availableMcpConfigs().filter((c) => !selected.has(c.id));
+    return term ? available.filter((c) => c.name.toLowerCase().includes(term)) : available;
+  });
   eventPairs = signal<EventPair[]>([]);
+  eventPairSearch = signal('');
+  filteredEventPairs = computed(() => {
+    const term = this.eventPairSearch().toLowerCase();
+    return term
+      ? this.eventPairs().filter((p) => p.label.toLowerCase().includes(term))
+      : this.eventPairs();
+  });
+  duFunctionSearch = signal('');
+  searchFilteredDeviceFunctions = computed(() => {
+    const term = this.duFunctionSearch().toLowerCase();
+    return term
+      ? this.filteredDeviceFunctions.filter((e) => e.label.toLowerCase().includes(term))
+      : this.filteredDeviceFunctions;
+  });
+  subflowSearch = signal('');
+  filteredSubflows = computed(() => {
+    const term = this.subflowSearch().toLowerCase();
+    return term
+      ? this.availableSubflows.filter((sf) => sf.name.toLowerCase().includes(term))
+      : this.availableSubflows;
+  });
   outputFields = signal<Array<{ name: string; type: string; description: string; required?: boolean }>>([]);
+
+  // --- Option arrays and search/display helpers for autocomplete selects ---
+  readonly triggerTypeOptions = [
+    { value: 'webhook', label: 'Webhook' },
+    { value: 'aggregated_webhook', label: 'Aggregated Webhook' },
+    { value: 'cron', label: 'Cron Schedule' },
+    { value: 'manual', label: 'Manual' },
+  ];
+  triggerTypeSearch = signal('');
+  filteredTriggerTypes = computed(() => {
+    const term = this.triggerTypeSearch().toLowerCase();
+    return term
+      ? this.triggerTypeOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.triggerTypeOptions;
+  });
+  triggerTypeDisplayValue = computed(() => {
+    const val = this.form?.get('trigger_type')?.value;
+    return this.triggerTypeOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly webhookTopicOptions = [
+    { value: 'alarms', label: 'Alarms' },
+    { value: 'audits', label: 'Audits' },
+    { value: 'device-updowns', label: 'Device Up/Downs' },
+    { value: 'device-events', label: 'Device Events' },
+    { value: 'occupancy-alerts', label: 'Occupancy Alerts' },
+    { value: 'sdkclient-scan-data', label: 'SDK Client Scan' },
+  ];
+  webhookTopicSearch = signal('');
+  filteredWebhookTopics = computed(() => {
+    const term = this.webhookTopicSearch().toLowerCase();
+    return term
+      ? this.webhookTopicOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.webhookTopicOptions;
+  });
+  webhookTopicDisplayValue = computed(() => {
+    const val = this.form?.get('webhook_topic')?.value;
+    return this.webhookTopicOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly aggWebhookTopicOptions = [
+    { value: 'device-events', label: 'Device Events' },
+    { value: 'mxedge-events', label: 'Mist Edge Events' },
+    { value: 'nac-events', label: 'NAC Events' },
+    { value: 'alarms', label: 'Alarms' },
+    { value: 'device-updowns', label: 'Device Up/Downs' },
+  ];
+  aggWebhookTopicSearch = signal('');
+  filteredAggWebhookTopics = computed(() => {
+    const term = this.aggWebhookTopicSearch().toLowerCase();
+    return term
+      ? this.aggWebhookTopicOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.aggWebhookTopicOptions;
+  });
+  aggWebhookTopicDisplayValue = computed(() => {
+    const val = this.form?.get('webhook_topic')?.value;
+    return this.aggWebhookTopicOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly groupByOptions = [
+    { value: 'site_id', label: 'Site' },
+    { value: 'org_id', label: 'Organization' },
+    { value: 'device_mac', label: 'Device' },
+  ];
+  groupBySearch = signal('');
+  filteredGroupByOptions = computed(() => {
+    const term = this.groupBySearch().toLowerCase();
+    return term
+      ? this.groupByOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.groupByOptions;
+  });
+  groupByDisplayValue = computed(() => {
+    const val = this.form?.get('group_by')?.value;
+    return this.groupByOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly webhookAuthOptions = [
+    { value: 'none', label: 'None' },
+    { value: 'oauth2_password', label: 'OAuth 2.0 Password Grant' },
+  ];
+  webhookAuthSearch = signal('');
+  filteredWebhookAuthTypes = computed(() => {
+    const term = this.webhookAuthSearch().toLowerCase();
+    return term
+      ? this.webhookAuthOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.webhookAuthOptions;
+  });
+  webhookAuthDisplayValue = computed(() => {
+    const val = this.form?.get('webhook_auth_type')?.value;
+    return this.webhookAuthOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly snowMethodOptions = [
+    { value: 'GET', label: 'GET' },
+    { value: 'POST', label: 'POST' },
+    { value: 'PUT', label: 'PUT' },
+    { value: 'DELETE', label: 'DELETE' },
+  ];
+  snowMethodSearch = signal('');
+  filteredSnowMethods = computed(() => {
+    const term = this.snowMethodSearch().toLowerCase();
+    return term
+      ? this.snowMethodOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.snowMethodOptions;
+  });
+  snowMethodDisplayValue = computed(() => {
+    const val = this.form?.get('servicenow_method')?.value;
+    return this.snowMethodOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly snowAuthOptions = [
+    { value: 'basic', label: 'Basic Auth' },
+    { value: 'oauth2_password', label: 'OAuth 2.0 Password Grant' },
+  ];
+  snowAuthSearch = signal('');
+  filteredSnowAuthTypes = computed(() => {
+    const term = this.snowAuthSearch().toLowerCase();
+    return term
+      ? this.snowAuthOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.snowAuthOptions;
+  });
+  snowAuthDisplayValue = computed(() => {
+    const val = this.form?.get('servicenow_auth_type')?.value;
+    return this.snowAuthOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly waitStyleOptions = [
+    { value: '', label: 'Default' },
+    { value: 'primary', label: 'Primary' },
+    { value: 'danger', label: 'Danger' },
+  ];
+  waitStyleDisplay(val: string): string {
+    return this.waitStyleOptions.find((o) => o.value === val)?.label ?? val ?? 'Default';
+  }
+
+  readonly frFormatOptions = [
+    { value: 'markdown', label: 'Markdown' },
+    { value: 'slack', label: 'Slack' },
+    { value: 'csv', label: 'CSV' },
+    { value: 'text', label: 'Plain Text' },
+  ];
+  frFormatSearch = signal('');
+  filteredFrFormats = computed(() => {
+    const term = this.frFormatSearch().toLowerCase();
+    return term
+      ? this.frFormatOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.frFormatOptions;
+  });
+  frFormatDisplayValue = computed(() => {
+    const val = this.form?.get('fr_format')?.value;
+    return this.frFormatOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly syslogProtocolOptions = [
+    { value: 'udp', label: 'UDP' },
+    { value: 'tcp', label: 'TCP' },
+  ];
+  syslogProtocolSearch = signal('');
+  filteredSyslogProtocols = computed(() => {
+    const term = this.syslogProtocolSearch().toLowerCase();
+    return term
+      ? this.syslogProtocolOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.syslogProtocolOptions;
+  });
+  syslogProtocolDisplayValue = computed(() => {
+    const val = this.form?.get('syslog_protocol')?.value;
+    return this.syslogProtocolOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly syslogFormatOptions = [
+    { value: 'rfc5424', label: 'RFC 5424' },
+    { value: 'cef', label: 'CEF' },
+  ];
+  syslogFormatSearch = signal('');
+  filteredSyslogFormats = computed(() => {
+    const term = this.syslogFormatSearch().toLowerCase();
+    return term
+      ? this.syslogFormatOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.syslogFormatOptions;
+  });
+  syslogFormatDisplayValue = computed(() => {
+    const val = this.form?.get('syslog_format')?.value;
+    return this.syslogFormatOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly syslogFacilityOptions = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
+    value: 'local' + i,
+    label: 'local' + i,
+  }));
+  syslogFacilitySearch = signal('');
+  filteredSyslogFacilities = computed(() => {
+    const term = this.syslogFacilitySearch().toLowerCase();
+    return term
+      ? this.syslogFacilityOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.syslogFacilityOptions;
+  });
+  syslogFacilityDisplayValue = computed(() => {
+    const val = this.form?.get('syslog_facility')?.value;
+    return this.syslogFacilityOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly syslogSeverityOptions = [
+    { value: 'emergency', label: 'Emergency' },
+    { value: 'alert', label: 'Alert' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'error', label: 'Error' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'notice', label: 'Notice' },
+    { value: 'informational', label: 'Informational' },
+    { value: 'debug', label: 'Debug' },
+  ];
+  syslogSeveritySearch = signal('');
+  filteredSyslogSeverities = computed(() => {
+    const term = this.syslogSeveritySearch().toLowerCase();
+    return term
+      ? this.syslogSeverityOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.syslogSeverityOptions;
+  });
+  syslogSeverityDisplayValue = computed(() => {
+    const val = this.form?.get('syslog_severity')?.value;
+    return this.syslogSeverityOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly duDeviceTypeOptions = [
+    { value: 'ap', label: 'AP (Access Point)' },
+    { value: 'ex', label: 'EX (Switch)' },
+    { value: 'srx', label: 'SRX (Firewall)' },
+    { value: 'ssr', label: 'SSR (Router)' },
+  ];
+  duDeviceTypeSearch = signal('');
+  filteredDuDeviceTypes = computed(() => {
+    const term = this.duDeviceTypeSearch().toLowerCase();
+    return term
+      ? this.duDeviceTypeOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.duDeviceTypeOptions;
+  });
+  duDeviceTypeDisplayValue = computed(() => {
+    const val = this.form?.get('du_device_type')?.value;
+    return this.duDeviceTypeOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  duFunctionDisplayValue = computed(() => {
+    const val = this.form?.get('du_function')?.value;
+    const entry = this.filteredDeviceFunctions.find((e) => e.function === val);
+    return entry?.label ?? val ?? '';
+  });
+
+  llmConfigDisplayValue = computed(() => {
+    const val = this.form?.get('llm_config_id')?.value;
+    if (!val) return 'Default';
+    const cfg = this.availableLlmConfigs().find((c) => c.id === val);
+    return cfg ? `${cfg.name} (${cfg.provider})` : val;
+  });
+
+  selectedMcpIds = signal<string[]>([]);
+
+  mcpDisplayName(id: string): string {
+    return this.availableMcpConfigs().find((c) => c.id === id)?.name ?? id;
+  }
+
+  addMcpConfig(event: MatAutocompleteSelectedEvent): void {
+    const id = event.option.value;
+    const current = this.selectedMcpIds();
+    if (!current.includes(id)) {
+      const updated = [...current, id];
+      this.selectedMcpIds.set(updated);
+      this.form.get('mcp_config_ids')?.setValue(updated);
+    }
+    this.mcpConfigSearch.set('');
+  }
+
+  removeMcpConfig(id: string): void {
+    const updated = this.selectedMcpIds().filter((i) => i !== id);
+    this.selectedMcpIds.set(updated);
+    this.form.get('mcp_config_ids')?.setValue(updated);
+  }
+
+  readonly backupTypeOptions = [
+    { value: 'full', label: 'Full Backup' },
+    { value: 'manual', label: 'Manual (selective)' },
+  ];
+  backupTypeSearch = signal('');
+  filteredBackupTypes = computed(() => {
+    const term = this.backupTypeSearch().toLowerCase();
+    return term
+      ? this.backupTypeOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.backupTypeOptions;
+  });
+  backupTypeDisplayValue = computed(() => {
+    const val = this.form?.get('backup_type')?.value;
+    return this.backupTypeOptions.find((o) => o.value === val)?.label ?? val ?? '';
+  });
+
+  readonly paramTypeOptions = ['any', 'string', 'number', 'boolean', 'object', 'array'];
+
+  subflowTargetDisplayValue = computed(() => {
+    const val = this.form?.get('target_workflow_id')?.value;
+    if (!val) return '';
+    return this.availableSubflows.find((sf) => sf.id === val)?.name ?? val;
+  });
+
   private readonly destroyRef = inject(DestroyRef);
   private readonly rebuild$ = new Subject<void>();
 
@@ -1910,6 +2303,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
         next: (configs) => this.availableMcpConfigs.set(configs),
       });
       this.outputFields.set((config['output_fields'] as Array<{ name: string; type: string; description: string }>) || []);
+      this.selectedMcpIds.set((config['mcp_config_ids'] as string[]) || []);
     }
   }
 

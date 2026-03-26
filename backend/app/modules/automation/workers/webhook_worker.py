@@ -77,14 +77,15 @@ async def process_webhook(
         # Mark as processing (will be set to processed=True at the end)
         logger.info("webhook_processing_started", webhook_id=webhook_id, webhook_type=webhook_type)
 
-        # Find matching workflows — filter at DB level using $elemMatch on trigger node config
-        matching_workflows = await Workflow.find(
+        # Find matching workflows — single query for both standard and aggregated triggers
+        trigger_types = ["webhook", "aggregated_webhook"] if event_type else ["webhook"]
+        all_matching = await Workflow.find(
             {
                 "status": WorkflowStatus.ENABLED,
                 "nodes": {
                     "$elemMatch": {
                         "type": "trigger",
-                        "config.trigger_type": "webhook",
+                        "config.trigger_type": {"$in": trigger_types},
                         "$or": [
                             {"config.webhook_topic": webhook_type},
                             {"config.webhook_type": webhook_type},
@@ -94,13 +95,19 @@ async def process_webhook(
             }
         ).to_list()
 
-        # Post-filter by event_type if the trigger has an event_type_filter
-        if event_type:
-            filtered = []
-            for wf in matching_workflows:
-                trigger = next((n for n in wf.nodes if n.type == "trigger"), None)
-                if trigger:
-                    filter_val = (trigger.config or {}).get("event_type_filter", "")
+        # Partition into standard vs aggregated and apply post-filters
+        matching_workflows: list[Workflow] = []
+        aggregated_workflows: list[Workflow] = []
+        for wf in all_matching:
+            trigger = next((n for n in wf.nodes if n.type == "trigger"), None)
+            if not trigger:
+                continue
+            cfg = trigger.config or {}
+            ttype = cfg.get("trigger_type")
+
+            if ttype == "webhook":
+                if event_type:
+                    filter_val = cfg.get("event_type_filter", "")
                     if filter_val and filter_val != event_type:
                         logger.debug(
                             "workflow_skipped_event_type",
@@ -109,39 +116,13 @@ async def process_webhook(
                             event_type_filter=filter_val,
                         )
                         continue
-                filtered.append(wf)
-            matching_workflows = filtered
+                matching_workflows.append(wf)
 
-        # ── Find matching aggregated_webhook workflows ──────────────────────
-        aggregated_workflows: list[Workflow] = []
-        if event_type:
-            aggregated_workflows = await Workflow.find(
-                {
-                    "status": WorkflowStatus.ENABLED,
-                    "nodes": {
-                        "$elemMatch": {
-                            "type": "trigger",
-                            "config.trigger_type": "aggregated_webhook",
-                            "$or": [
-                                {"config.webhook_topic": webhook_type},
-                                {"config.webhook_type": webhook_type},
-                            ],
-                        }
-                    },
-                }
-            ).to_list()
-
-            # Filter: keep workflows where event_type matches either the opening event or closing event
-            filtered_agg = []
-            for wf in aggregated_workflows:
-                trigger = next((n for n in wf.nodes if n.type == "trigger"), None)
-                if not trigger:
-                    continue
-                cfg = trigger.config or {}
+            elif ttype == "aggregated_webhook" and event_type:
                 opening = cfg.get("event_type_filter", "")
                 closing = cfg.get("closing_event_type", "")
                 if event_type == opening or event_type == closing:
-                    filtered_agg.append(wf)
+                    aggregated_workflows.append(wf)
                 else:
                     logger.debug(
                         "aggregated_workflow_skipped_event_type",
@@ -150,7 +131,6 @@ async def process_webhook(
                         opening_filter=opening,
                         closing_filter=closing,
                     )
-            aggregated_workflows = filtered_agg
 
         # Route aggregated workflows to the aggregation buffer
         if aggregated_workflows:

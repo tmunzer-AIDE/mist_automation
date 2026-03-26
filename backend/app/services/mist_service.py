@@ -84,7 +84,7 @@ class MistService:
 
         except Exception as e:
             logger.error("mist_api_session_creation_failed", error=str(e))
-            raise MistAPIError(f"Failed to create Mist API session: {str(e)}")
+            raise MistAPIError("Failed to create Mist API session") from e
 
     async def test_connection(self) -> tuple[bool, str | None]:
         """
@@ -106,9 +106,8 @@ class MistService:
                 return False, error_msg
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error("mist_api_connection_error", error=error_msg)
-            return False, error_msg
+            logger.error("mist_api_connection_error", error=str(e))
+            return False, "Connection test failed"
 
     # ===== Organization Operations =====
 
@@ -133,7 +132,7 @@ class MistService:
 
         except Exception as e:
             logger.error("get_org_info_failed", error=str(e))
-            raise MistAPIError(f"Failed to get organization info: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     # ===== Site Operations =====
 
@@ -158,7 +157,7 @@ class MistService:
 
         except Exception as e:
             logger.error("get_sites_failed", error=str(e))
-            raise MistAPIError(f"Failed to get sites: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     async def get_site(self, site_id: str) -> dict[str, Any]:
         """
@@ -184,7 +183,7 @@ class MistService:
 
         except Exception as e:
             logger.error("get_site_failed", site_id=site_id, error=str(e))
-            raise MistAPIError(f"Failed to get site: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     # ===== WLAN Operations =====
 
@@ -217,7 +216,7 @@ class MistService:
 
         except Exception as e:
             logger.error("get_wlans_failed", site_id=site_id, error=str(e))
-            raise MistAPIError(f"Failed to get WLANs: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     async def create_wlan(self, site_id: str, wlan_data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -244,7 +243,7 @@ class MistService:
 
         except Exception as e:
             logger.error("create_wlan_failed", site_id=site_id, error=str(e))
-            raise MistAPIError(f"Failed to create WLAN: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     async def update_wlan(self, site_id: str, wlan_id: str, wlan_data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -272,7 +271,7 @@ class MistService:
 
         except Exception as e:
             logger.error("update_wlan_failed", site_id=site_id, wlan_id=wlan_id, error=str(e))
-            raise MistAPIError(f"Failed to update WLAN: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     async def delete_wlan(self, site_id: str, wlan_id: str) -> None:
         """
@@ -295,7 +294,7 @@ class MistService:
 
         except Exception as e:
             logger.error("delete_wlan_failed", site_id=site_id, wlan_id=wlan_id, error=str(e))
-            raise MistAPIError(f"Failed to delete WLAN: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     # ===== Template Operations =====
 
@@ -320,7 +319,7 @@ class MistService:
 
         except Exception as e:
             logger.error("get_templates_failed", error=str(e))
-            raise MistAPIError(f"Failed to get templates: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     # ===== Device Operations =====
 
@@ -353,7 +352,7 @@ class MistService:
 
         except Exception as e:
             logger.error("get_devices_failed", site_id=site_id, error=str(e))
-            raise MistAPIError(f"Failed to get devices: {str(e)}")
+            raise MistAPIError("Mist API request failed") from e
 
     def get_session(self) -> APISession:
         """Return the underlying APISession for direct mistapi access (e.g., device_utils)."""
@@ -388,7 +387,7 @@ class MistService:
             raise
         except Exception as e:
             logger.error(f"api_{method}_failed", endpoint=endpoint, error=str(e))
-            raise MistAPIError(f"{method.upper()} request failed: {str(e)}") from e
+            raise MistAPIError("Mist API request failed") from e
 
     async def api_get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Generic GET request to Mist API."""

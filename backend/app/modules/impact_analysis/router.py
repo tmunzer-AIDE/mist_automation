@@ -26,9 +26,12 @@ from app.modules.impact_analysis.schemas import (
     ImpactSettingsUpdate,
     SessionDetailResponse,
     SessionListResponse,
+    SessionLogEntryResponse,
+    SessionLogListResponse,
     SessionResponse,
     SessionSummaryResponse,
     SleDataResponse,
+    TimelineEntryResponse,
 )
 from app.modules.impact_analysis.services import session_manager
 
@@ -41,11 +44,7 @@ logger = structlog.get_logger(__name__)
 
 def _session_to_response(session: MonitoringSession) -> SessionResponse:
     """Build a list-level SessionResponse from a MonitoringSession document."""
-    has_impact = False
-    if session.ai_assessment:
-        has_impact = session.ai_assessment.get("has_impact", False)
-    elif session.status == SessionStatus.ALERT:
-        has_impact = True
+    has_impact = session.impact_severity != "none"
 
     return SessionResponse(
         id=str(session.id),
@@ -58,6 +57,7 @@ def _session_to_response(session: MonitoringSession) -> SessionResponse:
         config_change_count=len(session.config_changes),
         incident_count=len(session.incidents),
         has_impact=has_impact,
+        impact_severity=session.impact_severity,
         duration_minutes=session.duration_minutes,
         polls_completed=session.polls_completed,
         polls_total=session.polls_total,
@@ -121,6 +121,16 @@ def _session_to_detail_response(session: MonitoringSession) -> SessionDetailResp
         validation_results=session.validation_results,
         ai_assessment=session.ai_assessment,
         ai_assessment_error=session.ai_assessment_error,
+        timeline=[
+            TimelineEntryResponse(
+                timestamp=e.timestamp,
+                type=e.type.value,
+                title=e.title,
+                severity=e.severity,
+                data=e.data,
+            )
+            for e in session.timeline
+        ],
     )
 
 
@@ -183,16 +193,6 @@ async def list_sessions(
     )
 
 
-@router.get("/impact-analysis/sessions/{session_id}", response_model=SessionDetailResponse)
-async def get_session(
-    session_id: PydanticObjectId,
-    _current_user: User = Depends(require_impact_role),
-) -> SessionDetailResponse:
-    """Get full session detail including SLE data, incidents, and AI assessment."""
-    session = await _get_session(session_id)
-    return _session_to_detail_response(session)
-
-
 @router.post("/impact-analysis/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
     request: CreateSessionRequest,
@@ -220,16 +220,25 @@ async def create_session(
         device_name="",
     )
 
+    device_type = DeviceType(request.device_type)
+
+    # Use device-type defaults when user omits duration/interval
+    from app.modules.impact_analysis.models import get_monitoring_defaults
+
+    default_duration, default_interval = get_monitoring_defaults(device_type)
+    duration = request.duration_minutes if request.duration_minutes is not None else default_duration
+    interval = request.interval_minutes if request.interval_minutes is not None else default_interval
+
     session, is_new = await session_manager.create_or_merge_session(
         site_id=request.site_id,
         site_name=site_name,
         org_id=org_id,
         device_mac=request.device_mac,
         device_name="",
-        device_type=DeviceType(request.device_type),
+        device_type=device_type,
         config_event=config_event,
-        duration_minutes=request.duration_minutes,
-        interval_minutes=request.interval_minutes,
+        duration_minutes=duration,
+        interval_minutes=interval,
     )
 
     if is_new:
@@ -276,11 +285,11 @@ async def reanalyze_session(
     """Re-run AI analysis on a completed or alert session."""
     session = await _get_session(session_id)
 
-    if session.status not in {SessionStatus.COMPLETED, SessionStatus.ALERT}:
+    if session.status != SessionStatus.COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot reanalyze a session in '{session.status.value}' state. "
-            "Only completed or alert sessions can be reanalyzed.",
+            "Only completed sessions can be reanalyzed.",
         )
 
     from app.modules.impact_analysis.services.analysis_service import analyze_session
@@ -299,6 +308,44 @@ async def reanalyze_session(
     await session.save()
 
     return _session_to_detail_response(session)
+
+
+# ── Session logs ──────────────────────────────────────────────────────────
+
+
+@router.get("/impact-analysis/sessions/{session_id}/logs", response_model=SessionLogListResponse)
+async def get_session_logs(
+    session_id: PydanticObjectId,
+    limit: int = Query(100, ge=1, le=1000),
+    skip: int = Query(0, ge=0),
+    level: str | None = None,
+    _current_user: User = Depends(require_impact_role),
+) -> SessionLogListResponse:
+    """Get diagnostic logs for a monitoring session."""
+    from app.modules.impact_analysis.models import SessionLogEntry
+
+    query: dict = {"session_id": str(session_id)}
+    if level:
+        query["level"] = level
+
+    total = await SessionLogEntry.find(query).count()
+    logs = await SessionLogEntry.find(query).sort("+timestamp").skip(skip).limit(limit).to_list()
+
+    return SessionLogListResponse(
+        logs=[
+            SessionLogEntryResponse(
+                id=str(log.id),
+                session_id=log.session_id,
+                timestamp=log.timestamp,
+                level=log.level,
+                phase=log.phase,
+                message=log.message,
+                details=log.details,
+            )
+            for log in logs
+        ],
+        total=total,
+    )
 
 
 # ── Dashboard summary ─────────────────────────────────────────────────────
@@ -330,6 +377,19 @@ async def get_sle_data(
         delta=session.sle_delta,
         drill_down=session.sle_drill_down,
     )
+
+
+# ── Session detail (must be AFTER sub-path routes to avoid catching /logs, /sle-data etc.)
+
+
+@router.get("/impact-analysis/sessions/{session_id}", response_model=SessionDetailResponse)
+async def get_session(
+    session_id: PydanticObjectId,
+    _current_user: User = Depends(require_impact_role),
+) -> SessionDetailResponse:
+    """Get full session detail including SLE data, incidents, and AI assessment."""
+    session = await _get_session(session_id)
+    return _session_to_detail_response(session)
 
 
 # ── Admin settings ────────────────────────────────────────────────────────

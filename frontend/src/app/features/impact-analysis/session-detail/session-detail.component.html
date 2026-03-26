@@ -21,10 +21,11 @@
         <mat-icon class="device-type-icon">{{ deviceTypeIcon(s.device_type) }}</mat-icon>
         <h2>{{ s.device_name || s.device_mac }}</h2>
         <app-status-badge [status]="s.status"></app-status-badge>
-        @if (s.has_impact && isCompleted()) {
-          <span class="impact-badge alert">Impact Detected</span>
-        }
-        @if (!s.has_impact && isCompleted()) {
+        @if (hasImpact()) {
+          <span class="impact-badge" [class]="'impact-' + impactSeverity()">
+            {{ impactSeverity() | titlecase }} Impact
+          </span>
+        } @else if (isCompleted()) {
           <span class="impact-badge ok">No Impact</span>
         }
       </div>
@@ -98,7 +99,7 @@
     </mat-card>
   }
 
-  <!-- Event Timeline (unified config changes + incidents) -->
+  <!-- Event Timeline -->
   <section class="detail-section">
     <div class="section-header">
       <h3>
@@ -111,70 +112,29 @@
       @for (entry of eventTimeline(); track $index) {
         <div class="timeline-entry" [class]="'entry-' + entry.type">
           <div class="timeline-dot">
-            <mat-icon
-              [class]="
-                entry.type === 'config_change'
-                  ? 'dot-config'
-                  : 'dot-' + (entry.severity || 'warning')
-              "
-            >
-              @if (entry.type === 'config_change') {
-                settings
-              } @else if (entry.is_revert) {
-                undo
-              } @else if (entry.severity === 'critical') {
-                error
-              } @else {
-                warning
-              }
+            <mat-icon [class]="'dot-' + (entry.severity || 'info')">
+              {{ timelineIcon(entry.type) }}
             </mat-icon>
           </div>
           <div class="timeline-content">
             <div class="timeline-header">
-              <span class="event-type-label">{{ entry.event_type }}</span>
-              @if (entry.type === 'config_change') {
-                <span class="event-chip config">Trigger</span>
+              <span class="event-type-label">{{ entry.title }}</span>
+              @if (entry.severity) {
+                <span class="event-chip" [class]="timelineSeverityClass(entry.severity)">
+                  {{ entry.severity | titlecase }}
+                </span>
               }
-              @if (entry.is_revert) {
-                <span class="event-chip revert">Config Revert</span>
-              }
-              @if (entry.severity === 'critical' && entry.type === 'incident') {
-                <span class="event-chip critical">Critical</span>
-              }
-              @if (entry.resolved) {
-                <span class="event-chip resolved">
-                  <mat-icon>check_circle</mat-icon>
-                  Resolved
+              @if (entry.type === 'validation' && entry.data['overall_status']) {
+                <span class="event-chip" [class]="'validation-' + entry.data['overall_status']">
+                  {{ '' + entry.data['overall_status'] | titlecase }}
                 </span>
               }
             </div>
             <div class="timeline-meta">
               <span>{{ entry.timestamp | dateTime: 'short' }}</span>
               <span class="meta-sep">&middot;</span>
-              <span>{{ entry.device_name || entry.device_mac }}</span>
-              @if (entry.device_model) {
-                <span class="meta-sep">&middot;</span>
-                <span>{{ entry.device_model }}</span>
-              }
-              @if (entry.commit_user) {
-                <span class="meta-sep">&middot;</span>
-                <span>by {{ entry.commit_user }} ({{ entry.commit_method }})</span>
-              }
-              @if (entry.firmware_version) {
-                <span class="meta-sep">&middot;</span>
-                <span>v{{ entry.firmware_version }}</span>
-              }
-              @if (entry.resolved_at) {
-                <span class="meta-sep">&middot;</span>
-                <span>Resolved {{ entry.resolved_at | dateTime: 'short' }}</span>
-              }
+              <span class="entry-type-label">{{ entry.type | titlecase }}</span>
             </div>
-            @if (entry.config_diff) {
-              <details class="config-diff">
-                <summary>View Config Diff</summary>
-                <pre class="diff-content">{{ entry.config_diff }}</pre>
-              </details>
-            }
           </div>
         </div>
       } @empty {
@@ -310,6 +270,16 @@
         }
       </mat-accordion>
     </section>
+  } @else if (isActive()) {
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>
+          <mat-icon>fact_check</mat-icon>
+          Validation Checks
+        </h3>
+      </div>
+      <p class="empty-state">Validation checks will run shortly after config is applied</p>
+    </section>
   }
 
   <!-- AI Assessment Section -->
@@ -328,14 +298,10 @@
       </mat-expansion-panel-header>
 
       <div class="ai-assessment-content">
-        <!-- Summary -->
-        @if (s.ai_assessment['summary']) {
-          <p class="assessment-summary">{{ s.ai_assessment['summary'] }}</p>
-        }
-
-        <!-- Rendered markdown -->
         @if (aiAssessmentHtml()) {
           <div class="assessment-markdown" [innerHTML]="aiAssessmentHtml()"></div>
+        } @else if (s.ai_assessment['summary']) {
+          <p class="assessment-summary">{{ s.ai_assessment['summary'] }}</p>
         }
       </div>
     </mat-expansion-panel>

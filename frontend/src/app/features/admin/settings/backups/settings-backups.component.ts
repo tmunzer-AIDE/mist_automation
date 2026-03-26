@@ -1,9 +1,9 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -19,10 +19,10 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
     MatButtonModule,
     MatIconModule,
     MatSnackBarModule,
@@ -48,46 +48,50 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
             <div class="schedule-row">
               <mat-form-field appearance="outline">
                 <mat-label>Frequency</mat-label>
-                <mat-select formControlName="schedule_frequency">
-                  <mat-option value="daily">Daily</mat-option>
-                  <mat-option value="weekly">Weekly</mat-option>
-                  <mat-option value="monthly">Monthly</mat-option>
-                </mat-select>
+                <input matInput [matAutocomplete]="frequencyAuto"
+                       (input)="frequencySearch.set($any($event.target).value)">
+                <mat-autocomplete #frequencyAuto (optionSelected)="form.get('schedule_frequency')!.setValue($event.option.value)">
+                  @for (opt of filteredFrequencies(); track opt.value) {
+                    <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                  }
+                </mat-autocomplete>
               </mat-form-field>
 
               @if (form.value.schedule_frequency === 'weekly') {
                 <mat-form-field appearance="outline">
                   <mat-label>Day of Week</mat-label>
-                  <mat-select formControlName="schedule_day_of_week">
-                    <mat-option value="0">Monday</mat-option>
-                    <mat-option value="1">Tuesday</mat-option>
-                    <mat-option value="2">Wednesday</mat-option>
-                    <mat-option value="3">Thursday</mat-option>
-                    <mat-option value="4">Friday</mat-option>
-                    <mat-option value="5">Saturday</mat-option>
-                    <mat-option value="6">Sunday</mat-option>
-                  </mat-select>
+                  <input matInput [matAutocomplete]="dayOfWeekAuto"
+                         (input)="dayOfWeekSearch.set($any($event.target).value)">
+                  <mat-autocomplete #dayOfWeekAuto (optionSelected)="form.get('schedule_day_of_week')!.setValue($event.option.value)">
+                    @for (opt of filteredDaysOfWeek(); track opt.value) {
+                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                    }
+                  </mat-autocomplete>
                 </mat-form-field>
               }
 
               @if (form.value.schedule_frequency === 'monthly') {
                 <mat-form-field appearance="outline">
                   <mat-label>Day of Month</mat-label>
-                  <mat-select formControlName="schedule_day_of_month">
-                    @for (d of daysOfMonth; track d) {
+                  <input matInput [matAutocomplete]="dayOfMonthAuto"
+                         (input)="dayOfMonthSearch.set($any($event.target).value)">
+                  <mat-autocomplete #dayOfMonthAuto (optionSelected)="form.get('schedule_day_of_month')!.setValue($event.option.value)">
+                    @for (d of filteredDaysOfMonth(); track d) {
                       <mat-option [value]="d">{{ d }}</mat-option>
                     }
-                  </mat-select>
+                  </mat-autocomplete>
                 </mat-form-field>
               }
 
               <mat-form-field appearance="outline">
                 <mat-label>Time (UTC)</mat-label>
-                <mat-select formControlName="schedule_hour">
-                  @for (h of hours; track h.value) {
+                <input matInput [matAutocomplete]="hourAuto"
+                       (input)="hourSearch.set($any($event.target).value)">
+                <mat-autocomplete #hourAuto (optionSelected)="form.get('schedule_hour')!.setValue($event.option.value)">
+                  @for (h of filteredHours(); track h.value) {
                     <mat-option [value]="h.value">{{ h.label }}</mat-option>
                   }
-                </mat-select>
+                </mat-autocomplete>
               </mat-form-field>
             </div>
             <p class="schedule-preview">
@@ -187,12 +191,59 @@ export class SettingsBackupsComponent implements OnInit {
   loading = signal(true);
   saving = signal(false);
 
+  readonly frequencies = [
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'monthly', label: 'Monthly' },
+  ];
+
+  readonly daysOfWeekOptions = [
+    { value: '0', label: 'Monday' },
+    { value: '1', label: 'Tuesday' },
+    { value: '2', label: 'Wednesday' },
+    { value: '3', label: 'Thursday' },
+    { value: '4', label: 'Friday' },
+    { value: '5', label: 'Saturday' },
+    { value: '6', label: 'Sunday' },
+  ];
+
   hours = Array.from({ length: 24 }, (_, i) => ({
     value: String(i),
     label: `${i.toString().padStart(2, '0')}:00`,
   }));
 
   daysOfMonth = Array.from({ length: 28 }, (_, i) => String(i + 1));
+
+  frequencySearch = signal('');
+  dayOfWeekSearch = signal('');
+  dayOfMonthSearch = signal('');
+  hourSearch = signal('');
+
+  filteredFrequencies = computed(() => {
+    const term = this.frequencySearch().toLowerCase();
+    return term
+      ? this.frequencies.filter((f) => f.label.toLowerCase().includes(term))
+      : this.frequencies;
+  });
+
+  filteredDaysOfWeek = computed(() => {
+    const term = this.dayOfWeekSearch().toLowerCase();
+    return term
+      ? this.daysOfWeekOptions.filter((d) => d.label.toLowerCase().includes(term))
+      : this.daysOfWeekOptions;
+  });
+
+  filteredDaysOfMonth = computed(() => {
+    const term = this.dayOfMonthSearch().toLowerCase();
+    return term ? this.daysOfMonth.filter((d) => d.includes(term)) : this.daysOfMonth;
+  });
+
+  filteredHours = computed(() => {
+    const term = this.hourSearch().toLowerCase();
+    return term
+      ? this.hours.filter((h) => h.label.toLowerCase().includes(term))
+      : this.hours;
+  });
 
   form = this.fb.group({
     backup_enabled: [true],

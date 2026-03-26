@@ -25,20 +25,34 @@ elicitation_channel_var: contextvars.ContextVar[str | None] = contextvars.Contex
 )
 
 # Pending elicitations awaiting user response, keyed by request_id.
+# Each value is a (user_id, Future) tuple for ownership verification.
 # NOTE: In-process state — requires single-worker deployment. Use Redis for multi-worker.
-_pending_elicitations: dict[str, asyncio.Future[bool]] = {}
+_pending_elicitations: dict[str, tuple[str | None, asyncio.Future[bool]]] = {}
+
+
+def get_elicitation_owner(request_id: str) -> str | None:
+    """Return the user_id that owns a pending elicitation, or None if not found."""
+    entry = _pending_elicitations.get(request_id)
+    if entry is None:
+        return None
+    return entry[0]
 
 
 def resolve_elicitation(request_id: str, accepted: bool) -> bool:
     """Resolve a pending elicitation request with the user's decision.
 
     Returns True if the request was found and resolved.
+    Caller should verify ownership via ``get_elicitation_owner()`` first.
     """
-    future = _pending_elicitations.pop(request_id, None)
-    if future and not future.done():
+    entry = _pending_elicitations.pop(request_id, None)
+    if entry is None:
+        return False
+    _user_id, future = entry
+    if not future.done():
         future.set_result(accepted)
         return True
     return False
+
 
 MAX_VALUE_LEN = 500
 MAX_DIFF_ENTRIES = 50
@@ -129,11 +143,13 @@ async def _elicit(payload: dict[str, Any], description: str, timeout: float) -> 
         return True
 
     from app.core.websocket import ws_manager
+    from app.modules.mcp_server.server import mcp_user_id_var
 
     request_id = str(uuid.uuid4())
     loop = asyncio.get_running_loop()
     future: asyncio.Future[bool] = loop.create_future()
-    _pending_elicitations[request_id] = future
+    user_id = mcp_user_id_var.get()
+    _pending_elicitations[request_id] = (user_id, future)
 
     payload["request_id"] = request_id
     await ws_manager.broadcast(channel, payload)

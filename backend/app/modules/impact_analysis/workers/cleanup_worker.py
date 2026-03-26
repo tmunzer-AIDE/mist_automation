@@ -18,7 +18,6 @@ logger = structlog.get_logger(__name__)
 # Terminal statuses eligible for cleanup
 _TERMINAL_STATUSES = {
     SessionStatus.COMPLETED.value,
-    SessionStatus.ALERT.value,
     SessionStatus.FAILED.value,
     SessionStatus.CANCELLED.value,
 }

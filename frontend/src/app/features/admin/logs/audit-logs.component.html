@@ -7,12 +7,15 @@
 <div class="filters" [formGroup]="filterForm">
   <mat-form-field appearance="outline">
     <mat-label>Event Type</mat-label>
-    <mat-select formControlName="event_type">
+    <input matInput [matAutocomplete]="eventTypeAuto"
+           (input)="eventTypeSearch.set($any($event.target).value)"
+           [formControl]="eventTypeInput">
+    <mat-autocomplete #eventTypeAuto (optionSelected)="onEventTypeSelected($event)">
       <mat-option value="">All</mat-option>
-      @for (type of eventTypes; track type) {
+      @for (type of filteredEventTypes(); track type) {
         <mat-option [value]="type">{{ type }}</mat-option>
       }
-    </mat-select>
+    </mat-autocomplete>
   </mat-form-field>
 
   <mat-form-field appearance="outline">

@@ -1,5 +1,6 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
@@ -7,7 +8,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -30,6 +30,7 @@ const PROVIDER_OPTIONS = [
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
     MatButtonModule,
     MatDialogModule,
     MatDividerModule,
@@ -37,7 +38,6 @@ const PROVIDER_OPTIONS = [
     MatIconModule,
     MatInputModule,
     MatProgressBarModule,
-    MatSelectModule,
     MatSlideToggleModule,
     MatSliderModule,
     MatSnackBarModule,
@@ -56,11 +56,13 @@ const PROVIDER_OPTIONS = [
 
         <mat-form-field appearance="outline">
           <mat-label>Provider</mat-label>
-          <mat-select formControlName="provider">
-            @for (opt of providers; track opt.value) {
+          <input matInput [matAutocomplete]="providerAuto"
+                 (input)="providerSearch.set($any($event.target).value)">
+          <mat-autocomplete #providerAuto (optionSelected)="form.get('provider')!.setValue($event.option.value)">
+            @for (opt of filteredProviders(); track opt.value) {
               <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
             }
-          </mat-select>
+          </mat-autocomplete>
         </mat-form-field>
 
         @if (showBaseUrl()) {
@@ -100,11 +102,13 @@ const PROVIDER_OPTIONS = [
           <mat-form-field appearance="outline" class="model-field">
             <mat-label>Model</mat-label>
             @if (availableModels().length > 0) {
-              <mat-select formControlName="model">
-                @for (m of availableModels(); track m.id) {
+              <input matInput [matAutocomplete]="modelAuto"
+                     (input)="modelSearch.set($any($event.target).value)">
+              <mat-autocomplete #modelAuto (optionSelected)="form.get('model')!.setValue($event.option.value)">
+                @for (m of filteredModels(); track m.id) {
                   <mat-option [value]="m.id">{{ m.name }}</mat-option>
                 }
-              </mat-select>
+              </mat-autocomplete>
             } @else {
               <input matInput formControlName="model" placeholder="Model name" />
             }
@@ -182,6 +186,25 @@ export class LlmConfigDialogComponent implements OnInit {
   testing = signal(false);
   fetchingModels = signal(false);
   availableModels = signal<LlmModel[]>([]);
+
+  providerSearch = signal('');
+  modelSearch = signal('');
+
+  filteredProviders = computed(() => {
+    const term = this.providerSearch().toLowerCase();
+    return term
+      ? this.providers.filter((p) => p.label.toLowerCase().includes(term))
+      : this.providers;
+  });
+
+  filteredModels = computed(() => {
+    const term = this.modelSearch().toLowerCase();
+    return term
+      ? this.availableModels().filter(
+          (m) => m.name.toLowerCase().includes(term) || m.id.toLowerCase().includes(term)
+        )
+      : this.availableModels();
+  });
 
   form = this.fb.group({
     name: ['', Validators.required],

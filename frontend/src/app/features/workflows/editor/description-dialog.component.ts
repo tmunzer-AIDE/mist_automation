@@ -1,10 +1,10 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 
 @Component({
   selector: 'app-description-dialog',
@@ -15,7 +15,7 @@ import { MatSelectModule } from '@angular/material/select';
     MatFormFieldModule,
     MatInputModule,
     MatButtonModule,
-    MatSelectModule,
+    MatAutocompleteModule,
   ],
   template: `
     <h2 mat-dialog-title>Edit Description</h2>
@@ -32,11 +32,20 @@ import { MatSelectModule } from '@angular/material/select';
 
       <mat-form-field class="full-width">
         <mat-label>Sharing</mat-label>
-        <mat-select formControlName="sharing">
-          <mat-option value="private">Private</mat-option>
-          <mat-option value="read-only">Read-Only</mat-option>
-          <mat-option value="read-write">Read-Write</mat-option>
-        </mat-select>
+        <input
+          matInput
+          [matAutocomplete]="sharingAuto"
+          [value]="sharingDisplayValue()"
+          (input)="sharingSearch.set($any($event.target).value)"
+        />
+        <mat-autocomplete
+          #sharingAuto
+          (optionSelected)="form.get('sharing')!.setValue($event.option.value)"
+        >
+          @for (opt of filteredSharingOptions(); track opt.value) {
+            <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+          }
+        </mat-autocomplete>
       </mat-form-field>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
@@ -56,6 +65,23 @@ export class DescriptionDialogComponent {
   readonly dialogRef = inject(MatDialogRef<DescriptionDialogComponent>);
   private readonly data: { description: string; sharing: string } = inject(MAT_DIALOG_DATA);
   private readonly fb = inject(FormBuilder);
+
+  readonly sharingOptions = [
+    { value: 'private', label: 'Private' },
+    { value: 'read-only', label: 'Read-Only' },
+    { value: 'read-write', label: 'Read-Write' },
+  ];
+  sharingSearch = signal('');
+  filteredSharingOptions = computed(() => {
+    const term = this.sharingSearch().toLowerCase();
+    return term
+      ? this.sharingOptions.filter((o) => o.label.toLowerCase().includes(term))
+      : this.sharingOptions;
+  });
+  sharingDisplayValue = computed(() => {
+    const val = this.form.get('sharing')?.value || 'private';
+    return this.sharingOptions.find((o) => o.value === val)?.label ?? val;
+  });
 
   form = this.fb.group({
     description: [this.data?.description || ''],

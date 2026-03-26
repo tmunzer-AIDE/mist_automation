@@ -1,0 +1,115 @@
+<ng-template #actions>
+  <mat-progress-spinner
+    class="connection-spinner"
+    [diameter]="16"
+    [strokeWidth]="2"
+    [mode]="!connected() ? 'determinate' : 'indeterminate'"
+    [value]="!connected() ? 100 : 0"
+    [class.spinner-disconnected]="!connected()"
+    [class.spinner-paused]="connected() && paused()"
+    [class.spinner-live]="connected() && !paused()"
+    [matTooltip]="!connected() ? 'WebSocket disconnected' : paused() ? 'Live updates paused' : 'Live'"
+  ></mat-progress-spinner>
+  @if (paused() && pauseBuffer().length > 0) {
+    <span class="pause-badge">{{ pauseBuffer().length }} buffered</span>
+  }
+  <button
+    mat-icon-button
+    (click)="togglePause()"
+    [matTooltip]="paused() ? 'Resume live updates' : 'Pause live updates'"
+  >
+    <mat-icon>{{ paused() ? 'play_arrow' : 'pause' }}</mat-icon>
+  </button>
+  <button mat-icon-button matTooltip="Clear logs" (click)="clearLogs()">
+    <mat-icon>delete_sweep</mat-icon>
+  </button>
+  <button mat-icon-button matTooltip="Copy as JSON" (click)="copyJson()">
+    <mat-icon>content_copy</mat-icon>
+  </button>
+  <button mat-icon-button matTooltip="Export JSON" (click)="exportJson()">
+    <mat-icon>download</mat-icon>
+  </button>
+</ng-template>
+
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+}
+
+<div class="filter-row">
+  <mat-form-field appearance="outline" class="filter-field-sm">
+    <mat-label>Level</mat-label>
+    <mat-chip-grid #levelChipGrid>
+      @for (level of selectedLevels(); track level) {
+        <mat-chip-row (removed)="removeLevel(level)">{{ level | uppercase }}
+          <button matChipRemove><mat-icon>cancel</mat-icon></button>
+        </mat-chip-row>
+      }
+    </mat-chip-grid>
+    <input [matChipInputFor]="levelChipGrid" [matAutocomplete]="levelAuto"
+           (input)="levelSearch.set($any($event.target).value)">
+    <mat-autocomplete #levelAuto (optionSelected)="addLevel($event)">
+      @for (level of filteredLevels(); track level) {
+        <mat-option [value]="level">{{ level | uppercase }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="filter-field-logger">
+    <mat-label>Logger</mat-label>
+    <mat-chip-grid #loggerChipGrid>
+      @for (logger of selectedLoggers(); track logger) {
+        <mat-chip-row (removed)="removeLogger(logger)">{{ logger }}
+          <button matChipRemove><mat-icon>cancel</mat-icon></button>
+        </mat-chip-row>
+      }
+    </mat-chip-grid>
+    <input [matChipInputFor]="loggerChipGrid" [matAutocomplete]="loggerAuto"
+           (input)="loggerSearch.set($any($event.target).value)">
+    <mat-autocomplete #loggerAuto (optionSelected)="addLogger($event)">
+      @for (logger of filteredLoggerOptions(); track logger) {
+        <mat-option [value]="logger">{{ logger }}</mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+
+  <span class="count-label">{{ filteredLogs().length }} entries</span>
+</div>
+
+<div class="log-container">
+  @for (entry of filteredLogs(); track $index) {
+    <div
+      class="log-row"
+      [class.expanded]="expandedIndex() === $index"
+      [class.has-extra]="hasExtra(entry.extra)"
+      [class.row-error]="entry.level === 'error' || entry.level === 'critical'"
+      [class.row-warning]="entry.level === 'warning'"
+      (click)="hasExtra(entry.extra) ? toggleExpand($index) : null"
+    >
+      <!-- Main line: fixed columns -->
+      <div class="log-main">
+        <span class="col-time">{{ formatTime(entry.timestamp) }}</span>
+        <span class="col-level" [class]="levelClass(entry.level)">{{ entry.level | uppercase }}</span>
+        <span class="col-logger" [matTooltip]="entry.logger">{{ entry.logger }}</span>
+        <span class="col-event">{{ entry.event }}</span>
+        @if (hasExtra(entry.extra)) {
+          <mat-icon class="col-expand">{{ expandedIndex() === $index ? 'expand_less' : 'expand_more' }}</mat-icon>
+        }
+      </div>
+
+      <!-- Expanded detail: key-value pairs -->
+      @if (expandedIndex() === $index && hasExtra(entry.extra)) {
+        <div class="log-detail">
+          @for (pair of extraEntries(entry.extra); track pair[0]) {
+            <div class="detail-field">
+              <span class="detail-key">{{ pair[0] }}</span>
+              <span class="detail-value">{{ pair[1] }}</span>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+  @if (filteredLogs().length === 0 && !loading()) {
+    <div class="empty-state">No log entries</div>
+  }
+</div>

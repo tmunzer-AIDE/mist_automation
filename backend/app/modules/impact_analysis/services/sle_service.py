@@ -1,7 +1,7 @@
 """SLE (Service Level Experience) service for impact analysis.
 
 Two-tier strategy:
-1. Site-level SLE at every poll (shared via SiteDataCoordinator, zero extra API calls per device)
+1. Site-level SLE at every poll (per-metric getSiteSleSummaryTrend calls)
 2. Device-level drill-down only when degradation detected
 """
 
@@ -76,13 +76,13 @@ async def capture_baseline(
     device_type: str,
     device_id: str | None,
     before_timestamp: datetime,
+    api_session: Any = None,
 ) -> dict[str, Any]:
     """Capture SLE baseline with 60-min history (site-level + per-device trends).
 
-    Fetches three data points per metric, all in parallel:
-    1. Site-level summary (single value for delta comparison)
-    2. Site-level trend (time-series for site-wide chart)
-    3. Per-device trend (time-series for the changed device's chart)
+    Fetches two data points per metric, all in parallel:
+    1. Site-level trend (time-series for delta comparison + chart)
+    2. Per-device trend (time-series for the changed device's chart)
 
     This is the only SLE call that fetches independently (not via coordinator),
     because it needs historical data from before the change.
@@ -92,8 +92,9 @@ async def capture_baseline(
         logger.warning("sle_unknown_device_type", device_type=device_type)
         return {}
 
-    mist = await create_mist_service()
-    api_session = mist.get_session()
+    if not api_session:
+        mist = await create_mist_service()
+        api_session = mist.get_session()
     site_scope = sle_config["scope"]
     device_scope = sle_config["device_scope"]
     metrics = sle_config["metrics"]
@@ -123,10 +124,10 @@ async def capture_baseline(
             logger.warning("sle_baseline_fetch_failed", metric=metric, scope=scope, error=str(e))
             return None
 
-    # Build all tasks: 3 per metric (summary + site trend + device trend)
+    # Build all tasks: 2 per metric (site trend + device trend)
+    # getSiteSleSummary is deprecated — use getSiteSleSummaryTrend for everything
     tasks: list[tuple[str, str, Any]] = []  # (metric, label, coroutine)
     for metric in metrics:
-        tasks.append((metric, "summary", _safe_sle_call(sle.getSiteSleSummary, site_scope, site_id, metric)))
         tasks.append((metric, "site_trend", _safe_sle_call(sle.getSiteSleSummaryTrend, site_scope, site_id, metric)))
         if device_id:
             tasks.append(
@@ -147,30 +148,52 @@ async def capture_baseline(
     return results
 
 
-def extract_site_sle(
-    sle_overview: dict[str, Any] | list | None,
+async def capture_snapshot(
+    site_id: str,
+    org_id: str,
     device_type: str,
+    api_session: Any = None,
 ) -> dict[str, Any]:
-    """Extract site-level SLE from shared coordinator data.
+    """Capture a single SLE snapshot during monitoring polls.
 
-    The SLE overview comes from getOrgSitesSle or site-level SLE summary
-    endpoints. No extra API call needed.
+    Makes per-metric getSiteSleSummaryTrend calls (site scope only, 10min duration)
+    to get current SLE data. Returns same format as baseline for consistent delta
+    computation: {"metrics": {"metric_name": <trend_response>}}.
     """
-    if not sle_overview:
-        return {}
-
     sle_config = SLE_METRICS.get(device_type)
     if not sle_config:
-        return {}
+        return {"metrics": {}}
 
-    # The site SLE overview contains per-metric data
-    # Structure varies but generally returns list of site SLE objects
-    if isinstance(sle_overview, list):
-        # Multiple sites — should be filtered by site_id upstream
-        return {"raw": sle_overview, "scope": sle_config["scope"]}
-    if isinstance(sle_overview, dict):
-        return {"raw": sle_overview, "scope": sle_config["scope"]}
-    return {}
+    if not api_session:
+        mist = await create_mist_service()
+        api_session = mist.get_session()
+    site_scope = sle_config["scope"]
+    metrics = sle_config["metrics"]
+
+    async def _safe_call(metric: str) -> tuple[str, Any]:
+        try:
+            resp = await mistapi.arun(
+                sle.getSiteSleSummaryTrend,
+                api_session,
+                site_id,
+                scope=site_scope,
+                scope_id=site_id,
+                metric=metric,
+                duration="10m",
+            )
+            return metric, resp.data if resp.status_code == 200 else None
+        except Exception as e:
+            logger.warning("sle_snapshot_fetch_failed", metric=metric, error=str(e))
+            return metric, None
+
+    fetched = await asyncio.gather(*[_safe_call(m) for m in metrics])
+
+    result_metrics: dict[str, Any] = {}
+    for metric_name, data in fetched:
+        if data is not None:
+            result_metrics[metric_name] = {"site_trend": data}
+
+    return {"metrics": result_metrics}
 
 
 async def drill_down_device_sle(
@@ -178,6 +201,7 @@ async def drill_down_device_sle(
     org_id: str,
     degraded_metrics: list[str],
     device_type: str,
+    api_session: Any = None,
 ) -> dict[str, Any]:
     """Drill down to device-level SLE for degraded metrics.
 
@@ -190,8 +214,10 @@ async def drill_down_device_sle(
 
     scope = sle_config["scope"]
     drill_funcs = _DRILL_DOWN_FUNCTIONS.get(device_type, [])
-    mist = await create_mist_service()
-    session = mist.get_session()
+    if not api_session:
+        mist = await create_mist_service()
+        api_session = mist.get_session()
+    session = api_session
 
     results: dict[str, Any] = {}
 
@@ -308,25 +334,40 @@ def compute_delta(
 def _extract_sle_value(data: Any) -> float | None:
     """Extract the primary numeric SLE value from API response data.
 
-    Mist SLE summary responses typically have a 'sle' field with
-    the overall score, or a 'data' array with time-series values.
+    Handles multiple formats:
+    - Plain numeric (float/int)
+    - Baseline metric dict: {"site_trend": <trend_response>, "device_trend": ...}
+    - getSiteSleSummaryTrend response: {"sle": {"samples": {"total": [...], "degraded": [...]}}}
+    - Legacy dict with "sle", "value", "score" keys
+
+    Returns SLE score as percentage (0-100).
     """
     if data is None:
         return None
     if isinstance(data, (int, float)):
         return float(data)
-    if isinstance(data, dict):
-        # Try common SLE response fields
-        for key in ("sle", "value", "score", "num_users", "total"):
-            if key in data and isinstance(data[key], (int, float)):
-                return float(data[key])
-        # Try nested data array (time-series — use last value)
-        if "data" in data and isinstance(data["data"], list) and data["data"]:
-            last = data["data"][-1]
-            if isinstance(last, (int, float)):
-                return float(last)
-            if isinstance(last, dict):
-                for key in ("value", "sle", "score"):
-                    if key in last and isinstance(last[key], (int, float)):
-                        return float(last[key])
+    if not isinstance(data, dict):
+        return None
+
+    # Baseline metric structure — dig into site_trend
+    if "site_trend" in data:
+        return _extract_sle_value(data["site_trend"])
+
+    # getSiteSleSummaryTrend response — compute SLE score from samples
+    sle_obj = data.get("sle")
+    if isinstance(sle_obj, dict):
+        samples = sle_obj.get("samples")
+        if isinstance(samples, dict):
+            total = samples.get("total", [])
+            degraded = samples.get("degraded", [])
+            total_sum = sum(v for v in total if isinstance(v, (int, float)))
+            degraded_sum = sum(v for v in degraded if isinstance(v, (int, float)))
+            if total_sum > 0:
+                return round((1 - degraded_sum / total_sum) * 100, 2)
+
+    # Legacy fallback — direct numeric fields
+    for key in ("value", "score", "num_users", "total"):
+        if key in data and isinstance(data[key], (int, float)):
+            return float(data[key])
+
     return None

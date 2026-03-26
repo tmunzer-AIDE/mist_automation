@@ -58,34 +58,24 @@
   color: var(--app-neutral);
 }
 
-.progress-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 100px;
-}
+.mini-progress {
+  width: 80px;
 
-.inline-progress {
-  height: 4px;
-  border-radius: 2px;
-}
-
-.progress-label {
-  font-size: 12px;
-  color: var(--app-neutral);
-  text-transform: capitalize;
-}
-
-.impact-icon {
-  font-size: 20px;
-  width: 20px;
-  height: 20px;
-
-  &.alert {
-    color: var(--app-warning);
+  mat-progress-bar {
+    height: 6px;
+    border-radius: 3px;
   }
 
-  &.ok {
-    color: var(--app-success);
+  .bar-completed {
+    ::ng-deep .mdc-linear-progress__bar-inner {
+      border-color: var(--app-success);
+    }
+  }
+
+  .bar-failed,
+  .bar-cancelled {
+    ::ng-deep .mdc-linear-progress__bar-inner {
+      border-color: var(--app-error-status);
+    }
   }
 }

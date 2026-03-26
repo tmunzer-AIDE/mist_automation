@@ -1,9 +1,9 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -35,10 +35,10 @@ const CLOUD_REGIONS = [
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
     MatButtonModule,
     MatIconModule,
     MatSnackBarModule,
@@ -66,11 +66,13 @@ const CLOUD_REGIONS = [
 
             <mat-form-field appearance="outline">
               <mat-label>Cloud Region</mat-label>
-              <mat-select formControlName="mist_cloud_region">
-                @for (region of cloudRegions; track region.value) {
+              <input matInput [matAutocomplete]="regionAuto"
+                     (input)="cloudRegionSearch.set($any($event.target).value)">
+              <mat-autocomplete #regionAuto (optionSelected)="form.get('mist_cloud_region')!.setValue($event.option.value)">
+                @for (region of filteredCloudRegions(); track region.value) {
                   <mat-option [value]="region.value">{{ region.label }}</mat-option>
                 }
-              </mat-select>
+              </mat-autocomplete>
             </mat-form-field>
 
             <mat-form-field appearance="outline">
@@ -130,6 +132,14 @@ export class SettingsMistComponent implements OnInit {
   cloudRegions = CLOUD_REGIONS;
   loading = signal(true);
   saving = signal(false);
+
+  cloudRegionSearch = signal('');
+  filteredCloudRegions = computed(() => {
+    const term = this.cloudRegionSearch().toLowerCase();
+    return term
+      ? this.cloudRegions.filter((r) => r.label.toLowerCase().includes(term))
+      : this.cloudRegions;
+  });
   testingConnection = signal(false);
   connectionResult = signal<MistConnectionResult | null>(null);
 

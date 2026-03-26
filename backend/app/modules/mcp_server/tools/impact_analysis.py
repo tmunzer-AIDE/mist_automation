@@ -17,8 +17,8 @@ async def search_impact_sessions(
         Field(
             description=(
                 "Filter by session status. "
-                "One of: 'pending', 'baseline_capture', 'monitoring', 'analyzing', "
-                "'completed', 'alert', 'failed', 'cancelled'. Empty string for all."
+                "One of: 'pending', 'baseline_capture', 'awaiting_config', 'monitoring', "
+                "'validating', 'completed', 'failed', 'cancelled'. Empty string for all."
             ),
         ),
     ] = "",
@@ -131,8 +131,6 @@ async def get_impact_session_detail(
 
 def _session_summary(session: Any) -> dict[str, Any]:
     """Convert a MonitoringSession to a compact summary dict."""
-    from app.modules.impact_analysis.models import SessionStatus
-
     return {
         "id": str(session.id),
         "site_id": session.site_id,
@@ -143,11 +141,7 @@ def _session_summary(session: Any) -> dict[str, Any]:
         "status": session.status.value if hasattr(session.status, "value") else str(session.status),
         "config_change_count": len(session.config_changes),
         "incident_count": len(session.incidents),
-        "has_impact": (
-            session.status == SessionStatus.ALERT
-            if isinstance(session.status, SessionStatus)
-            else session.status == SessionStatus.ALERT.value
-        ),
+        "has_impact": getattr(session, "impact_severity", "none") != "none",
         "created_at": session.created_at.isoformat() if session.created_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
     }

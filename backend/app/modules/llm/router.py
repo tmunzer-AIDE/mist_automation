@@ -2,6 +2,7 @@
 LLM API endpoints.
 """
 
+import random
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -64,6 +65,15 @@ _LLM_RATE_MAX = 20  # max requests per window
 def _check_llm_rate_limit(user_id: str) -> None:
     """Raise 429 if the user has exceeded the LLM rate limit."""
     now = time.monotonic()
+
+    # Probabilistic cleanup of stale entries to prevent unbounded memory growth
+    # from users who stop making requests. Runs ~1% of the time.
+    if random.random() < 0.01:
+        for uid in list(_llm_requests.keys()):
+            _llm_requests[uid] = [t for t in _llm_requests[uid] if now - t < _LLM_RATE_WINDOW]
+            if not _llm_requests[uid]:
+                del _llm_requests[uid]
+
     recent = [t for t in _llm_requests[user_id] if now - t < _LLM_RATE_WINDOW]
     if not recent:
         _llm_requests.pop(user_id, None)
@@ -381,9 +391,7 @@ async def list_available_configs(_current_user: User = Depends(get_current_user_
 
     configs = await LLMConfig.find(LLMConfig.enabled == True).to_list()  # noqa: E712
     return [
-        LLMConfigAvailable(
-            id=str(c.id), name=c.name, provider=c.provider, model=c.model, is_default=c.is_default
-        )
+        LLMConfigAvailable(id=str(c.id), name=c.name, provider=c.provider, model=c.model, is_default=c.is_default)
         for c in configs
     ]
 
@@ -709,7 +717,8 @@ async def call_local_mcp_tool(
     except Exception as e:
         logger.warning("mcp_local_tool_call_failed", tool=tool_name, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail="Tool call failed.",
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Tool call failed.",
         ) from None
     finally:
         await client.disconnect()
@@ -755,8 +764,8 @@ async def summarize_backup_change(
     )
 
     # Run agent with local MCP server
-    async with _mcp_user_session(current_user.id) as mcp_client:
-        agent = AIAgentService(llm=llm, mcp_clients=[mcp_client], max_iterations=5)
+    async with _mcp_user_session(current_user.id) as mcp_clients:
+        agent = AIAgentService(llm=llm, mcp_clients=mcp_clients, max_iterations=5)
         result = await agent.run(
             task=prompt_messages[-1]["content"],
             system_prompt=prompt_messages[0]["content"],
@@ -841,9 +850,7 @@ async def continue_conversation(
     )
 
 
-async def _continue_with_mcp(
-    thread, message: str, current_user: User, stream_id: str | None = None
-):
+async def _continue_with_mcp(thread, message: str, current_user: User, stream_id: str | None = None):
     """Run a follow-up message through the MCP agent loop with conversation history.
 
     Returns an ``AgentResult`` so callers can access tool_calls.
@@ -872,7 +879,9 @@ async def _continue_with_mcp(
     external = await _load_external_mcp_clients(thread.mcp_config_ids)
     elicit_channel = f"llm:{stream_id}" if stream_id else None
     async with _mcp_user_session(
-        current_user.id, elicitation_channel=elicit_channel, extra_clients=external,
+        current_user.id,
+        elicitation_channel=elicit_channel,
+        extra_clients=external,
     ) as all_clients:
         agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=5)
         return await agent.run(
@@ -914,7 +923,12 @@ def _agent_result_metadata(result) -> dict | None:
         return None
     return {
         "tool_calls": [
-            {"tool": tc.tool, "server": tc.server, "status": "error" if tc.is_error else "success", "result_preview": tc.result[:300]}
+            {
+                "tool": tc.tool,
+                "server": tc.server,
+                "status": "error" if tc.is_error else "success",
+                "result_preview": tc.result[:300],
+            }
             for tc in result.tool_calls
         ],
         "thinking_texts": result.thinking_texts,
@@ -1021,9 +1035,7 @@ async def _select_relevant_categories(llm, user_request: str) -> list[str]:
     return [c for c in categories if any(k in c.lower() for k in ["site", "device", "wlan"])][:5]
 
 
-@router.post(
-    "/llm/workflow/select-categories", response_model=CategorySelectionResponse, tags=["LLM"]
-)
+@router.post("/llm/workflow/select-categories", response_model=CategorySelectionResponse, tags=["LLM"])
 async def select_workflow_categories(
     request: CategorySelectionRequest,
     current_user: User = Depends(require_automation_role),
@@ -1291,7 +1303,9 @@ async def global_chat(
     # Run agent with local + external MCP servers
     elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
     async with _mcp_user_session(
-        current_user.id, elicitation_channel=elicit_channel, extra_clients=external,
+        current_user.id,
+        elicitation_channel=elicit_channel,
+        extra_clients=external,
     ) as all_clients:
         agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=10)
 
@@ -1309,10 +1323,7 @@ async def global_chat(
         )
 
         reply = result.result
-        tool_calls_summary = [
-            {"tool": tc.tool, "arguments": tc.arguments}
-            for tc in result.tool_calls
-        ]
+        tool_calls_summary = [{"tool": tc.tool, "arguments": tc.arguments} for tc in result.tool_calls]
 
     # Store assistant reply (with tool_calls + thinking metadata if MCP tools were used)
     thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
@@ -1330,10 +1341,23 @@ async def global_chat(
 async def respond_to_elicitation(
     request_id: str,
     request: ElicitationResponseRequest,
-    _current_user: User = Depends(get_current_user_from_token),
+    current_user: User = Depends(get_current_user_from_token),
 ):
     """Respond to a tool elicitation prompt (accept or reject)."""
-    from app.modules.mcp_server.helpers import resolve_elicitation
+    from app.modules.mcp_server.helpers import get_elicitation_owner, resolve_elicitation
+
+    # Check existence and ownership before resolving
+    owner_id = get_elicitation_owner(request_id)
+    if owner_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Elicitation request not found or already resolved",
+        )
+    if str(current_user.id) != owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to respond to this elicitation",
+        )
 
     found = resolve_elicitation(request_id, request.accepted)
     if not found:
@@ -1428,7 +1452,8 @@ async def get_thread(
         feature=thread.feature,
         context_ref=thread.context_ref,
         messages=[
-            ConversationMessageResponse(role=m.role, content=m.content, metadata=m.metadata, timestamp=m.timestamp) for m in thread.messages
+            ConversationMessageResponse(role=m.role, content=m.content, metadata=m.metadata, timestamp=m.timestamp)
+            for m in thread.messages
         ],
         mcp_config_ids=thread.mcp_config_ids,
         created_at=thread.created_at,

@@ -10,14 +10,21 @@
 <div class="filters-toolbar">
   <mat-form-field appearance="outline" class="status-filter">
     <mat-label>Status</mat-label>
-    <mat-select [formControl]="statusFilter" (selectionChange)="onStatusChange()">
+    <input
+      matInput
+      [matAutocomplete]="statusAuto"
+      [value]="statusDisplayValue()"
+      (input)="statusSearch.set($any($event.target).value)"
+    />
+    <mat-autocomplete
+      #statusAuto
+      (optionSelected)="statusFilter.setValue($event.option.value); onStatusChange()"
+    >
       <mat-option value="">All</mat-option>
-      <mat-option value="monitoring">Monitoring</mat-option>
-      <mat-option value="analyzing">Analyzing</mat-option>
-      <mat-option value="completed">Completed</mat-option>
-      <mat-option value="cancelled">Cancelled</mat-option>
-      <mat-option value="failed">Failed</mat-option>
-    </mat-select>
+      @for (opt of filteredStatuses(); track opt.value) {
+        <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+      }
+    </mat-autocomplete>
   </mat-form-field>
 
   <div class="device-type-chips">
@@ -43,14 +50,6 @@
 } @else {
   <div class="table-card">
     <table mat-table [dataSource]="sessions()" class="mat-elevation-z0">
-      <!-- Status -->
-      <ng-container matColumnDef="status">
-        <th mat-header-cell *matHeaderCellDef>Status</th>
-        <td mat-cell *matCellDef="let row">
-          <app-status-badge [status]="row.status"></app-status-badge>
-        </td>
-      </ng-container>
-
       <!-- Device Name -->
       <ng-container matColumnDef="device_name">
         <th mat-header-cell *matHeaderCellDef>Device</th>
@@ -80,21 +79,16 @@
         <td mat-cell *matCellDef="let row">{{ row.config_change_count }}</td>
       </ng-container>
 
-      <!-- Monitoring Progress -->
+      <!-- Progress -->
       <ng-container matColumnDef="progress">
         <th mat-header-cell *matHeaderCellDef>Progress</th>
         <td mat-cell *matCellDef="let row">
-          <div class="progress-cell">
-            @if (row.status === 'monitoring' && row.polls_total > 0) {
-              <mat-progress-bar
-                mode="determinate"
-                [value]="progressPercent(row)"
-                class="inline-progress"
-              ></mat-progress-bar>
-              <span class="progress-label">{{ progressText(row) }}</span>
-            } @else {
-              <span class="progress-label">{{ progressText(row) }}</span>
-            }
+          <div class="mini-progress">
+            <mat-progress-bar
+              [mode]="row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled' ? 'determinate' : 'determinate'"
+              [value]="row.progress?.percent ?? 0"
+              [class]="'bar-' + row.status"
+            ></mat-progress-bar>
           </div>
         </td>
       </ng-container>
@@ -105,16 +99,14 @@
         <td mat-cell *matCellDef="let row">{{ row.created_at | dateTime: 'short' }}</td>
       </ng-container>
 
-      <!-- Has Impact -->
+      <!-- Impact Severity (first column, most important) -->
       <ng-container matColumnDef="has_impact">
         <th mat-header-cell *matHeaderCellDef>Impact</th>
         <td mat-cell *matCellDef="let row">
-          @if (row.status === 'completed') {
-            @if (row.has_impact) {
-              <mat-icon class="impact-icon alert" matTooltip="Impact detected">warning</mat-icon>
-            } @else {
-              <mat-icon class="impact-icon ok" matTooltip="No impact">check_circle</mat-icon>
-            }
+          @if (row.impact_severity && row.impact_severity !== 'none') {
+            <app-status-badge [status]="row.impact_severity"></app-status-badge>
+          } @else if (row.status === 'completed') {
+            <app-status-badge status="none"></app-status-badge>
           }
         </td>
       </ng-container>

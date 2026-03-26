@@ -237,7 +237,6 @@
 .event-type-label {
   font-size: 14px;
   font-weight: 500;
-  font-family: var(--app-font-mono);
 }
 
 .event-chip {
@@ -274,6 +273,36 @@
     background: var(--app-success-bg);
     color: var(--app-success);
   }
+
+  &.severity-chip-critical {
+    background: var(--app-error-bg);
+    color: var(--app-error);
+  }
+
+  &.severity-chip-warning {
+    background: var(--app-warning-bg);
+    color: var(--app-warning);
+  }
+
+  &.severity-chip-info {
+    background: var(--app-info-bg);
+    color: var(--app-info);
+  }
+
+  &.validation-pass {
+    background: var(--app-success-bg);
+    color: var(--app-success);
+  }
+
+  &.validation-warn {
+    background: var(--app-warning-bg);
+    color: var(--app-warning);
+  }
+
+  &.validation-fail {
+    background: var(--app-error-bg);
+    color: var(--app-error);
+  }
 }
 
 .timeline-meta {
@@ -289,6 +318,10 @@
 .meta-sep {
   color: var(--app-neutral);
   opacity: 0.5;
+}
+
+.entry-type-label {
+  text-transform: capitalize;
 }
 
 .config-diff {

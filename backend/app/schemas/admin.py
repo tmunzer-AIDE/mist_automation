@@ -78,8 +78,8 @@ class SystemSettingsUpdate(BaseModel):
 
     # Impact Analysis
     impact_analysis_enabled: bool | None = None
-    impact_analysis_default_duration_minutes: int | None = Field(None, ge=10, le=360)
-    impact_analysis_default_interval_minutes: int | None = Field(None, ge=5, le=60)
+    impact_analysis_default_duration_minutes: int | None = Field(None, ge=1, le=360)
+    impact_analysis_default_interval_minutes: int | None = Field(None, ge=1, le=60)
     impact_analysis_sle_threshold_percent: float | None = Field(None, ge=1.0, le=50.0)
     impact_analysis_retention_days: int | None = Field(None, ge=1, le=365)
 

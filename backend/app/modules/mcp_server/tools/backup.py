@@ -55,7 +55,9 @@ async def backup(
     ] = "",
     version_id: Annotated[
         str,
-        Field(description="Backup version identifier. Used by action='version_detail' and action='restore'. Can be a MongoDB document ID (from 'version_id' in object_info results) or a version number (requires object_id too)."),
+        Field(
+            description="Backup version identifier. Used by action='version_detail' and action='restore'. Can be a MongoDB document ID (from 'version_id' in object_info results) or a version number (requires object_id too)."
+        ),
     ] = "",
     version_id_1: Annotated[
         str,
@@ -67,7 +69,9 @@ async def backup(
     ] = "",
     fields: Annotated[
         list[str] | None,
-        Field(description="Dot-notation config paths to extract (e.g. ['ssid', 'auth.type']). Used by action='version_detail' to return only specific fields instead of the full config."),
+        Field(
+            description="Dot-notation config paths to extract (e.g. ['ssid', 'auth.type']). Used by action='version_detail' to return only specific fields instead of the full config."
+        ),
     ] = None,
     backup_type: Annotated[
         str,
@@ -75,7 +79,9 @@ async def backup(
     ] = "",
     object_type: Annotated[
         str,
-        Field(description="Object type in 'scope:key' format (e.g. 'org:wlans', 'site:devices'). Required for action='trigger' with backup_type='manual'."),
+        Field(
+            description="Object type in 'scope:key' format (e.g. 'org:wlans', 'site:devices'). Required for action='trigger' with backup_type='manual'."
+        ),
     ] = "",
     site_id: Annotated[
         str,
@@ -126,9 +132,7 @@ async def _object_info(*, object_id: str, **_kwargs) -> str:
     if not object_id:
         return to_json({"error": "object_id is required for action=object_info"})
 
-    versions = (
-        await BackupObject.find(BackupObject.object_id == object_id).sort(-BackupObject.version).to_list()
-    )
+    versions = await BackupObject.find(BackupObject.object_id == object_id).sort(-BackupObject.version).to_list()
     if not versions:
         return to_json({"error": f"No backup found for object_id '{object_id}'"})
 
@@ -316,9 +320,7 @@ async def _trigger(
 
     create_background_task(_run_backup(), name=f"mcp-backup-{backup_type}")
 
-    return to_json(
-        {"backup_type": backup_type, "status": "started", "message": "Backup started in background."}
-    )
+    return to_json({"backup_type": backup_type, "status": "started", "message": "Backup started in background."})
 
 
 async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwargs) -> str:
@@ -374,9 +376,7 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
     is_deleted = current is None
     if is_deleted:
         # Object was deleted — show full target config as "added"
-        diff_entries = [
-            {"path": k, "type": "added", "value": v} for k, v in (target.configuration or {}).items()
-        ]
+        diff_entries = [{"path": k, "type": "added", "value": v} for k, v in (target.configuration or {}).items()]
     else:
         # Diff: current → target (what will change)
         diff_entries = deep_diff(current.configuration or {}, target.configuration or {})
@@ -404,7 +404,9 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
     deleted_children: list[dict] = []
     try:
         dry_run_result = await restore_service.restore_object(
-            backup_id=target.id, dry_run=True, restored_by=user.email,
+            backup_id=target.id,
+            dry_run=True,
+            restored_by=user.email,
         )
         warnings = dry_run_result.get("warnings", [])
         deleted_dependencies = dry_run_result.get("deleted_dependencies", [])
@@ -453,17 +455,21 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
     # User accepted — execute restore
     try:
         result = await restore_service.restore_object(
-            backup_id=target.id, dry_run=False, restored_by=user.email,
+            backup_id=target.id,
+            dry_run=False,
+            restored_by=user.email,
         )
 
-        return to_json({
-            "status": result.get("status", "success"),
-            "object_type": target.object_type,
-            "object_name": target.object_name,
-            "object_id": result.get("object_id", target.object_id),
-            "version_restored": target.version,
-            "message": f"Successfully restored {target.object_type} '{target.object_name}' to version {target.version}.",
-        })
+        return to_json(
+            {
+                "status": result.get("status", "success"),
+                "object_type": target.object_type,
+                "object_name": target.object_name,
+                "object_id": result.get("object_id", target.object_id),
+                "version_restored": target.version,
+                "message": f"Successfully restored {target.object_type} '{target.object_name}' to version {target.version}.",
+            }
+        )
     except Exception as exc:
         logger.error("mcp_restore_failed", error=str(exc))
         return to_json({"error": "Restore operation failed"})

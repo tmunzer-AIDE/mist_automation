@@ -25,15 +25,20 @@ _topology_cache: dict[str, tuple[float, SiteTopology]] = {}
 _CACHE_TTL = 30.0
 
 
-async def build_site_topology(site_id: str, org_id: str) -> SiteTopology | None:
-    """Build site topology using MistService, with 30s TTL cache."""
+async def build_site_topology(site_id: str, org_id: str, pre_fetched: RawSiteData | None = None) -> SiteTopology | None:
+    """Build site topology using MistService, with 30s TTL cache.
+
+    Args:
+        pre_fetched: Optional pre-fetched RawSiteData to avoid redundant API calls
+                     (e.g. when the caller already has the data from another source).
+    """
     # Check cache
     cached = _topology_cache.get(site_id)
     if cached and (time.monotonic() - cached[0]) < _CACHE_TTL:
         return cached[1]
 
     try:
-        raw_data = await _fetch_raw_data(site_id, org_id)
+        raw_data = pre_fetched or await _fetch_raw_data(site_id, org_id)
         topo = build_topology(site_id, raw_data)
         _topology_cache[site_id] = (time.monotonic(), topo)
         return topo
@@ -305,3 +310,94 @@ def invalidate_cache(site_id: str | None = None) -> None:
         _topology_cache.pop(site_id, None)
     else:
         _topology_cache.clear()
+
+
+# ── Serialized topology dict helpers ──────────────────────────────────────
+# These operate on the dict snapshots stored in MonitoringSession
+# (topology_baseline / topology_latest), NOT on live SiteTopology objects.
+
+
+def get_topology_devices(topo: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Extract devices dict from a serialized topology snapshot."""
+    if not topo:
+        return {}
+    return topo.get("devices", {})
+
+
+def get_topology_connections(topo: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Extract connections list from a serialized topology snapshot."""
+    if not topo:
+        return []
+    return topo.get("connections", [])
+
+
+def get_topology_groups(topo: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Extract logical groups from a serialized topology snapshot."""
+    if not topo:
+        return []
+    return topo.get("logical_groups", [])
+
+
+def find_device_id_by_mac(devices: dict[str, dict[str, Any]], mac: str) -> str | None:
+    """Resolve a device MAC address to its device ID in a topology snapshot."""
+    mac_lower = mac.lower()
+    for dev_id, dev in devices.items():
+        if dev.get("mac", "").lower() == mac_lower:
+            return dev_id
+    return None
+
+
+def build_adjacency(connections: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Build adjacency list from serialized connections."""
+    adj: dict[str, list[str]] = {}
+    for conn in connections:
+        local = conn.get("local_device_id", "")
+        remote = conn.get("remote_device_id", "")
+        if local and remote:
+            adj.setdefault(local, []).append(remote)
+            adj.setdefault(remote, []).append(local)
+    return adj
+
+
+def bfs_reachable(adj: dict[str, list[str]], source: str) -> set[str]:
+    """BFS from source, returns all reachable device IDs."""
+    visited: set[str] = set()
+    queue: deque[str] = deque([source])
+    while queue:
+        current = queue.popleft()
+        if current in visited:
+            continue
+        visited.add(current)
+        for neighbor in adj.get(current, []):
+            if neighbor not in visited:
+                queue.append(neighbor)
+    return visited
+
+
+def bfs_path_exists(adj: dict[str, list[str]], source: str, dest: str) -> bool:
+    """Check if a BFS path exists from source to dest."""
+    if source == dest:
+        return True
+    return dest in bfs_reachable(adj, source)
+
+
+def find_gateways(devices: dict[str, dict[str, Any]]) -> list[str]:
+    """Return list of device IDs that are gateways."""
+    return [dev_id for dev_id, dev in devices.items() if dev.get("device_type") == "gateway"]
+
+
+def device_name_from_topo(devices: dict[str, dict[str, Any]], dev_id: str) -> str:
+    """Get device name from topology devices dict, falling back to ID."""
+    dev = devices.get(dev_id, {})
+    return dev.get("name", dev_id)
+
+
+def safe_list(data: Any) -> list:
+    """Safely extract a list from data that might be wrapped in {results: [...]}."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        if "results" in data:
+            return data["results"] if isinstance(data["results"], list) else []
+        return []
+    return []

@@ -17,11 +17,14 @@ import mistapi
 import structlog
 from mistapi.api.v1.orgs import alarms as org_alarms
 from mistapi.api.v1.orgs import devices as org_devices
+from mistapi.api.v1.orgs import gatewaytemplates as org_gatewaytemplates
 from mistapi.api.v1.orgs import insights
+from mistapi.api.v1.orgs import networks as org_networks
 from mistapi.api.v1.orgs import stats as org_stats
-from mistapi.api.v1.sites import alarms, clients, devices, stats
+from mistapi.api.v1.sites import alarms, clients, devices, setting, stats
 
 from app.modules.impact_analysis.services import topology_service
+from app.modules.impact_analysis.topology.client import RawSiteData
 from app.services.mist_service_factory import create_mist_service
 
 logger = structlog.get_logger(__name__)
@@ -129,8 +132,12 @@ class SiteDataCoordinator:
 
     # ── Instance methods ────────────────────────────────────────────────────
 
-    async def fetch_site_data(self, site_id: str, org_id: str) -> SitePollData:
+    async def fetch_site_data(self, site_id: str, org_id: str, device_type: str = "ap") -> SitePollData:
         """Fetch site-level data with 30s TTL cache.
+
+        Args:
+            device_type: Device type filter for listSiteDevicesStats (ap, switch, gateway).
+                         Defaults to 'ap' for backward compatibility.
 
         Checks org-level cache first (populated when 3+ sites active),
         then instance cache, then fetches fresh data.
@@ -160,20 +167,36 @@ class SiteDataCoordinator:
             return self._cache
 
         # Fetch fresh site-level data
-        data = await self._fetch_all_site_data(site_id, org_id)
+        data = await self._fetch_all_site_data(site_id, org_id, device_type=device_type)
         self._cache = data
         self._cache_time = time.monotonic()
         return data
 
-    async def _fetch_all_site_data(self, site_id: str, org_id: str) -> SitePollData:
-        """Parallel fetch of all site-level data sources."""
+    async def _fetch_all_site_data(self, site_id: str, org_id: str, device_type: str = "ap") -> SitePollData:
+        """Parallel fetch of all site-level data sources.
+
+        Fetches topology-required data (port_stats, devices, device_stats,
+        site_setting, alarms, org_networks) in the same gather as other
+        site-level data, then builds the topology from the shared results
+        to avoid redundant API calls.
+        """
         mist = await create_mist_service()
         session = mist.get_session()
 
+        # Indices 0-7: topology-shared + coordinator data
+        # 0: SLE overview
+        # 1: device_stats (typed — for coordinator)
+        # 2: alarms (shared with topology)
+        # 3: client counts
+        # 4: config events
+        # 5: port_stats (shared with topology)
+        # 6: device_configs
+        # 7: listSiteDevices (topology-only)
+        # 8: site_setting_derived (topology-only)
+        # 9: org_networks (topology-only)
         results = await asyncio.gather(
-            topology_service.build_site_topology(site_id, org_id),
             _safe_fetch(mistapi.arun(insights.getOrgSitesSle, session, org_id, duration="1h")),
-            _safe_fetch(mistapi.arun(stats.listSiteDevicesStats, session, site_id, limit=1000), []),
+            _safe_fetch(mistapi.arun(stats.listSiteDevicesStats, session, site_id, type=device_type, limit=1000), []),
             _safe_fetch(mistapi.arun(alarms.searchSiteAlarms, session, site_id, duration="1h", limit=1000), []),
             _safe_fetch(mistapi.arun(clients.countSiteWirelessClients, session, site_id)),
             _safe_fetch(
@@ -191,26 +214,56 @@ class SiteDataCoordinator:
             _safe_fetch(
                 mistapi.arun(devices.searchSiteDeviceLastConfigs, session, site_id, duration="1h", limit=1000), []
             ),
+            _safe_fetch(mistapi.arun(devices.listSiteDevices, session, site_id, limit=1000), []),
+            _safe_fetch(mistapi.arun(setting.getSiteSettingDerived, session, site_id), {}),
+            _safe_fetch(mistapi.arun(org_networks.listOrgNetworks, session, org_id, limit=1000), []),
             return_exceptions=True,
         )
 
-        topo = _safe_result(results[0])
-        sle_overview = _safe_result(results[1])
-        device_stats_raw = _safe_result(results[2], [])
-        alarms_raw = _safe_result(results[3], [])
-        client_counts = _safe_result(results[4])
-        config_events_raw = _safe_result(results[5], [])
-        port_stats_raw = _safe_result(results[6], [])
-        device_configs_raw = _safe_result(results[7], [])
+        sle_overview = _safe_result(results[0])
+        device_stats_raw = _safe_result(results[1], [])
+        alarms_raw = _safe_result(results[2], [])
+        client_counts = _safe_result(results[3])
+        config_events_raw = _safe_result(results[4], [])
+        port_stats_raw = _safe_result(results[5], [])
+        device_configs_raw = _safe_result(results[6], [])
+        devices_list_raw = _safe_result(results[7], [])
+        site_setting_raw = _safe_result(results[8], {})
+        org_networks_raw = _safe_result(results[9], [])
+
+        port_stats = _normalize_results(port_stats_raw)
+        alarms_list = _normalize_results(alarms_raw)
+        device_stats_list = _normalize_results(device_stats_raw)
+
+        # Build topology from the shared fetched data (avoids redundant API calls)
+        gw_template_id = site_setting_raw.get("gatewaytemplate_id") if isinstance(site_setting_raw, dict) else None
+        gw_template = None
+        if gw_template_id:
+            try:
+                resp = await mistapi.arun(org_gatewaytemplates.getOrgGatewayTemplate, session, org_id, gw_template_id)
+                gw_template = resp.data if resp.status_code == 200 else None
+            except Exception as e:
+                logger.warning("topology_gw_template_fetch_failed", error=str(e))
+
+        raw_topo_data = RawSiteData(
+            port_stats=port_stats or [],
+            devices=_normalize_results(devices_list_raw) or [],
+            devices_stats=device_stats_list or [],
+            site_setting=site_setting_raw or {},
+            alarms=alarms_list or [],
+            org_networks=_normalize_results(org_networks_raw) or [],
+            gateway_template=gw_template,
+        )
+        topo = await topology_service.build_site_topology(site_id, org_id, pre_fetched=raw_topo_data)
 
         return SitePollData(
             topology=topo,
             sle_overview=sle_overview,
-            device_stats=_normalize_results(device_stats_raw),
-            alarms=_normalize_results(alarms_raw),
+            device_stats=device_stats_list,
+            alarms=alarms_list,
             client_counts=client_counts,
             config_events=_normalize_results(config_events_raw),
-            port_stats=_normalize_results(port_stats_raw),
+            port_stats=port_stats,
             device_configs=_normalize_results(device_configs_raw),
             fetched_at=datetime.now(timezone.utc),
         )

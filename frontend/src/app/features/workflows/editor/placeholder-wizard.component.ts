@@ -1,10 +1,21 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ReactiveFormsModule, FormArray, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatStepperModule } from '@angular/material/stepper';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { RecipePlaceholder } from '../../../core/services/recipe.service';
@@ -19,7 +30,8 @@ import { ApiService } from '../../../core/services/api.service';
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
-    MatSelectModule,
+    MatAutocompleteModule,
+    MatChipsModule,
     MatStepperModule,
     MatProgressSpinnerModule,
   ],
@@ -45,27 +57,47 @@ import { ApiService } from '../../../core/services/api.service';
 
                 @if (ph.placeholder_type === 'site_id') {
                   @if (loadingSites()) {
-                    <mat-select disabled>
-                      <mat-option>Loading sites...</mat-option>
-                    </mat-select>
+                    <input matInput disabled placeholder="Loading sites..." />
                   } @else {
-                    <mat-select [formControl]="controls.at(i)" (selectionChange)="onSiteSelected(i)">
-                      @for (site of siteOptions(); track site.id) {
+                    <input
+                      matInput
+                      [matAutocomplete]="siteAuto"
+                      [value]="siteDisplayValue()"
+                      (input)="siteSearch.set($any($event.target).value)"
+                    />
+                    <mat-autocomplete
+                      #siteAuto
+                      (optionSelected)="
+                        controls.at(i).setValue($event.option.value); onSiteSelected(i)
+                      "
+                    >
+                      @for (site of filteredSiteOptions(); track site.id) {
                         <mat-option [value]="site.id">{{ site.name }}</mat-option>
                       }
-                    </mat-select>
+                    </mat-autocomplete>
                   }
                 } @else if (ph.placeholder_type === 'ap_mac_list') {
                   @if (loadingAps()) {
-                    <mat-select multiple disabled>
-                      <mat-option>Select a site first...</mat-option>
-                    </mat-select>
+                    <input matInput disabled placeholder="Select a site first..." />
                   } @else {
-                    <mat-select multiple [formControl]="apMultiControl" (selectionChange)="onApSelectionChange(i)">
-                      @for (ap of apOptions(); track ap.mac) {
+                    <mat-chip-grid #apChipGrid>
+                      @for (mac of selectedAps(); track mac) {
+                        <mat-chip-row (removed)="removeAp(mac)"
+                          >{{ apDisplayName(mac) }}
+                          <button matChipRemove><mat-icon>cancel</mat-icon></button>
+                        </mat-chip-row>
+                      }
+                    </mat-chip-grid>
+                    <input
+                      [matChipInputFor]="apChipGrid"
+                      [matAutocomplete]="apAuto"
+                      (input)="apSearch.set($any($event.target).value)"
+                    />
+                    <mat-autocomplete #apAuto (optionSelected)="addAp($event, i)">
+                      @for (ap of filteredApOptions(); track ap.mac) {
                         <mat-option [value]="ap.mac">{{ ap.name || ap.mac }}</mat-option>
                       }
-                    </mat-select>
+                    </mat-autocomplete>
                   }
                 } @else {
                   <input
@@ -76,7 +108,6 @@ import { ApiService } from '../../../core/services/api.service';
                     (input)="onValueChange(i)"
                   />
                 }
-
               </mat-form-field>
               <div class="step-actions">
                 @if (i > 0) {
@@ -163,7 +194,11 @@ import { ApiService } from '../../../core/services/api.service';
 })
 export class PlaceholderWizardComponent implements OnChanges {
   @Input() placeholders: RecipePlaceholder[] = [];
-  @Output() placeholderFilled = new EventEmitter<{ nodeId: string; fieldPath: string; value: string }>();
+  @Output() placeholderFilled = new EventEmitter<{
+    nodeId: string;
+    fieldPath: string;
+    value: string;
+  }>();
   @Output() completed = new EventEmitter<void>();
 
   private readonly api = inject(ApiService);
@@ -171,15 +206,37 @@ export class PlaceholderWizardComponent implements OnChanges {
   controls = new FormArray<FormControl<string>>([]);
   apMultiControl = new FormControl<string[]>([], { nonNullable: true });
   siteOptions = signal<{ id: string; name: string }[]>([]);
+  siteSearch = signal('');
+  filteredSiteOptions = computed(() => {
+    const term = this.siteSearch().toLowerCase();
+    return term
+      ? this.siteOptions().filter((s) => s.name.toLowerCase().includes(term))
+      : this.siteOptions();
+  });
+  siteDisplayValue = computed(() => {
+    const siteId = this.selectedSiteId;
+    if (!siteId) return '';
+    return this.siteOptions().find((s) => s.id === siteId)?.name ?? siteId;
+  });
   apOptions = signal<{ mac: string; name: string }[]>([]);
+  apSearch = signal('');
+  selectedAps = signal<string[]>([]);
+  filteredApOptions = computed(() => {
+    const term = this.apSearch().toLowerCase();
+    const selected = new Set(this.selectedAps());
+    const available = this.apOptions().filter((ap) => !selected.has(ap.mac));
+    return term
+      ? available.filter((ap) => (ap.name || ap.mac).toLowerCase().includes(term))
+      : available;
+  });
   loadingSites = signal(false);
-  loadingAps = signal(true);  // starts true = "select a site first"
+  loadingAps = signal(true); // starts true = "select a site first"
   private selectedSiteId: string | null = null;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['placeholders']) {
       this.controls = new FormArray(
-        this.placeholders.map(() => new FormControl('', { nonNullable: true }))
+        this.placeholders.map(() => new FormControl('', { nonNullable: true })),
       );
 
       // Fetch dynamic options for placeholder types that need them
@@ -210,35 +267,68 @@ export class PlaceholderWizardComponent implements OnChanges {
       // Fetch APs for the selected site (used by ap_mac_list placeholders)
       if (this.placeholders.some((p) => p.placeholder_type === 'ap_mac_list')) {
         this.loadingAps.set(true);
-        this.api.get<{ aps: { mac: string; name: string }[] }>(
-          `/admin/mist/sites/${siteId}/aps`
-        ).subscribe({
-          next: (res) => {
-            this.apOptions.set(res.aps || []);
-            this.loadingAps.set(false);
-          },
-          error: () => {
-            this.apOptions.set([]);
-            this.loadingAps.set(false);
-          },
-        });
+        this.api
+          .get<{ aps: { mac: string; name: string }[] }>(`/admin/mist/sites/${siteId}/aps`)
+          .subscribe({
+            next: (res) => {
+              this.apOptions.set(res.aps || []);
+              this.loadingAps.set(false);
+            },
+            error: () => {
+              this.apOptions.set([]);
+              this.loadingAps.set(false);
+            },
+          });
       }
     }
   }
 
-  onApSelectionChange(index: number): void {
-    const selected = this.apMultiControl.value;
-    const ph = this.placeholders[index];
-    // Store as comma-separated MAC list for use in Jinja2 templates
-    this.placeholderFilled.emit({ nodeId: ph.node_id, fieldPath: ph.field_path, value: selected.join(',') });
+  addAp(event: MatAutocompleteSelectedEvent, index: number): void {
+    const mac = event.option.value;
+    const current = this.selectedAps();
+    if (!current.includes(mac)) {
+      const updated = [...current, mac];
+      this.selectedAps.set(updated);
+      const ph = this.placeholders[index];
+      this.placeholderFilled.emit({
+        nodeId: ph.node_id,
+        fieldPath: ph.field_path,
+        value: updated.join(','),
+      });
+    }
+    this.apSearch.set('');
+  }
+
+  removeAp(mac: string): void {
+    const updated = this.selectedAps().filter((m) => m !== mac);
+    this.selectedAps.set(updated);
+    // Find the ap_mac_list placeholder index to emit the change
+    const index = this.placeholders.findIndex((p) => p.placeholder_type === 'ap_mac_list');
+    if (index >= 0) {
+      const ph = this.placeholders[index];
+      this.placeholderFilled.emit({
+        nodeId: ph.node_id,
+        fieldPath: ph.field_path,
+        value: updated.join(','),
+      });
+    }
+  }
+
+  apDisplayName(mac: string): string {
+    const ap = this.apOptions().find((a) => a.mac === mac);
+    return ap?.name || mac;
   }
 
   getPlaceholderHint(ph: RecipePlaceholder): string {
     switch (ph.placeholder_type) {
-      case 'url': return 'https://hooks.slack.com/services/...';
-      case 'cron': return '0 */6 * * *';
-      case 'site_id': return 'Select a site';
-      default: return '';
+      case 'url':
+        return 'https://hooks.slack.com/services/...';
+      case 'cron':
+        return '0 */6 * * *';
+      case 'site_id':
+        return 'Select a site';
+      default:
+        return '';
     }
   }
 

@@ -24,37 +24,49 @@
 <div class="filter-row" [formGroup]="filterForm">
   <mat-form-field appearance="outline" subscriptSizing="dynamic">
     <mat-label>Scope</mat-label>
-    <mat-select formControlName="scope" (selectionChange)="applyFilters()">
-      <mat-option value="">All</mat-option>
-      <mat-option value="org">Org</mat-option>
-      <mat-option value="site">Site</mat-option>
-    </mat-select>
+    <input matInput [matAutocomplete]="scopeAuto"
+           [value]="scopeDisplayValue()"
+           (input)="scopeSearch.set($any($event.target).value)">
+    <mat-autocomplete #scopeAuto (optionSelected)="filterForm.get('scope')!.setValue($event.option.value); applyFilters()">
+      @for (opt of filteredScopeOptions(); track opt.value) {
+        <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+      }
+    </mat-autocomplete>
   </mat-form-field>
   <mat-form-field appearance="outline" subscriptSizing="dynamic">
     <mat-label>Type</mat-label>
-    <mat-select formControlName="object_type" (selectionChange)="applyFilters()">
+    <input matInput [matAutocomplete]="typeAuto"
+           [value]="typeDisplayValue()"
+           (input)="typeSearch.set($any($event.target).value)">
+    <mat-autocomplete #typeAuto (optionSelected)="filterForm.get('object_type')!.setValue($event.option.value); applyFilters()">
       <mat-option value="">All</mat-option>
-      @for (opt of objectTypeOptions(); track opt.value) {
+      @for (opt of filteredTypeOptions(); track opt.value) {
         <mat-option [value]="opt.value.split(':')[1]">{{ opt.label }}</mat-option>
       }
-    </mat-select>
+    </mat-autocomplete>
   </mat-form-field>
   <mat-form-field appearance="outline" subscriptSizing="dynamic">
     <mat-label>Site</mat-label>
-    <mat-select formControlName="site_id" (selectionChange)="applyFilters()">
+    <input matInput [matAutocomplete]="siteAuto"
+           [value]="siteDisplayValue()"
+           (input)="siteSearch.set($any($event.target).value)">
+    <mat-autocomplete #siteAuto (optionSelected)="filterForm.get('site_id')!.setValue($event.option.value); applyFilters()">
       <mat-option value="">All</mat-option>
-      @for (site of siteOptions(); track site.id) {
+      @for (site of filteredSiteOptions(); track site.id) {
         <mat-option [value]="site.id">{{ site.name }}</mat-option>
       }
-    </mat-select>
+    </mat-autocomplete>
   </mat-form-field>
   <mat-form-field appearance="outline" subscriptSizing="dynamic">
     <mat-label>Status</mat-label>
-    <mat-select formControlName="status" (selectionChange)="applyFilters()">
-      <mat-option value="">All</mat-option>
-      <mat-option value="active">Active</mat-option>
-      <mat-option value="deleted">Deleted</mat-option>
-    </mat-select>
+    <input matInput [matAutocomplete]="statusAuto"
+           [value]="statusDisplayValue()"
+           (input)="statusSearch.set($any($event.target).value)">
+    <mat-autocomplete #statusAuto (optionSelected)="filterForm.get('status')!.setValue($event.option.value); applyFilters()">
+      @for (opt of filteredStatusOptions(); track opt.value) {
+        <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+      }
+    </mat-autocomplete>
   </mat-form-field>
   @if (hasActiveFilters) {
     <button mat-stroked-button (click)="clearFilters()" class="clear-btn">

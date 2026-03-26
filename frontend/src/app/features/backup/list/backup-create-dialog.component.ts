@@ -1,9 +1,9 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -31,7 +31,7 @@ const BACKUP_TYPES = [
     MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
+    MatAutocompleteModule,
     MatButtonModule,
     MatCheckboxModule,
     MatProgressBarModule,
@@ -46,11 +46,14 @@ const BACKUP_TYPES = [
         <!-- Backup Type -->
         <mat-form-field appearance="outline">
           <mat-label>Backup Type</mat-label>
-          <mat-select formControlName="backup_type" (selectionChange)="onTypeChange()">
-            @for (type of backupTypes; track type.value) {
+          <input matInput [matAutocomplete]="backupTypeAuto"
+                 [value]="backupTypeDisplayValue()"
+                 (input)="backupTypeSearch.set($any($event.target).value)">
+          <mat-autocomplete #backupTypeAuto (optionSelected)="form.get('backup_type')!.setValue($event.option.value); onTypeChange()">
+            @for (type of filteredBackupTypes(); track type.value) {
               <mat-option [value]="type.value">{{ type.label }}</mat-option>
             }
-          </mat-select>
+          </mat-autocomplete>
           @if (selectedTypeDescription) {
             <mat-hint>{{ selectedTypeDescription }}</mat-hint>
           }
@@ -61,32 +64,38 @@ const BACKUP_TYPES = [
           <!-- Object type selection (grouped by scope) -->
           <mat-form-field appearance="outline">
             <mat-label>Object Type</mat-label>
-            <mat-select formControlName="object_type" (selectionChange)="onObjectTypeChange()">
+            <input matInput [matAutocomplete]="objectTypeAuto"
+                   [value]="objectTypeDisplayValue()"
+                   (input)="objectTypeSearch.set($any($event.target).value)">
+            <mat-autocomplete #objectTypeAuto (optionSelected)="form.get('object_type')!.setValue($event.option.value); onObjectTypeChange()">
               @if (loadingObjectTypes()) {
                 <mat-option disabled>Loading...</mat-option>
               }
               <mat-optgroup label="Organization">
-                @for (otype of orgObjectTypes(); track otype.value) {
+                @for (otype of filteredOrgObjectTypes(); track otype.value) {
                   <mat-option [value]="otype.value">{{ otype.label }}</mat-option>
                 }
               </mat-optgroup>
               <mat-optgroup label="Site">
-                @for (otype of siteObjectTypes(); track otype.value) {
+                @for (otype of filteredSiteObjectTypes(); track otype.value) {
                   <mat-option [value]="otype.value">{{ otype.label }}</mat-option>
                 }
               </mat-optgroup>
-            </mat-select>
+            </mat-autocomplete>
           </mat-form-field>
 
           <!-- Site selection (only for site-scoped types) -->
           @if (selectedObjectTypeDef?.scope === 'site') {
             <mat-form-field appearance="outline">
               <mat-label>Site</mat-label>
-              <mat-select formControlName="site_id" (selectionChange)="onSiteChange()">
-                @for (site of sites(); track site.id) {
+              <input matInput [matAutocomplete]="dialogSiteAuto"
+                     [value]="dialogSiteDisplayValue()"
+                     (input)="dialogSiteSearch.set($any($event.target).value)">
+              <mat-autocomplete #dialogSiteAuto (optionSelected)="form.get('site_id')!.setValue($event.option.value); onSiteChange()">
+                @for (site of filteredSites(); track site.id) {
                   <mat-option [value]="site.id">{{ site.name }}</mat-option>
                 }
-              </mat-select>
+              </mat-autocomplete>
               @if (loadingSites()) {
                 <mat-hint>Loading sites...</mat-hint>
               }
@@ -195,6 +204,50 @@ export class BackupCreateDialogComponent implements OnInit {
   allObjectTypes = signal<MistObjectTypeOption[]>([]);
   orgObjectTypes = signal<MistObjectTypeOption[]>([]);
   siteObjectTypes = signal<MistObjectTypeOption[]>([]);
+
+  // ── Select search ──────────────────────────────────────────────────
+  backupTypeSearch = signal('');
+  objectTypeSearch = signal('');
+  dialogSiteSearch = signal('');
+
+  filteredBackupTypes = computed(() => {
+    const q = this.backupTypeSearch().toLowerCase();
+    return q ? this.backupTypes.filter((t) => t.label.toLowerCase().includes(q)) : this.backupTypes;
+  });
+
+  filteredOrgObjectTypes = computed(() => {
+    const q = this.objectTypeSearch().toLowerCase();
+    const all = this.orgObjectTypes();
+    return q ? all.filter((t) => t.label.toLowerCase().includes(q)) : all;
+  });
+
+  filteredSiteObjectTypes = computed(() => {
+    const q = this.objectTypeSearch().toLowerCase();
+    const all = this.siteObjectTypes();
+    return q ? all.filter((t) => t.label.toLowerCase().includes(q)) : all;
+  });
+
+  filteredSites = computed(() => {
+    const q = this.dialogSiteSearch().toLowerCase();
+    const all = this.sites();
+    return q ? all.filter((s) => s.name.toLowerCase().includes(q)) : all;
+  });
+
+  // ── Display values for autocomplete inputs ─────────────────────────
+  backupTypeDisplayValue = computed(() => {
+    const val = this.form.get('backup_type')?.value;
+    return this.backupTypes.find((t) => t.value === val)?.label ?? '';
+  });
+
+  objectTypeDisplayValue = computed(() => {
+    const val = this.form.get('object_type')?.value;
+    return this.allObjectTypes().find((t) => t.value === val)?.label ?? '';
+  });
+
+  dialogSiteDisplayValue = computed(() => {
+    const val = this.form.get('site_id')?.value;
+    return this.sites().find((s) => s.id === val)?.name ?? '';
+  });
 
   form = this.fb.group({
     backup_type: ['full', Validators.required],

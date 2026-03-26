@@ -1,8 +1,9 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormControl, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -36,7 +37,8 @@ const REPORT_TYPES: ReportTypeOption[] = [
     ReactiveFormsModule,
     MatDialogModule,
     MatFormFieldModule,
-    MatSelectModule,
+    MatAutocompleteModule,
+    MatInputModule,
     MatButtonModule,
     MatProgressBarModule,
     MatSnackBarModule,
@@ -51,11 +53,14 @@ const REPORT_TYPES: ReportTypeOption[] = [
 
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Report Type</mat-label>
-        <mat-select [formControl]="reportTypeControl">
-          @for (rt of reportTypes; track rt.value) {
+        <input matInput [matAutocomplete]="reportTypeAuto"
+               [value]="reportTypeDisplayValue()"
+               (input)="reportTypeSearch.set($any($event.target).value)">
+        <mat-autocomplete #reportTypeAuto (optionSelected)="reportTypeControl.setValue($event.option.value)">
+          @for (rt of filteredReportTypes(); track rt.value) {
             <mat-option [value]="rt.value">{{ rt.label }}</mat-option>
           }
-        </mat-select>
+        </mat-autocomplete>
       </mat-form-field>
 
       @if (selectedType()) {
@@ -64,11 +69,14 @@ const REPORT_TYPES: ReportTypeOption[] = [
 
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Site</mat-label>
-        <mat-select [formControl]="siteControl">
-          @for (site of sites(); track site.id) {
+        <input matInput [matAutocomplete]="siteAuto"
+               [value]="siteDisplayValue()"
+               (input)="siteSearch.set($any($event.target).value)">
+        <mat-autocomplete #siteAuto (optionSelected)="siteControl.setValue($event.option.value)">
+          @for (site of filteredSites(); track site.id) {
             <mat-option [value]="site.id">{{ site.name }}</mat-option>
           }
-        </mat-select>
+        </mat-autocomplete>
       </mat-form-field>
     </mat-dialog-content>
 
@@ -107,6 +115,24 @@ export class ReportCreateDialogComponent implements OnInit {
   readonly reportTypes = REPORT_TYPES;
 
   sites = signal<SiteOption[]>([]);
+  siteSearch = signal('');
+  reportTypeSearch = signal('');
+  filteredSites = computed(() => {
+    const term = this.siteSearch().toLowerCase();
+    return term ? this.sites().filter((s) => s.name.toLowerCase().includes(term)) : this.sites();
+  });
+  filteredReportTypes = computed(() => {
+    const q = this.reportTypeSearch().toLowerCase();
+    return q ? this.reportTypes.filter((t) => t.label.toLowerCase().includes(q)) : this.reportTypes;
+  });
+  reportTypeDisplayValue = computed(() => {
+    const val = this.reportTypeControl.value;
+    return this.reportTypes.find((t) => t.value === val)?.label ?? '';
+  });
+  siteDisplayValue = computed(() => {
+    const val = this.siteControl.value;
+    return this.sites().find((s) => s.id === val)?.name ?? '';
+  });
   loadingSites = signal(true);
   submitting = signal(false);
   selectedType = signal<ReportTypeOption | null>(REPORT_TYPES[0]);

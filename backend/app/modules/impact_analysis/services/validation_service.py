@@ -1,20 +1,34 @@
-"""Validation service — runs 14 post-change validation checks.
+"""Validation service — runs post-change validation checks.
 
-Checks by device type:
-- AP: 1-8, 12
-- Switch: 1-13
-- Gateway: 1-8, 11, 12, 14
+Checks by device type (after removing SLE #2 and alarm #7):
+- AP: 1, 3-6, 8, 12
+- Switch: 1, 3-6, 8-13
+- Gateway: 1, 3-6, 8, 9, 11, 12, 14
 
 All checks are synchronous and operate purely on data already in the session
-and site_data. No API calls are made.
+and the validation data passed in. No API calls are made.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from app.modules.impact_analysis.services.topology_service import (
+    bfs_path_exists,
+    bfs_reachable,
+    build_adjacency,
+    device_name_from_topo,
+    find_device_id_by_mac,
+    find_gateways,
+    get_topology_connections,
+    get_topology_devices,
+    get_topology_groups,
+    safe_list,
+)
 
 if TYPE_CHECKING:
     from app.modules.impact_analysis.models import MonitoringSession
@@ -22,11 +36,33 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 # Which checks apply to which device types
+# Check #2 (SLE Performance) removed — runs in the SLE monitoring branch
+# Check #7 (Alarm Correlation) removed — replaced by webhook event routing
 _CHECKS_BY_TYPE: dict[str, set[int]] = {
-    "ap": {1, 2, 3, 4, 5, 6, 7, 8, 12},
-    "switch": {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
-    "gateway": {1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 14},
+    "ap": {1, 3, 4, 5, 6, 8, 12},
+    "switch": {1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13},
+    "gateway": {1, 3, 4, 5, 6, 8, 9, 11, 12, 14},
 }
+
+
+@dataclass
+class ValidationData:
+    """Lightweight data container for validation checks.
+
+    Replaces the full SitePollData — only carries the fields that
+    the remaining checks actually use. Pre-computed adjacency lists
+    avoid redundant build_adjacency() calls across checks.
+    """
+
+    device_stats: list[dict[str, Any]] = field(default_factory=list)
+    port_stats: list[dict[str, Any]] = field(default_factory=list)
+    client_counts: dict[str, Any] | int | None = None
+    config_events: list[dict[str, Any]] = field(default_factory=list)
+    device_configs: list[dict[str, Any]] = field(default_factory=list)
+    # Pre-computed adjacency lists from session topology snapshots
+    baseline_adj: dict[str, list[str]] = field(default_factory=dict)
+    latest_adj: dict[str, list[str]] = field(default_factory=dict)
+
 
 # Client count drop thresholds
 _CLIENT_WARN_THRESHOLD = 10.0  # percent drop
@@ -36,15 +72,25 @@ _CLIENT_FAIL_THRESHOLD = 25.0
 _PORT_FLAP_THRESHOLD = 2
 
 
-async def run_validations(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
+async def run_validations(
+    session: MonitoringSession,
+    *,
+    device_stats: list[dict[str, Any]] | None = None,
+    port_stats: list[dict[str, Any]] | None = None,
+    device_configs: list[dict[str, Any]] | None = None,
+    topology: Any = None,
+    template_drift: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run all applicable validation checks for this session.
 
     Args:
         session: The MonitoringSession with baseline/latest topology, SLE delta,
                  incidents, and device context.
-        site_data: SitePollData from the SiteDataCoordinator, with attributes:
-                   topology, sle_overview, device_stats, alarms, client_counts,
-                   config_events, port_stats, device_configs, fetched_at.
+        device_stats: Device stats from listSiteDevicesStats.
+        port_stats: Port stats from searchSiteSwOrGwPorts.
+        device_configs: Device configs from searchSiteDeviceLastConfigs.
+        topology: Live topology object (used to update topology_latest if not set).
+        template_drift: Optional template drift results from template_service.
 
     Returns:
         Dict keyed by check name → {status, details, ...} plus overall_status.
@@ -53,21 +99,36 @@ async def run_validations(session: MonitoringSession, site_data: Any) -> dict[st
     applicable = _CHECKS_BY_TYPE.get(device_type, set())
     results: dict[str, Any] = {}
 
+    # Pre-compute adjacency lists once for all topology-based checks
+    baseline_adj: dict[str, list[str]] = {}
+    latest_adj: dict[str, list[str]] = {}
+    if session.topology_baseline:
+        baseline_adj = build_adjacency(get_topology_connections(session.topology_baseline))
+    if session.topology_latest:
+        latest_adj = build_adjacency(get_topology_connections(session.topology_latest))
+
+    # Build validation data container (replaces full SitePollData)
+    site_data = ValidationData(
+        device_stats=device_stats or [],
+        port_stats=port_stats or [],
+        device_configs=device_configs or [],
+        baseline_adj=baseline_adj,
+        latest_adj=latest_adj,
+    )
+
     overall_worst = "pass"
 
     check_functions: dict[int, tuple[str, Any]] = {
         1: ("connectivity", _check_connectivity),
-        2: ("performance", _check_performance),
         3: ("stability", _check_stability),
         4: ("loop_detection", _check_loops),
         5: ("black_holes", _check_black_holes),
         6: ("client_impact", _check_client_impact),
-        7: ("alarm_correlation", _check_alarm_correlation),
         8: ("port_flapping", _check_port_flapping),
         9: ("dhcp_health", _check_dhcp_health),
         10: ("vc_mclag_integrity", _check_vc_mclag),
         11: ("routing_adjacency", _check_routing_adjacency),
-        12: ("config_drift", _check_config_drift),
+        12: ("config_drift", lambda s, sd: _check_config_drift(s, sd, template_drift)),
         13: ("poe_budget", _check_poe_budget),
         14: ("wan_failover", _check_wan_failover),
     }
@@ -91,95 +152,6 @@ async def run_validations(session: MonitoringSession, site_data: Any) -> dict[st
     return results
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-
-def _get_topology_devices(topo: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    """Extract devices dict from a serialized topology snapshot."""
-    if not topo:
-        return {}
-    return topo.get("devices", {})
-
-
-def _get_topology_connections(topo: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Extract connections list from a serialized topology snapshot."""
-    if not topo:
-        return []
-    return topo.get("connections", [])
-
-
-def _get_topology_groups(topo: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Extract logical groups from a serialized topology snapshot."""
-    if not topo:
-        return []
-    return topo.get("logical_groups", [])
-
-
-def _find_gateways(devices: dict[str, dict[str, Any]]) -> list[str]:
-    """Return list of device IDs that are gateways."""
-    return [dev_id for dev_id, dev in devices.items() if dev.get("device_type") == "gateway"]
-
-
-def _find_device_id_by_mac(devices: dict[str, dict[str, Any]], mac: str) -> str | None:
-    """Resolve a device MAC address to its device ID in a topology snapshot."""
-    mac_lower = mac.lower()
-    for dev_id, dev in devices.items():
-        if dev.get("mac", "").lower() == mac_lower:
-            return dev_id
-    return None
-
-
-def _build_adjacency(connections: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """Build adjacency list from serialized connections."""
-    adj: dict[str, list[str]] = {}
-    for conn in connections:
-        local = conn.get("local_device_id", "")
-        remote = conn.get("remote_device_id", "")
-        if local and remote:
-            adj.setdefault(local, []).append(remote)
-            adj.setdefault(remote, []).append(local)
-    return adj
-
-
-def _bfs_reachable(adj: dict[str, list[str]], source: str) -> set[str]:
-    """BFS from source, returns all reachable device IDs."""
-    visited: set[str] = set()
-    queue = [source]
-    while queue:
-        current = queue.pop(0)
-        if current in visited:
-            continue
-        visited.add(current)
-        for neighbor in adj.get(current, []):
-            if neighbor not in visited:
-                queue.append(neighbor)
-    return visited
-
-
-def _bfs_path_exists(adj: dict[str, list[str]], source: str, dest: str) -> bool:
-    """Check if a BFS path exists from source to dest."""
-    if source == dest:
-        return True
-    return dest in _bfs_reachable(adj, source)
-
-
-def _safe_list(data: Any) -> list:
-    """Safely extract a list from data that might be wrapped in {results: [...]}."""
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        if "results" in data:
-            return data["results"] if isinstance(data["results"], list) else []
-        return []
-    return []
-
-
-def _device_name_from_topo(devices: dict[str, dict[str, Any]], dev_id: str) -> str:
-    """Get device name from topology devices dict, falling back to ID."""
-    dev = devices.get(dev_id, {})
-    return dev.get("name", dev_id)
-
-
 # ── Check 1: Connectivity ─────────────────────────────────────────────────
 
 
@@ -196,47 +168,48 @@ def _check_connectivity(session: MonitoringSession, site_data: Any) -> dict[str,
     if not baseline or not latest:
         return {"status": "pass", "details": ["Insufficient topology data for connectivity check"]}
 
-    baseline_devices = _get_topology_devices(baseline)
-    latest_devices = _get_topology_devices(latest)
-    baseline_conns = _get_topology_connections(baseline)
-    latest_conns = _get_topology_connections(latest)
+    baseline_devices = get_topology_devices(baseline)
+    latest_devices = get_topology_devices(latest)
 
     # Find the changed device in both topologies
-    device_id_baseline = _find_device_id_by_mac(baseline_devices, session.device_mac)
-    device_id_latest = _find_device_id_by_mac(latest_devices, session.device_mac)
+    device_id_baseline = find_device_id_by_mac(baseline_devices, session.device_mac)
+    device_id_latest = find_device_id_by_mac(latest_devices, session.device_mac)
 
     if not device_id_baseline or not device_id_latest:
-        return {"status": "warn", "details": ["Changed device not found in topology"]}
+        return {
+            "status": "pass",
+            "details": ["Device has no infrastructure LLDP connections (standalone — not in topology)"],
+        }
 
     # Find all gateways in baseline
-    baseline_gateways = _find_gateways(baseline_devices)
+    baseline_gateways = find_gateways(baseline_devices)
     if not baseline_gateways:
         return {"status": "pass", "details": ["No gateways in topology to check connectivity against"]}
 
-    # Build adjacency lists
-    baseline_adj = _build_adjacency(baseline_conns)
-    latest_adj = _build_adjacency(latest_conns)
+    # Use pre-computed adjacency lists from ValidationData
+    baseline_adj = site_data.baseline_adj
+    latest_adj = site_data.latest_adj
 
     # Check BFS paths from changed device to each gateway
     lost_paths: list[str] = []
     for gw_id in baseline_gateways:
-        was_reachable = _bfs_path_exists(baseline_adj, device_id_baseline, gw_id)
+        was_reachable = bfs_path_exists(baseline_adj, device_id_baseline, gw_id)
         if was_reachable:
             # Check if the gateway still exists in the latest topology
             gw_latest_id = None
             gw_mac = baseline_devices.get(gw_id, {}).get("mac", "")
             if gw_mac:
-                gw_latest_id = _find_device_id_by_mac(latest_devices, gw_mac)
+                gw_latest_id = find_device_id_by_mac(latest_devices, gw_mac)
             # Fall back to same ID if MAC lookup fails
             if not gw_latest_id and gw_id in latest_devices:
                 gw_latest_id = gw_id
 
             if not gw_latest_id:
-                gw_name = _device_name_from_topo(baseline_devices, gw_id)
+                gw_name = device_name_from_topo(baseline_devices, gw_id)
                 lost_paths.append(gw_name)
                 details.append(f"Gateway '{gw_name}' no longer in topology")
-            elif not _bfs_path_exists(latest_adj, device_id_latest, gw_latest_id):
-                gw_name = _device_name_from_topo(latest_devices, gw_latest_id)
+            elif not bfs_path_exists(latest_adj, device_id_latest, gw_latest_id):
+                gw_name = device_name_from_topo(latest_devices, gw_latest_id)
                 lost_paths.append(gw_name)
                 details.append(f"Path to gateway '{gw_name}' is broken")
 
@@ -245,51 +218,6 @@ def _check_connectivity(session: MonitoringSession, site_data: Any) -> dict[str,
 
     details.append(f"All {len(baseline_gateways)} gateway path(s) intact")
     return {"status": "pass", "details": details}
-
-
-# ── Check 2: Performance (SLE) ────────────────────────────────────────────
-
-
-def _check_performance(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
-    """Check SLE delta — if overall_degraded is True, status=fail.
-
-    If any single metric degraded, status=warn.
-    """
-    sle_delta = session.sle_delta
-    if not sle_delta:
-        return {"status": "pass", "details": ["No SLE delta data available"], "degraded_metrics": []}
-
-    overall_degraded = sle_delta.get("overall_degraded", False)
-    degraded_names = sle_delta.get("degraded_metric_names", [])
-    metrics = sle_delta.get("metrics", [])
-
-    degraded_details: list[dict[str, Any]] = []
-    for m in metrics:
-        if m.get("degraded"):
-            degraded_details.append(
-                {
-                    "name": m.get("name", "unknown"),
-                    "baseline_value": m.get("baseline_value"),
-                    "current_value": m.get("current_value"),
-                    "change_percent": m.get("change_percent"),
-                }
-            )
-
-    if overall_degraded:
-        return {
-            "status": "fail",
-            "details": [f"SLE degradation detected: {', '.join(degraded_names)}"],
-            "degraded_metrics": degraded_details,
-        }
-
-    if degraded_names:
-        return {
-            "status": "warn",
-            "details": [f"Minor SLE degradation: {', '.join(degraded_names)}"],
-            "degraded_metrics": degraded_details,
-        }
-
-    return {"status": "pass", "details": ["SLE metrics stable"], "degraded_metrics": []}
 
 
 # ── Check 3: Stability ────────────────────────────────────────────────────
@@ -380,8 +308,8 @@ def _check_loops(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
             new_vlans.append(f"{vlan_key}={vlan_val}")
 
     # Check connection VLAN summaries for unexpected propagation
-    baseline_conns = _get_topology_connections(baseline)
-    latest_conns = _get_topology_connections(latest)
+    baseline_conns = get_topology_connections(baseline)
+    latest_conns = get_topology_connections(latest)
 
     # Build a set of (local, remote, vlan_summary) tuples for comparison
     baseline_vlan_paths: set[tuple[str, str, str]] = set()
@@ -395,7 +323,7 @@ def _check_loops(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
             baseline_vlan_paths.add((pair[0], pair[1], vlan_sum))
 
     new_vlan_paths: list[str] = []
-    latest_devices = _get_topology_devices(latest)
+    latest_devices = get_topology_devices(latest)
     for conn in latest_conns:
         local = conn.get("local_device_id", "")
         remote = conn.get("remote_device_id", "")
@@ -403,8 +331,8 @@ def _check_loops(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
         if local and remote and vlan_sum:
             pair = tuple(sorted([local, remote]))
             if (pair[0], pair[1], vlan_sum) not in baseline_vlan_paths:
-                local_name = _device_name_from_topo(latest_devices, local)
-                remote_name = _device_name_from_topo(latest_devices, remote)
+                local_name = device_name_from_topo(latest_devices, local)
+                remote_name = device_name_from_topo(latest_devices, remote)
                 new_vlan_paths.append(f"{local_name} <-> {remote_name}: {vlan_sum}")
 
     if new_vlans:
@@ -424,9 +352,10 @@ def _check_loops(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
 
 
 def _check_black_holes(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
-    """For each gateway reachable in baseline, verify BFS path still exists in latest.
+    """For each gateway, compute reachable devices via reverse BFS. Devices reachable
+    in baseline but not in latest are potential traffic black holes.
 
-    Broken paths = potential traffic black holes.
+    Uses O(G*(D+E)) reverse-BFS instead of O(D*G) per-device BFS.
     """
     baseline = session.topology_baseline
     latest = session.topology_latest
@@ -434,48 +363,64 @@ def _check_black_holes(session: MonitoringSession, site_data: Any) -> dict[str, 
     if not baseline or not latest:
         return {"status": "pass", "details": ["Insufficient topology data for black hole detection"]}
 
-    baseline_devices = _get_topology_devices(baseline)
-    latest_devices = _get_topology_devices(latest)
-    baseline_conns = _get_topology_connections(baseline)
-    latest_conns = _get_topology_connections(latest)
+    baseline_devices = get_topology_devices(baseline)
+    latest_devices = get_topology_devices(latest)
 
-    baseline_gateways = _find_gateways(baseline_devices)
+    baseline_gateways = find_gateways(baseline_devices)
     if not baseline_gateways:
         return {"status": "pass", "details": ["No gateways found in baseline topology"]}
 
-    baseline_adj = _build_adjacency(baseline_conns)
-    latest_adj = _build_adjacency(latest_conns)
+    # Use pre-computed adjacency lists from ValidationData
+    baseline_adj = site_data.baseline_adj
+    latest_adj = site_data.latest_adj
 
-    # Check all device-to-gateway paths, not just the changed device
+    # Build MAC-to-latest-ID mapping for resolving devices across topologies
+    mac_to_latest_id: dict[str, str] = {}
+    for dev_id, dev in latest_devices.items():
+        mac = dev.get("mac", "").lower()
+        if mac:
+            mac_to_latest_id[mac] = dev_id
+
+    def _resolve_latest_id(baseline_dev_id: str) -> str | None:
+        """Resolve a baseline device ID to its latest topology ID via MAC."""
+        dev = baseline_devices.get(baseline_dev_id, {})
+        mac = dev.get("mac", "").lower()
+        if mac and mac in mac_to_latest_id:
+            return mac_to_latest_id[mac]
+        if baseline_dev_id in latest_devices:
+            return baseline_dev_id
+        return None
+
+    # Reverse BFS: for each gateway, find all reachable devices in baseline and latest
     broken_paths: list[dict[str, str]] = []
-    for dev_id, dev in baseline_devices.items():
-        if dev.get("device_type") == "gateway":
-            continue
+    for gw_id in baseline_gateways:
+        baseline_reachable = bfs_reachable(baseline_adj, gw_id)
 
-        for gw_id in baseline_gateways:
-            was_reachable = _bfs_path_exists(baseline_adj, dev_id, gw_id)
-            if not was_reachable:
+        # Resolve gateway ID in latest topology
+        gw_latest_id = _resolve_latest_id(gw_id)
+        latest_reachable: set[str] = set()
+        if gw_latest_id:
+            latest_reachable = bfs_reachable(latest_adj, gw_latest_id)
+
+        # Check each non-gateway device that was reachable from this gateway
+        for dev_id in baseline_reachable:
+            if dev_id == gw_id:
+                continue
+            dev = baseline_devices.get(dev_id, {})
+            if dev.get("device_type") == "gateway":
                 continue
 
-            # Resolve IDs in latest topology via MAC
-            dev_mac = dev.get("mac", "")
-            dev_latest_id = _find_device_id_by_mac(latest_devices, dev_mac) if dev_mac else None
-            if not dev_latest_id and dev_id in latest_devices:
-                dev_latest_id = dev_id
+            dev_latest_id = _resolve_latest_id(dev_id)
+            if not dev_latest_id or not gw_latest_id:
+                continue
 
-            gw_mac = baseline_devices.get(gw_id, {}).get("mac", "")
-            gw_latest_id = _find_device_id_by_mac(latest_devices, gw_mac) if gw_mac else None
-            if not gw_latest_id and gw_id in latest_devices:
-                gw_latest_id = gw_id
-
-            if dev_latest_id and gw_latest_id:
-                if not _bfs_path_exists(latest_adj, dev_latest_id, gw_latest_id):
-                    broken_paths.append(
-                        {
-                            "device": _device_name_from_topo(baseline_devices, dev_id),
-                            "gateway": _device_name_from_topo(baseline_devices, gw_id),
-                        }
-                    )
+            if dev_latest_id not in latest_reachable:
+                broken_paths.append(
+                    {
+                        "device": device_name_from_topo(baseline_devices, dev_id),
+                        "gateway": device_name_from_topo(baseline_devices, gw_id),
+                    }
+                )
 
     if broken_paths:
         details = [f"{bp['device']} -> {bp['gateway']}" for bp in broken_paths[:10]]
@@ -502,7 +447,7 @@ def _check_client_impact(session: MonitoringSession, site_data: Any) -> dict[str
     baseline_count = 0
 
     if current_clients:
-        clients_list = _safe_list(current_clients)
+        clients_list = safe_list(current_clients)
         if clients_list:
             # Client count endpoints typically return a list of client objects
             current_count = len(clients_list)
@@ -554,55 +499,6 @@ def _check_client_impact(session: MonitoringSession, site_data: Any) -> dict[str
         result["details"] = [f"Client count stable ({baseline_count} -> {current_count}, {change_percent:+.1f}%)"]
 
     return result
-
-
-# ── Check 7: Alarm Correlation ────────────────────────────────────────────
-
-
-def _check_alarm_correlation(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
-    """Filter alarms from site_data for device_mac. New alarms post-change = flag."""
-    current_alarms = _safe_list(getattr(site_data, "alarms", None))
-    device_mac = session.device_mac.lower()
-
-    # Filter alarms to those related to the monitored device
-    device_alarms: list[dict[str, Any]] = []
-    for alarm in current_alarms:
-        if not isinstance(alarm, dict):
-            continue
-        alarm_mac = (alarm.get("mac") or alarm.get("device_mac") or "").lower()
-        if alarm_mac == device_mac:
-            device_alarms.append(alarm)
-
-    new_alarms: list[dict[str, Any]] = []
-    for alarm in device_alarms:
-        new_alarms.append(
-            {
-                "type": alarm.get("type", "unknown"),
-                "severity": alarm.get("severity", "info"),
-                "count": alarm.get("count", 1),
-            }
-        )
-
-    if not new_alarms:
-        return {"status": "pass", "details": ["No alarms for monitored device"], "new_alarms": []}
-
-    # Determine severity based on alarm severity
-    has_critical = any(a.get("severity") == "critical" for a in new_alarms)
-    has_warning = any(a.get("severity") in ("warn", "warning", "major") for a in new_alarms)
-
-    if has_critical:
-        status = "fail"
-    elif has_warning:
-        status = "warn"
-    else:
-        status = "warn"
-
-    alarm_types = [a["type"] for a in new_alarms]
-    return {
-        "status": status,
-        "details": [f"{len(new_alarms)} alarm(s) for device: {', '.join(alarm_types[:5])}"],
-        "new_alarms": new_alarms,
-    }
 
 
 # ── Check 8: Port Flapping ───────────────────────────────────────────────
@@ -683,20 +579,19 @@ def _check_dhcp_health(session: MonitoringSession, site_data: Any) -> dict[str, 
     if not baseline or not latest:
         return {"status": "pass", "details": ["Insufficient topology data for DHCP health check"]}
 
-    baseline_devices = _get_topology_devices(baseline)
-    latest_devices = _get_topology_devices(latest)
+    baseline_devices = get_topology_devices(baseline)
+    latest_devices = get_topology_devices(latest)
 
     # Find the changed device and its neighbors
-    device_id_baseline = _find_device_id_by_mac(baseline_devices, session.device_mac)
-    device_id_latest = _find_device_id_by_mac(latest_devices, session.device_mac)
+    device_id_baseline = find_device_id_by_mac(baseline_devices, session.device_mac)
+    device_id_latest = find_device_id_by_mac(latest_devices, session.device_mac)
 
     if not device_id_baseline or not device_id_latest:
         return {"status": "pass", "details": ["Changed device not found in topology for DHCP check"]}
 
-    # Get neighbor device IDs from baseline
-    baseline_adj = _build_adjacency(_get_topology_connections(baseline))
+    # Get neighbor device IDs from baseline (use pre-computed adjacency)
     device_ids_to_check = {device_id_baseline}
-    for neighbor_id in baseline_adj.get(device_id_baseline, []):
+    for neighbor_id in site_data.baseline_adj.get(device_id_baseline, []):
         device_ids_to_check.add(neighbor_id)
 
     # Compare DHCP configs
@@ -708,7 +603,7 @@ def _check_dhcp_health(session: MonitoringSession, site_data: Any) -> dict[str, 
 
         # Find same device in latest topology by MAC
         dev_mac = baseline_dev.get("mac", "") if isinstance(baseline_dev, dict) else ""
-        latest_dev_id = _find_device_id_by_mac(latest_devices, dev_mac) if dev_mac else dev_id
+        latest_dev_id = find_device_id_by_mac(latest_devices, dev_mac) if dev_mac else dev_id
         latest_dev = latest_devices.get(latest_dev_id or dev_id, {})
         latest_dhcp = latest_dev.get("dhcpd_config") if isinstance(latest_dev, dict) else None
 
@@ -784,8 +679,8 @@ def _check_vc_mclag(session: MonitoringSession, site_data: Any) -> dict[str, Any
     if not baseline or not latest:
         return {"status": "pass", "details": ["Insufficient topology data for VC/MCLAG check"]}
 
-    baseline_groups = _get_topology_groups(baseline)
-    latest_groups = _get_topology_groups(latest)
+    baseline_groups = get_topology_groups(baseline)
+    latest_groups = get_topology_groups(latest)
 
     # Index groups by (type, id)
     baseline_by_key: dict[tuple[str, str], dict[str, Any]] = {}
@@ -821,8 +716,8 @@ def _check_vc_mclag(session: MonitoringSession, site_data: Any) -> dict[str, Any
             details.append(f"{group_type} '{group_id}' gained members: {', '.join(new_members)}")
 
     # Check for ICL link status changes
-    baseline_conns = _get_topology_connections(baseline)
-    latest_conns = _get_topology_connections(latest)
+    baseline_conns = get_topology_connections(baseline)
+    latest_conns = get_topology_connections(latest)
 
     icl_types = {"VC_ICL", "MCLAG_ICL"}
 
@@ -885,7 +780,7 @@ def _check_routing_adjacency(session: MonitoringSession, site_data: Any) -> dict
         )
 
     # Also check config_events from site_data for routing events
-    config_events = _safe_list(getattr(site_data, "config_events", None))
+    config_events = safe_list(getattr(site_data, "config_events", None))
     for event in config_events:
         if not isinstance(event, dict):
             continue
@@ -897,8 +792,8 @@ def _check_routing_adjacency(session: MonitoringSession, site_data: Any) -> dict
     baseline = session.topology_baseline
     latest = session.topology_latest
     if baseline and latest:
-        baseline_conns = _get_topology_connections(baseline)
-        latest_conns = _get_topology_connections(latest)
+        baseline_conns = get_topology_connections(baseline)
+        latest_conns = get_topology_connections(latest)
 
         # Build connection sets by device pair
         def _conn_set(conns: list[dict[str, Any]]) -> dict[tuple[str, str], str]:
@@ -937,15 +832,27 @@ def _check_routing_adjacency(session: MonitoringSession, site_data: Any) -> dict
 # ── Check 12: Config Drift ───────────────────────────────────────────────
 
 
-def _check_config_drift(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
-    """Check device_configs for the device_mac.
+def _check_config_drift(
+    session: MonitoringSession,
+    site_data: Any,
+    template_drift: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Check device-level and template-level configuration drift.
 
-    Flag if applied config differs from last known good.
+    Device-level: flags failed config application, manual overrides, pushed/applied mismatch.
+    Template-level: uses baseline vs end-of-monitoring comparison of org/site templates
+    to detect template changes during the monitoring window, with correlation to
+    device CONFIGURED events.
     """
-    device_configs = _safe_list(getattr(site_data, "device_configs", None))
+    details: list[str] = []
+    drifted_fields: list[str] = []
+    template_changes: list[dict[str, Any]] = []
+    has_device_failure = False
+
+    # ── Device-level checks ──────────────────────────────────────────────
+    device_configs = safe_list(getattr(site_data, "device_configs", None))
     device_mac = session.device_mac.lower()
 
-    # Find configs for our device
     device_config_entries: list[dict[str, Any]] = []
     for config_entry in device_configs:
         if not isinstance(config_entry, dict):
@@ -954,37 +861,90 @@ def _check_config_drift(session: MonitoringSession, site_data: Any) -> dict[str,
         if config_mac == device_mac:
             device_config_entries.append(config_entry)
 
-    if not device_config_entries:
-        return {"status": "pass", "details": ["No config data available for drift detection"], "drifted_fields": []}
-
-    drifted_fields: list[str] = []
-
-    # Check for config change indicators
     for entry in device_config_entries:
-        # Look for config status indicators
         config_status = entry.get("status", "")
         if config_status in ("failed", "error"):
             drifted_fields.append(f"Config application status: {config_status}")
+            has_device_failure = True
 
-        # Check for config_changed_by_user events (indicates manual override)
         change_type = entry.get("type", "")
-        if "CONFIG_CHANGED_BY_USER" in change_type:
-            drifted_fields.append(f"Manual config change detected: {change_type}")
+        if "CONFIG_CHANGED_BY_USER" in change_type or "CONFIG_CHANGED_BY_RRM" in change_type:
+            drifted_fields.append(f"Config change detected: {change_type}")
 
-        # Compare pushed vs applied config if available
         pushed = entry.get("config_pushed")
         applied = entry.get("config_applied")
         if pushed and applied and pushed != applied:
             drifted_fields.append("Applied config differs from pushed config")
 
-    if drifted_fields:
+    # ── Template-level checks ────────────────────────────────────────────
+    if template_drift:
+        for tmpl_type, tmpl_data in template_drift.get("templates", {}).items():
+            changes = tmpl_data.get("changes", [])
+            tmpl_name = tmpl_data.get("name", tmpl_type)
+            related_events = tmpl_data.get("related_events", [])
+
+            changed_paths = [c.get("path", "") for c in changes[:5]]
+            path_summary = ", ".join(p for p in changed_paths if p) or "root"
+
+            if related_events:
+                event_summary = ", ".join(f"{e['event_type']} at {e['timestamp']}" for e in related_events[:2])
+                details.append(
+                    f"Template '{tmpl_name}' ({tmpl_type}) changed: [{path_summary}] "
+                    f"— correlated with: {event_summary}"
+                )
+            else:
+                details.append(
+                    f"Template '{tmpl_name}' ({tmpl_type}) changed: [{path_summary}] "
+                    f"— no correlated CONFIGURED event detected"
+                )
+
+            template_changes.append(
+                {
+                    "template_type": tmpl_type,
+                    "template_name": tmpl_name,
+                    "template_id": tmpl_data.get("id", ""),
+                    "change_count": len(changes),
+                    "changed_fields": changed_paths,
+                    "related_events": related_events,
+                }
+            )
+
+        # Site setting changes
+        setting_changes = template_drift.get("site_setting_changes", [])
+        if setting_changes:
+            changed_paths = [c.get("path", "") for c in setting_changes[:5]]
+            details.append(f"Site setting changed: [{', '.join(p for p in changed_paths if p)}]")
+
+    # ── Awaiting config warnings ────────────────────────────────────────
+    if session.awaiting_config_warnings:
+        for warning in session.awaiting_config_warnings:
+            details.append(f"Warning: {warning}")
+
+    # ── Status determination ─────────────────────────────────────────────
+    if has_device_failure:
+        all_details = drifted_fields + details
         return {
-            "status": "warn",
-            "details": drifted_fields,
+            "status": "fail",
+            "details": all_details,
             "drifted_fields": drifted_fields,
+            "template_changes": template_changes,
         }
 
-    return {"status": "pass", "details": ["Config consistent with expected state"], "drifted_fields": []}
+    if drifted_fields or details:
+        all_details = drifted_fields + details
+        return {
+            "status": "warn",
+            "details": all_details,
+            "drifted_fields": drifted_fields,
+            "template_changes": template_changes,
+        }
+
+    return {
+        "status": "pass",
+        "details": ["Config consistent with expected state"],
+        "drifted_fields": [],
+        "template_changes": [],
+    }
 
 
 # ── Check 13: PoE Budget ─────────────────────────────────────────────────
@@ -995,7 +955,7 @@ def _check_poe_budget(session: MonitoringSession, site_data: Any) -> dict[str, A
 
     Flag budget changes or PoE-related issues.
     """
-    port_stats = _safe_list(getattr(site_data, "port_stats", None))
+    port_stats = safe_list(getattr(site_data, "port_stats", None))
     device_mac = session.device_mac.lower()
 
     # Filter port stats for our device
@@ -1047,16 +1007,6 @@ def _check_poe_budget(session: MonitoringSession, site_data: Any) -> dict[str, A
         elif utilization > 75:
             poe_issues.append(f"PoE budget utilization elevated at {utilization:.1f}%")
 
-    # Also check alarms for PoE-related alarms
-    alarms = _safe_list(getattr(site_data, "alarms", None))
-    for alarm in alarms:
-        if not isinstance(alarm, dict):
-            continue
-        alarm_mac = (alarm.get("mac") or alarm.get("device_mac") or "").lower()
-        alarm_type = (alarm.get("type") or "").lower()
-        if alarm_mac == device_mac and "poe" in alarm_type:
-            poe_issues.append(f"PoE alarm: {alarm.get('type', 'unknown')}")
-
     if poe_issues:
         # Any fault or denied status is a fail, budget warnings are just warns
         has_faults = any("fault" in issue.lower() or "denied" in issue.lower() for issue in poe_issues)
@@ -1076,7 +1026,7 @@ def _check_wan_failover(session: MonitoringSession, site_data: Any) -> dict[str,
 
     Warn if primary WAN down and traffic on backup. Fail if all WAN paths down.
     """
-    device_stats = _safe_list(getattr(site_data, "device_stats", None))
+    device_stats = safe_list(getattr(site_data, "device_stats", None))
     device_mac = session.device_mac.lower()
 
     # Find our gateway in device stats
@@ -1134,7 +1084,7 @@ def _check_wan_failover(session: MonitoringSession, site_data: Any) -> dict[str,
 
     if not wan_paths:
         # Try port stats from site_data
-        port_stats = _safe_list(getattr(site_data, "port_stats", None))
+        port_stats = safe_list(getattr(site_data, "port_stats", None))
         for port in port_stats:
             if not isinstance(port, dict):
                 continue

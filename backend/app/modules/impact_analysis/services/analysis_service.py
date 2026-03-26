@@ -17,8 +17,19 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-async def analyze_session(session: MonitoringSession) -> dict[str, Any]:
+async def analyze_session(
+    session: MonitoringSession,
+    trigger: str = "final",
+    trigger_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Analyze a monitoring session and produce impact assessment.
+
+    Args:
+        session: The MonitoringSession with collected data.
+        trigger: What triggered this analysis — "validation", "webhook_event",
+                 "sle_degradation", or "final".
+        trigger_context: Details about what triggered the analysis (e.g., which
+                        check failed, which event, which SLE metric degraded).
 
     Returns:
         {
@@ -31,17 +42,21 @@ async def analyze_session(session: MonitoringSession) -> dict[str, Any]:
             "tool_calls": list[dict] (if AI agent used),
             "thinking_texts": list[str] (if AI agent used),
             "source": "ai_agent" | "rule_based",
+            "trigger": str,
         }
     """
     # Check if LLM is available
     if await _is_llm_available():
         try:
-            return await _ai_agent_analysis(session)
+            result = await _ai_agent_analysis(session, trigger, trigger_context)
+            result["trigger"] = trigger
+            return result
         except Exception as e:
             logger.warning("ai_agent_analysis_failed", session_id=str(session.id), error=str(e))
-            # Fall through to rule-based
 
-    return _rule_based_analysis(session)
+    result = _rule_based_analysis(session)
+    result["trigger"] = trigger
+    return result
 
 
 async def _is_llm_available() -> bool:
@@ -54,7 +69,11 @@ async def _is_llm_available() -> bool:
         return False
 
 
-async def _ai_agent_analysis(session: MonitoringSession) -> dict[str, Any]:
+async def _ai_agent_analysis(
+    session: MonitoringSession,
+    trigger: str = "final",
+    trigger_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run AI Agent analysis with LLM + MCP tools."""
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
@@ -66,8 +85,8 @@ async def _ai_agent_analysis(session: MonitoringSession) -> dict[str, Any]:
     # Build system prompt
     system_prompt = _build_system_prompt()
 
-    # Build user message with session data
-    user_message = _build_user_message(session, _sanitize_for_prompt)
+    # Build user message with session data + trigger context
+    user_message = _build_user_message(session, _sanitize_for_prompt, trigger, trigger_context)
 
     # Connect to in-process MCP server for backup/workflow/system data access
     mcp_client = create_local_mcp_client()
@@ -135,12 +154,39 @@ def _build_system_prompt() -> str:
     )
 
 
-def _build_user_message(session: MonitoringSession, sanitize_fn: Any) -> str:
+def _build_user_message(
+    session: MonitoringSession,
+    sanitize_fn: Any,
+    trigger: str = "final",
+    trigger_context: dict[str, Any] | None = None,
+) -> str:
     """Build the user message with all session data for analysis."""
     parts: list[str] = []
 
+    # Trigger context — tell the AI why this analysis was triggered
+    trigger_labels = {
+        "validation": "Validation checks detected potential issues",
+        "webhook_event": "A concerning device event was received",
+        "sle_degradation": "SLE performance degradation detected",
+        "final": "Final assessment after monitoring completed",
+    }
+    parts.append(f"## Analysis Trigger: {trigger_labels.get(trigger, trigger)}")
+    if trigger_context:
+        for key, value in trigger_context.items():
+            if isinstance(value, (str, int, float, bool)):
+                parts.append(f"- {key}: {value}")
+            elif isinstance(value, list) and len(value) <= 10:
+                parts.append(f"- {key}: {', '.join(str(v) for v in value)}")
+
+    # Previous AI analyses from timeline (so the AI has context)
+    prev_analyses = [e for e in session.timeline if e.type.value == "ai_analysis" and e.data.get("summary")]
+    if prev_analyses:
+        parts.append("\n## Previous AI Analyses")
+        for entry in prev_analyses[-3:]:  # last 3 max
+            parts.append(f"- [{entry.data.get('trigger', '?')}] {entry.data.get('summary', '')[:200]}")
+
     # Config change details
-    parts.append("## Config Change Details")
+    parts.append("\n## Config Change Details")
     parts.append(f"- Device: {sanitize_fn(session.device_name)} ({session.device_type.value})")
     parts.append(f"- MAC: {session.device_mac}")
     parts.append(f"- Site: {sanitize_fn(session.site_name)}")
@@ -157,10 +203,65 @@ def _build_user_message(session: MonitoringSession, sanitize_fn: Any) -> str:
             )
         if change.config_diff:
             # Truncate large diffs but include enough for the AI to analyze
-            diff = change.config_diff[:3000]
+            diff = sanitize_fn(change.config_diff[:3000])
             if len(change.config_diff) > 3000:
                 diff += f"\n... (truncated, full diff is {len(change.config_diff)} chars)"
             parts.append(f"     Config diff (Junos):\n```\n{diff}\n```")
+        if change.config_before or change.config_after:
+            import json
+
+            parts.append("     Config change (before/after from audit):")
+            if change.config_before:
+                before_str = sanitize_fn(json.dumps(change.config_before, indent=2)[:2000])
+                parts.append(f"     BEFORE:\n```json\n{before_str}\n```")
+            if change.config_after:
+                after_str = sanitize_fn(json.dumps(change.config_after, indent=2)[:2000])
+                parts.append(f"     AFTER:\n```json\n{after_str}\n```")
+        if change.change_message:
+            parts.append(f"     Audit message: {sanitize_fn(change.change_message)}")
+
+    # Config application timing
+    if session.config_applied_at:
+        parts.append(f"- Config applied to device at: {session.config_applied_at.isoformat()}")
+        if session.config_changes:
+            first_change = session.config_changes[0].timestamp
+            delta = (session.config_applied_at - first_change).total_seconds()
+            parts.append(f"- Time from change to apply: {delta:.0f} seconds")
+    if session.awaiting_config_warnings:
+        parts.append("- CONFIG WARNINGS:")
+        for w in session.awaiting_config_warnings:
+            parts.append(f"  - {w}")
+
+    # Connected devices (LLDP neighbors — shows which devices are on which ports)
+    if session.device_clients:
+        parts.append("\n## Connected Devices (LLDP Neighbors)")
+        for client in session.device_clients:
+            if isinstance(client, dict):
+                mac = client.get("mac", "?")
+                ports = ", ".join(client.get("port_ids", []))
+                source = client.get("source", "")
+                parts.append(f"- {ports}: {mac} ({source})")
+
+    # Port stats (operational state of the monitored device's ports)
+    if session.device_port_stats:
+        parts.append("\n## Port Status")
+        for port in session.device_port_stats[:20]:  # cap at 20 ports
+            if not isinstance(port, dict):
+                continue
+            port_id = port.get("port_id", "?")
+            up = "UP" if port.get("up") else "DOWN"
+            speed = port.get("speed") or ""
+            neighbor = port.get("neighbor_mac") or port.get("lldp_neighbor_mac") or ""
+            poe = ""
+            if port.get("poe_enabled") or port.get("poe_on"):
+                draw = port.get("poe_power_draw") or port.get("poe_draw") or 0
+                poe = f", PoE={draw}W"
+            parts.append(
+                f"- {port_id}: {up}"
+                + (f", speed={speed}" if speed else "")
+                + (f", neighbor={neighbor}" if neighbor else "")
+                + poe
+            )
 
     # SLE Delta
     if session.sle_delta:

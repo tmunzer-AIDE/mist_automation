@@ -181,7 +181,8 @@ async def receive_mist_webhook(
         events = [payload]  # Treat as single event if no events array
 
     source_ip = request.client.host if request.client else None
-    headers = dict(request.headers)
+    _STORED_HEADERS = {"content-type", "x-mist-signature", "x-mist-signature-v2", "user-agent", "x-forwarded-for"}
+    headers = {k: v for k, v in request.headers.items() if k.lower() in _STORED_HEADERS}
 
     created_event_ids = []
     for idx, event in enumerate(events):
@@ -365,13 +366,7 @@ async def list_webhook_events(
         query["processed"] = processed
 
     total = await WebhookEvent.find(query).count()
-    events = (
-        await WebhookEvent.find(query)
-        .sort(["-event_timestamp", "-received_at"])
-        .skip(skip)
-        .limit(limit)
-        .to_list()
-    )
+    events = await WebhookEvent.find(query).sort(["-event_timestamp", "-received_at"]).skip(skip).limit(limit).to_list()
 
     return WebhookListResponse(
         events=[_event_to_response(event) for event in events],

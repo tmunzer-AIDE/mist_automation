@@ -48,6 +48,7 @@ export const NAV_ITEMS: NavItem[] = [
       { label: 'Users', icon: 'people', route: '/admin/users' },
       { label: 'Settings', icon: 'settings', route: '/admin/settings' },
       { label: 'Audit Logs', icon: 'receipt_long', route: '/admin/logs' },
+      { label: 'System Logs', icon: 'terminal', route: '/admin/system-logs' },
       { label: 'System Stats', icon: 'monitoring', route: '/admin/stats' },
     ],
   },

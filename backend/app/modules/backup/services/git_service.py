@@ -75,7 +75,7 @@ class GitService:
             except GitCommandError:
                 # Initialize new repo if clone fails (empty remote)
                 repo = Repo.init(self.repo_path)
-                
+
                 # Add remote
                 try:
                     origin = repo.create_remote("origin", self.repo_url)
@@ -248,7 +248,7 @@ class GitService:
             try:
                 # Pull first to avoid conflicts
                 origin = self.repo.remote("origin")
-                
+
                 # Try to pull (may fail if remote is empty)
                 try:
                     origin.pull(self.branch)
@@ -367,18 +367,20 @@ class GitService:
             # Format commit info
             commit_history = []
             for commit in commits:
-                commit_history.append({
-                    "sha": commit.hexsha,
-                    "message": commit.message.strip(),
-                    "author": str(commit.author),
-                    "author_email": commit.author.email,
-                    "committed_at": datetime.fromtimestamp(commit.committed_date, tz=timezone.utc).isoformat(),
-                    "stats": {
-                        "files_changed": commit.stats.total["files"],
-                        "insertions": commit.stats.total["insertions"],
-                        "deletions": commit.stats.total["deletions"],
-                    },
-                })
+                commit_history.append(
+                    {
+                        "sha": commit.hexsha,
+                        "message": commit.message.strip(),
+                        "author": str(commit.author),
+                        "author_email": commit.author.email,
+                        "committed_at": datetime.fromtimestamp(commit.committed_date, tz=timezone.utc).isoformat(),
+                        "stats": {
+                            "files_changed": commit.stats.total["files"],
+                            "insertions": commit.stats.total["insertions"],
+                            "deletions": commit.stats.total["deletions"],
+                        },
+                    }
+                )
 
             return commit_history
 
@@ -415,8 +417,7 @@ class GitService:
         parsed = urlparse(url)
         if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
             raise ConfigurationError(
-                f"Unsupported Git URL scheme '{parsed.scheme}'. "
-                f"Allowed: {', '.join(sorted(_ALLOWED_SCHEMES))}"
+                f"Unsupported Git URL scheme '{parsed.scheme}'. " f"Allowed: {', '.join(sorted(_ALLOWED_SCHEMES))}"
             )
         # Block ext:: protocol used for arbitrary command execution
         if url.lower().startswith("ext::"):
@@ -424,7 +425,7 @@ class GitService:
 
     def _generate_commit_message(self, backup: BackupObject) -> str:
         """Generate commit message for backup."""
-        
+
         event_messages = {
             "full_backup": f"Full backup: {backup.object_type} {backup.object_name}",
             "created": f"Created: {backup.object_type} {backup.object_name}",
@@ -452,12 +453,12 @@ class GitService:
         invalid_chars = '<>:"/\\|?*'
         for char in invalid_chars:
             name = name.replace(char, "_")
-        
+
         # Limit length
         if len(name) > 50:
             name = name[:50]
-        
+
         # Remove leading/trailing whitespace and dots
         name = name.strip().strip(".")
-        
+
         return name or "unnamed"

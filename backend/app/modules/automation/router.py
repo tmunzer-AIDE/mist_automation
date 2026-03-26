@@ -143,8 +143,14 @@ def _window_summary(window) -> dict:
         "event_count": window.event_count if hasattr(window, "event_count") else window.get("event_count", 0),
         "site_id": window.site_id if hasattr(window, "site_id") else window.get("site_id"),
         "site_name": window.site_name if hasattr(window, "site_name") else window.get("site_name"),
-        "window_end": (window.window_end.isoformat() if hasattr(window, "window_end") and window.window_end else window.get("window_end", "")),
-        "window_seconds": window.window_seconds if hasattr(window, "window_seconds") else window.get("window_seconds", 0),
+        "window_end": (
+            window.window_end.isoformat()
+            if hasattr(window, "window_end") and window.window_end
+            else window.get("window_end", "")
+        ),
+        "window_seconds": (
+            window.window_seconds if hasattr(window, "window_seconds") else window.get("window_seconds", 0)
+        ),
     }
 
 
@@ -225,7 +231,15 @@ async def list_workflows(
     if workflow_type:
         query["workflow_type"] = workflow_type
 
-    SORTABLE_FIELDS = {"name", "status", "workflow_type", "execution_count", "last_execution", "created_at", "updated_at"}
+    SORTABLE_FIELDS = {
+        "name",
+        "status",
+        "workflow_type",
+        "execution_count",
+        "last_execution",
+        "created_at",
+        "updated_at",
+    }
     sort_field = sort_by if sort_by in SORTABLE_FIELDS else "name"
     direction = pymongo.DESCENDING if sort_dir == "desc" else pymongo.ASCENDING
 
@@ -236,9 +250,11 @@ async def list_workflows(
     from app.modules.automation.models.aggregation import AggregationWindow
 
     workflow_ids = [wf.id for wf in workflows]
-    collecting_windows = await AggregationWindow.find(
-        {"workflow_id": {"$in": workflow_ids}, "status": "collecting"}
-    ).to_list() if workflow_ids else []
+    collecting_windows = (
+        await AggregationWindow.find({"workflow_id": {"$in": workflow_ids}, "status": "collecting"}).to_list()
+        if workflow_ids
+        else []
+    )
 
     # Group windows by workflow_id
     windows_map: dict = {}
@@ -277,12 +293,24 @@ async def create_workflow(
     input_params = [SubflowParameter(**p) for p in workflow_data.input_parameters]
     output_params = [SubflowParameter(**p) for p in workflow_data.output_parameters]
 
+    sharing = SharingPermission.PRIVATE
+    if workflow_data.sharing:
+        try:
+            sharing = SharingPermission(workflow_data.sharing)
+        except ValueError as exc:
+            valid = [p.value for p in SharingPermission]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid sharing value. Must be one of: {', '.join(valid)}",
+            ) from exc
+
     workflow = Workflow(
         name=workflow_data.name,
         description=workflow_data.description,
         workflow_type=wf_type,
         created_by=current_user.id,
         status=WorkflowStatus.DRAFT,
+        sharing=sharing,
         timeout_seconds=workflow_data.timeout_seconds,
         nodes=nodes,
         edges=edges,
@@ -374,16 +402,20 @@ async def list_all_executions(
     current_user: User = Depends(require_automation_role),
 ):
     """List all workflow executions across all workflows accessible to the current user."""
-    # Only show executions for workflows the user can access
-    accessible_wfs = await Workflow.find(
-        {
-            "$or": [
-                {"created_by": current_user.id},
-                {"sharing": {"$in": [SharingPermission.READ_ONLY, SharingPermission.READ_WRITE]}},
-            ]
-        }
-    ).to_list()
-    accessible_ids = [wf.id for wf in accessible_wfs]
+    # Only show executions for workflows the user can access (projection: IDs only)
+    accessible_results = (
+        await Workflow.find(
+            {
+                "$or": [
+                    {"created_by": current_user.id},
+                    {"sharing": {"$in": [SharingPermission.READ_ONLY, SharingPermission.READ_WRITE]}},
+                ]
+            }
+        )
+        .aggregate([{"$project": {"_id": 1}}])
+        .to_list()
+    )
+    accessible_ids = [r["_id"] for r in accessible_results]
 
     match: dict = {"workflow_id": {"$in": accessible_ids}}
     if status_filter:
@@ -477,9 +509,7 @@ async def get_workflow(
 
     from app.modules.automation.models.aggregation import AggregationWindow
 
-    windows = await AggregationWindow.find(
-        {"workflow_id": workflow.id, "status": "collecting"}
-    ).to_list()
+    windows = await AggregationWindow.find({"workflow_id": workflow.id, "status": "collecting"}).to_list()
 
     return _workflow_to_response(workflow, windows)
 
@@ -500,7 +530,9 @@ async def update_workflow(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
     if not workflow.can_be_modified_by(current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to update this workflow")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to update this workflow"
+        )
 
     if workflow_data.name is not None:
         workflow.name = workflow_data.name
@@ -508,6 +540,15 @@ async def update_workflow(
         workflow.description = workflow_data.description
     if workflow_data.status is not None:
         workflow.status = WorkflowStatus(workflow_data.status)
+    if workflow_data.sharing is not None:
+        try:
+            workflow.sharing = SharingPermission(workflow_data.sharing)
+        except ValueError as exc:
+            valid = [p.value for p in SharingPermission]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid sharing value. Must be one of: {', '.join(valid)}",
+            ) from exc
     if workflow_data.timeout_seconds is not None:
         workflow.timeout_seconds = workflow_data.timeout_seconds
     if workflow_data.input_parameters is not None:
@@ -883,9 +924,7 @@ async def get_active_windows(
 
     from app.modules.automation.models.aggregation import AggregationWindow
 
-    windows = await AggregationWindow.find(
-        {"workflow_id": wf_oid, "status": "collecting"}
-    ).to_list()
+    windows = await AggregationWindow.find({"workflow_id": wf_oid, "status": "collecting"}).to_list()
 
     return {"windows": [_window_summary(w) for w in windows]}
 
@@ -1073,6 +1112,11 @@ async def simulate_workflow(
             finally:
                 _simulation_tasks.pop(ex_id, None)
 
+        # Clean up entries for already-completed simulation tasks
+        stale_ids = [eid for eid, t in _simulation_tasks.items() if t.done()]
+        for eid in stale_ids:
+            _simulation_tasks.pop(eid, None)
+
         task = create_background_task(
             _run_simulation(str(workflow.id), str(execution.id)),
             name=f"simulation-{execution.id}",
@@ -1116,7 +1160,12 @@ async def cancel_simulation(
     task = _simulation_tasks.get(execution_id)
     if task and not task.done():
         task.cancel()
+        _simulation_tasks.pop(execution_id, None)
         return {"status": "cancelling"}
+
+    # Clean up stale entry if task already finished
+    if task and task.done():
+        _simulation_tasks.pop(execution_id, None)
 
     # Task already finished or not found — update DB status if still running
     execution = await WorkflowExecution.get(PydanticObjectId(execution_id))

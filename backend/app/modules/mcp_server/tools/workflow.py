@@ -35,11 +35,15 @@ async def workflow(
     ],
     workflow_id: Annotated[
         str,
-        Field(description="Workflow MongoDB ID. Used by action='detail' and action='update'. Get this from search results."),
+        Field(
+            description="Workflow MongoDB ID. Used by action='detail' and action='update'. Get this from search results."
+        ),
     ] = "",
     execution_id: Annotated[
         str,
-        Field(description="Execution MongoDB ID. Used by action='execution_detail'. Get this from workflow detail's recent_executions or from search(type='executions')."),
+        Field(
+            description="Execution MongoDB ID. Used by action='execution_detail'. Get this from workflow detail's recent_executions or from search(type='executions')."
+        ),
     ] = "",
     name: Annotated[
         str,
@@ -51,15 +55,21 @@ async def workflow(
     ] = "",
     nodes: Annotated[
         list[dict] | None,
-        Field(description="List of workflow graph nodes. Each node: {id, type, name, position: {x, y}, config: {...}}. Required for action='create', optional for action='update'."),
+        Field(
+            description="List of workflow graph nodes. Each node: {id, type, name, position: {x, y}, config: {...}}. Required for action='create', optional for action='update'."
+        ),
     ] = None,
     edges: Annotated[
         list[dict] | None,
-        Field(description="List of workflow graph edges. Each edge: {id, source_node_id, source_port_id, target_node_id, target_port_id}. Optional for action='create' and action='update'."),
+        Field(
+            description="List of workflow graph edges. Each edge: {id, source_node_id, source_port_id, target_node_id, target_port_id}. Optional for action='create' and action='update'."
+        ),
     ] = None,
     workflow_type: Annotated[
         str,
-        Field(description="Workflow type: 'standard' (trigger-based) or 'subflow' (callable from other workflows). Default: 'standard'."),
+        Field(
+            description="Workflow type: 'standard' (trigger-based) or 'subflow' (callable from other workflows). Default: 'standard'."
+        ),
     ] = "standard",
 ) -> str:
     """Manage automation workflows: inspect workflow details and execution history, or create/update workflow graphs.
@@ -202,7 +212,16 @@ async def _execution_detail(*, execution_id: str, **_kwargs) -> str:
     )
 
 
-async def _create(*, ctx: Context, name: str, description: str, nodes: list[dict] | None, edges: list[dict] | None, workflow_type: str, **_kwargs) -> str:
+async def _create(
+    *,
+    ctx: Context,
+    name: str,
+    description: str,
+    nodes: list[dict] | None,
+    edges: list[dict] | None,
+    workflow_type: str,
+    **_kwargs,
+) -> str:
     """Create a new workflow with graph validation and elicitation."""
     from beanie import PydanticObjectId
 
@@ -246,12 +265,19 @@ async def _create(*, ctx: Context, name: str, description: str, nodes: list[dict
     )
     await wf.insert()
 
-    return to_json(
-        {"workflow_id": str(wf.id), "name": wf.name, "status": "draft", "message": "Workflow created."}
-    )
+    return to_json({"workflow_id": str(wf.id), "name": wf.name, "status": "draft", "message": "Workflow created."})
 
 
-async def _update(*, ctx: Context, workflow_id: str, name: str, description: str, nodes: list[dict] | None, edges: list[dict] | None, **_kwargs) -> str:
+async def _update(
+    *,
+    ctx: Context,
+    workflow_id: str,
+    name: str,
+    description: str,
+    nodes: list[dict] | None,
+    edges: list[dict] | None,
+    **_kwargs,
+) -> str:
     """Update an existing workflow with graph validation and elicitation."""
     from beanie import PydanticObjectId
 
