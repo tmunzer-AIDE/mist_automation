@@ -184,3 +184,22 @@ class ImpactSettingsUpdate(BaseModel):
     impact_analysis_default_interval_minutes: int | None = Field(None, ge=1, le=60)
     impact_analysis_sle_threshold_percent: float | None = Field(None, ge=1.0, le=50.0)
     impact_analysis_retention_days: int | None = Field(None, ge=1, le=365)
+
+
+# ── Session chat ─────────────────────────────────────────────────────────
+
+
+class SessionChatRequest(BaseModel):
+    """User sends a message to the AI about this monitoring session."""
+
+    message: str = Field(..., min_length=1, max_length=2000, description="User message text")
+    stream_id: str | None = Field(default=None, description="WebSocket stream ID for real-time token streaming")
+    mcp_config_ids: list[str] | None = Field(default=None, description="External MCP server config IDs to use")
+
+
+class SessionChatResponse(BaseModel):
+    """AI response to a session chat message."""
+
+    reply: str
+    thread_id: str
+    usage: dict = Field(default_factory=dict)

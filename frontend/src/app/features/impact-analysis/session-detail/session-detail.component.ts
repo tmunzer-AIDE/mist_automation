@@ -8,20 +8,18 @@ import {
   inject,
   signal,
   computed,
+  effect,
 } from '@angular/core';
-import { TitleCasePipe } from '@angular/common';
+import { SlicePipe, TitleCasePipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ImpactAnalysisService } from '../../../core/services/impact-analysis.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
@@ -30,7 +28,7 @@ import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import {
   SessionDetailResponse,
   TimelineEntryResponse,
-  VALIDATION_CHECK_LABELS,
+  ChatMessage,
 } from '../models/impact-analysis.model';
 import {
   deviceTypeIcon as _deviceTypeIcon,
@@ -38,28 +36,31 @@ import {
 } from '../utils/device-type.utils';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import { ImpactChatPanelComponent } from './impact-chat-panel.component';
+import { ImpactDataPanelComponent } from './impact-data-panel.component';
 
 function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
   return DOMPurify.sanitize(raw);
 }
 
+let chatMsgCounter = 0;
+
 @Component({
   selector: 'app-session-detail',
   standalone: true,
   imports: [
+    SlicePipe,
     TitleCasePipe,
-    MatCardModule,
-    MatTableModule,
-    MatExpansionModule,
     MatIconModule,
     MatButtonModule,
     MatProgressBarModule,
-    MatChipsModule,
     MatTooltipModule,
     MatSnackBarModule,
     StatusBadgeComponent,
     DateTimePipe,
+    ImpactChatPanelComponent,
+    ImpactDataPanelComponent,
   ],
   templateUrl: './session-detail.component.html',
   styleUrl: './session-detail.component.scss',
@@ -70,6 +71,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly service = inject(ImpactAnalysisService);
+  private readonly llmService = inject(LlmService);
   private readonly topbarService = inject(TopbarService);
   private readonly globalChatService = inject(GlobalChatService);
   private readonly wsService = inject(WebSocketService);
@@ -80,8 +82,11 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   loading = signal(true);
   cancelling = signal(false);
   reanalyzing = signal(false);
+  llmEnabled = signal(false);
+  timeProgress = signal(0);
 
-  aiAssessmentHtml = signal('');
+  private sessionId = '';
+  private progressInterval: ReturnType<typeof setInterval> | null = null;
 
   isActive = computed(() => {
     const s = this.session()?.status;
@@ -95,97 +100,40 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     );
   });
 
-  isCompleted = computed(() => {
-    const s = this.session()?.status;
-    return s === 'completed';
-  });
+  isCompleted = computed(() => this.session()?.status === 'completed');
 
   impactSeverity = computed(() => this.session()?.impact_severity ?? 'none');
   hasImpact = computed(() => this.impactSeverity() !== 'none');
 
-  progressMode = computed<'determinate' | 'indeterminate'>(() => {
-    const s = this.session();
-    if (!s) return 'indeterminate';
-    return s.progress?.percent > 0 ? 'determinate' : 'indeterminate';
+  verdictSummary = computed(() => {
+    const assessment = this.session()?.ai_assessment;
+    if (!assessment) return '';
+    return (assessment['summary'] as string) ?? '';
   });
 
-  progressPercent = computed(() => this.session()?.progress?.percent ?? 0);
-
-  severityClass = computed(() => {
-    const severity = this.session()?.ai_assessment?.['severity'];
-    switch (severity) {
-      case 'critical':
-        return 'severity-critical';
-      case 'warning':
-        return 'severity-warning';
-      case 'info':
-        return 'severity-info';
-      case 'none':
-        return 'severity-none';
-      default:
-        return '';
+  chatMessages = computed<ChatMessage[]>(() => {
+    const timeline = this.session()?.timeline ?? [];
+    // Find the index of the last ai_analysis entry (only show the latest one)
+    let lastAnalysisIdx = -1;
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].type === 'ai_analysis') {
+        lastAnalysisIdx = i;
+        break;
+      }
     }
+    return timeline
+      .map((entry, idx) => this._timelineToChat(entry, idx, lastAnalysisIdx))
+      .filter((msg): msg is ChatMessage => msg !== null);
   });
-
-  baselineMetrics = computed(() => {
-    const baseline = this.session()?.sle_data?.baseline as Record<string, unknown> | undefined;
-    const metrics = baseline?.['metrics'] as Record<string, Record<string, unknown>> | undefined;
-    if (!metrics) return [];
-    return Object.entries(metrics).map(([name, data]) => ({
-      name: name.replace(/-/g, ' '),
-      summary: data?.['summary'],
-      hasSiteTrend: !!data?.['site_trend'],
-      hasDeviceTrend: !!data?.['device_trend'],
-      siteTrendPoints: Array.isArray(data?.['site_trend']) ? (data['site_trend'] as unknown[]).length : 0,
-      deviceTrendPoints: Array.isArray(data?.['device_trend']) ? (data['device_trend'] as unknown[]).length : 0,
-    }));
-  });
-
-  deltaMetrics = computed(() => {
-    const delta = this.session()?.sle_data?.delta as Record<string, unknown> | undefined;
-    const metrics = delta?.['metrics'] as Array<{
-      name: string; baseline_value: number; current_value: number;
-      change_percent: number; degraded: boolean; status: string;
-    }> | undefined;
-    return metrics ?? [];
-  });
-
-  sleOverallDegraded = computed(() => {
-    const delta = this.session()?.sle_data?.delta as Record<string, unknown> | undefined;
-    return (delta?.['overall_degraded'] as boolean) ?? false;
-  });
-
-  sleSnapshotCount = computed(() => this.session()?.sle_data?.snapshots?.length ?? 0);
-
-  validationChecks = computed(() => {
-    const results = this.session()?.validation_results;
-    if (!results || typeof results !== 'object') return [];
-    return Object.entries(results)
-      .filter(([key]) => key !== 'overall_status')
-      .map(([key, value]: [string, unknown]) => {
-        const v = value as Record<string, unknown> | null;
-        return {
-          name: key,
-          label: VALIDATION_CHECK_LABELS[key] || key.replace(/_/g, ' '),
-          status: (v?.['status'] as string) || 'unknown',
-          details: Array.isArray(v?.['details']) ? (v['details'] as string[]) : [],
-        };
-      });
-  });
-
-  overallValidationStatus = computed(() => {
-    const results = this.session()?.validation_results;
-    return (results?.['overall_status'] as string) || 'unknown';
-  });
-
-  eventTimeline = computed(() => this.session()?.timeline ?? []);
-
-  private sessionId = '';
 
   ngOnInit(): void {
     this.sessionId = this.route.snapshot.paramMap.get('id') ?? '';
     this.topbarService.setTitle('Impact Analysis');
     this.loadSession();
+    this.llmService.getStatus().subscribe({
+      next: (status) => this.llmEnabled.set(status.enabled),
+      error: () => this.llmEnabled.set(false),
+    });
   }
 
   loadSession(): void {
@@ -200,16 +148,18 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
           details: { device: session.device_name || session.device_mac, status: session.status },
         });
 
-        const summary = session.ai_assessment?.['summary'];
-        if (summary) {
-          this.aiAssessmentHtml.set(renderMarkdown(summary as string));
-        }
-
         if (this.isActive()) {
           this.subscribeToProgress();
         }
+        // Always start time progress for active sessions — works for both
+        // pre-monitoring (uses backend percent) and monitoring (uses timestamps)
+        if (this.isActive() && !this.progressInterval) {
+          this.startTimeProgress();
+        }
         if (this.isCompleted()) {
           this.topbarService.setActions(this.actionsTpl);
+          this.stopTimeProgress();
+          this.timeProgress.set(100);
         }
       },
       error: () => this.loading.set(false),
@@ -250,51 +200,118 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     this.router.navigate(['/impact-analysis']);
   }
 
-  deviceTypeIcon = _deviceTypeIcon;
+  onChatMessageSent(): void {
+    // Reload session to get updated timeline with chat entries
+    this.loadSession();
+  }
 
+  deviceTypeIcon = _deviceTypeIcon;
   formatDeviceType = _formatDeviceType;
 
-  validationIcon(status: string): string {
-    switch (status) {
-      case 'pass':
-        return 'check_circle';
-      case 'fail':
-        return 'cancel';
-      case 'warn':
-        return 'warning';
-      default:
-        return 'info';
+  private startTimeProgress(): void {
+    this.stopTimeProgress();
+    this.updateTimeProgress();
+    this.progressInterval = setInterval(() => this.updateTimeProgress(), 1000);
+  }
+
+  private stopTimeProgress(): void {
+    if (this.progressInterval) {
+      clearInterval(this.progressInterval);
+      this.progressInterval = null;
     }
   }
 
-  timelineIcon(type: string): string {
-    switch (type) {
-      case 'webhook_event':
-      case 'config_change':
-        return 'settings';
-      case 'validation':
-        return 'fact_check';
-      case 'sle_check':
-        return 'speed';
-      case 'ai_analysis':
-        return 'psychology';
-      case 'status_change':
-        return 'swap_vert';
-      default:
-        return 'info';
+  private updateTimeProgress(): void {
+    const s = this.session();
+    if (!s) {
+      this.timeProgress.set(0);
+      return;
+    }
+
+    // Once monitoring_started_at and monitoring_ends_at are set, use them
+    // for accurate time-based progress. Before that, use created_at as start
+    // and estimate based on the session's progress.percent from the backend.
+    if (s.monitoring_started_at && s.monitoring_ends_at) {
+      const start = new Date(s.monitoring_started_at).getTime();
+      const end = new Date(s.monitoring_ends_at).getTime();
+      const now = Date.now();
+      const percent = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+      this.timeProgress.set(Math.round(percent));
+    } else if (s.progress?.percent > 0) {
+      // Pre-monitoring phases: use backend-reported percent
+      this.timeProgress.set(s.progress.percent);
+    } else {
+      this.timeProgress.set(0);
     }
   }
 
-  timelineSeverityClass(severity: string): string {
-    switch (severity) {
-      case 'critical':
-        return 'severity-chip-critical';
-      case 'warning':
-        return 'severity-chip-warning';
-      case 'info':
-        return 'severity-chip-info';
+  private _timelineToChat(
+    entry: TimelineEntryResponse,
+    idx: number,
+    lastAnalysisIdx: number,
+  ): ChatMessage | null {
+    // Skip status_change entries — narration messages already describe each phase
+    if (entry.type === 'status_change') return null;
+
+    // Only show the latest ai_analysis entry (earlier ones are superseded)
+    if (entry.type === 'ai_analysis' && idx !== lastAnalysisIdx) return null;
+
+    const id = `tl-${chatMsgCounter++}`;
+    const timestamp = entry.timestamp;
+
+    switch (entry.type) {
+      case 'ai_narration':
+        return {
+          id,
+          role: 'ai',
+          type: 'narration',
+          content: entry.title,
+          html: renderMarkdown(entry.title),
+          timestamp,
+          severity: entry.severity || undefined,
+        };
+
+      case 'ai_analysis': {
+        // Use full summary from session.ai_assessment (timeline entry truncates to 500 chars)
+        const fullSummary =
+          (this.session()?.ai_assessment?.['summary'] as string) ||
+          (entry.data['summary'] as string) ||
+          entry.title;
+        return {
+          id,
+          role: 'ai',
+          type: 'analysis',
+          content: fullSummary,
+          html: renderMarkdown(fullSummary),
+          timestamp,
+          severity: entry.severity || undefined,
+        };
+      }
+
+      case 'chat_message': {
+        const role = entry.data['role'] as string;
+        const content = (entry.data['content'] as string) || entry.title;
+        return {
+          id,
+          role: role === 'user' ? 'user' : 'ai',
+          type: 'chat',
+          content,
+          html: role === 'user' ? '' : renderMarkdown(content),
+          timestamp,
+        };
+      }
+
       default:
-        return '';
+        // System events: config_change, validation, webhook_event, sle_check
+        return {
+          id,
+          role: 'system',
+          type: 'event',
+          content: entry.title,
+          html: '',
+          timestamp,
+          severity: entry.severity || undefined,
+        };
     }
   }
 
@@ -306,9 +323,8 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
         const current = this.session();
         switch (msg.type) {
           case 'session_update':
-            // Real-time status/progress update
             if (current && msg.data) {
-              this.session.set({
+              const updated = {
                 ...current,
                 status: (msg.data['status'] as string) || current.status,
                 progress: (msg.data['progress'] as { phase: string; message: string; percent: number }) ||
@@ -316,16 +332,23 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
                 polls_completed: (msg.data['polls_completed'] as number) ?? current.polls_completed,
                 polls_total: (msg.data['polls_total'] as number) ?? current.polls_total,
                 incident_count: (msg.data['incident_count'] as number) ?? current.incident_count,
-              });
+                monitoring_started_at:
+                  (msg.data['monitoring_started_at'] as string) ?? current.monitoring_started_at,
+                monitoring_ends_at:
+                  (msg.data['monitoring_ends_at'] as string) ?? current.monitoring_ends_at,
+              };
+              this.session.set(updated);
+              // Start time progress if monitoring just started
+              if (updated.monitoring_started_at && !this.progressInterval) {
+                this.startTimeProgress();
+              }
             }
             break;
           case 'incident_added':
           case 'incident_resolved':
-            // Reload to get the full updated incidents list
             this.loadSession();
             break;
           case 'sle_snapshot':
-            // Poll data arrived — update snapshot count from backend poll_number
             if (current) {
               this.session.set({
                 ...current,
@@ -334,7 +357,6 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
             }
             break;
           case 'timeline_entry':
-            // Append new timeline entry without full reload
             if (current && msg.data) {
               const entry = msg.data as unknown as TimelineEntryResponse;
               this.session.set({
@@ -345,7 +367,6 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
             break;
           case 'validation_completed':
           case 'ai_analysis_completed':
-            // Validation or AI analysis done — reload to get full updated data
             this.loadSession();
             break;
           case 'impact_severity_changed':
@@ -357,7 +378,6 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
             }
             break;
           case 'session_failed':
-            // Terminal state — reload to show final results
             this.loadSession();
             break;
         }
@@ -366,5 +386,6 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.topbarService.clearActions();
+    this.stopTimeProgress();
   }
 }

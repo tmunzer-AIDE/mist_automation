@@ -65,255 +65,46 @@
     </div>
   </div>
 
-  <!-- Progress bar for active sessions -->
-  @if (isActive()) {
-    <mat-card class="progress-card">
-      <mat-card-content>
-        <div class="progress-info">
-          <span class="progress-phase">{{ s.progress.phase | titlecase }}</span>
-          <span class="progress-message">{{ s.progress.message }}</span>
-        </div>
-        <mat-progress-bar
-          [mode]="progressMode()"
-          [value]="progressPercent()"
-        ></mat-progress-bar>
-        @if (s.progress.percent > 0) {
-          <div class="progress-percent">{{ s.progress.percent }}%</div>
+  <!-- Verdict banner (only when completed with AI assessment) -->
+  @if (isCompleted() && verdictSummary()) {
+    <div class="verdict-banner" [class]="'verdict-' + impactSeverity()">
+      <div class="verdict-content">
+        @if (impactSeverity() === 'none') {
+          <mat-icon>check_circle</mat-icon>
+        } @else {
+          <mat-icon>warning</mat-icon>
         }
-        @if (s.monitoring_ends_at) {
-          <div class="next-poll">Monitoring ends: {{ s.monitoring_ends_at | dateTime: 'short' }}</div>
-        }
-      </mat-card-content>
-    </mat-card>
+        <span class="verdict-text">{{ verdictSummary() | slice:0:250 }}</span>
+      </div>
+      <button mat-stroked-button (click)="reanalyze()" [disabled]="reanalyzing()">
+        <mat-icon>refresh</mat-icon>
+        Re-analyze
+      </button>
+    </div>
   }
 
   <!-- Failed state -->
   @if (s.status === 'failed') {
-    <mat-card class="error-card">
-      <mat-card-header>
-        <mat-card-title>Analysis Failed</mat-card-title>
-      </mat-card-header>
-      <mat-card-content>
-        <p class="error-message">An error occurred during the impact analysis.</p>
-      </mat-card-content>
-    </mat-card>
-  }
-
-  <!-- Event Timeline -->
-  <section class="detail-section">
-    <div class="section-header">
-      <h3>
-        <mat-icon>timeline</mat-icon>
-        Event Timeline
-      </h3>
-      <span class="event-count">{{ eventTimeline().length }} events</span>
+    <div class="error-banner">
+      <mat-icon>error</mat-icon>
+      <span>An error occurred during the impact analysis.</span>
     </div>
-    <div class="timeline">
-      @for (entry of eventTimeline(); track $index) {
-        <div class="timeline-entry" [class]="'entry-' + entry.type">
-          <div class="timeline-dot">
-            <mat-icon [class]="'dot-' + (entry.severity || 'info')">
-              {{ timelineIcon(entry.type) }}
-            </mat-icon>
-          </div>
-          <div class="timeline-content">
-            <div class="timeline-header">
-              <span class="event-type-label">{{ entry.title }}</span>
-              @if (entry.severity) {
-                <span class="event-chip" [class]="timelineSeverityClass(entry.severity)">
-                  {{ entry.severity | titlecase }}
-                </span>
-              }
-              @if (entry.type === 'validation' && entry.data['overall_status']) {
-                <span class="event-chip" [class]="'validation-' + entry.data['overall_status']">
-                  {{ '' + entry.data['overall_status'] | titlecase }}
-                </span>
-              }
-            </div>
-            <div class="timeline-meta">
-              <span>{{ entry.timestamp | dateTime: 'short' }}</span>
-              <span class="meta-sep">&middot;</span>
-              <span class="entry-type-label">{{ entry.type | titlecase }}</span>
-            </div>
-          </div>
-        </div>
-      } @empty {
-        <p class="empty-state">No events recorded during monitoring</p>
-      }
-    </div>
-  </section>
-
-  <!-- SLE Metrics Section -->
-  @if (s.sle_data) {
-    <section class="detail-section">
-      <div class="section-header">
-        <h3><mat-icon>speed</mat-icon> SLE Metrics</h3>
-        @if (sleOverallDegraded()) {
-          <span class="overall-badge badge-fail">Degraded</span>
-        }
-      </div>
-
-      <!-- Delta comparison table (post-analysis) -->
-      @if (deltaMetrics().length > 0) {
-        <table class="sle-table">
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Baseline</th>
-              <th>Current</th>
-              <th>Change</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (m of deltaMetrics(); track m.name) {
-              <tr [class]="m.degraded ? 'row-degraded' : ''">
-                <td class="metric-name">{{ m.name }}</td>
-                <td>{{ m.baseline_value }}</td>
-                <td>{{ m.current_value }}</td>
-                <td [class]="m.change_percent != null && m.change_percent < 0 ? 'delta-negative' : 'delta-positive'">
-                  @if (m.change_percent != null) {
-                    {{ m.change_percent > 0 ? '+' : '' }}{{ m.change_percent }}%
-                  } @else {
-                    —
-                  }
-                </td>
-                <td>
-                  <span class="sle-status" [class]="'sle-' + m.status">{{ m.status }}</span>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      }
-
-      <!-- Baseline info (before analysis completes) -->
-      @else if (baselineMetrics().length > 0) {
-        <div class="sle-baseline-info">
-          <p>Baseline captured with {{ baselineMetrics().length }} metric(s) — 60-min history</p>
-          <div class="baseline-chips">
-            @for (m of baselineMetrics(); track m.name) {
-              <span class="baseline-chip">
-                {{ m.name }}
-                @if (m.hasDeviceTrend) {
-                  <mat-icon class="trend-icon">trending_up</mat-icon>
-                }
-              </span>
-            }
-          </div>
-          @if (sleSnapshotCount() > 0) {
-            <p class="snapshot-count">{{ sleSnapshotCount() }} monitoring snapshot(s) collected</p>
-          }
-        </div>
-      }
-
-      @else {
-        <p class="empty-state">SLE data not yet available</p>
-      }
-    </section>
   }
 
-  <!-- Validation Checks Section -->
-  @if (session()?.validation_results) {
-    <section class="detail-section">
-      <div class="section-header">
-        <h3>
-          <mat-icon>fact_check</mat-icon>
-          Validation Checks
-        </h3>
-        <span class="overall-badge" [class]="'badge-' + overallValidationStatus()">
-          {{ overallValidationStatus() | titlecase }}
-        </span>
-      </div>
-      <mat-accordion multi>
-        @for (check of validationChecks(); track check.name) {
-          <mat-expansion-panel [expanded]="check.status !== 'pass'">
-            <mat-expansion-panel-header>
-              <mat-panel-title>
-                <mat-icon [class]="'check-icon check-' + check.status">
-                  @switch (check.status) {
-                    @case ('pass') {
-                      check_circle
-                    }
-                    @case ('warn') {
-                      warning
-                    }
-                    @case ('fail') {
-                      error
-                    }
-                    @case ('error') {
-                      error_outline
-                    }
-                    @default {
-                      help_outline
-                    }
-                  }
-                </mat-icon>
-                <span>{{ check.label }}</span>
-              </mat-panel-title>
-              <mat-panel-description>
-                <span [class]="'status-text status-' + check.status">
-                  {{ check.status | titlecase }}
-                </span>
-              </mat-panel-description>
-            </mat-expansion-panel-header>
-            @if (check.details.length > 0) {
-              <ul class="check-details">
-                @for (detail of check.details; track $index) {
-                  <li>{{ detail }}</li>
-                }
-              </ul>
-            } @else {
-              <p class="no-details">No additional details</p>
-            }
-          </mat-expansion-panel>
-        }
-      </mat-accordion>
-    </section>
-  } @else if (isActive()) {
-    <section class="detail-section">
-      <div class="section-header">
-        <h3>
-          <mat-icon>fact_check</mat-icon>
-          Validation Checks
-        </h3>
-      </div>
-      <p class="empty-state">Validation checks will run shortly after config is applied</p>
-    </section>
-  }
-
-  <!-- AI Assessment Section -->
-  @if (s.ai_assessment) {
-    <mat-expansion-panel [expanded]="true" class="section-panel">
-      <mat-expansion-panel-header>
-        <mat-panel-title>
-          <mat-icon>psychology</mat-icon>
-          AI Assessment
-          @if (s.ai_assessment['severity']) {
-            <span [class]="'severity-badge ' + severityClass()">
-              {{ s.ai_assessment['severity'] }}
-            </span>
-          }
-        </mat-panel-title>
-      </mat-expansion-panel-header>
-
-      <div class="ai-assessment-content">
-        @if (aiAssessmentHtml()) {
-          <div class="assessment-markdown" [innerHTML]="aiAssessmentHtml()"></div>
-        } @else if (s.ai_assessment['summary']) {
-          <p class="assessment-summary">{{ s.ai_assessment['summary'] }}</p>
-        }
-      </div>
-    </mat-expansion-panel>
-  }
-
-  <!-- AI Assessment Error -->
-  @if (s.ai_assessment_error) {
-    <mat-card class="ai-error-card">
-      <mat-card-content>
-        <mat-icon>warning</mat-icon>
-        <span>AI assessment could not be generated. The analysis results above are still valid.</span>
-      </mat-card-content>
-    </mat-card>
-  }
+  <!-- Split view -->
+  <div class="split-view">
+    <app-impact-chat-panel
+      class="chat-panel"
+      [messages]="chatMessages()"
+      [sessionId]="s.id"
+      [isActive]="isActive()"
+      [llmEnabled]="llmEnabled()"
+      (messageSent)="onChatMessageSent()"
+    />
+    <app-impact-data-panel
+      class="data-panel"
+      [session]="s"
+      [timeProgress]="timeProgress()"
+    />
+  </div>
 }

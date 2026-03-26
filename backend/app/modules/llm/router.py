@@ -787,7 +787,7 @@ async def summarize_backup_change(
 
 
 # Features whose follow-up messages should go through the MCP agent loop
-_MCP_ENABLED_FEATURES = {"backup_summary", "global_chat"}
+_MCP_ENABLED_FEATURES = {"backup_summary", "global_chat", "impact_analysis_chat"}
 
 
 @router.post("/llm/chat/{thread_id}", response_model=ChatResponse, tags=["LLM"])

@@ -98,3 +98,23 @@ export interface SessionSummary {
   completed_24h: number;
   total: number;
 }
+
+/**
+ * Chat message for the split-view session detail UI.
+ * Mapped from timeline entries and user/AI chat interactions.
+ */
+export interface ChatMessage {
+  id: string;
+  role: 'system' | 'ai' | 'user';
+  content: string;
+  html: string;
+  timestamp: string;
+  severity?: string;
+  type: 'narration' | 'event' | 'chat' | 'analysis';
+}
+
+export interface SessionChatResponse {
+  reply: string;
+  thread_id: string;
+  usage: Record<string, unknown>;
+}

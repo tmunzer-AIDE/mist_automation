@@ -93,6 +93,8 @@ class TimelineEntryType(str, Enum):
     SLE_CHECK = "sle_check"
     AI_ANALYSIS = "ai_analysis"
     STATUS_CHANGE = "status_change"
+    AI_NARRATION = "ai_narration"  # AI-generated phase narration messages
+    CHAT_MESSAGE = "chat_message"  # User question / AI response in session chat
 
 
 class TimelineEntry(BaseModel):
@@ -208,6 +210,11 @@ class MonitoringSession(TimestampMixin, Document):
 
     # Chronological timeline (for UI display — all events, checks, analyses in order)
     timeline: list[TimelineEntry] = Field(default_factory=list, description="Chronological session timeline")
+
+    # LLM conversation thread for session chat (user Q&A)
+    conversation_thread_id: str | None = Field(
+        default=None, description="ConversationThread ID for session chat"
+    )
 
     # Progress tracking (for WS updates)
     progress: dict = Field(

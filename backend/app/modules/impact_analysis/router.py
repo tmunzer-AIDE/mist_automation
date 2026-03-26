@@ -24,6 +24,8 @@ from app.modules.impact_analysis.schemas import (
     DeviceIncidentResponse,
     ImpactSettingsResponse,
     ImpactSettingsUpdate,
+    SessionChatRequest,
+    SessionChatResponse,
     SessionDetailResponse,
     SessionListResponse,
     SessionLogEntryResponse,
@@ -376,6 +378,168 @@ async def get_sle_data(
         snapshots=session.sle_snapshots,
         delta=session.sle_delta,
         drill_down=session.sle_drill_down,
+    )
+
+
+# ── Session chat ──────────────────────────────────────────────────────────
+
+
+def _build_session_context(session: MonitoringSession) -> str:
+    """Build a context string describing the current session state for the LLM."""
+    lines = [
+        f"Impact Analysis Session for {session.device_type.value} '{session.device_name or session.device_mac}'",
+        f"Site: {session.site_name} | Status: {session.status.value} | Impact: {session.impact_severity}",
+        f"Config changes: {len(session.config_changes)} | Incidents: {len(session.incidents)}",
+    ]
+    if session.config_changes:
+        latest = session.config_changes[-1]
+        lines.append(f"Latest config event: {latest.event_type} at {latest.timestamp.isoformat()}")
+        if latest.commit_user:
+            lines.append(f"  Committed by: {latest.commit_user} via {latest.commit_method}")
+    if session.validation_results:
+        overall = session.validation_results.get("overall_status", "unknown")
+        lines.append(f"Validation: {overall}")
+        for check_name, check_data in session.validation_results.items():
+            if isinstance(check_data, dict) and "status" in check_data:
+                lines.append(f"  - {check_name}: {check_data['status']}")
+                if check_data.get("details"):
+                    for d in check_data["details"][:3]:
+                        lines.append(f"    {d}")
+    if session.sle_delta:
+        degraded = session.sle_delta.get("degraded_metric_names", [])
+        if degraded:
+            lines.append(f"SLE degraded metrics: {', '.join(degraded)}")
+    if session.ai_assessment:
+        summary = session.ai_assessment.get("summary", "")
+        if summary:
+            lines.append(f"AI assessment summary: {summary[:500]}")
+    if session.incidents:
+        for inc in session.incidents[:5]:
+            resolved = " (resolved)" if inc.resolved else ""
+            lines.append(f"Incident: {inc.event_type} [{inc.severity}]{resolved}")
+    # Include recent timeline entries for context
+    recent_entries = session.timeline[-10:] if session.timeline else []
+    if recent_entries:
+        lines.append("\nRecent timeline:")
+        for e in recent_entries:
+            lines.append(f"  [{e.timestamp.strftime('%H:%M:%S')}] {e.type.value}: {e.title}")
+    return "\n".join(lines)
+
+
+@router.post("/impact-analysis/sessions/{session_id}/chat", response_model=SessionChatResponse)
+async def session_chat(
+    session_id: PydanticObjectId,
+    request: SessionChatRequest,
+    current_user: User = Depends(require_impact_role),
+) -> SessionChatResponse:
+    """Send a message to the AI about this monitoring session.
+
+    The AI has full context about the session (config changes, validation results,
+    SLE metrics, incidents, timeline) and access to MCP tools for querying app data.
+    """
+    from app.modules.llm.router import (
+        _agent_result_metadata,
+        _check_llm_rate_limit,
+        _load_external_mcp_clients,
+        _load_or_create_thread,
+        _make_tool_notifier,
+        _mcp_user_session,
+        _usage_dict_from_agent,
+    )
+
+    _check_llm_rate_limit(str(current_user.id))
+
+    from app.modules.llm.services.agent_service import AIAgentService
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
+
+    session = await _get_session(session_id)
+
+    # Build system prompt with session context
+    system_prompt = (
+        "You are an AI network engineer assistant analyzing the impact of a configuration change "
+        "on a Juniper Mist network device. You have access to MCP tools to query backups, "
+        "workflows, device stats, and other app data. Be concise and technical. "
+        "Reference specific checks, metrics, and device details in your answers.\n\n"
+        f"Session context:\n{_sanitize_for_prompt(_build_session_context(session), max_len=4000)}"
+    )
+
+    # Get or create conversation thread for this session
+    thread = await _load_or_create_thread(
+        session.conversation_thread_id, current_user.id, "impact_analysis_chat", []
+    )
+
+    # Persist thread ID on session if this is the first message
+    if not session.conversation_thread_id:
+        await MonitoringSession.find_one(
+            MonitoringSession.id == session.id,
+            MonitoringSession.conversation_thread_id == None,  # noqa: E711
+        ).update({"$set": {"conversation_thread_id": str(thread.id)}})
+
+    # Set/update system prompt
+    if not thread.messages:
+        thread.add_message("system", system_prompt)
+    elif thread.messages and thread.messages[0].role == "system":
+        thread.messages[0].content = system_prompt
+
+    # Add user message and persist
+    thread.add_message("user", request.message)
+    await thread.save()
+
+    # Run agent with MCP tools (local + optional external)
+    llm = await create_llm_service()
+    elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
+    external = await _load_external_mcp_clients(request.mcp_config_ids or [])
+    async with _mcp_user_session(
+        current_user.id, elicitation_channel=elicit_channel, extra_clients=external
+    ) as mcp_clients:
+        # Include conversation history
+        history = thread.get_messages_for_llm(max_turns=10)
+        context_summary = ""
+        if len(history) > 2:
+            prior_turns = [f"{m['role']}: {m['content'][:200]}" for m in history[1:-1]]
+            context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[-6:])
+
+        agent = AIAgentService(llm=llm, mcp_clients=mcp_clients, max_iterations=10)
+        result = await agent.run(
+            task=request.message,
+            system_prompt=system_prompt + context_summary,
+            on_tool_call=_make_tool_notifier(request.stream_id),
+        )
+
+    reply = result.result
+
+    # Store assistant reply
+    thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
+    await thread.save()
+
+    # Append chat messages to session timeline so other WS clients see them
+    from app.modules.impact_analysis.models import TimelineEntry, TimelineEntryType
+
+    user_entry = TimelineEntry(
+        type=TimelineEntryType.CHAT_MESSAGE,
+        title=request.message[:200],
+        data={"role": "user", "content": request.message},
+    )
+    ai_entry = TimelineEntry(
+        type=TimelineEntryType.CHAT_MESSAGE,
+        title=reply[:200],
+        data={"role": "assistant", "content": reply},
+    )
+    await session_manager.append_timeline_entry(session, user_entry)
+    await session_manager.append_timeline_entry(session, ai_entry)
+
+    logger.info(
+        "session_chat_message",
+        session_id=str(session_id),
+        user_id=str(current_user.id),
+        thread_id=str(thread.id),
+    )
+
+    return SessionChatResponse(
+        reply=reply,
+        thread_id=str(thread.id),
+        usage=_usage_dict_from_agent(result),
     )
 
 

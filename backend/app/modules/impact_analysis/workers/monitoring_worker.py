@@ -49,6 +49,29 @@ _SLE_POLLS_TOTAL = 6
 _SLE_INTERVAL_SECONDS = 600  # 10 minutes
 
 
+# ── AI narration for chat-style UI ─────────────────────────────────────
+
+
+async def _narrate_phase(session: MonitoringSession, phase: str, template_text: str) -> None:
+    """Append an AI_NARRATION timeline entry for a pipeline phase transition.
+
+    Uses static template text (no LLM call). The text renders as an AI-styled
+    message in the chat UI. LLM is only used for actual impact analysis.
+    """
+    try:
+        await append_timeline_entry(
+            session,
+            TimelineEntry(
+                type=TimelineEntryType.AI_NARRATION,
+                title=template_text,
+                severity="",
+                data={"phase": phase},
+            ),
+        )
+    except Exception as e:
+        logger.warning("narration_append_failed", phase=phase, error=str(e))
+
+
 async def recover_active_sessions() -> int:
     """Resume monitoring pipelines for sessions that were active when the backend stopped.
 
@@ -115,6 +138,16 @@ async def run_monitoring_pipeline(session_id: str) -> None:
             session.update_timestamp()
             await session.save()
             await broadcast_session_update(session)
+            await _narrate_phase(
+                session,
+                "baseline_start",
+                f"Starting impact analysis for {session.device_name or session.device_mac}. "
+                "Capturing baseline metrics — SLE performance, topology snapshot, and LLDP neighbor data.",
+            )
+            # Re-read to sync in-memory timeline after $push
+            session = await MonitoringSession.get(PydanticObjectId(session_id))
+            if not session or session.status in {SessionStatus.CANCELLED, SessionStatus.FAILED}:
+                return
 
             change_time = session.config_changes[0].timestamp if session.config_changes else session.created_at
             site_data = await coordinator.fetch_site_data(
@@ -167,6 +200,18 @@ async def run_monitoring_pipeline(session_id: str) -> None:
             session.update_timestamp()
             await session.save()
             await broadcast_session_update(session)
+
+            metric_count = len(session.sle_baseline.get("metrics", {})) if session.sle_baseline else 0
+            await _narrate_phase(
+                session,
+                "baseline_complete",
+                f"Baseline captured successfully. Recorded {metric_count} SLE metrics with 1-hour lookback. "
+                "Waiting for the configuration to be applied to the device.",
+            )
+            # Re-read to sync in-memory timeline after $push
+            session = await MonitoringSession.get(PydanticObjectId(session_id))
+            if not session or session.status in {SessionStatus.CANCELLED, SessionStatus.FAILED}:
+                return
 
         # ── Phase 1.5: AWAITING_CONFIG (pre-config triggers only) ─────────
         if session.status in {SessionStatus.BASELINE_CAPTURE, SessionStatus.AWAITING_CONFIG}:
@@ -221,6 +266,20 @@ async def run_monitoring_pipeline(session_id: str) -> None:
             session.update_timestamp()
             await session.save()
 
+            duration_min, _ = get_monitoring_defaults(session.device_type)
+            device_label = session.device_type.value.replace("_", " ")
+            await _narrate_phase(
+                session,
+                "monitoring_started",
+                f"Configuration applied. Starting post-change validation — I'll check connectivity, "
+                f"port health, DHCP, and routing adjacency. This typically takes {duration_min} minutes "
+                f"for {device_label}s.",
+            )
+            # Re-read to sync in-memory timeline after $push
+            session = await MonitoringSession.get(PydanticObjectId(session_id))
+            if not session or session.status in {SessionStatus.CANCELLED, SessionStatus.FAILED}:
+                return
+
         if session.status == SessionStatus.MONITORING:
             # Launch both branches in parallel
             validation_task = asyncio.create_task(
@@ -247,7 +306,14 @@ async def run_monitoring_pipeline(session_id: str) -> None:
     except asyncio.CancelledError:
         logger.info("monitoring_pipeline_cancelled", session_id=session_id)
     except Exception as e:
-        logger.error("monitoring_pipeline_failed", session_id=session_id, error=str(e))
+        import traceback
+
+        logger.error(
+            "monitoring_pipeline_failed",
+            session_id=session_id,
+            error=str(e),
+            traceback=traceback.format_exc(),
+        )
         try:
             session = await MonitoringSession.get(PydanticObjectId(session_id))
             if session and session.status not in {
@@ -387,6 +453,25 @@ async def _run_device_validation(session_id: str, coordinator: SiteDataCoordinat
             data={"overall_status": overall, "results": validation_results},
         ),
     )
+
+    # AI narration for validation results
+    if overall in ("fail", "warn"):
+        # Summarize failed/warned checks
+        check_issues = []
+        for check_name, check_data in (validation_results or {}).items():
+            if isinstance(check_data, dict) and check_data.get("status") in ("warn", "fail"):
+                details = check_data.get("details", [])
+                detail_text = f" ({details[0]})" if details else ""
+                check_issues.append(f"{check_name}{detail_text}")
+        issues_text = "; ".join(check_issues[:4]) if check_issues else "issues detected"
+        narration = (
+            f"Validation complete — {len(check_issues)} {'warnings' if overall == 'warn' else 'failures'} "
+            f"detected. {issues_text}. Let me run a deeper analysis to determine if this is related "
+            "to the config change."
+        )
+    else:
+        narration = "Validation checks completed. All checks passed — no issues detected so far."
+    await _narrate_phase(session, "validation_complete", narration)
 
     # Broadcast validation results
     await ws_manager.broadcast(
@@ -709,6 +794,17 @@ async def _finalize_session(session_id: str) -> None:
             await session.save()
             await broadcast_session_update(session)
 
+            # Final narration
+            sev = session.impact_severity
+            if sev == "none":
+                narration = "Monitoring session complete. No impact detected — the configuration change appears safe."
+            else:
+                summary = ""
+                if session.ai_assessment and session.ai_assessment.get("summary"):
+                    summary = f" {session.ai_assessment['summary'][:200]}"
+                narration = f"Monitoring session complete. {sev.title()} impact detected.{summary}"
+            await _narrate_phase(session, "session_complete", narration)
+
     # Cleanup coordinator if no more active sessions for this site
     if session:
         remaining = await MonitoringSession.find(
@@ -801,6 +897,19 @@ def _has_configured_event(session: MonitoringSession) -> bool:
     return any("CONFIGURED" in c.event_type and "CONFIG_CHANGED" not in c.event_type for c in session.config_changes)
 
 
+async def _get_session_status(session_id: str) -> str | None:
+    """Fetch only the status field from MongoDB using raw Motor query.
+
+    Avoids Beanie's .project(dict) which is broken with Pydantic V2.11+
+    (dict has no model_config attribute).
+    """
+    collection = MonitoringSession.get_motor_collection()
+    doc = await collection.find_one({"_id": PydanticObjectId(session_id)}, {"status": 1})
+    if not doc:
+        return None
+    return doc.get("status")
+
+
 async def _wait_for_config_applied(session_id: str, timeout_seconds: int) -> bool:
     """Wait for config to be applied (AWAITING_CONFIG → MONITORING transition).
 
@@ -813,36 +922,27 @@ async def _wait_for_config_applied(session_id: str, timeout_seconds: int) -> boo
         await asyncio.sleep(chunk)
         elapsed += chunk
 
-        doc = await MonitoringSession.find_one(MonitoringSession.id == PydanticObjectId(session_id)).project(
-            {"status": 1}
-        )
-        if not doc:
+        status = await _get_session_status(session_id)
+        if status is None:
             raise asyncio.CancelledError()
-        status = doc.get("status") if isinstance(doc, dict) else getattr(doc, "status", None)
-        if status == SessionStatus.MONITORING.value or status == SessionStatus.MONITORING:
+        if status == SessionStatus.MONITORING.value:
             return True
-        if status in {SessionStatus.CANCELLED.value, SessionStatus.FAILED.value, "cancelled", "failed"}:
+        if status in {SessionStatus.CANCELLED.value, SessionStatus.FAILED.value}:
             raise asyncio.CancelledError()
 
     return False
 
 
 async def _interruptible_sleep(session_id: str, total_seconds: int) -> None:
-    """Sleep with periodic DB checks for cancellation.
-
-    Uses status-only projection to avoid loading full documents every 10 seconds.
-    """
+    """Sleep with periodic DB checks for cancellation."""
     elapsed = 0
     while elapsed < total_seconds:
         chunk = min(10, total_seconds - elapsed)
         await asyncio.sleep(chunk)
         elapsed += chunk
         if elapsed < total_seconds:
-            doc = await MonitoringSession.find_one(MonitoringSession.id == PydanticObjectId(session_id)).project(
-                {"status": 1}
-            )
-            if not doc:
+            status = await _get_session_status(session_id)
+            if status is None:
                 raise asyncio.CancelledError()
-            status = doc.get("status") if isinstance(doc, dict) else getattr(doc, "status", None)
-            if status in {SessionStatus.CANCELLED.value, SessionStatus.FAILED.value, "cancelled", "failed"}:
+            if status in {SessionStatus.CANCELLED.value, SessionStatus.FAILED.value}:
                 raise asyncio.CancelledError()

@@ -5,6 +5,7 @@ import {
   SessionResponse,
   SessionDetailResponse,
   SessionSummary,
+  SessionChatResponse,
 } from '../../features/impact-analysis/models/impact-analysis.model';
 
 export interface SessionListResponse {
@@ -67,5 +68,17 @@ export class ImpactAnalysisService {
 
   updateSettings(body: Record<string, unknown>): Observable<Record<string, unknown>> {
     return this.api.put<Record<string, unknown>>('/impact-analysis/settings', body);
+  }
+
+  sendChatMessage(
+    sessionId: string,
+    message: string,
+    streamId?: string,
+    mcpConfigIds?: string[],
+  ): Observable<SessionChatResponse> {
+    return this.api.post<SessionChatResponse>(
+      `/impact-analysis/sessions/${sessionId}/chat`,
+      { message, stream_id: streamId ?? null, mcp_config_ids: mcpConfigIds ?? null },
+    );
   }
 }

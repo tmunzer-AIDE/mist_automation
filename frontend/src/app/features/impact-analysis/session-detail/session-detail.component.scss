@@ -3,7 +3,7 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .header-info {
@@ -37,12 +37,23 @@
   padding: 3px 10px;
   border-radius: 6px;
 
-  &.alert {
+  &.ok {
+    background: var(--app-success-bg);
+    color: var(--app-success);
+  }
+  &.impact-warning {
     background: var(--app-warning-bg);
     color: var(--app-warning);
   }
-
-  &.ok {
+  &.impact-critical {
+    background: var(--app-error-bg);
+    color: var(--app-error);
+  }
+  &.impact-info {
+    background: var(--app-info-bg);
+    color: var(--app-info);
+  }
+  &.impact-none {
     background: var(--app-success-bg);
     color: var(--app-success);
   }
@@ -51,21 +62,21 @@
 .header-meta {
   display: flex;
   gap: 16px;
-  margin-top: 8px;
   flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--app-neutral);
+  font-size: 13px;
 
   span {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 13px;
-    color: var(--app-neutral);
+  }
 
-    mat-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-    }
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
   }
 }
 
@@ -73,678 +84,110 @@
   flex-shrink: 0;
 }
 
-// ── Progress Card ──────────────────────────────────────────────────────────
-.progress-card {
-  margin-bottom: 24px;
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.progress-phase {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.progress-message {
-  font-size: 13px;
-  color: var(--app-neutral);
-}
-
-.progress-percent {
-  text-align: right;
-  font-size: 12px;
-  color: var(--app-neutral);
-  margin-top: 4px;
-}
-
-.next-poll {
-  font-size: 12px;
-  color: var(--app-neutral);
-  margin-top: 8px;
-}
-
-// ── Error Card ─────────────────────────────────────────────────────────────
-.error-card {
-  max-width: 700px;
-  margin: 24px auto;
-  border-left: 4px solid var(--app-error);
-}
-
-.error-message {
-  color: var(--app-error);
-}
-
-// ── Section Panel ──────────────────────────────────────────────────────────
-.section-panel {
-  margin-bottom: 16px;
-
-  mat-panel-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-}
-
-// ── Detail Section ────────────────────────────────────────────────────────
-.detail-section {
-  margin-bottom: 24px;
-}
-
-.section-header {
+// ── Verdict banner ──────────────────────────────────────────────────────
+.verdict-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 8px;
   margin-bottom: 16px;
 
-  h3 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-
-    mat-icon {
-      font-size: 20px;
-      width: 20px;
-      height: 20px;
-      color: var(--app-neutral);
-    }
+  &.verdict-none {
+    background: var(--app-success-bg);
+    border-left: 4px solid var(--app-success);
+    mat-icon { color: var(--app-success); }
+  }
+  &.verdict-info {
+    background: var(--app-info-bg);
+    border-left: 4px solid var(--app-info);
+    mat-icon { color: var(--app-info); }
+  }
+  &.verdict-warning {
+    background: var(--app-warning-bg);
+    border-left: 4px solid var(--app-warning);
+    mat-icon { color: var(--app-warning); }
+  }
+  &.verdict-critical {
+    background: var(--app-error-bg);
+    border-left: 4px solid var(--app-error);
+    mat-icon { color: var(--app-error); }
   }
 }
 
-.event-count {
-  font-size: 12px;
-  color: var(--app-neutral);
-  font-weight: 500;
-}
-
-// ── Unified Event Timeline ────────────────────────────────────────────────
-.timeline {
-  position: relative;
-  padding-left: 20px;
-
-  &::before {
-    content: '';
-    position: absolute;
-    left: 11px;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: var(--mat-sys-outline-variant);
-  }
-}
-
-.timeline-entry {
+.verdict-content {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 10px 0;
-  position: relative;
-}
-
-.timeline-dot {
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  margin-left: -20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--mat-sys-surface);
-  z-index: 1;
-
-  mat-icon {
-    font-size: 18px;
-    width: 18px;
-    height: 18px;
-  }
-
-  .dot-config {
-    color: var(--app-info);
-  }
-
-  .dot-critical {
-    color: var(--app-error);
-  }
-
-  .dot-warning {
-    color: var(--app-warning);
-  }
-
-  .dot-info {
-    color: var(--app-info);
-  }
-}
-
-.timeline-content {
+  gap: 10px;
   flex: 1;
   min-width: 0;
-}
-
-.timeline-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.event-type-label {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.event-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
 
   mat-icon {
-    font-size: 13px;
-    width: 13px;
-    height: 13px;
-  }
-
-  &.config {
-    background: var(--app-info-bg);
-    color: var(--app-info);
-  }
-
-  &.revert {
-    background: var(--app-warning-bg);
-    color: var(--app-warning);
-  }
-
-  &.critical {
-    background: var(--app-error-bg);
-    color: var(--app-error);
-  }
-
-  &.resolved {
-    background: var(--app-success-bg);
-    color: var(--app-success);
-  }
-
-  &.severity-chip-critical {
-    background: var(--app-error-bg);
-    color: var(--app-error);
-  }
-
-  &.severity-chip-warning {
-    background: var(--app-warning-bg);
-    color: var(--app-warning);
-  }
-
-  &.severity-chip-info {
-    background: var(--app-info-bg);
-    color: var(--app-info);
-  }
-
-  &.validation-pass {
-    background: var(--app-success-bg);
-    color: var(--app-success);
-  }
-
-  &.validation-warn {
-    background: var(--app-warning-bg);
-    color: var(--app-warning);
-  }
-
-  &.validation-fail {
-    background: var(--app-error-bg);
-    color: var(--app-error);
+    flex-shrink: 0;
+    margin-top: 1px;
   }
 }
 
-.timeline-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--app-neutral);
-  flex-wrap: wrap;
-}
-
-.meta-sep {
-  color: var(--app-neutral);
-  opacity: 0.5;
-}
-
-.entry-type-label {
-  text-transform: capitalize;
-}
-
-.config-diff {
-  margin-top: 8px;
-
-  summary {
-    cursor: pointer;
-    font-size: 12px;
-    color: var(--app-info);
-    font-weight: 500;
-
-    &:hover {
-      text-decoration: underline;
-    }
-  }
-}
-
-.diff-content {
-  font-family: var(--app-font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 8px 12px;
-  margin: 4px 0 0;
-  border-radius: 4px;
-  background: var(--app-canvas-bg);
-  overflow-x: auto;
-  max-height: 300px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 24px 0;
-  color: var(--app-neutral);
-  font-size: 14px;
-}
-
-// ── SLE Table ──────────────────────────────────────────────────────────────
-.sle-degraded {
-  color: var(--app-error);
-  font-weight: 600;
-}
-
-.sle-improved {
-  color: var(--app-success);
-  font-weight: 600;
-}
-
-.sle-status-icon {
-  font-size: 18px;
-  width: 18px;
-  height: 18px;
-
-  &.degraded {
-    color: var(--app-error);
-  }
-
-  &.improved {
-    color: var(--app-success);
-  }
-
-  &.stable {
-    color: var(--app-neutral);
-  }
-}
-
-// ── Enriched Validation Checks ────────────────────────────────────────────
-.overall-badge {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 6px;
-
-  &.badge-pass {
-    background: var(--app-success-bg);
-    color: var(--app-success);
-  }
-
-  &.badge-warn {
-    background: var(--app-warning-bg);
-    color: var(--app-warning);
-  }
-
-  &.badge-fail {
-    background: var(--app-error-bg);
-    color: var(--app-error);
-  }
-
-  &.badge-error {
-    background: var(--app-error-bg);
-    color: var(--app-error);
-  }
-
-  &.badge-unknown {
-    background: var(--app-canvas-bg);
-    color: var(--app-neutral);
-  }
-}
-
-.check-icon {
-  font-size: 20px;
-  width: 20px;
-  height: 20px;
-
-  &.check-pass {
-    color: var(--app-success);
-  }
-
-  &.check-fail {
-    color: var(--app-error);
-  }
-
-  &.check-warn {
-    color: var(--app-warning);
-  }
-
-  &.check-error {
-    color: var(--app-error);
-  }
-
-  &.check-unknown {
-    color: var(--app-neutral);
-  }
-}
-
-.status-text {
-  font-size: 12px;
-  font-weight: 500;
-
-  &.status-pass {
-    color: var(--app-success);
-  }
-
-  &.status-fail {
-    color: var(--app-error);
-  }
-
-  &.status-warn {
-    color: var(--app-warning);
-  }
-
-  &.status-error {
-    color: var(--app-error);
-  }
-
-  &.status-unknown {
-    color: var(--app-neutral);
-  }
-}
-
-.check-details {
-  margin: 8px 0 0;
-  padding-left: 24px;
-  list-style: disc;
-
-  li {
-    font-size: 13px;
-    color: var(--app-neutral);
-    line-height: 1.6;
-    margin-bottom: 2px;
-  }
-}
-
-.no-details {
+.verdict-text {
   font-size: 13px;
-  color: var(--app-neutral);
-  opacity: 0.7;
-  padding: 0 8px;
-  margin: 4px 0 0;
+  line-height: 1.5;
 }
 
-// ── AI Assessment ──────────────────────────────────────────────────────────
-.severity-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
-
-  &.severity-critical {
-    background: var(--app-error-bg);
-    color: var(--app-error);
-  }
-
-  &.severity-warning {
-    background: var(--app-warning-bg);
-    color: var(--app-warning);
-  }
-
-  &.severity-info {
-    background: var(--app-info-bg);
-    color: var(--app-info);
-  }
-
-  &.severity-none {
-    background: var(--app-success-bg);
-    color: var(--app-success);
-  }
-}
-
-.ai-assessment-content {
-  padding: 8px 0;
-}
-
-.assessment-summary {
-  font-size: 15px;
-  line-height: 1.6;
-  margin: 0 0 16px;
-}
-
-.assessment-markdown {
-  font-size: 14px;
-  line-height: 1.6;
-
-  ::ng-deep {
-    h1,
-    h2,
-    h3 {
-      margin: 16px 0 8px;
-      font-weight: 600;
-    }
-
-    h1 {
-      font-size: 18px;
-    }
-    h2 {
-      font-size: 16px;
-    }
-    h3 {
-      font-size: 14px;
-    }
-
-    p {
-      margin: 0 0 12px;
-    }
-
-    ul,
-    ol {
-      padding-left: 20px;
-      margin: 0 0 12px;
-    }
-
-    li {
-      margin-bottom: 4px;
-    }
-
-    code {
-      padding: 2px 6px;
-      background: var(--app-canvas-bg);
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: var(--app-font-mono);
-    }
-
-    pre {
-      background: var(--app-canvas-bg);
-      border-radius: var(--app-radius-sm);
-      padding: 12px;
-      overflow-x: auto;
-      margin: 0 0 12px;
-
-      code {
-        padding: 0;
-        background: transparent;
-      }
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 0 0 12px;
-
-      th,
-      td {
-        padding: 8px 12px;
-        border: 1px solid var(--mat-sys-outline-variant);
-        text-align: left;
-        font-size: 13px;
-      }
-
-      th {
-        background: var(--mat-sys-surface-container);
-        font-weight: 600;
-      }
-    }
-  }
-}
-
-.recommendations {
-  margin-top: 16px;
-
-  h4 {
-    margin: 0 0 8px;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  ul {
-    padding-left: 20px;
-    margin: 0;
-  }
-
-  li {
-    font-size: 14px;
-    line-height: 1.6;
-    margin-bottom: 4px;
-  }
-}
-
-// ── AI Error Card ──────────────────────────────────────────────────────────
-.ai-error-card {
-  margin-bottom: 16px;
-
-  mat-card-content {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--app-warning);
-
-    mat-icon {
-      flex-shrink: 0;
-    }
-  }
-}
-
-// ── SLE Metrics ───────────────────────────────────────────────────────────
-
-.sle-table {
-  width: 100%;
-  border-collapse: collapse;
-
-  th {
-    text-align: left;
-    padding: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--app-neutral);
-    border-bottom: 1px solid var(--app-divider);
-  }
-
-  td {
-    padding: 8px;
-    font-size: 13px;
-  }
-
-  .metric-name {
-    text-transform: capitalize;
-  }
-}
-
-.row-degraded {
-  background: var(--app-error-bg);
-}
-
-.delta-negative {
-  color: var(--app-error);
-  font-weight: 500;
-}
-
-.delta-positive {
-  color: var(--app-success);
-  font-weight: 500;
-}
-
-.sle-status {
-  display: inline-block;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-  text-transform: capitalize;
-}
-
-.sle-degraded {
-  background: var(--app-error-bg);
-  color: var(--app-error);
-}
-
-.sle-stable {
-  background: var(--app-success-bg);
-  color: var(--app-success);
-}
-
-.sle-no_data {
-  background: var(--app-neutral-bg, rgba(0, 0, 0, 0.05));
-  color: var(--app-neutral);
-}
-
-.sle-baseline-info {
-  p {
-    color: var(--app-neutral);
-    font-size: 13px;
-    margin: 0 0 8px;
-  }
-}
-
-.baseline-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 8px 0;
-}
-
-.baseline-chip {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: var(--app-info-bg);
-  color: var(--app-info);
+// ── Error banner ────────────────────────────────────────────────────────
+.error-banner {
   display: flex;
   align-items: center;
-  gap: 4px;
-  text-transform: capitalize;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--app-error-bg);
+  border-left: 4px solid var(--app-error);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+
+  mat-icon {
+    color: var(--app-error);
+    flex-shrink: 0;
+  }
 }
 
-.trend-icon {
-  font-size: 14px;
-  width: 14px;
-  height: 14px;
+// ── Split view layout ───────────────────────────────────────────────────
+.split-view {
+  display: flex;
+  gap: 16px;
+  min-height: 0;
+  height: calc(100vh - 220px);
 }
 
-.snapshot-count {
-  font-size: 12px;
-  color: var(--app-neutral);
-  margin-top: 4px;
+.chat-panel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+}
+
+.data-panel {
+  width: 340px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+}
+
+// ── Responsive ──────────────────────────────────────────────────────────
+@media (max-width: 900px) {
+  .split-view {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .chat-panel {
+    min-height: 400px;
+  }
+
+  .data-panel {
+    width: 100%;
+  }
 }

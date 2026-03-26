@@ -16,6 +16,7 @@ import { selectCurrentUser } from '../../core/state/auth/auth.selectors';
  *   (default)  → 11/03/2026, 21:27:13
  *   'short'    → 11 Mar 2026, 21:27:13
  *   'date'     → 11 Mar 2026
+ *   'time'     → 21:27
  *   'time-ms'  → 21:27:13.456
  */
 @Pipe({ name: 'dateTime', standalone: true, pure: false })
@@ -74,6 +75,14 @@ export class DateTimePipe implements PipeTransform {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
+          }).format(date);
+
+        case 'time':
+          return this.getFormatter('time', {
+            ...tzOpt,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
           }).format(date);
 
         case 'time-ms': {

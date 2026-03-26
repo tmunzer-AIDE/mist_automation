@@ -5,6 +5,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
+import { MatSelectModule } from '@angular/material/select';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Store } from '@ngrx/store';
@@ -24,6 +25,7 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
     MatAutocompleteModule,
     MatButtonModule,
     MatIconModule,
+    MatSelectModule,
     MatSnackBarModule,
   ],
   template: `
@@ -80,21 +82,12 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
           <mat-form-field appearance="outline">
             <mat-label>Theme</mat-label>
             <mat-icon matPrefix>palette</mat-icon>
-            <input
-              matInput
-              [matAutocomplete]="themeAuto"
-              [value]="themeDisplayValue()"
-              (input)="themeSearch.set($any($event.target).value)"
-              readonly
-            />
-            <mat-autocomplete
-              #themeAuto
-              (optionSelected)="themeService.setPreference($event.option.value)"
-            >
-              @for (opt of filteredThemeOptions(); track opt.value) {
+            <mat-select [value]="themeService.preference()"
+                        (selectionChange)="themeService.setPreference($event.value)">
+              @for (opt of themeOptions; track opt.value) {
                 <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
               }
-            </mat-autocomplete>
+            </mat-select>
           </mat-form-field>
         </div>
       </mat-card-content>
@@ -150,18 +143,6 @@ export class GeneralProfileComponent implements OnInit {
     { value: 'light', label: 'Light' },
     { value: 'dark', label: 'Dark' },
   ];
-  themeSearch = signal('');
-  filteredThemeOptions = computed(() => {
-    const term = this.themeSearch().toLowerCase();
-    return term
-      ? this.themeOptions.filter((o) => o.label.toLowerCase().includes(term))
-      : this.themeOptions;
-  });
-  themeDisplayValue = computed(() => {
-    const pref = this.themeService.preference();
-    return this.themeOptions.find((o) => o.value === pref)?.label ?? pref;
-  });
-
   timezones = [
     'UTC',
     'America/New_York',
