@@ -17,7 +17,7 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { LlmService } from '../../../core/services/llm.service';
-import { WorkflowResponse, WorkflowType } from '../../../core/models/workflow.model';
+import { computeAutoTags, WorkflowResponse, WorkflowType } from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
@@ -67,7 +67,27 @@ export class WorkflowListComponent implements OnInit {
   sortActive = signal('name');
   sortDirection = signal<SortDirection>('asc');
 
-  displayedColumns = ['name', 'type', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
+  displayedColumns = ['name', 'type', 'tags', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
+
+  tagFilter = signal<string[]>([]);
+
+  getAutoTags(wf: WorkflowResponse): string[] {
+    return computeAutoTags(wf.nodes);
+  }
+
+  addTagFilter(tag: string): void {
+    if (!this.tagFilter().includes(tag)) {
+      this.tagFilter.update((t) => [...t, tag]);
+      this.pageIndex.set(0);
+      this.loadWorkflows();
+    }
+  }
+
+  removeTagFilter(tag: string): void {
+    this.tagFilter.update((t) => t.filter((v) => v !== tag));
+    this.pageIndex.set(0);
+    this.loadWorkflows();
+  }
 
   ngOnInit(): void {
     this.topbarService.setTitle('Workflows');
@@ -88,6 +108,7 @@ export class WorkflowListComponent implements OnInit {
   loadWorkflows(): void {
     this.loading.set(true);
     const sortDir = this.sortDirection() || 'asc';
+    const tagsParam = this.tagFilter().length > 0 ? this.tagFilter().join(',') : undefined;
     this.workflowService
       .list(
         this.pageIndex() * this.pageSize(),
@@ -95,7 +116,8 @@ export class WorkflowListComponent implements OnInit {
         undefined,
         this.workflowTypeFilter(),
         this.sortActive(),
-        sortDir
+        sortDir,
+        tagsParam
       )
       .subscribe({
         next: (res) => {
