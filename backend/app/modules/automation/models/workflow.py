@@ -144,6 +144,7 @@ class Workflow(TimestampMixin, Document):
     # Basic info
     name: str = Field(..., description="Workflow name")
     description: str | None = Field(default=None, description="Workflow description")
+    tags: list[str] = Field(default_factory=list, description="User-defined tags for categorization")
     workflow_type: str = Field(default="standard", description="Workflow type: standard or subflow")
 
     # Sub-flow parameters (only used when workflow_type == 'subflow')
@@ -186,6 +187,7 @@ class Workflow(TimestampMixin, Document):
             "status",
             "last_execution",
             "workflow_type",
+            "tags",
         ]
 
     def can_be_accessed_by(self, user: "User") -> bool:

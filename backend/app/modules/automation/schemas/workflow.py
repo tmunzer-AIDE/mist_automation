@@ -13,6 +13,7 @@ class WorkflowCreate(BaseModel):
 
     name: str = Field(..., description="Workflow name", min_length=1, max_length=200)
     description: str | None = Field(None, description="Workflow description")
+    tags: list[str] = Field(default_factory=list, description="User-defined tags")
     workflow_type: str = Field(default="standard", description="Workflow type: standard or subflow")
     sharing: str | None = Field(None, description="Sharing permission: private, read-only, or read-write")
     timeout_seconds: int = Field(default=300, description="Workflow execution timeout", ge=10, le=3600)
@@ -28,6 +29,7 @@ class WorkflowUpdate(BaseModel):
 
     name: str | None = Field(None, description="Workflow name", min_length=1, max_length=200)
     description: str | None = Field(None, description="Workflow description")
+    tags: list[str] | None = Field(None, description="User-defined tags")
     status: str | None = Field(None, description="Workflow status")
     sharing: str | None = Field(None, description="Sharing permission: private, read-only, or read-write")
     timeout_seconds: int | None = Field(None, description="Workflow execution timeout", ge=10, le=3600)
@@ -43,7 +45,8 @@ class WorkflowResponse(BaseModel):
 
     id: str = Field(..., description="Workflow ID")
     name: str = Field(..., description="Workflow name")
-    description: str | None = Field(None, description="Workflow description")
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list, description="User-defined tags")
     workflow_type: str = Field(default="standard", description="Workflow type")
     created_by: str = Field(..., description="Creator user ID")
     status: str = Field(..., description="Workflow status")
