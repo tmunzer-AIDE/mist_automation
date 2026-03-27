@@ -19,10 +19,10 @@ async def get_telemetry_status(
     """Return telemetry pipeline health and stats."""
     import app.modules.telemetry as telemetry_mod
 
-    result: dict[str, Any] = {
+    return {
         "enabled": telemetry_mod._influxdb_service is not None,
         "influxdb": telemetry_mod._influxdb_service.get_stats() if telemetry_mod._influxdb_service else None,
         "cache_size": telemetry_mod._latest_cache.size() if telemetry_mod._latest_cache else 0,
-        "websocket": None,  # Placeholder for Plan 3
+        "websocket": telemetry_mod._ws_manager.get_status() if telemetry_mod._ws_manager else None,
+        "ingestion": telemetry_mod._ingestion_service.get_stats() if telemetry_mod._ingestion_service else None,
     }
-    return result
