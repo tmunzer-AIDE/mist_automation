@@ -40,7 +40,7 @@
       @if (showAiTab) {
         <button
           class="ai-edge-tab"
-          [style.right.px]="showAiPanel ? panelState.width() + 6 : 0"
+          [style.right.px]="showAiPanel ? panelState.width() : 0"
           (click)="globalChatService.toggle()"
           [matTooltip]="showAiPanel ? 'Hide panel (Ctrl+\\)' : 'Show AI panel (Ctrl+\\)'"
           matTooltipPosition="left"
