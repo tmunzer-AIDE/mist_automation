@@ -23,20 +23,20 @@
     }
     <app-topbar (toggleSidebar)="toggleSidebar()"></app-topbar>
     <div class="content-split" [class.has-panel]="showAiPanel">
+      <main class="content" [class.full-width]="isFullWidth()">
+        <router-outlet></router-outlet>
+      </main>
       @if (showAiPanel) {
-        <div class="ai-panel-wrapper" [style.width.px]="panelState.width()">
-          <app-ai-panel></app-ai-panel>
-        </div>
         <div
           class="resize-handle"
           (mousedown)="onResizeStart($event)"
         >
           <div class="resize-grip"></div>
         </div>
+        <div class="ai-panel-wrapper" [style.width.px]="panelState.width()">
+          <app-ai-panel></app-ai-panel>
+        </div>
       }
-      <main class="content" [class.full-width]="isFullWidth()">
-        <router-outlet></router-outlet>
-      </main>
     </div>
   </mat-sidenav-content>
 </mat-sidenav-container>

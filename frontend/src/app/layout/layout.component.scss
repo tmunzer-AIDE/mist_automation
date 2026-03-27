@@ -2,7 +2,7 @@
   height: 100%;
 
   &.desktop ::ng-deep .mat-sidenav-content {
-    margin-left: 240px !important;
+    margin-left: 200px !important;
     transition: margin-left 0.2s ease !important;
   }
 
@@ -21,7 +21,7 @@
 
 .sidenav {
   border-right: none;
-  --mat-sidenav-container-width: 240px;
+  --mat-sidenav-container-width: 200px;
   transition: width 0.2s ease;
 
   &.collapsed {
@@ -50,7 +50,7 @@
   flex-shrink: 0;
   height: 100%;
   overflow: hidden;
-  border-right: 1px solid var(--mat-sys-outline-variant);
+  border-left: 1px solid var(--mat-sys-outline-variant);
 }
 
 .resize-handle {

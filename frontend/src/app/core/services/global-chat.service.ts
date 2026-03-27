@@ -6,6 +6,8 @@ export interface PageContext {
   page: string;
   /** Key details about what the user is viewing */
   details?: Record<string, string | number | null>;
+  /** Hide the persistent AI panel (page has its own embedded chat) */
+  hidePanel?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })

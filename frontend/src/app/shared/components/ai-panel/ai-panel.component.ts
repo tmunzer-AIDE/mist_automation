@@ -84,7 +84,7 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
             <mat-icon>{{ showHistory() ? 'chat' : 'history' }}</mat-icon>
           </button>
           <button mat-icon-button matTooltip="Hide panel (Ctrl+\)" (click)="hidePanel()">
-            <mat-icon>left_panel_close</mat-icon>
+            <mat-icon>right_panel_close</mat-icon>
           </button>
         </div>
       </div>

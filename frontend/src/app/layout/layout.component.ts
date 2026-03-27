@@ -80,9 +80,11 @@ export class LayoutComponent {
     }
   }
 
-  /** Whether the AI panel should render (LLM available + not mobile) */
+  /** Whether the AI panel should render (LLM available + not mobile + page doesn't hide it) */
   get showAiPanel(): boolean {
-    return this.llmAvailable() && !this.isMobile() && this.globalChatService.panelOpen();
+    const ctx = this.globalChatService.context();
+    const pageHidesPanel = ctx?.hidePanel ?? false;
+    return this.llmAvailable() && !this.isMobile() && this.globalChatService.panelOpen() && !pageHidesPanel;
   }
 
   // ── Resize handle ──────────────────────────────────────
@@ -92,9 +94,8 @@ export class LayoutComponent {
     this.resizing.set(true);
 
     const onMove = (e: MouseEvent) => {
-      // Panel is on the left of content; width = mouse X - sidebar width
-      const sidebarWidth = this.sidebarCollapsed() ? 56 : 240;
-      const newWidth = e.clientX - sidebarWidth;
+      // Panel is on the right; width = viewport width - mouse X
+      const newWidth = window.innerWidth - e.clientX;
       this.panelState.setWidth(newWidth);
     };
 
