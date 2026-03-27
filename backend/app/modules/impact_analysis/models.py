@@ -191,6 +191,11 @@ class MonitoringSession(TimestampMixin, Document):
     sle_delta: dict | None = Field(default=None, description="Computed SLE change from baseline")
     sle_drill_down: dict | None = Field(default=None, description="Detailed SLE drill-down data")
 
+    # Routing peer baseline (OSPF/BGP)
+    routing_baseline: dict | None = Field(
+        default=None, description="Baseline OSPF/BGP peer stats captured before monitoring"
+    )
+
     # Topology
     topology_baseline: dict | None = Field(default=None, description="Network topology snapshot at baseline")
     topology_latest: dict | None = Field(default=None, description="Most recent topology snapshot")

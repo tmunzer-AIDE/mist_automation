@@ -66,7 +66,7 @@
   </div>
 
   <!-- Verdict banner (only when completed with AI assessment) -->
-  @if (isCompleted() && verdictSummary()) {
+  @if (isCompleted()) {
     <div class="verdict-banner" [class]="'verdict-' + impactSeverity()">
       <div class="verdict-content">
         @if (impactSeverity() === 'none') {
@@ -74,7 +74,7 @@
         } @else {
           <mat-icon>warning</mat-icon>
         }
-        <span class="verdict-text">{{ verdictSummary() | slice:0:250 }}</span>
+        <span class="verdict-text">{{ verdictSummary() }}</span>
       </div>
       <button mat-stroked-button (click)="reanalyze()" [disabled]="reanalyzing()">
         <mat-icon>refresh</mat-icon>

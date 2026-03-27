@@ -10,7 +10,7 @@ import {
   computed,
   effect,
 } from '@angular/core';
-import { SlicePipe, TitleCasePipe } from '@angular/common';
+import { TitleCasePipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
@@ -50,7 +50,6 @@ let chatMsgCounter = 0;
   selector: 'app-session-detail',
   standalone: true,
   imports: [
-    SlicePipe,
     TitleCasePipe,
     MatIconModule,
     MatButtonModule,
@@ -106,9 +105,48 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   hasImpact = computed(() => this.impactSeverity() !== 'none');
 
   verdictSummary = computed(() => {
-    const assessment = this.session()?.ai_assessment;
-    if (!assessment) return '';
-    return (assessment['summary'] as string) ?? '';
+    const s = this.session();
+    if (!s) return '';
+    const parts: string[] = [];
+
+    // Validation summary
+    const vr = s.validation_results;
+    if (vr) {
+      const overall = vr['overall_status'] as string;
+      const failedChecks: string[] = [];
+      for (const [key, val] of Object.entries(vr)) {
+        if (key === 'overall_status' || key === 'error') continue;
+        const check = val as Record<string, unknown> | undefined;
+        if (check?.['status'] === 'fail' || check?.['status'] === 'warn') {
+          failedChecks.push(key.replace(/_/g, ' '));
+        }
+      }
+      if (failedChecks.length > 0) {
+        const label = overall === 'fail' ? 'failure' : 'warning';
+        parts.push(`${failedChecks.length} validation ${label}${failedChecks.length > 1 ? 's' : ''} (${failedChecks.join(', ')})`);
+      } else {
+        parts.push('all validation checks passed');
+      }
+    }
+
+    // Incidents summary
+    const incidents = s.incidents ?? [];
+    if (incidents.length > 0) {
+      const unresolved = incidents.filter((i) => !i.resolved).length;
+      const label = unresolved > 0 ? `${unresolved} unresolved` : 'all resolved';
+      parts.push(`${incidents.length} incident${incidents.length > 1 ? 's' : ''} (${label})`);
+    }
+
+    // SLE summary
+    const delta = s.sle_data?.delta as Record<string, unknown> | undefined;
+    if (delta?.['overall_degraded']) {
+      const degraded = (delta['degraded_metric_names'] as string[]) ?? [];
+      parts.push(`SLE degraded (${degraded.join(', ') || 'metrics affected'})`);
+    } else if (delta) {
+      parts.push('SLE stable');
+    }
+
+    return parts.join(' -- ');
   });
 
   chatMessages = computed<ChatMessage[]>(() => {

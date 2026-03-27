@@ -75,6 +75,22 @@ export interface SessionDetailResponse extends SessionResponse {
   timeline: TimelineEntryResponse[];
 }
 
+export const SLE_METRIC_LABELS: Record<string, string> = {
+  'time-to-connect': 'Time to Connect',
+  'successful-connect': 'Successful Connect',
+  throughput: 'Throughput',
+  roaming: 'Roaming',
+  capacity: 'Capacity',
+  coverage: 'Coverage',
+  'ap-health': 'AP Health',
+  'switch-throughput': 'Switch Throughput',
+  'switch-health': 'Switch Health',
+  'switch-stc': 'Successful Connect (Wired)',
+  'switch-stc-new': 'Successful Connect (New)',
+  'gateway-health': 'Gateway Health',
+  'wan-link-health': 'WAN Link Health',
+};
+
 export const VALIDATION_CHECK_LABELS: Record<string, string> = {
   connectivity: 'Upstream/Downstream Connectivity',
   performance: 'SLE Performance',
@@ -85,8 +101,9 @@ export const VALIDATION_CHECK_LABELS: Record<string, string> = {
   alarm_correlation: 'Alarm Correlation',
   port_flapping: 'Port Flapping',
   dhcp_health: 'DHCP Health',
-  vc_mclag_integrity: 'VC/MCLAG Integrity',
-  routing_adjacency: 'Routing Adjacency',
+  vc_integrity: 'Virtual Chassis Integrity',
+  lag_mclag_integrity: 'LAG/MCLAG Integrity',
+  routing_adjacency: 'Routing Adjacency (OSPF/BGP)',
   config_drift: 'Configuration Drift',
   poe_budget: 'PoE Budget',
   wan_failover: 'WAN Failover',

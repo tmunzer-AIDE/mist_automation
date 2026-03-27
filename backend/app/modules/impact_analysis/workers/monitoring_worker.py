@@ -72,6 +72,88 @@ async def _narrate_phase(session: MonitoringSession, phase: str, template_text: 
         logger.warning("narration_append_failed", phase=phase, error=str(e))
 
 
+async def _fetch_routing_peers(
+    org_id: str,
+    site_id: str,
+    device_mac: str,
+    device_type: str,
+    api_session: Any = None,
+) -> dict[str, Any]:
+    """Fetch OSPF and BGP peer stats for a device.
+
+    Returns {"ospf_peers": [...], "bgp_peers": [...]}.
+    Only queries for switches and gateways (APs have no routing peers).
+    """
+    if device_type == "ap":
+        return {"ospf_peers": [], "bgp_peers": []}
+
+    import mistapi
+    from mistapi.api.v1.orgs import stats as org_stats
+
+    try:
+        if not api_session:
+            mist = await create_mist_service()
+            api_session = mist.get_session()
+
+        ospf_peers: list[dict[str, Any]] = []
+        bgp_peers: list[dict[str, Any]] = []
+
+        # Fetch OSPF peers
+        try:
+            resp = await mistapi.arun(
+                org_stats.searchOrgOspfStats,
+                api_session,
+                org_id,
+                site_id=site_id,
+                mac=device_mac,
+                limit=100,
+            )
+            if resp and resp.status_code == 200 and resp.data:
+                results = resp.data if isinstance(resp.data, list) else resp.data.get("results", [])
+                for peer in results:
+                    if isinstance(peer, dict):
+                        ospf_peers.append({
+                            "neighbor_ip": peer.get("neighbor_ip", ""),
+                            "neighbor_mac": peer.get("neighbor_mac", ""),
+                            "state": peer.get("state", ""),
+                            "area": peer.get("area", ""),
+                            "interface": peer.get("interface", ""),
+                            "vrf_name": peer.get("vrf_name", "default"),
+                        })
+        except Exception as e:
+            logger.debug("fetch_ospf_peers_failed", device_mac=device_mac, error=str(e))
+
+        # Fetch BGP peers
+        try:
+            resp = await mistapi.arun(
+                org_stats.searchOrgBgpStats,
+                api_session,
+                org_id,
+                mac=device_mac,
+                site_id=site_id,
+                limit=100,
+            )
+            if resp and resp.status_code == 200 and resp.data:
+                results = resp.data if isinstance(resp.data, list) else resp.data.get("results", [])
+                for peer in results:
+                    if isinstance(peer, dict):
+                        bgp_peers.append({
+                            "neighbor_ip": peer.get("neighbor_ip", ""),
+                            "neighbor_mac": peer.get("neighbor_mac", ""),
+                            "state": peer.get("state", ""),
+                            "remote_as": peer.get("remote_as", 0),
+                            "local_as": peer.get("local_as", 0),
+                            "vrf_name": peer.get("vrf_name", "default"),
+                        })
+        except Exception as e:
+            logger.debug("fetch_bgp_peers_failed", device_mac=device_mac, error=str(e))
+
+        return {"ospf_peers": ospf_peers, "bgp_peers": bgp_peers}
+    except Exception as e:
+        logger.warning("fetch_routing_peers_failed", device_mac=device_mac, error=str(e))
+        return {"ospf_peers": [], "bgp_peers": []}
+
+
 async def recover_active_sessions() -> int:
     """Resume monitoring pipelines for sessions that were active when the backend stopped.
 
@@ -195,6 +277,26 @@ async def run_monitoring_pipeline(session_id: str) -> None:
             session.template_baseline = await template_service.capture_template_snapshot(
                 session.site_id, session.org_id, api_session=shared_api_session
             )
+
+            # Capture routing peer baseline (OSPF/BGP) for switches and gateways
+            if session.device_type.value in ("switch", "gateway"):
+                session.routing_baseline = await _fetch_routing_peers(
+                    session.org_id,
+                    session.site_id,
+                    session.device_mac,
+                    session.device_type.value,
+                    api_session=shared_api_session,
+                )
+                peer_count = len((session.routing_baseline or {}).get("ospf_peers", [])) + len(
+                    (session.routing_baseline or {}).get("bgp_peers", [])
+                )
+                if peer_count > 0:
+                    logger.info(
+                        "routing_baseline_captured",
+                        session_id=session_id,
+                        ospf_peers=len((session.routing_baseline or {}).get("ospf_peers", [])),
+                        bgp_peers=len((session.routing_baseline or {}).get("bgp_peers", [])),
+                    )
 
             session.progress = {"phase": session.status.value, "message": "Baseline captured", "percent": 10}
             session.update_timestamp()

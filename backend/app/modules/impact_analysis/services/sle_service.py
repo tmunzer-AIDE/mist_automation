@@ -145,6 +145,12 @@ async def capture_baseline(
         if data is not None:
             results["metrics"][metric][label] = data
 
+    # Pre-compute baseline SLE values for frontend display
+    for metric_name, metric_data in results["metrics"].items():
+        val = _extract_sle_value(metric_data)
+        if val is not None:
+            metric_data["baseline_value"] = round(val, 1)
+
     return results
 
 
@@ -358,6 +364,13 @@ def _extract_sle_value(data: Any) -> float | None:
     if isinstance(sle_obj, dict):
         samples = sle_obj.get("samples")
         if isinstance(samples, dict):
+            # Try the direct "value" array first (SLE score 0-100)
+            value_arr = samples.get("value", [])
+            valid_values = [v for v in value_arr if isinstance(v, (int, float))]
+            if valid_values:
+                return round(sum(valid_values) / len(valid_values), 2)
+
+            # Fall back to total/degraded ratio
             total = samples.get("total", [])
             degraded = samples.get("degraded", [])
             total_sum = sum(v for v in total if isinstance(v, (int, float)))

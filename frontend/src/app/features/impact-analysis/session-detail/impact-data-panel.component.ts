@@ -4,7 +4,11 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
-import { SessionDetailResponse, VALIDATION_CHECK_LABELS } from '../models/impact-analysis.model';
+import {
+  SessionDetailResponse,
+  SLE_METRIC_LABELS,
+  VALIDATION_CHECK_LABELS,
+} from '../models/impact-analysis.model';
 
 @Component({
   selector: 'app-impact-data-panel',
@@ -120,7 +124,7 @@ import { SessionDetailResponse, VALIDATION_CHECK_LABELS } from '../models/impact
           @if (deltaMetrics().length > 0) {
             @for (m of deltaMetrics(); track m.name) {
               <div class="sle-row" [class.sle-row-degraded]="m.degraded">
-                <span class="sle-name">{{ m.name }}</span>
+                <span class="sle-name">{{ m.label }}</span>
                 <span class="sle-values">
                   {{ m.baseline_value }}
                   <mat-icon class="sle-arrow">arrow_forward</mat-icon>
@@ -144,7 +148,13 @@ import { SessionDetailResponse, VALIDATION_CHECK_LABELS } from '../models/impact
             @for (m of baselineMetrics(); track m.name) {
               <div class="sle-row">
                 <span class="sle-name">{{ m.name }}</span>
-                <span class="sle-values baseline-only">baseline ready</span>
+                <span class="sle-values baseline-only">
+                  @if (m.value !== null) {
+                    {{ m.value }}%
+                  } @else {
+                    no data
+                  }
+                </span>
               </div>
             }
           } @else {
@@ -585,7 +595,11 @@ export class ImpactDataPanelComponent {
           status: string;
         }>
       | undefined;
-    return metrics ?? [];
+    if (!metrics) return [];
+    return metrics.map((m) => ({
+      ...m,
+      label: SLE_METRIC_LABELS[m.name] || m.name.replace(/-/g, ' '),
+    }));
   });
 
   sleOverallDegraded = computed(() => {
@@ -597,9 +611,12 @@ export class ImpactDataPanelComponent {
     const baseline = this.session()?.sle_data?.baseline as Record<string, unknown> | undefined;
     const metrics = baseline?.['metrics'] as Record<string, Record<string, unknown>> | undefined;
     if (!metrics) return [];
-    return Object.entries(metrics).map(([name]) => ({
-      name: name.replace(/-/g, ' '),
-    }));
+    return Object.entries(metrics)
+      .filter(([, data]) => data && Object.keys(data).length > 0)
+      .map(([name, data]) => ({
+        name: SLE_METRIC_LABELS[name] || name.replace(/-/g, ' '),
+        value: typeof data?.['baseline_value'] === 'number' ? (data['baseline_value'] as number) : null,
+      }));
   });
 
   deltaClass(changePercent: number | null): string {

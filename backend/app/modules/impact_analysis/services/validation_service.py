@@ -2,11 +2,11 @@
 
 Checks by device type (after removing SLE #2 and alarm #7):
 - AP: 1, 3-6, 8, 12
-- Switch: 1, 3-6, 8-13
-- Gateway: 1, 3-6, 8, 9, 11, 12, 14
+- Switch: 1, 3-6, 8-13, 15
+- Gateway: 1, 3-6, 8, 9, 11, 12, 14, 15
 
-All checks are synchronous and operate purely on data already in the session
-and the validation data passed in. No API calls are made.
+Checks that target optional features (DHCP, VC, LAG/MCLAG, routing, PoE)
+are automatically skipped when the feature is not configured on the device.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ logger = structlog.get_logger(__name__)
 # Check #7 (Alarm Correlation) removed — replaced by webhook event routing
 _CHECKS_BY_TYPE: dict[str, set[int]] = {
     "ap": {1, 3, 4, 5, 6, 8, 12},
-    "switch": {1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13},
-    "gateway": {1, 3, 4, 5, 6, 8, 9, 11, 12, 14},
+    "switch": {1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15},
+    "gateway": {1, 3, 4, 5, 6, 8, 9, 11, 12, 14, 15},
 }
 
 
@@ -62,6 +62,7 @@ class ValidationData:
     # Pre-computed adjacency lists from session topology snapshots
     baseline_adj: dict[str, list[str]] = field(default_factory=dict)
     latest_adj: dict[str, list[str]] = field(default_factory=dict)
+    routing_current: dict[str, Any] = field(default_factory=dict)
 
 
 # Client count drop thresholds
@@ -70,6 +71,80 @@ _CLIENT_FAIL_THRESHOLD = 25.0
 
 # Port flapping: state changes exceeding this count = fail
 _PORT_FLAP_THRESHOLD = 2
+
+
+def _should_skip_check(
+    check_num: int,
+    session: MonitoringSession,
+    site_data: ValidationData,
+) -> bool:
+    """Return True if the check should be skipped (feature not configured on device)."""
+    device_mac = session.device_mac.lower()
+
+    if check_num == 9:  # DHCP Health
+        for topo in (session.topology_baseline, session.topology_latest):
+            if not topo:
+                continue
+            for dev_data in (topo.get("devices") or {}).values():
+                if dev_data.get("mac", "").lower() == device_mac:
+                    dhcp = dev_data.get("dhcpd_config", {})
+                    if dhcp and isinstance(dhcp, dict) and len(dhcp) > 0:
+                        return False
+        return True
+
+    if check_num == 10:  # VC Integrity
+        for topo in (session.topology_baseline, session.topology_latest):
+            if not topo:
+                continue
+            for dev_data in (topo.get("devices") or {}).values():
+                if dev_data.get("mac", "").lower() == device_mac:
+                    if dev_data.get("is_virtual_chassis"):
+                        return False
+        return True
+
+    if check_num == 15:  # LAG/MCLAG Integrity
+        has_mclag = False
+        has_ae = False
+        for topo in (session.topology_baseline, session.topology_latest):
+            if not topo:
+                continue
+            for dev_data in (topo.get("devices") or {}).values():
+                if dev_data.get("mac", "").lower() == device_mac:
+                    if dev_data.get("mclag_domain_id"):
+                        has_mclag = True
+            for conn in topo.get("connections", []):
+                if conn.get("local_ae") or conn.get("remote_ae"):
+                    has_ae = True
+                    break
+        for port in site_data.port_stats:
+            if not isinstance(port, dict):
+                continue
+            if (port.get("mac") or port.get("device_mac") or "").lower() == device_mac:
+                if port.get("port_id", "").startswith("ae"):
+                    has_ae = True
+                    break
+        return not (has_mclag or has_ae)
+
+    if check_num == 11:  # Routing Adjacency
+        baseline = session.routing_baseline
+        has_peers = False
+        if baseline:
+            has_peers = bool(baseline.get("ospf_peers")) or bool(baseline.get("bgp_peers"))
+        routing_events = {"SW_OSPF_NEIGHBOR_DOWN", "GW_OSPF_NEIGHBOR_DOWN",
+                          "SW_BGP_NEIGHBOR_DOWN", "GW_BGP_NEIGHBOR_DOWN"}
+        has_incidents = any(i.event_type in routing_events for i in session.incidents)
+        return not (has_peers or has_incidents)
+
+    if check_num == 13:  # PoE Budget
+        for port in site_data.port_stats:
+            if not isinstance(port, dict):
+                continue
+            if (port.get("mac") or port.get("device_mac") or "").lower() == device_mac:
+                if port.get("poe_enabled") or port.get("poe_on"):
+                    return False
+        return True
+
+    return False
 
 
 async def run_validations(
@@ -116,6 +191,17 @@ async def run_validations(
         latest_adj=latest_adj,
     )
 
+    # Pre-fetch current routing peers for baseline comparison (avoids async in sync check)
+    if session.routing_baseline and session.device_type.value in ("switch", "gateway"):
+        try:
+            from app.modules.impact_analysis.workers.monitoring_worker import _fetch_routing_peers
+
+            site_data.routing_current = await _fetch_routing_peers(
+                session.org_id, session.site_id, session.device_mac, session.device_type.value
+            )
+        except Exception as e:
+            logger.warning("routing_current_fetch_failed", error=str(e))
+
     overall_worst = "pass"
 
     check_functions: dict[int, tuple[str, Any]] = {
@@ -126,15 +212,18 @@ async def run_validations(
         6: ("client_impact", _check_client_impact),
         8: ("port_flapping", _check_port_flapping),
         9: ("dhcp_health", _check_dhcp_health),
-        10: ("vc_mclag_integrity", _check_vc_mclag),
+        10: ("vc_integrity", _check_vc_integrity),
         11: ("routing_adjacency", _check_routing_adjacency),
         12: ("config_drift", lambda s, sd: _check_config_drift(s, sd, template_drift)),
         13: ("poe_budget", _check_poe_budget),
         14: ("wan_failover", _check_wan_failover),
+        15: ("lag_mclag_integrity", _check_lag_mclag),
     }
 
     for check_num, (name, func) in check_functions.items():
         if check_num not in applicable:
+            continue
+        if _should_skip_check(check_num, session, site_data):
             continue
         try:
             result = func(session, site_data)
@@ -664,89 +753,147 @@ def _check_dhcp_health(session: MonitoringSession, site_data: Any) -> dict[str, 
     return {"status": "pass", "details": ["DHCP configuration stable"]}
 
 
-# ── Check 10: VC/MCLAG Integrity ─────────────────────────────────────────
+# ── Check 10: VC Integrity ────────────────────────────────────────────────
 
 
-def _check_vc_mclag(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
-    """Compare VC/MCLAG groups in topology baseline vs latest.
-
-    Member changes, role changes, or ICL link loss = fail.
-    """
+def _check_vc_integrity(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
+    """Compare Virtual Chassis membership and ICL links in baseline vs latest."""
     baseline = session.topology_baseline
     latest = session.topology_latest
-    details: list[str] = []
-
     if not baseline or not latest:
-        return {"status": "pass", "details": ["Insufficient topology data for VC/MCLAG check"]}
+        return {"status": "pass", "details": ["Insufficient topology data for VC check"]}
 
-    baseline_groups = get_topology_groups(baseline)
-    latest_groups = get_topology_groups(latest)
+    baseline_groups = [g for g in get_topology_groups(baseline) if g.get("group_type") == "VC"]
+    latest_groups = [g for g in get_topology_groups(latest) if g.get("group_type") == "VC"]
 
-    # Index groups by (type, id)
-    baseline_by_key: dict[tuple[str, str], dict[str, Any]] = {}
-    for g in baseline_groups:
-        key = (g.get("group_type", ""), g.get("group_id", ""))
-        baseline_by_key[key] = g
-
-    latest_by_key: dict[tuple[str, str], dict[str, Any]] = {}
-    for g in latest_groups:
-        key = (g.get("group_type", ""), g.get("group_id", ""))
-        latest_by_key[key] = g
+    baseline_by_id = {g.get("group_id", ""): g for g in baseline_groups}
+    latest_by_id = {g.get("group_id", ""): g for g in latest_groups}
 
     issues: list[str] = []
+    info: list[str] = []
 
-    # Check for groups that existed in baseline but are missing or changed
-    for key, b_group in baseline_by_key.items():
-        group_type, group_id = key
-        l_group = latest_by_key.get(key)
-
+    for gid, b_group in baseline_by_id.items():
+        l_group = latest_by_id.get(gid)
         if not l_group:
-            issues.append(f"{group_type} group '{group_id}' no longer exists")
+            issues.append(f"VC group '{gid}' no longer exists")
             continue
-
         b_members = set(b_group.get("member_ids", []))
         l_members = set(l_group.get("member_ids", []))
+        lost = b_members - l_members
+        gained = l_members - b_members
+        if lost:
+            issues.append(f"VC '{gid}' lost members: {', '.join(lost)}")
+        if gained:
+            info.append(f"VC '{gid}' gained members: {', '.join(gained)}")
 
-        lost_members = b_members - l_members
-        new_members = l_members - b_members
-
-        if lost_members:
-            issues.append(f"{group_type} '{group_id}' lost members: {', '.join(lost_members)}")
-        if new_members:
-            details.append(f"{group_type} '{group_id}' gained members: {', '.join(new_members)}")
-
-    # Check for ICL link status changes
+    # Check VC ICL links
     baseline_conns = get_topology_connections(baseline)
     latest_conns = get_topology_connections(latest)
 
-    icl_types = {"VC_ICL", "MCLAG_ICL"}
-
     baseline_icls: dict[tuple[str, str], str] = {}
     for conn in baseline_conns:
-        if conn.get("link_type") in icl_types:
+        if conn.get("link_type") == "VC_ICL":
             pair = tuple(sorted([conn.get("local_device_id", ""), conn.get("remote_device_id", "")]))
             baseline_icls[pair] = conn.get("status", "UNKNOWN")
 
     latest_icls: dict[tuple[str, str], str] = {}
     for conn in latest_conns:
-        if conn.get("link_type") in icl_types:
+        if conn.get("link_type") == "VC_ICL":
             pair = tuple(sorted([conn.get("local_device_id", ""), conn.get("remote_device_id", "")]))
             latest_icls[pair] = conn.get("status", "UNKNOWN")
 
     for pair, b_status in baseline_icls.items():
         l_status = latest_icls.get(pair)
         if l_status is None:
-            issues.append(f"ICL link lost between {pair[0]} and {pair[1]}")
+            issues.append(f"VC ICL link lost between {pair[0]} and {pair[1]}")
         elif b_status == "UP" and l_status != "UP":
-            issues.append(f"ICL link degraded between {pair[0]} and {pair[1]}: {b_status} -> {l_status}")
+            issues.append(f"VC ICL degraded between {pair[0]} and {pair[1]}: {b_status} -> {l_status}")
 
     if issues:
         return {"status": "fail", "details": issues}
+    if info:
+        return {"status": "warn", "details": info}
+    return {"status": "pass", "details": ["VC integrity maintained"]}
 
-    if details:
-        return {"status": "warn", "details": details}
 
-    return {"status": "pass", "details": ["VC/MCLAG integrity maintained"]}
+# ── Check 15: LAG/MCLAG Integrity ─────────────────────────────────────────
+
+
+def _check_lag_mclag(session: MonitoringSession, site_data: Any) -> dict[str, Any]:
+    """Check LAG (ae) interface status and MCLAG group integrity."""
+    baseline = session.topology_baseline
+    latest = session.topology_latest
+    device_mac = session.device_mac.lower()
+    issues: list[str] = []
+    info: list[str] = []
+
+    # --- MCLAG group checks ---
+    if baseline and latest:
+        baseline_groups = [g for g in get_topology_groups(baseline) if g.get("group_type") == "MCLAG"]
+        latest_groups = [g for g in get_topology_groups(latest) if g.get("group_type") == "MCLAG"]
+
+        baseline_by_id = {g.get("group_id", ""): g for g in baseline_groups}
+        latest_by_id = {g.get("group_id", ""): g for g in latest_groups}
+
+        for gid, b_group in baseline_by_id.items():
+            l_group = latest_by_id.get(gid)
+            if not l_group:
+                issues.append(f"MCLAG domain '{gid}' no longer exists")
+                continue
+            b_members = set(b_group.get("member_ids", []))
+            l_members = set(l_group.get("member_ids", []))
+            lost = b_members - l_members
+            if lost:
+                issues.append(f"MCLAG '{gid}' lost members: {', '.join(lost)}")
+
+        # Check MCLAG ICL links
+        baseline_conns = get_topology_connections(baseline)
+        latest_conns = get_topology_connections(latest)
+
+        baseline_icls: dict[tuple[str, str], str] = {}
+        for conn in baseline_conns:
+            if conn.get("link_type") == "MCLAG_ICL":
+                pair = tuple(sorted([conn.get("local_device_id", ""), conn.get("remote_device_id", "")]))
+                baseline_icls[pair] = conn.get("status", "UNKNOWN")
+
+        latest_icls: dict[tuple[str, str], str] = {}
+        for conn in latest_conns:
+            if conn.get("link_type") == "MCLAG_ICL":
+                pair = tuple(sorted([conn.get("local_device_id", ""), conn.get("remote_device_id", "")]))
+                latest_icls[pair] = conn.get("status", "UNKNOWN")
+
+        for pair, b_status in baseline_icls.items():
+            l_status = latest_icls.get(pair)
+            if l_status is None:
+                issues.append(f"MCLAG ICL link lost between {pair[0]} and {pair[1]}")
+            elif b_status == "UP" and l_status != "UP":
+                issues.append(f"MCLAG ICL degraded: {b_status} -> {l_status}")
+
+    # --- LAG (ae interface) checks from port_stats ---
+    ae_ports: dict[str, dict[str, Any]] = {}
+    for port in site_data.port_stats:
+        if not isinstance(port, dict):
+            continue
+        if (port.get("mac") or port.get("device_mac") or "").lower() != device_mac:
+            continue
+        port_id = port.get("port_id", "")
+        if port_id.startswith("ae"):
+            ae_ports[port_id] = port
+
+    for port_id, port_data in ae_ports.items():
+        is_up = port_data.get("up", True)
+        if not is_up:
+            issues.append(f"LAG interface {port_id} is DOWN")
+        else:
+            speed = port_data.get("speed", 0)
+            if speed:
+                info.append(f"LAG {port_id}: UP at {speed}Mbps")
+
+    if issues:
+        return {"status": "fail", "details": issues}
+    if info:
+        return {"status": "pass", "details": info}
+    return {"status": "pass", "details": ["LAG/MCLAG integrity maintained"]}
 
 
 # ── Check 11: Routing Adjacency ──────────────────────────────────────────
@@ -778,6 +925,49 @@ def _check_routing_adjacency(session: MonitoringSession, site_data: Any) -> dict
                 "resolved": str(incident.resolved),
             }
         )
+
+    # Proactive OSPF/BGP peer comparison (baseline vs current)
+    baseline_routing = session.routing_baseline or {}
+    current_routing = getattr(site_data, "routing_current", {}) or {}
+
+    baseline_ospf = {p.get("neighbor_ip", ""): p for p in baseline_routing.get("ospf_peers", [])}
+    current_ospf = {p.get("neighbor_ip", ""): p for p in current_routing.get("ospf_peers", [])}
+
+    for ip, b_peer in baseline_ospf.items():
+        if not ip:
+            continue
+        c_peer = current_ospf.get(ip)
+        if not c_peer:
+            lost_adjacencies.append({
+                "event_type": "OSPF_PEER_LOST",
+                "device_mac": session.device_mac,
+                "resolved": "False",
+                "neighbor_ip": ip,
+                "area": b_peer.get("area", ""),
+            })
+        elif b_peer.get("state") == "full" and c_peer.get("state") != "full":
+            details.append(f"OSPF peer {ip} state degraded: full -> {c_peer.get('state', 'unknown')}")
+
+    baseline_bgp = {p.get("neighbor_ip", ""): p for p in baseline_routing.get("bgp_peers", [])}
+    current_bgp = {p.get("neighbor_ip", ""): p for p in current_routing.get("bgp_peers", [])}
+
+    for ip, b_peer in baseline_bgp.items():
+        if not ip:
+            continue
+        c_peer = current_bgp.get(ip)
+        if not c_peer:
+            lost_adjacencies.append({
+                "event_type": "BGP_PEER_LOST",
+                "device_mac": session.device_mac,
+                "resolved": "False",
+                "neighbor_ip": ip,
+                "remote_as": str(b_peer.get("remote_as", "")),
+            })
+        elif b_peer.get("state") == "established" and c_peer.get("state") != "established":
+            details.append(
+                f"BGP peer {ip} (AS{b_peer.get('remote_as', '?')}) state degraded: "
+                f"established -> {c_peer.get('state', 'unknown')}"
+            )
 
     # Also check config_events from site_data for routing events
     config_events = safe_list(getattr(site_data, "config_events", None))

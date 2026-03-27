@@ -146,6 +146,9 @@ def capture_topology_snapshot(topology: SiteTopology) -> dict[str, Any]:
                 "status": dev.status,
                 "ip": dev.ip,
                 "is_virtual_chassis": dev.is_virtual_chassis,
+                "vc_mac": dev.vc_mac,
+                "mclag_domain_id": dev.mclag_domain_id,
+                "dhcpd_config": dev.dhcpd_config,
                 "alarm_count": dev.alarm_count,
             }
             for dev_id, dev in topology.devices.items()
