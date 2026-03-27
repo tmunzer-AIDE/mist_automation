@@ -162,7 +162,7 @@ async def capture_snapshot(
 ) -> dict[str, Any]:
     """Capture a single SLE snapshot during monitoring polls.
 
-    Makes per-metric getSiteSleSummaryTrend calls (site scope only, 10min duration)
+    Makes per-metric getSiteSleSummaryTrend calls (site scope only, 1h duration)
     to get current SLE data. Returns same format as baseline for consistent delta
     computation: {"metrics": {"metric_name": <trend_response>}}.
     """
@@ -185,7 +185,7 @@ async def capture_snapshot(
                 scope=site_scope,
                 scope_id=site_id,
                 metric=metric,
-                duration="10m",
+                duration="1h",
             )
             return metric, resp.data if resp.status_code == 200 else None
         except Exception as e:
