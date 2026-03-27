@@ -143,6 +143,133 @@ class InfluxDBService:
                 await client.close()
         return await self._client.ping()
 
+    async def query_range(
+        self, mac: str, measurement: str, start: str = "-1h", end: str = "now()"
+    ) -> list[dict[str, Any]]:
+        """Query time-range data for a single device.
+
+        Args:
+            mac: Device MAC (pre-validated, 12 hex chars lowercase).
+            measurement: InfluxDB measurement name (pre-validated against allowlist).
+            start: Range start (e.g., '-1h', '-30m'). Pre-validated.
+            end: Range end (e.g., 'now()'). Pre-validated.
+
+        Returns:
+            List of dicts, each representing a pivoted row with _time and field values.
+        """
+        if not self._client:
+            return []
+
+        query = (
+            f'from(bucket: "{self.bucket}")'
+            f" |> range(start: {start}, stop: {end})"
+            f' |> filter(fn: (r) => r._measurement == "{measurement}")'
+            f' |> filter(fn: (r) => r.mac == "{mac}")'
+            ' |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")'
+        )
+
+        try:
+            query_api = self._client.query_api()
+            tables = await query_api.query(query)
+            results: list[dict[str, Any]] = []
+            for table in tables:
+                for record in table.records:
+                    results.append(record.values)
+            return results
+        except Exception as e:
+            self._last_error = str(e)
+            logger.warning("influxdb_query_range_error", error=str(e), mac=mac, measurement=measurement)
+            return []
+
+    async def query_latest(self, mac: str, measurement: str = "device_summary") -> dict[str, Any] | None:
+        """Query the latest data point for a device from InfluxDB.
+
+        Args:
+            mac: Device MAC (pre-validated).
+            measurement: InfluxDB measurement name (pre-validated).
+
+        Returns:
+            A single dict with the latest field values, or None.
+        """
+        if not self._client:
+            return None
+
+        query = (
+            f'from(bucket: "{self.bucket}")'
+            " |> range(start: -5m)"
+            f' |> filter(fn: (r) => r._measurement == "{measurement}")'
+            f' |> filter(fn: (r) => r.mac == "{mac}")'
+            " |> last()"
+            ' |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")'
+        )
+
+        try:
+            query_api = self._client.query_api()
+            tables = await query_api.query(query)
+            for table in tables:
+                for record in table.records:
+                    return dict(record.values)
+            return None
+        except Exception as e:
+            self._last_error = str(e)
+            logger.warning("influxdb_query_latest_error", error=str(e), mac=mac)
+            return None
+
+    async def query_aggregate(
+        self,
+        site_id: str,
+        measurement: str,
+        field: str,
+        agg: str = "mean",
+        window: str = "5m",
+        start: str = "-1h",
+        end: str = "now()",
+    ) -> list[dict[str, Any]]:
+        """Query aggregated data across all devices at a site.
+
+        Args:
+            site_id: Site UUID (pre-validated).
+            measurement: InfluxDB measurement name (pre-validated).
+            field: Field name to aggregate (pre-validated).
+            agg: Aggregation function (pre-validated against allowlist).
+            window: Aggregation window (pre-validated, e.g., '5m').
+            start: Range start (pre-validated).
+            end: Range end (pre-validated).
+
+        Returns:
+            List of dicts, each with _time and aggregated _value.
+        """
+        if not self._client:
+            return []
+
+        query = (
+            f'from(bucket: "{self.bucket}")'
+            f" |> range(start: {start}, stop: {end})"
+            f' |> filter(fn: (r) => r._measurement == "{measurement}")'
+            f' |> filter(fn: (r) => r.site_id == "{site_id}")'
+            f' |> filter(fn: (r) => r._field == "{field}")'
+            f" |> aggregateWindow(every: {window}, fn: {agg}, createEmpty: false)"
+        )
+
+        try:
+            query_api = self._client.query_api()
+            tables = await query_api.query(query)
+            results: list[dict[str, Any]] = []
+            for table in tables:
+                for record in table.records:
+                    results.append(record.values)
+            return results
+        except Exception as e:
+            self._last_error = str(e)
+            logger.warning(
+                "influxdb_query_aggregate_error",
+                error=str(e),
+                site_id=site_id,
+                measurement=measurement,
+                field=field,
+            )
+            return []
+
     def get_stats(self) -> dict[str, Any]:
         """Return service statistics."""
         return {
