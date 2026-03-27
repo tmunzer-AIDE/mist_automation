@@ -51,10 +51,6 @@ export const routes: Routes = [
         loadChildren: () => import('./features/workflows/workflow.routes'),
       },
       {
-        path: 'ai-chats',
-        loadChildren: () => import('./features/ai-chats/ai-chats.routes'),
-      },
-      {
         path: 'impact-analysis',
         loadChildren: () => import('./features/impact-analysis/impact-analysis.routes'),
       },
