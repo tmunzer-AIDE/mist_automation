@@ -83,6 +83,9 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
           >
             <mat-icon>{{ showHistory() ? 'chat' : 'history' }}</mat-icon>
           </button>
+          <button mat-icon-button matTooltip="Hide panel (Ctrl+\)" (click)="hidePanel()">
+            <mat-icon>left_panel_close</mat-icon>
+          </button>
         </div>
       </div>
 
@@ -586,6 +589,10 @@ export class AiPanelComponent implements OnInit {
 
   featureLabel(feature: string): string {
     return FEATURE_LABELS[feature] ?? feature;
+  }
+
+  hidePanel(): void {
+    this.globalChatService.toggle();
   }
 
   // -- Chat input -----------------------------------------------
