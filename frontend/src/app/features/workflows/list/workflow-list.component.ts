@@ -72,7 +72,7 @@ export class WorkflowListComponent implements OnInit {
   sortActive = signal('name');
   sortDirection = signal<SortDirection>('asc');
 
-  displayedColumns = ['name', 'type', 'tags', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
+  displayedColumns = ['name', 'trigger', 'status', 'executions', 'last_execution', 'actions'];
 
   tagFilter = signal<string[]>([]);
 

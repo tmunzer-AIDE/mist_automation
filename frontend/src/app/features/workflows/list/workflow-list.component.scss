@@ -6,9 +6,23 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// ── Name cell (name + type badge + description + tags) ───────────────────────
+
+.name-cell {
+  max-width: 420px;
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wf-name {
   font-weight: 500;
-  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .wf-desc {
@@ -16,50 +30,83 @@
   font-size: 12px;
   color: var(--mat-sys-on-surface-variant);
   margin-top: 2px;
-}
-
-.failure-count {
-  color: var(--mat-sys-error);
-  font-size: 12px;
-  margin-left: 4px;
-}
-
-.clickable {
-  cursor: pointer;
-}
-
-.filter-chips {
-  display: flex;
-  gap: 4px;
-
-  button.active {
-    background: var(--mat-sys-primary-container, #e3f2fd);
-    color: var(--mat-sys-on-primary-container, #1565c0);
-  }
-}
-
-.spacer {
-  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 380px;
 }
 
 .type-badge {
   display: inline-block;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-
-  &.type-standard {
-    background: var(--mat-sys-surface-variant, #e0e0e0);
-    color: var(--mat-sys-on-surface-variant, #666);
-  }
+  white-space: nowrap;
+  flex-shrink: 0;
 
   &.type-subflow {
     background: var(--app-subflow-bg);
     color: var(--app-subflow);
   }
+}
+
+// ── Tags (inline within name cell) ───────────────────────────────────────────
+
+.wf-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tag-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 16px;
+  transition: opacity 0.15s;
+
+  &:hover {
+    opacity: 0.75;
+  }
+
+  &.tag-manual {
+    background: var(--app-info-chip-bg, #eff6ff);
+    color: var(--app-info-chip, #1d4ed8);
+  }
+
+  &.tag-auto {
+    background: transparent;
+    border: 1px solid var(--mat-sys-outline-variant, #c4c7c5);
+    color: var(--mat-sys-on-surface-variant, #757575);
+  }
+}
+
+// ── Tag filter chips (in toolbar) ────────────────────────────────────────────
+
+.tag-filter-chip {
+  .chip-remove {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    margin-left: 2px;
+    vertical-align: middle;
+  }
+}
+
+// ── Executions ───────────────────────────────────────────────────────────────
+
+.failure-count {
+  color: var(--mat-sys-error);
+  font-size: 12px;
+  margin-left: 4px;
 }
 
 .aggregation-badge {
@@ -81,45 +128,22 @@
   }
 }
 
-.tags-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  max-width: 300px;
-}
+// ── Misc ─────────────────────────────────────────────────────────────────────
 
-.tag-chip {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 12px;
+.clickable {
   cursor: pointer;
-  white-space: nowrap;
-  transition: opacity 0.15s;
+}
 
-  &:hover {
-    opacity: 0.8;
-  }
+.filter-chips {
+  display: flex;
+  gap: 4px;
 
-  &.tag-manual {
-    background: var(--app-info-chip-bg, #eff6ff);
-    color: var(--app-info-chip, #1d4ed8);
-  }
-
-  &.tag-auto {
-    background: transparent;
-    border: 1px solid var(--app-neutral, #757575);
-    color: var(--app-neutral, #757575);
+  button.active {
+    background: var(--mat-sys-primary-container, #e3f2fd);
+    color: var(--mat-sys-on-primary-container, #1565c0);
   }
 }
 
-.tag-filter-chip {
-  .chip-remove {
-    font-size: 14px;
-    width: 14px;
-    height: 14px;
-    margin-left: 2px;
-    vertical-align: middle;
-  }
+.spacer {
+  flex: 1;
 }
