@@ -1,6 +1,6 @@
 """Unit tests for SLE service value extraction and delta computation."""
 
-from app.modules.impact_analysis.services.sle_service import _extract_sle_value
+from app.modules.impact_analysis.services.sle_service import _extract_sle_value, compute_delta
 
 
 class TestExtractSleValue:
@@ -154,3 +154,129 @@ class TestExtractSleValue:
         }
         result = _extract_sle_value(data)
         assert result == 100.0
+
+
+class TestComputeDelta:
+    """Tests for compute_delta — compares baseline vs post-change snapshots."""
+
+    def test_stable_no_degradation(self):
+        """Baseline and snapshots both at 100% → stable."""
+        baseline = {
+            "metrics": {
+                "switch-throughput": {
+                    "site_trend": {
+                        "sle": {
+                            "samples": {
+                                "total": [1000.0, 1000.0, 1000.0, 1000.0, None, None],
+                                "degraded": [0.0, 0.0, 0.0, 0.0, None, None],
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        snapshots = [
+            {
+                "metrics": {
+                    "switch-throughput": {
+                        "site_trend": {
+                            "sle": {
+                                "samples": {
+                                    "total": [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, None],
+                                    "degraded": [0.0, 0.0, 0.0, 0.0, 0.0, None],
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+        result = compute_delta(baseline, snapshots, threshold_percent=10.0)
+        assert result["overall_degraded"] is False
+        assert len(result["metrics"]) == 1
+        assert result["metrics"][0]["status"] == "stable"
+        assert result["metrics"][0]["baseline_value"] == 100.0
+        assert result["metrics"][0]["current_value"] == 100.0
+
+    def test_degradation_detected(self):
+        """Post-change SLE drops below threshold → degraded."""
+        baseline = {
+            "metrics": {
+                "throughput": {
+                    "site_trend": {
+                        "sle": {
+                            "samples": {
+                                "total": [1000.0, 1000.0],
+                                "degraded": [0.0, 0.0],
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        snapshots = [
+            {
+                "metrics": {
+                    "throughput": {
+                        "site_trend": {
+                            "sle": {
+                                "samples": {
+                                    "total": [1000.0, 1000.0],
+                                    "degraded": [200.0, 300.0],
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+        result = compute_delta(baseline, snapshots, threshold_percent=10.0)
+        assert result["overall_degraded"] is True
+        assert "throughput" in result["degraded_metric_names"]
+        metric = result["metrics"][0]
+        assert metric["baseline_value"] == 100.0
+        assert metric["current_value"] == 75.0  # (1000-250)/1000 avg
+        assert metric["degraded"] is True
+
+    def test_empty_snapshots(self):
+        baseline = {"metrics": {"throughput": {"site_trend": {"sle": {"samples": {"total": [1000.0], "degraded": [0.0]}}}}}}
+        result = compute_delta(baseline, [], threshold_percent=10.0)
+        assert result["overall_degraded"] is False
+        assert result["metrics"] == []
+
+    def test_all_null_snapshot_metric(self):
+        """Snapshot metric with all nulls → no_data status."""
+        baseline = {
+            "metrics": {
+                "throughput": {
+                    "site_trend": {
+                        "sle": {
+                            "samples": {
+                                "total": [1000.0],
+                                "degraded": [0.0],
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        snapshots = [
+            {
+                "metrics": {
+                    "throughput": {
+                        "site_trend": {
+                            "sle": {
+                                "samples": {
+                                    "total": [None, None],
+                                    "degraded": [None, None],
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+        result = compute_delta(baseline, snapshots, threshold_percent=10.0)
+        metric = result["metrics"][0]
+        assert metric["status"] == "no_data"
+        assert metric["degraded"] is False
