@@ -262,37 +262,39 @@ async def update_telemetry_settings(
 async def reconnect_websockets(
     _current_user: User = Depends(require_admin),
 ) -> ReconnectResponse:
-    """Force reconnect all WebSocket connections.
+    """Stop and restart the full telemetry pipeline.
 
-    Stops all existing connections and restarts with current configuration.
-    Useful after changing settings or when connections are unhealthy.
+    Reads current SystemConfig, tears down all services, and reinitializes.
+    Works both for restarting an existing pipeline and for first-time init
+    after enabling telemetry in settings (no app restart needed).
     """
-    import app.modules.telemetry as telemetry_mod
-
-    if not telemetry_mod._ws_manager:
-        return ReconnectResponse(
-            reconnected=False,
-            message="WebSocket manager not initialized. Is telemetry enabled?",
-        )
+    from app.modules.telemetry.services.lifecycle import start_telemetry_pipeline, stop_telemetry_pipeline
 
     try:
-        # Get current site list before stopping
-        sites = list(telemetry_mod._ws_manager._subscribed_sites)
+        # Full stop (safe even if nothing is running)
+        await stop_telemetry_pipeline()
 
-        # Stop and restart
-        await telemetry_mod._ws_manager.stop()
-        if sites:
-            await telemetry_mod._ws_manager.start(sites)
+        # Full start from current config
+        result = await start_telemetry_pipeline()
 
-        status = telemetry_mod._ws_manager.get_status()
         return ReconnectResponse(
             reconnected=True,
-            connections=status.get("connections", 0),
-            sites=status.get("sites_subscribed", 0),
-            message=f"Reconnected {status.get('connections', 0)} connection(s) for {status.get('sites_subscribed', 0)} sites",
+            connections=result.get("connections", 0),
+            sites=result.get("sites", 0),
+            message=f"Pipeline started: {result.get('connections', 0)} connection(s) for {result.get('sites', 0)} sites",
         )
-    except Exception as e:
+    except ValueError as e:
         return ReconnectResponse(
             reconnected=False,
-            message=f"Reconnect failed: {e!s}",
+            message=str(e),
+        )
+    except Exception as e:
+        # Clean up on failure
+        try:
+            await stop_telemetry_pipeline()
+        except Exception:
+            pass
+        return ReconnectResponse(
+            reconnected=False,
+            message=f"Pipeline start failed: {e!s}",
         )
