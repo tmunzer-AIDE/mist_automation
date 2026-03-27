@@ -98,6 +98,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   inputParameters = signal<SubflowParameter[]>([]);
   outputParameters = signal<SubflowParameter[]>([]);
   timeoutSeconds = signal(300);
+  workflowTags = signal<string[]>([]);
 
   // Graph state
   graph = signal<WorkflowGraph>({ nodes: [], edges: [], viewport: null });
@@ -282,6 +283,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
           this.inputParameters.set(response.input_parameters || []);
           this.outputParameters.set(response.output_parameters || []);
           this.timeoutSeconds.set(response.timeout_seconds);
+          this.workflowTags.set(response.tags || []);
           this.graph.set(this.workflowService.toGraph(response));
           this.initHistory();
           this.loading.set(false);
@@ -342,6 +344,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
           name: this.workflowName(),
           description: this.workflowDescription() || undefined,
           sharing: this.workflowSharing(),
+          tags: this.workflowTags(),
           timeout_seconds: this.timeoutSeconds(),
           input_parameters: this.inputParameters(),
           output_parameters: this.outputParameters(),
@@ -368,6 +371,7 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
           name: this.workflowName(),
           description: this.workflowDescription() || undefined,
           sharing: this.workflowSharing(),
+          tags: this.workflowTags(),
           workflow_type: this.workflowType(),
           timeout_seconds: this.timeoutSeconds(),
           input_parameters: this.inputParameters(),
@@ -617,12 +621,17 @@ export class WorkflowEditorComponent implements OnInit, OnDestroy {
   openDescription(): void {
     const ref = this.dialog.open(DescriptionDialogComponent, {
       width: '500px',
-      data: { description: this.workflowDescription() || '', sharing: this.workflowSharing() },
+      data: {
+        description: this.workflowDescription() || '',
+        sharing: this.workflowSharing(),
+        tags: this.workflowTags(),
+      },
     });
     ref.afterClosed().subscribe((result) => {
       if (result !== undefined) {
         this.workflowDescription.set(result.description);
         this.workflowSharing.set(result.sharing);
+        this.workflowTags.set(result.tags);
       }
     });
   }
