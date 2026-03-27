@@ -61,6 +61,13 @@ const routes: Routes = [
         loadComponent: () =>
           import('./settings/mcp/settings-mcp.component').then((m) => m.SettingsMcpComponent),
       },
+      {
+        path: 'telemetry',
+        loadComponent: () =>
+          import('./settings/telemetry/settings-telemetry.component').then(
+            (m) => m.SettingsTelemetryComponent,
+          ),
+      },
     ],
   },
   {

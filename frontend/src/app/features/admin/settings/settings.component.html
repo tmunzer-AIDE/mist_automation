@@ -58,6 +58,14 @@
     [active]="t8.isActive"
     >MCP Servers</a
   >
+  <a
+    mat-tab-link
+    routerLink="telemetry"
+    routerLinkActive
+    #t9="routerLinkActive"
+    [active]="t9.isActive"
+    >Telemetry</a
+  >
 </nav>
 <mat-tab-nav-panel #tabPanel>
   <router-outlet></router-outlet>
