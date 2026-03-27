@@ -146,7 +146,7 @@ async def capture_baseline(
             results["metrics"][metric][label] = data
 
     # Pre-compute baseline SLE values for frontend display
-    for metric_name, metric_data in results["metrics"].items():
+    for _metric_name, metric_data in results["metrics"].items():
         val = _extract_sle_value(metric_data)
         if val is not None:
             metric_data["baseline_value"] = round(val, 1)
@@ -338,49 +338,46 @@ def compute_delta(
 
 
 def _extract_sle_value(data: Any) -> float | None:
-    """Extract the primary numeric SLE value from API response data.
+    """Extract SLE success rate from API response data.
 
-    Handles multiple formats:
-    - Plain numeric (float/int)
-    - Baseline metric dict: {"site_trend": <trend_response>, "device_trend": ...}
+    Computes success rate as (total - degraded) / total * 100 from the
+    getSiteSleSummaryTrend response. Null buckets (no data for that period)
+    are skipped. Returns None if no valid data points exist.
+
+    Handles:
+    - Baseline metric dict: {"site_trend": <trend_response>, ...}
     - getSiteSleSummaryTrend response: {"sle": {"samples": {"total": [...], "degraded": [...]}}}
-    - Legacy dict with "sle", "value", "score" keys
-
-    Returns SLE score as percentage (0-100).
     """
-    if data is None:
-        return None
-    if isinstance(data, (int, float)):
-        return float(data)
-    if not isinstance(data, dict):
+    if data is None or not isinstance(data, dict):
         return None
 
     # Baseline metric structure — dig into site_trend
     if "site_trend" in data:
         return _extract_sle_value(data["site_trend"])
 
-    # getSiteSleSummaryTrend response — compute SLE score from samples
+    # getSiteSleSummaryTrend response — compute from total/degraded
     sle_obj = data.get("sle")
-    if isinstance(sle_obj, dict):
-        samples = sle_obj.get("samples")
-        if isinstance(samples, dict):
-            # Try the direct "value" array first (SLE score 0-100)
-            value_arr = samples.get("value", [])
-            valid_values = [v for v in value_arr if isinstance(v, (int, float))]
-            if valid_values:
-                return round(sum(valid_values) / len(valid_values), 2)
+    if not isinstance(sle_obj, dict):
+        return None
+    samples = sle_obj.get("samples")
+    if not isinstance(samples, dict):
+        return None
 
-            # Fall back to total/degraded ratio
-            total = samples.get("total", [])
-            degraded = samples.get("degraded", [])
-            total_sum = sum(v for v in total if isinstance(v, (int, float)))
-            degraded_sum = sum(v for v in degraded if isinstance(v, (int, float)))
-            if total_sum > 0:
-                return round((1 - degraded_sum / total_sum) * 100, 2)
+    total_arr = samples.get("total", [])
+    degraded_arr = samples.get("degraded", [])
 
-    # Legacy fallback — direct numeric fields
-    for key in ("value", "score", "num_users", "total"):
-        if key in data and isinstance(data[key], (int, float)):
-            return float(data[key])
+    # Pair buckets, skip where either is null/non-numeric or total is 0
+    success_rates: list[float] = []
+    for i in range(min(len(total_arr), len(degraded_arr))):
+        t = total_arr[i]
+        d = degraded_arr[i]
+        if not isinstance(t, (int, float)) or not isinstance(d, (int, float)):
+            continue
+        if t <= 0:
+            continue
+        success_rates.append((t - d) / t * 100)
 
-    return None
+    if not success_rates:
+        return None
+
+    return round(sum(success_rates) / len(success_rates), 2)
