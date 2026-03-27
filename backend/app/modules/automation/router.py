@@ -160,6 +160,7 @@ def _workflow_to_response(wf: Workflow, windows: list = ()) -> WorkflowResponse:
         id=str(wf.id),
         name=wf.name,
         description=wf.description,
+        tags=wf.tags or [],
         workflow_type=wf.workflow_type,
         created_by=str(wf.created_by),
         status=wf.status.value,
@@ -214,6 +215,7 @@ async def list_workflows(
     limit: int = Query(100, ge=1, le=1000, description="Number of workflows to return"),
     status_filter: str | None = Query(None, description="Filter by status"),
     workflow_type: str | None = Query(None, description="Filter by workflow type: standard or subflow"),
+    tags_filter: str | None = Query(None, description="Comma-separated tags to filter by (AND logic)"),
     sort_by: str = Query("name", description="Field to sort by"),
     sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
     current_user: User = Depends(require_automation_role),
@@ -230,6 +232,10 @@ async def list_workflows(
         query["status"] = status_filter
     if workflow_type:
         query["workflow_type"] = workflow_type
+    if tags_filter:
+        tag_list = [t.strip() for t in tags_filter.split(",") if t.strip()]
+        if tag_list:
+            query["tags"] = {"$all": tag_list}
 
     SORTABLE_FIELDS = {
         "name",
@@ -317,6 +323,7 @@ async def create_workflow(
         viewport=workflow_data.viewport,
         input_parameters=input_params,
         output_parameters=output_params,
+        tags=workflow_data.tags or [],
     )
     await workflow.insert()
 
@@ -372,6 +379,7 @@ async def duplicate_workflow(
     workflow = Workflow(
         name=f"{source.name} (copy)",
         description=source.description,
+        tags=list(source.tags),
         workflow_type=source.workflow_type,
         created_by=current_user.id,
         status=WorkflowStatus.DRAFT,
@@ -538,6 +546,8 @@ async def update_workflow(
         workflow.name = workflow_data.name
     if workflow_data.description is not None:
         workflow.description = workflow_data.description
+    if workflow_data.tags is not None:
+        workflow.tags = workflow_data.tags
     if workflow_data.status is not None:
         workflow.status = WorkflowStatus(workflow_data.status)
     if workflow_data.sharing is not None:
