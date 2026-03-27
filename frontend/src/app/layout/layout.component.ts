@@ -89,11 +89,11 @@ export class LayoutComponent {
     return this.llmAvailable() && !this.isMobile() && this.globalChatService.panelOpen() && !pageHidesPanel;
   }
 
-  /** Whether to show the collapsed rail (panel hidden but LLM available) */
-  get showAiRail(): boolean {
+  /** Whether to show the edge tab toggle (always visible when LLM available, except pages with own chat) */
+  get showAiTab(): boolean {
     const ctx = this.globalChatService.context();
     const pageHidesPanel = ctx?.hidePanel ?? false;
-    return this.llmAvailable() && !this.isMobile() && !this.globalChatService.panelOpen() && !pageHidesPanel;
+    return this.llmAvailable() && !this.isMobile() && !pageHidesPanel;
   }
 
   // ── Resize handle ──────────────────────────────────────
