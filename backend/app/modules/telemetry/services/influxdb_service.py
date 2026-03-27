@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 import structlog
+from influxdb_client.domain.write_precision import WritePrecision
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +124,7 @@ class InfluxDBService:
             return
 
         try:
-            await self._write_api.write(bucket=self.bucket, record=points)
+            await self._write_api.write(bucket=self.bucket, record=points, write_precision=WritePrecision.S)
             self._points_written += len(points)
             self._flush_count += 1
             self._last_flush_at = time.time()
