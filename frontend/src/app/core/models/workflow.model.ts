@@ -128,6 +128,7 @@ export interface VariableBinding {
 export interface WorkflowCreate {
   name: string;
   description?: string;
+  tags?: string[];
   sharing?: string;
   workflow_type?: WorkflowType;
   timeout_seconds?: number;
@@ -141,6 +142,7 @@ export interface WorkflowCreate {
 export interface WorkflowUpdate {
   name?: string;
   description?: string;
+  tags?: string[];
   sharing?: string;
   status?: WorkflowStatus;
   timeout_seconds?: number;
@@ -156,6 +158,7 @@ export interface WorkflowResponse {
   id: string;
   name: string;
   description: string | null;
+  tags: string[];
   workflow_type: WorkflowType;
   created_by: string;
   status: WorkflowStatus;
@@ -345,4 +348,34 @@ export interface SimulationState {
   isRunning: boolean;
   nodeStatuses: Record<string, 'pending' | 'success' | 'failed' | 'active'>;
   activeEdges: Set<string>;
+}
+
+// ── Auto-tags ────────────────────────────────────────────────────────────────
+
+export const AUTO_TAG_MAP: Record<string, string> = {
+  ai_agent: 'AI',
+  slack: 'Slack',
+  email: 'Email',
+  servicenow: 'ServiceNow',
+  pagerduty: 'PagerDuty',
+  mist_api_get: 'Mist API',
+  mist_api_post: 'Mist API',
+  mist_api_put: 'Mist API',
+  mist_api_delete: 'Mist API',
+  syslog: 'Syslog',
+  trigger_backup: 'Backup',
+  restore_backup: 'Backup',
+  compare_backups: 'Backup',
+  webhook: 'Webhook',
+  device_utils: 'Device',
+  invoke_subflow: 'Sub-Flow',
+};
+
+export function computeAutoTags(nodes: WorkflowNode[]): string[] {
+  const tags = new Set<string>();
+  for (const node of nodes) {
+    const tag = AUTO_TAG_MAP[node.type];
+    if (tag) tags.add(tag);
+  }
+  return Array.from(tags).sort();
 }

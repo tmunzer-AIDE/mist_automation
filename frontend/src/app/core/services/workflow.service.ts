@@ -42,13 +42,15 @@ export class WorkflowService {
     statusFilter?: string,
     workflowType?: WorkflowType,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    tags?: string
   ): Observable<WorkflowListResponse> {
     const params: Record<string, string | number> = { skip, limit };
     if (statusFilter) params['status_filter'] = statusFilter;
     if (workflowType) params['workflow_type'] = workflowType;
     if (sortBy) params['sort_by'] = sortBy;
     if (sortDir) params['sort_dir'] = sortDir;
+    if (tags) params['tags_filter'] = tags;
     return this.api.get<WorkflowListResponse>('/workflows', params);
   }
 
