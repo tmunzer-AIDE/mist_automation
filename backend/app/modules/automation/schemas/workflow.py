@@ -5,10 +5,32 @@ Workflow schemas for graph-based workflow API.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
-class WorkflowCreate(BaseModel):
+class _TagValidatorMixin:
+    """Shared tag validation for create/update schemas."""
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("Maximum 20 tags allowed")
+        cleaned: list[str] = []
+        for tag in v:
+            tag = tag.strip()
+            if not tag:
+                continue
+            if len(tag) > 50:
+                raise ValueError(f"Tag exceeds 50 characters: '{tag[:20]}...'")
+            if tag not in cleaned:
+                cleaned.append(tag)
+        return cleaned
+
+
+class WorkflowCreate(_TagValidatorMixin, BaseModel):
     """Workflow creation schema — graph model."""
 
     name: str = Field(..., description="Workflow name", min_length=1, max_length=200)
@@ -24,7 +46,7 @@ class WorkflowCreate(BaseModel):
     output_parameters: list[dict[str, Any]] = Field(default_factory=list, description="Sub-flow output parameters")
 
 
-class WorkflowUpdate(BaseModel):
+class WorkflowUpdate(_TagValidatorMixin, BaseModel):
     """Workflow update schema — graph model."""
 
     name: str | None = Field(None, description="Workflow name", min_length=1, max_length=200)
@@ -45,7 +67,7 @@ class WorkflowResponse(BaseModel):
 
     id: str = Field(..., description="Workflow ID")
     name: str = Field(..., description="Workflow name")
-    description: str | None = None
+    description: str | None = Field(None, description="Workflow description")
     tags: list[str] = Field(default_factory=list, description="User-defined tags")
     workflow_type: str = Field(default="standard", description="Workflow type")
     created_by: str = Field(..., description="Creator user ID")

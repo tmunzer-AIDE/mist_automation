@@ -371,6 +371,8 @@ export const AUTO_TAG_MAP: Record<string, string> = {
   invoke_subflow: 'Sub-Flow',
 };
 
+export const AUTO_TAG_VALUES = new Set(Object.values(AUTO_TAG_MAP));
+
 export function computeAutoTags(nodes: WorkflowNode[]): string[] {
   const tags = new Set<string>();
   for (const node of nodes) {
@@ -378,4 +380,8 @@ export function computeAutoTags(nodes: WorkflowNode[]): string[] {
     if (tag) tags.add(tag);
   }
   return Array.from(tags).sort();
+}
+
+export function isAutoTag(tag: string): boolean {
+  return AUTO_TAG_VALUES.has(tag);
 }

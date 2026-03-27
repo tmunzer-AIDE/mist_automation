@@ -17,7 +17,12 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { WorkflowService } from '../../../core/services/workflow.service';
 import { LlmService } from '../../../core/services/llm.service';
-import { computeAutoTags, WorkflowResponse, WorkflowType } from '../../../core/models/workflow.model';
+import {
+  computeAutoTags,
+  isAutoTag,
+  WorkflowResponse,
+  WorkflowType,
+} from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
@@ -108,7 +113,9 @@ export class WorkflowListComponent implements OnInit {
   loadWorkflows(): void {
     this.loading.set(true);
     const sortDir = this.sortDirection() || 'asc';
-    const tagsParam = this.tagFilter().length > 0 ? this.tagFilter().join(',') : undefined;
+    const manualTags = this.tagFilter().filter((t) => !isAutoTag(t));
+    const autoTags = this.tagFilter().filter((t) => isAutoTag(t));
+    const tagsParam = manualTags.length > 0 ? manualTags.join(',') : undefined;
     this.workflowService
       .list(
         this.pageIndex() * this.pageSize(),
@@ -121,7 +128,14 @@ export class WorkflowListComponent implements OnInit {
       )
       .subscribe({
         next: (res) => {
-          this.workflows.set(res.workflows);
+          let workflows = res.workflows;
+          if (autoTags.length > 0) {
+            workflows = workflows.filter((wf) => {
+              const wfAutoTags = computeAutoTags(wf.nodes);
+              return autoTags.every((t) => wfAutoTags.includes(t));
+            });
+          }
+          this.workflows.set(workflows);
           this.total.set(res.total);
           this.loading.set(false);
         },
