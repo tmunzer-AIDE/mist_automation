@@ -55,6 +55,7 @@ dependencies = [
     "python-json-logger>=2.0.7",
     "litellm>=1.40.0",
     "fastmcp>=3.0.0",
+    "influxdb-client[async]>=1.46.0",
 ]
 
 [project.optional-dependencies]
@@ -175,6 +176,7 @@ module = [
     "litellm.*",
     "fastmcp.*",
     "mcp.*",
+    "influxdb_client.*",
 ]
 ignore_missing_imports = true
 
