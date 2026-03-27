@@ -7,6 +7,8 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
 import { AiPanelComponent } from '../shared/components/ai-panel/ai-panel.component';
+import { AiIconComponent } from '../shared/components/ai-icon/ai-icon.component';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { LlmService } from '../core/services/llm.service';
 import { GlobalChatService } from '../core/services/global-chat.service';
 import { PanelStateService } from '../core/services/panel-state.service';
@@ -15,7 +17,7 @@ import { filter, map } from 'rxjs';
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [RouterOutlet, MatSidenavModule, SidebarComponent, TopbarComponent, AiPanelComponent],
+  imports: [RouterOutlet, MatSidenavModule, MatTooltipModule, SidebarComponent, TopbarComponent, AiPanelComponent, AiIconComponent],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss',
 })
@@ -85,6 +87,13 @@ export class LayoutComponent {
     const ctx = this.globalChatService.context();
     const pageHidesPanel = ctx?.hidePanel ?? false;
     return this.llmAvailable() && !this.isMobile() && this.globalChatService.panelOpen() && !pageHidesPanel;
+  }
+
+  /** Whether to show the collapsed rail (panel hidden but LLM available) */
+  get showAiRail(): boolean {
+    const ctx = this.globalChatService.context();
+    const pageHidesPanel = ctx?.hidePanel ?? false;
+    return this.llmAvailable() && !this.isMobile() && !this.globalChatService.panelOpen() && !pageHidesPanel;
   }
 
   // ── Resize handle ──────────────────────────────────────

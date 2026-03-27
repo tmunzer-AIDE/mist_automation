@@ -104,3 +104,23 @@
     margin: 0;
   }
 }
+
+// ── Collapsed rail ────────────────────────────────────
+
+.ai-rail {
+  flex-shrink: 0;
+  width: 36px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container);
+  cursor: pointer;
+  transition: background 0.15s ease, width 0.15s ease;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high, rgba(0, 0, 0, 0.06));
+    width: 40px;
+  }
+}

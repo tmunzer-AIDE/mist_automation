@@ -13,12 +13,6 @@
 
   <span class="spacer"></span>
 
-  @if (panelHidden()) {
-    <button mat-icon-button matTooltip="Show AI panel (Ctrl+\)" (click)="globalChatService.toggle()">
-      <app-ai-icon [size]="20" [animated]="false"></app-ai-icon>
-    </button>
-  }
-
   @if (user$ | async; as user) {
     <button mat-button [matMenuTriggerFor]="userMenu" class="user-btn">
       <span class="avatar-letter">{{ userInitial(user.email) }}</span>

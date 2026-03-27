@@ -36,6 +36,15 @@
         <div class="ai-panel-wrapper" [style.width.px]="panelState.width()">
           <app-ai-panel></app-ai-panel>
         </div>
+      } @else if (showAiRail) {
+        <div
+          class="ai-rail"
+          (click)="globalChatService.toggle()"
+          matTooltip="Open AI panel (Ctrl+\)"
+          matTooltipPosition="left"
+        >
+          <app-ai-icon [size]="18" [animated]="false"></app-ai-icon>
+        </div>
       }
     </div>
   </mat-sidenav-content>
