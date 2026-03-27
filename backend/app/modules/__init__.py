@@ -139,6 +139,12 @@ MODULES: list[AppModule] = [
         ],
         tags=["Impact Analysis"],
     ),
+    AppModule(
+        name="telemetry",
+        router_module="app.modules.telemetry.router",
+        model_imports=[],
+        tags=["Telemetry"],
+    ),
 ]
 
 

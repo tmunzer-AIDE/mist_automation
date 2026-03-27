@@ -96,6 +96,33 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("impact_session_recovery_failed", error=str(e))
 
+        # Start telemetry pipeline if enabled
+        try:
+            from app.models.system import SystemConfig as _SystemConfig
+
+            _telemetry_config = await _SystemConfig.get_config()
+            if (
+                _telemetry_config.telemetry_enabled
+                and _telemetry_config.influxdb_url
+                and _telemetry_config.influxdb_token
+            ):
+                import app.modules.telemetry as telemetry_mod
+                from app.core.security import decrypt_sensitive_data
+                from app.modules.telemetry.services.influxdb_service import InfluxDBService
+                from app.modules.telemetry.services.latest_value_cache import LatestValueCache
+
+                telemetry_mod._latest_cache = LatestValueCache()
+                telemetry_mod._influxdb_service = InfluxDBService(
+                    url=_telemetry_config.influxdb_url,
+                    token=decrypt_sensitive_data(_telemetry_config.influxdb_token),
+                    org=_telemetry_config.influxdb_org or "mist_automation",
+                    bucket=_telemetry_config.influxdb_bucket or "mist_telemetry",
+                )
+                await telemetry_mod._influxdb_service.start()
+                logger.info("telemetry_started")
+        except Exception as e:
+            logger.warning("telemetry_start_failed", error=str(e))
+
         # Start WebSocket heartbeat
         from app.core.websocket import ws_manager
 
@@ -109,6 +136,18 @@ async def lifespan(_app: FastAPI):
     finally:
         # Shutdown
         logger.info("application_shutting_down")
+
+        # Stop telemetry pipeline
+        try:
+            import app.modules.telemetry as telemetry_mod
+
+            if telemetry_mod._influxdb_service:
+                await telemetry_mod._influxdb_service.stop()
+                telemetry_mod._influxdb_service = None
+                telemetry_mod._latest_cache = None
+                logger.info("telemetry_stopped")
+        except Exception:
+            pass
 
         # Stop scheduler
         try:
