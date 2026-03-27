@@ -16,11 +16,7 @@ Produces (depending on sub-type):
 
 from __future__ import annotations
 
-
-def _get_timestamp(payload: dict) -> int:
-    """Extract epoch timestamp, preferring _time over last_seen."""
-    raw = payload.get("_time") or payload.get("last_seen") or 0
-    return int(raw)
+from app.modules.telemetry.extractors._helpers import get_timestamp
 
 
 def _detect_subtype(payload: dict) -> str:
@@ -49,6 +45,8 @@ def _extract_gateway_health(payload: dict, org_id: str, site_id: str, timestamp:
         "org_id": org_id,
         "site_id": site_id,
         "mac": payload.get("mac", ""),
+        "device_type": "gateway",
+        "name": payload.get("name") or payload.get("hostname") or "",
         "model": payload.get("model", ""),
         "node_name": payload.get("node_name", ""),
         "router_name": payload.get("router_name", ""),
@@ -114,7 +112,7 @@ def _extract_gateway_dhcp(payload: dict, org_id: str, site_id: str, timestamp: i
     for network_name, scope_data in dhcpd_stat.items():
         num_ips = scope_data.get("num_ips", 0)
         num_leased = scope_data.get("num_leased", 0)
-        utilization_pct = round(num_leased / num_ips * 100, 1) if num_ips > 0 else 0
+        utilization_pct = round(num_leased / num_ips * 100, 1) if num_ips > 0 else 0.0
 
         points.append(
             {
@@ -261,7 +259,7 @@ def extract_points(payload: dict, org_id: str, site_id: str) -> list[dict]:
     gateway_wan, and gateway_dhcp. SRX types additionally emit gateway_spu.
     SRX clusters emit gateway_cluster. SSR emits gateway_resources.
     """
-    timestamp = _get_timestamp(payload)
+    timestamp = get_timestamp(payload)
     subtype = _detect_subtype(payload)
     points: list[dict] = []
 

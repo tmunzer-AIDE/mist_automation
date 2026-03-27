@@ -60,11 +60,9 @@ All custom exceptions inherit from `MistAutomationException(message, status_code
 
 ### Webhook Gateway (app/api/v1/webhooks.py)
 
-Single entry point `POST /webhooks/mist` receives all Mist webhooks:
-1. Validates HMAC-SHA256 signature (from `SystemConfig.webhook_secret`)
-2. Creates `WebhookEvent` document (deduped by `webhook_id` unique index)
-3. Routes to automation module (always) and backup module (if `topic=audits`)
-4. Processing runs as a background task via `create_background_task()`
+Single entry point `POST /webhooks/mist` receives all Mist webhooks. See root `CLAUDE.md` → "Webhook Event Routing" for the full routing architecture (dispatch modes, consumer handler signatures, fan-out behavior).
+
+Current limitation: routing is hardcoded — adding a new consumer requires editing `webhooks.py`. A pub/sub event bus design exists at `docs/superpowers/specs/2026-03-26-webhook-event-bus-design.md`.
 
 Smee.io forwarding (`app/core/smee_service.py`) connects to a Smee SSE channel and replays events to the local webhook endpoint for development. It bypasses signature verification.
 

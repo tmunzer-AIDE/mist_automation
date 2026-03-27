@@ -171,6 +171,8 @@ class TestGatewayHealth:
         assert h["tags"]["org_id"] == "org-1"
         assert h["tags"]["site_id"] == "site-1"
         assert h["tags"]["mac"] == "aabb00112233"
+        assert h["tags"]["device_type"] == "gateway"
+        assert h["tags"]["name"] == "GW-Branch-01"
         assert h["tags"]["model"] == "SRX300"
         assert h["fields"]["cpu_idle"] == 78
         assert h["fields"]["mem_usage"] == 55

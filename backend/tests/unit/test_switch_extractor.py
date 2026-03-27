@@ -14,6 +14,7 @@ def _full_switch_payload() -> dict:
         "name": "SW-Floor2-01",
         "hostname": "SW-Floor2-01",
         "type": "switch",
+        "model": "EX4100-F-12P",
         "cpu_stat": {"idle": 85},
         "memory_stat": {"usage": 62},
         "clients_stats": {"total": {"num_wired_clients": 24}},
@@ -26,12 +27,14 @@ def _full_switch_payload() -> dict:
                 "up": True,
                 "tx_pkts": 1234567,
                 "rx_pkts": 7654321,
+                "speed": 1000,
             },
             "ge-0/0/1.0": {
                 "port_id": "ge-0/0/1",
                 "up": True,
                 "tx_pkts": 111,
                 "rx_pkts": 222,
+                "speed": 100,
             },
             "ge-0/0/2.0": {
                 "port_id": "ge-0/0/2",
@@ -112,6 +115,7 @@ class TestSwitchDeviceSummary:
         assert summary["tags"]["mac"] == "112233445566"
         assert summary["tags"]["device_type"] == "switch"
         assert summary["tags"]["name"] == "SW-Floor2-01"
+        assert summary["tags"]["model"] == "EX4100-F-12P"
 
     def test_device_summary_fields(self):
         points = extract_points(_full_switch_payload(), "org-1", "site-1")
@@ -156,6 +160,15 @@ class TestSwitchDeviceSummary:
         summary = next(p for p in points if p["measurement"] == "device_summary")
         assert summary["tags"]["name"] == "SW-Floor2-01"
 
+    def test_timestamp_prefers_last_seen(self):
+        """When last_seen and _time differ, last_seen is used."""
+        payload = _full_switch_payload()
+        payload["last_seen"] = 1774580000
+        payload["_time"] = 1774570000.0
+        points = extract_points(payload, "org-1", "site-1")
+        summary = next(p for p in points if p["measurement"] == "device_summary")
+        assert summary["time"] == 1774580000
+
     def test_empty_payload_returns_device_summary_with_defaults(self):
         points = extract_points({"mac": "deadbeef0000"}, "org-1", "site-1")
         summaries = [p for p in points if p["measurement"] == "device_summary"]
@@ -194,6 +207,16 @@ class TestSwitchPortStats:
         assert fields["up"] is True
         assert fields["tx_pkts"] == 1234567
         assert fields["rx_pkts"] == 7654321
+        assert fields["speed"] == 1000
+
+    def test_port_stats_speed_defaults_to_zero(self):
+        """Speed defaults to 0 when not in if_stat entry."""
+        payload = _full_switch_payload()
+        # ge-0/0/2 is down, but add an up port without speed
+        payload["if_stat"]["ge-0/0/3.0"] = {"port_id": "ge-0/0/3", "up": True, "tx_pkts": 1, "rx_pkts": 2}
+        points = extract_points(payload, "org-1", "site-1")
+        port3 = next(p for p in points if p["measurement"] == "port_stats" and p["tags"]["port_id"] == "ge-0/0/3")
+        assert port3["fields"]["speed"] == 0
 
     def test_port_stats_time(self):
         points = extract_points(_full_switch_payload(), "org-1", "site-1")
@@ -207,6 +230,28 @@ class TestSwitchPortStats:
         points = extract_points(payload, "org-1", "site-1")
         ports = [p for p in points if p["measurement"] == "port_stats"]
         assert ports == []
+
+    def test_cached_message_without_time_produces_no_port_stats(self):
+        """Cached switch messages (_ttl=600, no _time) have stale if_stat counters."""
+        payload = _full_switch_payload()
+        del payload["_time"]
+        points = extract_points(payload, "org-1", "site-1")
+        ports = [p for p in points if p["measurement"] == "port_stats"]
+        assert ports == []
+        # device_summary and module_stats should still be extracted
+        summaries = [p for p in points if p["measurement"] == "device_summary"]
+        modules = [p for p in points if p["measurement"] == "module_stats"]
+        assert len(summaries) == 1
+        assert len(modules) == 2
+
+    def test_port_stats_uses_last_seen_not_time(self):
+        """Port stats timestamp comes from last_seen (_time can be days old)."""
+        payload = _full_switch_payload()
+        payload["_time"] = 1774000000.5  # stale
+        payload["last_seen"] = 1774576960
+        points = extract_points(payload, "org-1", "site-1")
+        port = next(p for p in points if p["measurement"] == "port_stats")
+        assert port["time"] == 1774576960
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +302,7 @@ class TestSwitchModuleStats:
         points = extract_points(_full_switch_payload(), "org-1", "site-1")
         modules = [p for p in points if p["measurement"] == "module_stats"]
         for mod in modules:
+            # last_seen is preferred over _time
             assert mod["time"] == 1774576960
 
     def test_no_module_stat_produces_no_module_stats(self):

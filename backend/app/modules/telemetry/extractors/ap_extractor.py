@@ -7,20 +7,16 @@ Produces:
 
 from __future__ import annotations
 
+from app.modules.telemetry.extractors._helpers import get_timestamp
+
 _BANDS = ("band_24", "band_5", "band_6")
-
-
-def _get_timestamp(payload: dict) -> int:
-    """Extract epoch timestamp, preferring _time over last_seen."""
-    raw = payload.get("_time") or payload.get("last_seen") or 0
-    return int(raw)
 
 
 def _extract_device_summary(payload: dict, org_id: str, site_id: str, timestamp: int) -> dict:
     """Build device_summary data point from AP payload."""
     mem_total = payload.get("mem_total_kb", 0)
     mem_used = payload.get("mem_used_kb", 0)
-    mem_usage = (mem_used / mem_total * 100) if mem_total > 0 else 0
+    mem_usage = int(mem_used / mem_total * 100) if mem_total > 0 else 0
 
     return {
         "measurement": "device_summary",
@@ -30,10 +26,11 @@ def _extract_device_summary(payload: dict, org_id: str, site_id: str, timestamp:
             "mac": payload.get("mac", ""),
             "device_type": "ap",
             "name": payload.get("name", ""),
+            "model": payload.get("model", ""),
         },
         "fields": {
             "cpu_util": payload.get("cpu_util", 0),
-            "mem_usage": round(mem_usage, 1),
+            "mem_usage": mem_usage,
             "num_clients": payload.get("num_clients", 0),
             "uptime": payload.get("uptime", 0),
         },
@@ -90,7 +87,7 @@ def extract_points(payload: dict, org_id: str, site_id: str) -> list[dict]:
     if not payload.get("model"):
         return []
 
-    timestamp = _get_timestamp(payload)
+    timestamp = get_timestamp(payload)
     points: list[dict] = []
 
     points.append(_extract_device_summary(payload, org_id, site_id, timestamp))

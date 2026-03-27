@@ -214,8 +214,20 @@ class IngestionService:
             self._cache.update(mac, payload)
 
         # 5. Extract InfluxDB data points
+        device_type = payload.get("type") or ("ap" if isinstance(payload.get("model"), str) and payload["model"].startswith("AP") else None)
+        has_time = payload.get("_time") is not None
         points = extract_points(payload, self._org_id, site_id)
         self._points_extracted += len(points)
+
+        measurements = {p.get("measurement") for p in points} if points else set()
+        logger.debug(
+            "ingestion_message_processed",
+            mac=mac,
+            device_type=device_type,
+            has_time=has_time,
+            points_extracted=len(points),
+            measurements=sorted(measurements),
+        )
 
         if not points:
             # Still count as processed (e.g., basic AP messages update cache but yield no points)
@@ -250,6 +262,17 @@ class IngestionService:
 
         # 7. Write filtered points to InfluxDB
         if filtered_points:
+            filtered_measurements = {}
+            for p in filtered_points:
+                m = p.get("measurement", "")
+                filtered_measurements[m] = filtered_measurements.get(m, 0) + 1
+            logger.debug(
+                "ingestion_writing_points",
+                mac=mac,
+                device_type=device_type,
+                total=len(filtered_points),
+                measurements=filtered_measurements,
+            )
             await self._influxdb.write_points(filtered_points)
             self._points_written += len(filtered_points)
 

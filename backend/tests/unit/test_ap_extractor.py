@@ -106,18 +106,19 @@ class TestApDeviceSummary:
         assert summary["tags"]["mac"] == "aabbccddeeff"
         assert summary["tags"]["device_type"] == "ap"
         assert summary["tags"]["name"] == "AP-Lobby-01"
+        assert summary["tags"]["model"] == "AP45"
 
     def test_device_summary_fields(self):
         points = extract_points(_full_ap_payload(), "org-1", "site-1")
         summary = next(p for p in points if p["measurement"] == "device_summary")
         fields = summary["fields"]
         assert fields["cpu_util"] == 42
-        # mem_usage = mem_used_kb / mem_total_kb * 100 = 681574 / 1048576 * 100 ~= 65.0
-        assert 64.9 < fields["mem_usage"] < 65.1
+        # mem_usage = int(681574 / 1048576 * 100) = 64
+        assert fields["mem_usage"] == 64
         assert fields["num_clients"] == 7
         assert fields["uptime"] == 86400
 
-    def test_device_summary_time_uses_underscore_time(self):
+    def test_device_summary_time_uses_last_seen(self):
         points = extract_points(_full_ap_payload(), "org-1", "site-1")
         summary = next(p for p in points if p["measurement"] == "device_summary")
         assert summary["time"] == 1774576960
