@@ -10,7 +10,7 @@ Mist Automation & Backup — a full-stack application for automating Juniper Mis
 
 See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for build, test, and lint commands.
 
-**Prerequisites**: MongoDB on localhost:27017, Redis on localhost:6379 (or configure via `.env`). Copy `.env.example` to `.env` and set `SECRET_KEY`, `MIST_API_TOKEN`, `MIST_ORG_ID`.
+**Prerequisites**: MongoDB on localhost:27017, Redis on localhost:6379, InfluxDB 2.7 on localhost:8086 (optional, for telemetry). Use `docker-compose up` to start all services, or configure via `.env`. Copy `.env.example` to `.env` and set `SECRET_KEY`, `MIST_API_TOKEN`, `MIST_ORG_ID`.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for build, test, and lint comma
 
 **Key layers**:
 - `app/api/v1/` — Route handlers for auth, users, admin, and the unified webhook gateway (receives all Mist webhooks, routes to automation/backup, manages Smee.io)
-- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning), `reports` (post-deployment validation reports with PDF/CSV export), `impact_analysis` (automated config change impact monitoring)
+- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning), `reports` (post-deployment validation reports with PDF/CSV export), `impact_analysis` (automated config change impact monitoring), `telemetry` (real-time device stats via Mist WebSocket → InfluxDB)
 - `app/models/` — Beanie Document models (User, UserSession, SystemConfig, AuditLog). Module-specific models live in their module dirs.
 - `app/services/` — Business logic: `auth_service`, `mist_service`, `mist_service_factory` (shared async factory for MistService), `notification_service`
 - `app/core/` — Database init, security, logging (structlog), middleware, custom exceptions, `smee_service` (dev webhook forwarding), `tasks` (safe background task creation)
@@ -47,6 +47,31 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 - Angular Material with CSS custom property theming; dark mode via `ThemeService` toggling `html.dark-theme` class
 - All custom colors use `--app-*` CSS custom properties (defined in `styles.scss` with light defaults + `.dark-theme` overrides) — never hardcode hex colors in component SCSS
 - Dev proxy: `/api` and `/health` → `http://localhost:8000` (see `proxy.conf.json`)
+
+### Webhook Event Routing
+
+**Gateway** (`app/api/v1/webhooks.py`): Single `POST /webhooks/mist` endpoint receives all Mist webhooks. Flow:
+1. HMAC-SHA256 signature validation (from `SystemConfig.webhook_secret`)
+2. IP allowlist enforcement (CIDR-aware, from `SystemConfig.webhook_ip_whitelist`)
+3. Smee.io localhost bypass for dev (signature + IP checks skipped)
+4. Multi-event payload splitting — each event in `payload["events"]` becomes a separate `WebhookEvent` document (deduped by `webhook_id` unique index)
+5. Per-event field enrichment via `enrich_event()` + `extract_event_fields()` from `app.core.webhook_extractor`
+6. Module dispatch (see below)
+7. WebSocket broadcast to `webhook:monitor` channel for real-time UI
+
+**Current routing** (hardcoded in gateway, lines 172-176):
+| Module | Topic filter | Dispatch mode | Handler |
+|--------|-------------|---------------|---------|
+| **Automation** | All topics | Per-event, async background task | `automation.workers.webhook_worker.process_webhook(event_id, webhook_type, payload, event_type=)` |
+| **Backup** | `audits` only | Pre-split, synchronous (awaited, result in HTTP response) | `backup.webhook_handler.process_backup_webhook(payload, config)` |
+| **Impact Analysis** | `device-events` only | Per-event, async background task | `impact_analysis.workers.event_handler.handle_device_event(event_id, event_type, payload)` |
+
+**Key details**:
+- Fan-out: A single event can go to multiple modules (e.g., `device-events` → automation + impact_analysis)
+- Backup receives the **full original payload** (pre-split), not individual events — it does its own event filtering
+- `routed_to` field on `WebhookEvent` documents records which modules received the event (audit trail)
+- Replay endpoint (`POST /webhooks/events/{id}/replay`) re-dispatches to automation only
+- Adding a new consumer currently requires editing `webhooks.py` — a pub/sub event bus is planned to decouple this (see `docs/superpowers/specs/2026-03-26-webhook-event-bus-design.md`)
 
 ### Reports Module
 
@@ -153,6 +178,22 @@ Most complex feature, spanning both backend and frontend:
 - **AI assessment** (`ai-assessment/`): Rendered markdown (marked + DOMPurify), severity badge, recommendations list.
 - **Dashboard widget**: Active/impacted session counts with live WS updates via `impact:summary` channel. Click navigates to `/impact-analysis`.
 - **Impact analysis service** (`core/services/impact-analysis.service.ts`): API client for sessions CRUD, summary, SLE data, and settings.
+
+### Telemetry Module
+
+**Backend** (`app/modules/telemetry/`):
+- **Always-on WebSocket ingestion**: Connects to Mist Cloud WebSocket (`wss://api-ws.{region}.mist.com`) at startup, subscribes to `/sites/{site_id}/stats/devices` for all configured sites. Auto-scales connections (max 1000 channels per WebSocket). Uses `mistapi.websockets.sites.DeviceStatsEvents` with thread-to-asyncio bridge.
+- **InfluxDB storage**: `InfluxDBService` with async batched writes (500 points or 10s flush interval), bounded buffer (10K items, drop on overflow). Query methods: `query_range`, `query_latest`, `query_aggregate` (Flux-based). InfluxDB 2.7 added to `docker-compose.yml`.
+- **Hybrid CoV filtering**: `CoVFilter` with three threshold types: `"exact"` (state changes), `"always"` (counters), `float` (absolute deadband). Max staleness timeout (300s) forces periodic writes. Device summaries always written, per-port/radio metrics CoV-filtered.
+- **LatestValueCache**: In-memory dict keyed by device MAC, updated on every WebSocket message. Zero-latency reads for impact analysis (`get_all_for_site()`) and AI chat. Replaces HTTP API polling in `SiteDataCoordinator` when cache has fresh data (< 60s).
+- **Device-type extractors** (`extractors/`): Pure functions parsing raw WebSocket payloads into InfluxDB data points. `ap_extractor` (device_summary + radio_stats), `switch_extractor` (device_summary + port_stats + module_stats), `gateway_extractor` (SRX standalone/cluster + SSR — gateway_health, gateway_wan, gateway_spu, gateway_resources, gateway_cluster, gateway_dhcp).
+- **Ingestion pipeline** (`services/ingestion_service.py`): Consumes from asyncio.Queue, dispatches to extractors, applies CoV filtering, writes to InfluxDB + cache. Tracks message rate and error stats.
+- **MistWsManager** (`services/mist_ws_manager.py`): Manages WebSocket connections with auto-scaling (`ceil(sites / 1000)`), health monitoring (90s no-message threshold), dynamic site add/remove.
+- **REST endpoints**: `GET /telemetry/status` (admin), `GET /telemetry/latest/{mac}`, `GET /telemetry/query/range`, `GET /telemetry/query/aggregate` (require_impact_role), `PUT /telemetry/settings`, `POST /telemetry/reconnect` (admin).
+- **Config**: `SystemConfig` fields: `telemetry_enabled`, `influxdb_url`, `influxdb_token` (encrypted), `influxdb_org`, `influxdb_bucket`, `telemetry_retention_days`. InfluxDB token encrypted via `encrypt_sensitive_data()`.
+
+**Frontend** (`features/admin/settings/telemetry/`):
+- **Settings page**: Enable toggle, InfluxDB connection form (url, org, bucket, token, retention), test connection button, pipeline status display.
 
 ## Code Style
 
