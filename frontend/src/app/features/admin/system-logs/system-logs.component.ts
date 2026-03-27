@@ -26,6 +26,7 @@ import { UpperCasePipe } from '@angular/common';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 
 interface LogEntry {
   timestamp: string;
@@ -67,6 +68,7 @@ const ALL_LEVELS = ['debug', 'info', 'warning', 'error', 'critical'];
 export class SystemLogsComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private topbar = inject(TopbarService);
+  private globalChatService = inject(GlobalChatService);
   private ws = inject(WebSocketService);
   private snackBar = inject(MatSnackBar);
   private destroyRef = inject(DestroyRef);
@@ -124,6 +126,7 @@ export class SystemLogsComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.topbar.setTitle('System Logs');
+    this.globalChatService.setContext({ page: 'Admin > System Logs' });
     this.topbar.setActions(this.actionsRef);
     this.ws.connected$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((c) => this.connected.set(c));
     this.loadHistory();

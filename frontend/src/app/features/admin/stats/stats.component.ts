@@ -4,6 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { SystemStats, WorkerStatus } from '../../../core/models/admin.model';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 @Component({
@@ -21,6 +22,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 export class StatsComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly topbarService = inject(TopbarService);
+  private readonly globalChatService = inject(GlobalChatService);
 
   stats = signal<SystemStats | null>(null);
   workerStatus = signal<WorkerStatus | null>(null);
@@ -28,6 +30,7 @@ export class StatsComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('System Stats');
+    this.globalChatService.setContext({ page: 'Admin > System Stats' });
     this.api.get<SystemStats>('/admin/stats').subscribe({
       next: (s) => {
         this.stats.set(s);

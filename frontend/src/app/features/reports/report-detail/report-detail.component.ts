@@ -26,6 +26,7 @@ import { HttpClient } from '@angular/common/http';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 
 interface ReportDetail {
   id: string;
@@ -215,6 +216,7 @@ export class ReportDetailComponent implements OnInit, OnDestroy {
   private readonly topbarService = inject(TopbarService);
   private readonly wsService = inject(WebSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly globalChatService = inject(GlobalChatService);
 
   report = signal<ReportDetail | null>(null);
   loading = signal(true);
@@ -266,6 +268,7 @@ export class ReportDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.reportId = this.route.snapshot.paramMap.get('id') ?? '';
     this.topbarService.setTitle('Report Details');
+    this.globalChatService.setContext({ page: 'Report Detail' });
     this.loadReport();
   }
 

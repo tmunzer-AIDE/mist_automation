@@ -11,6 +11,7 @@ import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
 import {
   BackupJobResponse,
   BackupJobListResponse,
@@ -55,6 +56,7 @@ export class BackupJobListComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
+  private readonly globalChatService = inject(GlobalChatService);
 
   // ── Job table ────────────────────────────────────────────────────────
   jobs = signal<BackupJobResponse[]>([]);
@@ -70,6 +72,7 @@ export class BackupJobListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Backup Jobs');
+    this.globalChatService.setContext({ page: 'Backup Jobs' });
     this.loadJobs();
     this.loadCharts();
   }
