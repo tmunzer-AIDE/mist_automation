@@ -98,3 +98,55 @@ class TestLatestValueCache:
         assert cache.size() == 2
         cache.remove("mac1")
         assert cache.size() == 1
+
+    def test_get_fresh_entry_returns_entry_with_metadata(self):
+        cache = LatestValueCache()
+        cache.update("mac1", {"cpu": 10, "site_id": "site-1"})
+        entry = cache.get_fresh_entry("mac1", max_age_seconds=60)
+        assert entry is not None
+        assert "stats" in entry
+        assert "updated_at" in entry
+        assert entry["stats"]["cpu"] == 10
+
+    def test_get_fresh_entry_returns_none_when_stale(self):
+        cache = LatestValueCache()
+        cache.update("mac1", {"cpu": 10})
+        cache._entries["mac1"]["updated_at"] = time.time() - 120
+        assert cache.get_fresh_entry("mac1", max_age_seconds=60) is None
+
+    def test_get_fresh_entry_returns_none_when_missing(self):
+        cache = LatestValueCache()
+        assert cache.get_fresh_entry("nonexistent") is None
+
+    def test_get_fresh_entry_returns_copy(self):
+        cache = LatestValueCache()
+        cache.update("mac1", {"cpu": 10})
+        entry = cache.get_fresh_entry("mac1")
+        assert entry is not None
+        entry["stats"]["cpu"] = 999
+        assert cache.get("mac1")["cpu"] == 10
+
+    def test_get_all_for_site_returns_matching_fresh(self):
+        cache = LatestValueCache()
+        cache.update("mac1", {"cpu": 10, "site_id": "site-a"})
+        cache.update("mac2", {"cpu": 20, "site_id": "site-a"})
+        cache.update("mac3", {"cpu": 30, "site_id": "site-b"})
+        results = cache.get_all_for_site("site-a", max_age_seconds=60)
+        assert len(results) == 2
+        cpus = sorted([r["cpu"] for r in results])
+        assert cpus == [10, 20]
+
+    def test_get_all_for_site_excludes_stale(self):
+        cache = LatestValueCache()
+        cache.update("mac1", {"cpu": 10, "site_id": "site-a"})
+        cache.update("mac2", {"cpu": 20, "site_id": "site-a"})
+        # Make mac2 stale
+        cache._entries["mac2"]["updated_at"] = time.time() - 120
+        results = cache.get_all_for_site("site-a", max_age_seconds=60)
+        assert len(results) == 1
+        assert results[0]["cpu"] == 10
+
+    def test_get_all_for_site_returns_empty_for_unknown_site(self):
+        cache = LatestValueCache()
+        cache.update("mac1", {"cpu": 10, "site_id": "site-a"})
+        assert cache.get_all_for_site("site-unknown") == []

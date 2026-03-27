@@ -41,6 +41,38 @@ class LatestValueCache:
             return None
         return copy.deepcopy(entry["stats"])
 
+    def get_fresh_entry(self, mac: str, max_age_seconds: float = 60) -> dict[str, Any] | None:
+        """Get stats with metadata if fresh, or None if stale/missing.
+
+        Unlike get_fresh() which returns only stats, this returns the full
+        entry dict including 'updated_at' timestamp.
+        """
+        entry = self._entries.get(mac)
+        if entry is None:
+            return None
+        if time.time() - entry["updated_at"] > max_age_seconds:
+            return None
+        return copy.deepcopy(entry)
+
+    def get_all_for_site(self, site_id: str, max_age_seconds: float = 60) -> list[dict[str, Any]]:
+        """Get all fresh cached stats for devices at a given site.
+
+        Iterates all entries and filters by site_id found in the stored
+        stats payload (Mist WS payloads include 'site_id' field).
+
+        Returns:
+            List of fresh stats dicts for devices at the site.
+        """
+        now = time.time()
+        results: list[dict[str, Any]] = []
+        for _mac, entry in self._entries.items():
+            if now - entry["updated_at"] > max_age_seconds:
+                continue
+            stats = entry.get("stats", {})
+            if stats.get("site_id") == site_id:
+                results.append(copy.deepcopy(stats))
+        return results
+
     def get_all(self) -> dict[str, dict[str, Any]]:
         """Get all cached stats. Returns a deep copy."""
         return {mac: copy.deepcopy(entry["stats"]) for mac, entry in self._entries.items()}
