@@ -179,13 +179,30 @@ class SiteDataCoordinator:
         site_setting, alarms, org_networks) in the same gather as other
         site-level data, then builds the topology from the shared results
         to avoid redundant API calls.
+
+        When the telemetry LatestValueCache has fresh data for devices at this
+        site, it is used in place of the listSiteDevicesStats HTTP call.
         """
         mist = await create_mist_service()
         session = mist.get_session()
 
+        # Check telemetry cache before making the device stats API call
+        cached_device_stats: list[dict[str, Any]] | None = None
+        try:
+            import app.modules.telemetry as telemetry_mod
+
+            cache = getattr(telemetry_mod, "_latest_cache", None)
+            if cache is not None:
+                cached = cache.get_all_for_site(site_id, max_age_seconds=60)
+                if cached:
+                    cached_device_stats = cached
+                    logger.debug("using_telemetry_cache", site_id=site_id, device_count=len(cached))
+        except Exception:
+            pass  # telemetry module unavailable — fall through to API
+
         # Indices 0-7: topology-shared + coordinator data
         # 0: SLE overview
-        # 1: device_stats (typed — for coordinator)
+        # 1: device_stats (typed — for coordinator) — skipped if telemetry cache hit
         # 2: alarms (shared with topology)
         # 3: client counts
         # 4: config events
@@ -194,9 +211,17 @@ class SiteDataCoordinator:
         # 7: listSiteDevices (topology-only)
         # 8: site_setting_derived (topology-only)
         # 9: org_networks (topology-only)
+
+        async def _device_stats_source() -> list[dict[str, Any]]:
+            if cached_device_stats is not None:
+                return cached_device_stats
+            return await _safe_fetch(
+                mistapi.arun(stats.listSiteDevicesStats, session, site_id, type=device_type, limit=1000), []
+            )
+
         results = await asyncio.gather(
             _safe_fetch(mistapi.arun(insights.getOrgSitesSle, session, org_id, duration="1h")),
-            _safe_fetch(mistapi.arun(stats.listSiteDevicesStats, session, site_id, type=device_type, limit=1000), []),
+            _device_stats_source(),
             _safe_fetch(mistapi.arun(alarms.searchSiteAlarms, session, site_id, duration="1h", limit=1000), []),
             _safe_fetch(mistapi.arun(clients.countSiteWirelessClients, session, site_id)),
             _safe_fetch(
