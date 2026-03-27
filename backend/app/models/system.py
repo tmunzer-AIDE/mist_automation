@@ -3,8 +3,6 @@ System configuration and audit logging models.
 """
 
 from datetime import datetime, timezone
-from enum import Enum
-from typing import Any
 
 from beanie import Document, Indexed, PydanticObjectId
 from pydantic import Field
@@ -14,15 +12,15 @@ from app.models.mixins import TimestampMixin
 
 class SystemConfig(TimestampMixin, Document):
     """System-wide configuration settings."""
-    
+
     # Singleton pattern - only one document should exist
     config_version: int = Field(default=1, description="Configuration version")
-    
+
     # Mist API Configuration
     mist_api_token: str | None = Field(default=None, description="Encrypted Mist API token")
     mist_org_id: str | None = Field(default=None, description="Mist Organization ID")
     mist_cloud_region: str = Field(default="global", description="Mist cloud region")
-    
+
     # Webhook Configuration
     webhook_secret: str | None = Field(default=None, description="Webhook validation secret")
     webhook_ip_whitelist: list[str] = Field(default_factory=list, description="Allowed webhook source IPs")
@@ -30,12 +28,12 @@ class SystemConfig(TimestampMixin, Document):
     # Smee.io Configuration (webhook proxy for development)
     smee_enabled: bool = Field(default=False, description="Enable Smee.io webhook forwarding")
     smee_channel_url: str | None = Field(default=None, description="Smee.io channel URL")
-    
+
     # Workflow Execution Limits
     max_concurrent_workflows: int = Field(default=10, description="Maximum concurrent workflow executions")
     workflow_default_timeout: int = Field(default=300, description="Default workflow timeout in seconds")
     workflow_max_timeout: int = Field(default=3600, description="Maximum allowed workflow timeout")
-    
+
     # Password Policy
     min_password_length: int = Field(default=12, description="Minimum password length")
     require_uppercase: bool = Field(default=True, description="Require uppercase letters")
@@ -80,7 +78,7 @@ class SystemConfig(TimestampMixin, Document):
     slack_signing_secret: str | None = Field(
         default=None, description="Encrypted Slack signing secret for interactive callbacks"
     )
-    
+
     # LLM Configuration (individual configs stored in LLMConfig collection)
     llm_enabled: bool = Field(default=False, description="Global LLM kill switch")
 
@@ -99,17 +97,25 @@ class SystemConfig(TimestampMixin, Document):
         default=30, ge=1, le=365, description="Monitoring session retention in days"
     )
 
+    # Telemetry Configuration (WebSocket device stats → InfluxDB)
+    telemetry_enabled: bool = Field(default=False, description="Enable WebSocket telemetry ingestion")
+    influxdb_url: str | None = Field(default=None, description="InfluxDB connection URL")
+    influxdb_token: str | None = Field(default=None, description="Encrypted InfluxDB authentication token")
+    influxdb_org: str | None = Field(default=None, description="InfluxDB organization name")
+    influxdb_bucket: str | None = Field(default=None, description="InfluxDB bucket name")
+    telemetry_retention_days: int = Field(default=30, ge=1, le=365, description="Telemetry data retention in days")
+
     # System Status
     is_initialized: bool = Field(default=False, description="Whether initial setup is complete")
     maintenance_mode: bool = Field(default=False, description="Whether system is in maintenance mode")
-    
+
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
+
     class Settings:
         name = "system_config"
-    
+
     @classmethod
     async def get_config(cls) -> "SystemConfig":
         """Get the system configuration (creates if doesn't exist).
@@ -130,7 +136,7 @@ class SystemConfig(TimestampMixin, Document):
             if config:
                 return config
             raise
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -147,7 +153,7 @@ class SystemConfig(TimestampMixin, Document):
 
 class AuditLog(Document):
     """Audit log for tracking user actions and system events."""
-    
+
     # Event information
     event_type: str = Field(..., description="Type of event (e.g., user_login, workflow_created)")
     event_category: str = Field(..., description="Category: auth, workflow, backup, system, etc.")
@@ -163,18 +169,18 @@ class AuditLog(Document):
     target_type: str | None = Field(default=None, description="Type of resource affected")
     target_id: str | None = Field(default=None, description="ID of resource affected")
     target_name: str | None = Field(default=None, description="Name of resource affected")
-    
+
     # Event details
     details: dict = Field(default_factory=dict, description="Additional event details")
     changes: dict | None = Field(default=None, description="Before/after values for modifications")
-    
+
     # Status
     success: bool = Field(default=True, description="Whether the action was successful")
     error_message: str | None = Field(default=None, description="Error message if action failed")
-    
+
     # Timestamp
     timestamp: Indexed(datetime) = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
+
     class Settings:
         name = "audit_logs"
         indexes = [
@@ -185,7 +191,7 @@ class AuditLog(Document):
             "target_type",
             "success",
         ]
-    
+
     @classmethod
     async def log_event(
         cls,
@@ -223,7 +229,7 @@ class AuditLog(Document):
         )
         await log.insert()
         return log
-    
+
     class Config:
         json_schema_extra = {
             "example": {

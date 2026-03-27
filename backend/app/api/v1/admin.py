@@ -84,6 +84,13 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "maintenance_mode": config.maintenance_mode,
         # LLM (global toggle — configs managed via /llm/configs)
         "llm_enabled": config.llm_enabled,
+        # Telemetry
+        "telemetry_enabled": config.telemetry_enabled,
+        "influxdb_url": config.influxdb_url,
+        "influxdb_token_set": bool(config.influxdb_token),
+        "influxdb_org": config.influxdb_org,
+        "influxdb_bucket": config.influxdb_bucket,
+        "telemetry_retention_days": config.telemetry_retention_days,
         "updated_at": config.updated_at,
     }
 
@@ -109,6 +116,7 @@ async def update_system_settings(
         "pagerduty_api_key",
         "slack_signing_secret",
         "smtp_password",
+        "influxdb_token",
     }
     for field, value in updates.items():
         if field in sensitive_encrypt:
@@ -212,8 +220,10 @@ def _build_audit_query(
         def _parse_date(value: str) -> datetime:
             try:
                 dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {value!r}")
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {value!r}"
+                ) from e
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
