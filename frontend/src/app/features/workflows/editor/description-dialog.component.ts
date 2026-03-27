@@ -5,6 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-description-dialog',
@@ -16,6 +18,8 @@ import { MatAutocompleteModule } from '@angular/material/autocomplete';
     MatInputModule,
     MatButtonModule,
     MatAutocompleteModule,
+    MatChipsModule,
+    MatIconModule,
   ],
   template: `
     <h2 mat-dialog-title>Edit Description</h2>
@@ -47,10 +51,30 @@ import { MatAutocompleteModule } from '@angular/material/autocomplete';
           }
         </mat-autocomplete>
       </mat-form-field>
+
+      <mat-form-field class="full-width">
+        <mat-label>Tags</mat-label>
+        <mat-chip-grid #tagChipGrid>
+          @for (tag of tags(); track tag) {
+            <mat-chip-row (removed)="removeTag(tag)">
+              {{ tag }}
+              <button matChipRemove><mat-icon>cancel</mat-icon></button>
+            </mat-chip-row>
+          }
+        </mat-chip-grid>
+        <input
+          [matChipInputFor]="tagChipGrid"
+          [value]="tagInput()"
+          (input)="tagInput.set($any($event.target).value)"
+          (keydown)="onTagKeydown($event)"
+          (blur)="addTag()"
+          placeholder="Type a tag and press Enter..."
+        />
+      </mat-form-field>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-flat-button (click)="dialogRef.close(form.getRawValue())">Save</button>
+      <button mat-flat-button (click)="dialogRef.close({ ...form.getRawValue(), tags: tags() })">Save</button>
     </mat-dialog-actions>
   `,
   styles: [
@@ -63,8 +87,30 @@ import { MatAutocompleteModule } from '@angular/material/autocomplete';
 })
 export class DescriptionDialogComponent {
   readonly dialogRef = inject(MatDialogRef<DescriptionDialogComponent>);
-  private readonly data: { description: string; sharing: string } = inject(MAT_DIALOG_DATA);
+  private readonly data: { description: string; sharing: string; tags: string[] } = inject(MAT_DIALOG_DATA);
   private readonly fb = inject(FormBuilder);
+
+  tags = signal<string[]>(this.data?.tags || []);
+  tagInput = signal('');
+
+  addTag(): void {
+    const value = this.tagInput().trim();
+    if (value && !this.tags().includes(value)) {
+      this.tags.update((t) => [...t, value]);
+    }
+    this.tagInput.set('');
+  }
+
+  removeTag(tag: string): void {
+    this.tags.update((t) => t.filter((v) => v !== tag));
+  }
+
+  onTagKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      this.addTag();
+    }
+  }
 
   readonly sharingOptions = [
     { value: 'private', label: 'Private' },
