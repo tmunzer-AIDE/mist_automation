@@ -74,6 +74,17 @@ class WebSocketManager:
         for ws in dead:
             self.disconnect(ws)
 
+    # ── Stats ─────────────────────────────────────────────────────────────
+
+    def get_stats(self) -> dict[str, int]:
+        """Return WebSocket connection statistics."""
+        total_subs = sum(len(subs) for subs in self._channels.values())
+        return {
+            "connected_clients": len(self._client_channels),
+            "active_channels": len(self._channels),
+            "total_subscriptions": total_subs,
+        }
+
     # ── Heartbeat ─────────────────────────────────────────────────────────
 
     def record_pong(self, ws: WebSocket) -> None:
