@@ -385,3 +385,65 @@ def build_webhook_summary_prompt(
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+
+
+def build_dashboard_summary_prompt(context: str) -> list[dict[str, str]]:
+    """Build prompt for dashboard state summarization."""
+    system = (
+        "You are a Juniper Mist network operations analyst. "
+        "Summarize the current system state: highlight failures, anomalies, "
+        "active incidents, and anything that needs attention. "
+        "Be concise — use bullet points grouped by priority."
+    )
+    user = f"Summarize this system dashboard state:\n\n{context}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_audit_log_summary_prompt(context: str, filters: dict) -> list[dict[str, str]]:
+    """Build prompt for audit log summarization."""
+    filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items() if v) or "last 24 hours"
+    system = (
+        "You are a security and operations analyst for a Juniper Mist automation platform. "
+        "Analyze these audit logs. Identify patterns, anomalies, security concerns, "
+        "suspicious activity, and notable operational events. "
+        "Be concise — use bullet points grouped by category."
+    )
+    user = f"Analyze these audit logs (filter: {filter_desc}):\n\n{context}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_system_log_summary_prompt(context: str, filters: dict) -> list[dict[str, str]]:
+    """Build prompt for system log summarization."""
+    filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items() if v) or "all recent logs"
+    system = (
+        "You are a systems engineer analyzing application logs for a Juniper Mist automation platform. "
+        "Identify error patterns, recurring issues, performance concerns, and anything requiring attention. "
+        "Be concise — use bullet points grouped by severity."
+    )
+    user = f"Analyze these system logs (filter: {filter_desc}):\n\n{context}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_backup_list_summary_prompt(context: str, filters: dict) -> list[dict[str, str]]:
+    """Build prompt for backup health and change activity summarization."""
+    filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items() if v) or "all objects"
+    system = (
+        "You are a network configuration analyst for a Juniper Mist automation platform. "
+        "Analyze backup health and change activity. Identify objects with stale backups, "
+        "repeated job failures, unusual change patterns, and overall backup coverage gaps. "
+        "Be concise — use bullet points grouped by concern."
+    )
+    user = f"Analyze this backup health data (filter: {filter_desc}):\n\n{context}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]

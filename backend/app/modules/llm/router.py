@@ -17,6 +17,8 @@ from app.modules.llm.services.llm_service_factory import _LOCAL_PROVIDERS
 from fastapi import Query
 
 from app.modules.llm.schemas import (
+    AuditLogSummaryRequest,
+    BackupListSummaryRequest,
     CategorySelectionRequest,
     CategorySelectionResponse,
     ChatResponse,
@@ -24,6 +26,7 @@ from app.modules.llm.schemas import (
     ConversationThreadDetail,
     ConversationThreadListResponse,
     ConversationThreadSummary,
+    DashboardSummaryRequest,
     DebugExecutionRequest,
     DebugExecutionResponse,
     ElicitationResponseRequest,
@@ -46,6 +49,7 @@ from app.modules.llm.schemas import (
     McpToolCallRequest,
     SummarizeDiffRequest,
     SummaryResponse,
+    SystemLogSummaryRequest,
     WebhookSummaryRequest,
     WebhookSummaryResponse,
     WorkflowAssistRequest,
@@ -1247,6 +1251,170 @@ async def summarize_webhook_events(
     return WebhookSummaryResponse(
         summary=response.content,
         event_count=event_count,
+        thread_id=str(thread.id),
+        usage=_usage_dict(response),
+    )
+
+
+# ── Dashboard Summarization ─────────────────────────────────────────────────
+
+
+@router.post("/llm/dashboard/summarize", response_model=WebhookSummaryResponse, tags=["LLM"])
+async def summarize_dashboard(
+    request: DashboardSummaryRequest,
+    current_user: User = Depends(require_automation_role),
+):
+    """Summarize dashboard state using LLM."""
+    _check_llm_rate_limit(str(current_user.id))
+    from app.modules.llm.services.context_service import get_dashboard_summary_context
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import build_dashboard_summary_prompt
+
+    llm = await create_llm_service()
+    context = await get_dashboard_summary_context()
+
+    prompt_messages = build_dashboard_summary_prompt(context)
+    thread = await _load_or_create_thread(None, current_user.id, "dashboard_summary", prompt_messages)
+
+    llm_messages = thread.to_llm_messages()
+    response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
+
+    thread.add_message("assistant", response.content)
+    await thread.save()
+
+    await _log_llm_usage(current_user.id, "dashboard_summary", llm, response)
+
+    return WebhookSummaryResponse(
+        summary=response.content,
+        event_count=0,
+        thread_id=str(thread.id),
+        usage=_usage_dict(response),
+    )
+
+
+# ── Audit Log Summarization ─────────────────────────────────────────────────
+
+
+@router.post("/llm/audit-logs/summarize", response_model=WebhookSummaryResponse, tags=["LLM"])
+async def summarize_audit_logs(
+    request: AuditLogSummaryRequest,
+    current_user: User = Depends(require_admin),
+):
+    """Summarize audit logs using LLM."""
+    _check_llm_rate_limit(str(current_user.id))
+    from app.modules.llm.services.context_service import get_audit_log_summary_context
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import build_audit_log_summary_prompt
+
+    llm = await create_llm_service()
+    context, count = await get_audit_log_summary_context(
+        event_type=request.event_type,
+        user_id=request.user_id,
+        start_date=request.start_date,
+        end_date=request.end_date,
+    )
+
+    filters = {
+        "event_type": request.event_type,
+        "user_id": request.user_id,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+    }
+    prompt_messages = build_audit_log_summary_prompt(context, filters)
+    thread = await _load_or_create_thread(None, current_user.id, "audit_log_summary", prompt_messages)
+
+    llm_messages = thread.to_llm_messages()
+    response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
+
+    thread.add_message("assistant", response.content)
+    await thread.save()
+
+    await _log_llm_usage(current_user.id, "audit_log_summary", llm, response)
+
+    return WebhookSummaryResponse(
+        summary=response.content,
+        event_count=count,
+        thread_id=str(thread.id),
+        usage=_usage_dict(response),
+    )
+
+
+# ── System Log Summarization ────────────────────────────────────────────────
+
+
+@router.post("/llm/system-logs/summarize", response_model=WebhookSummaryResponse, tags=["LLM"])
+async def summarize_system_logs(
+    request: SystemLogSummaryRequest,
+    current_user: User = Depends(require_admin),
+):
+    """Summarize system logs using LLM."""
+    _check_llm_rate_limit(str(current_user.id))
+    from app.modules.llm.services.context_service import get_system_log_summary_context
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import build_system_log_summary_prompt
+
+    llm = await create_llm_service()
+    context, count = await get_system_log_summary_context(
+        level=request.level,
+        logger=request.logger,
+    )
+
+    filters = {"level": request.level, "logger": request.logger}
+    prompt_messages = build_system_log_summary_prompt(context, filters)
+    thread = await _load_or_create_thread(None, current_user.id, "system_log_summary", prompt_messages)
+
+    llm_messages = thread.to_llm_messages()
+    response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
+
+    thread.add_message("assistant", response.content)
+    await thread.save()
+
+    await _log_llm_usage(current_user.id, "system_log_summary", llm, response)
+
+    return WebhookSummaryResponse(
+        summary=response.content,
+        event_count=count,
+        thread_id=str(thread.id),
+        usage=_usage_dict(response),
+    )
+
+
+# ── Backup List Summarization ───────────────────────────────────────────────
+
+
+@router.post("/llm/backups/summarize", response_model=WebhookSummaryResponse, tags=["LLM"])
+async def summarize_backups(
+    request: BackupListSummaryRequest,
+    current_user: User = Depends(require_backup_role),
+):
+    """Summarize backup health and change activity using LLM."""
+    _check_llm_rate_limit(str(current_user.id))
+    from app.modules.llm.services.context_service import get_backup_summary_context
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import build_backup_list_summary_prompt
+
+    llm = await create_llm_service()
+    context, count = await get_backup_summary_context(
+        object_type=request.object_type,
+        site_id=request.site_id,
+        scope=request.scope,
+    )
+
+    filters = {"object_type": request.object_type, "site_id": request.site_id, "scope": request.scope}
+    prompt_messages = build_backup_list_summary_prompt(context, filters)
+    thread = await _load_or_create_thread(None, current_user.id, "backup_summary_list", prompt_messages)
+
+    llm_messages = thread.to_llm_messages()
+    response = await _stream_or_complete(llm, llm_messages, stream_id=request.stream_id)
+
+    thread.add_message("assistant", response.content)
+    await thread.save()
+
+    await _log_llm_usage(current_user.id, "backup_summary_list", llm, response)
+
+    return WebhookSummaryResponse(
+        summary=response.content,
+        event_count=count,
         thread_id=str(thread.id),
         usage=_usage_dict(response),
     )

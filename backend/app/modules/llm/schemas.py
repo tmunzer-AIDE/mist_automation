@@ -263,6 +263,39 @@ class WebhookSummaryResponse(BaseModel):
     usage: dict = Field(default_factory=dict)
 
 
+class DashboardSummaryRequest(BaseModel):
+    """Request to summarize dashboard state."""
+
+    stream_id: str | None = Field(None, description="WebSocket stream ID for token streaming")
+
+
+class AuditLogSummaryRequest(BaseModel):
+    """Request to summarize audit logs."""
+
+    event_type: str | None = Field(None, description="Filter by event type")
+    user_id: str | None = Field(None, description="Filter by user ID")
+    start_date: str | None = Field(None, description="Start date (ISO 8601)")
+    end_date: str | None = Field(None, description="End date (ISO 8601)")
+    stream_id: str | None = Field(None, description="WebSocket stream ID")
+
+
+class SystemLogSummaryRequest(BaseModel):
+    """Request to summarize system logs."""
+
+    level: str | None = Field(None, description="Filter by log level")
+    logger: str | None = Field(None, description="Filter by logger name")
+    stream_id: str | None = Field(None, description="WebSocket stream ID")
+
+
+class BackupListSummaryRequest(BaseModel):
+    """Request to summarize backup health and changes."""
+
+    object_type: str | None = Field(None, description="Filter by object type")
+    site_id: str | None = Field(None, description="Filter by site ID")
+    scope: str | None = Field(None, description="Filter by scope (org/site)")
+    stream_id: str | None = Field(None, description="WebSocket stream ID")
+
+
 # ── Global Chat ─────────────────────────────────────────────────────────────
 
 
