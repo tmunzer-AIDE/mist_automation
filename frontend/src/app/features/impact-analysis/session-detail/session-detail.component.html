@@ -1,11 +1,3 @@
-<!-- Topbar actions (shown when completed) -->
-<ng-template #actions>
-  <button mat-button (click)="reanalyze()" [disabled]="reanalyzing()">
-    <mat-icon>refresh</mat-icon>
-    Re-analyze
-  </button>
-</ng-template>
-
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }

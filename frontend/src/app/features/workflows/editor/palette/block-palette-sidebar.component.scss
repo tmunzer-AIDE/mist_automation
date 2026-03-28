@@ -47,7 +47,7 @@
   flex-shrink: 0;
 
   mat-icon {
-    color: #fff;
+    color: var(--app-canvas-node-icon-text);
     font-size: 15px;
     width: 15px;
     height: 15px;
@@ -85,7 +85,7 @@
   flex-shrink: 0;
 
   mat-icon {
-    color: #fff;
+    color: var(--app-canvas-node-icon-text);
     font-size: 18px;
     width: 18px;
     height: 18px;

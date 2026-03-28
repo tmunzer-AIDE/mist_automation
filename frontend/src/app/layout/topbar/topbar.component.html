@@ -4,7 +4,7 @@
   </button>
 
   @if (topbarService.title$ | async; as title) {
-    <span class="page-title">{{ title }}</span>
+    <h1 class="page-title">{{ title }}</h1>
   }
 
   @if (topbarService.actionsTemplate$ | async; as actionsTpl) {

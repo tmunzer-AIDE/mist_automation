@@ -21,35 +21,20 @@ export const NAV_ITEMS: NavItem[] = [
     route: '/impact-analysis',
     roles: ['impact_analysis', 'admin'],
   },
-  {
-    label: 'Backups',
-    icon: 'backup',
-    route: '/backup',
-    children: [
-      { label: 'Objects', icon: 'widgets', route: '/backup' },
-      { label: 'Jobs', icon: 'work_history', route: '/backup/jobs' },
-    ],
-  },
-  {
-    label: 'Workflows',
-    icon: 'account_tree',
-    route: '/workflows',
-    children: [
-      { label: 'All Workflows', icon: 'list', route: '/workflows' },
-      { label: 'Executions', icon: 'history', route: '/workflows/executions' },
-    ],
-  },
-  {
-    label: 'Administration',
-    icon: 'admin_panel_settings',
-    route: '/admin',
-    roles: ['admin'],
-    children: [
-      { label: 'Users', icon: 'people', route: '/admin/users' },
-      { label: 'Settings', icon: 'settings', route: '/admin/settings' },
-      { label: 'Audit Logs', icon: 'receipt_long', route: '/admin/logs' },
-      { label: 'System Logs', icon: 'terminal', route: '/admin/system-logs' },
-      { label: 'System Stats', icon: 'monitoring', route: '/admin/stats' },
-    ],
-  },
+  { label: 'Backups', icon: 'backup', route: '/backup' },
+  { label: 'Workflows', icon: 'account_tree', route: '/workflows' },
 ];
+
+export const ADMIN_NAV_ITEM: NavItem = {
+  label: 'Administration',
+  icon: 'admin_panel_settings',
+  route: '/admin',
+  roles: ['admin'],
+  children: [
+    { label: 'Users', icon: 'people', route: '/admin/users' },
+    { label: 'Settings', icon: 'settings', route: '/admin/settings' },
+    { label: 'Audit Logs', icon: 'receipt_long', route: '/admin/logs' },
+    { label: 'System Logs', icon: 'terminal', route: '/admin/system-logs' },
+    { label: 'System Stats', icon: 'monitoring', route: '/admin/stats' },
+  ],
+};

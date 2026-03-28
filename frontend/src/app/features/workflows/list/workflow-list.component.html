@@ -12,17 +12,17 @@
       }
     }
   <span class="spacer"></span>
-  <button mat-stroked-button (click)="importWorkflow()"><mat-icon>upload</mat-icon> Import</button>
+  <button mat-stroked-button routerLink="/workflows/executions">
+    <mat-icon>history</mat-icon> Executions
+  </button>
   @if (llmAvailable()) {
     <button mat-stroked-button (click)="createWithAI()"><app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Create with AI</button>
   }
-  <button mat-stroked-button (click)="createSubflow()"><mat-icon>account_tree</mat-icon> New Sub-Flow</button>
-  <button mat-flat-button (click)="createWorkflow()"><mat-icon>add</mat-icon> New Workflow</button>
+  <button mat-stroked-button (click)="importWorkflow()"><mat-icon>upload</mat-icon> Import</button>
+  <button mat-flat-button (click)="createWorkflow()"><mat-icon>add</mat-icon> New</button>
 </div>
 
-@if (loading()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-} @else if (workflows().length === 0) {
+@if (!loading() && workflows().length === 0) {
   <app-empty-state
     icon="account_tree"
     title="No workflows yet"
@@ -34,6 +34,9 @@
   </app-empty-state>
 } @else {
   <div class="table-card">
+    @if (loading()) {
+      <app-skeleton-loader [rows]="8" [columns]="6"></app-skeleton-loader>
+    } @else {
     <table mat-table [dataSource]="workflows()" matSort [matSortActive]="sortActive()" [matSortDirection]="sortDirection()" (matSortChange)="onSort($event)">
       <!-- Name (includes type badge, description, and tags) -->
       <ng-container matColumnDef="name">
@@ -148,6 +151,7 @@
         (click)="editWorkflow(wf)"
       ></tr>
     </table>
+    }
 
     <mat-paginator
       [length]="total()"

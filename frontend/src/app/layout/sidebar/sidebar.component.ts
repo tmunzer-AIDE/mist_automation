@@ -3,10 +3,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AsyncPipe } from '@angular/common';
 import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { MatBadgeModule } from '@angular/material/badge';
-import { MatDividerModule } from '@angular/material/divider';
-import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Store } from '@ngrx/store';
@@ -14,7 +13,7 @@ import { Observable, filter, map } from 'rxjs';
 import { selectUserRoles } from '../../core/state/auth/auth.selectors';
 import { GlobalChatService } from '../../core/services/global-chat.service';
 import { WebSocketService } from '../../core/services/websocket.service';
-import { NAV_ITEMS, NavItem } from './nav-items.config';
+import { NAV_ITEMS, ADMIN_NAV_ITEM, NavItem } from './nav-items.config';
 
 interface ImpactAlertData {
   session_id: string;
@@ -33,10 +32,9 @@ interface ImpactAlertData {
     AsyncPipe,
     RouterModule,
     MatBadgeModule,
-    MatDividerModule,
-    MatExpansionModule,
     MatIconModule,
     MatListModule,
+    MatMenuModule,
     MatTooltipModule,
   ],
   templateUrl: './sidebar.component.html',
@@ -54,6 +52,7 @@ export class SidebarComponent {
   private readonly roles$ = this.store.select(selectUserRoles);
 
   readonly impactAlertCount = signal(0);
+  readonly currentUrl = signal('');
 
   filteredNavItems$: Observable<NavItem[]> = this.roles$.pipe(
     map((roles) =>
@@ -61,7 +60,28 @@ export class SidebarComponent {
     ),
   );
 
+  adminItem$: Observable<NavItem | null> = this.roles$.pipe(
+    map((roles) =>
+      !ADMIN_NAV_ITEM.roles || ADMIN_NAV_ITEM.roles.some((r) => roles.includes(r))
+        ? ADMIN_NAV_ITEM
+        : null,
+    ),
+  );
+
   constructor() {
+    // Track current URL for admin active state + reset impact badge
+    this.router.events
+      .pipe(
+        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((e) => {
+        this.currentUrl.set(e.url);
+        if (e.url.startsWith('/impact-analysis')) {
+          this.impactAlertCount.set(0);
+        }
+      });
+
     // Subscribe to impact alert WS broadcasts
     this.wsService
       .subscribe<{ type: string; data: ImpactAlertData }>('impact:alerts')
@@ -73,15 +93,6 @@ export class SidebarComponent {
         this.impactAlertCount.update((c) => c + 1);
         this.showImpactAlert(msg.data);
       });
-
-    // Reset badge when navigating to impact analysis
-    this.router.events
-      .pipe(
-        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-        filter((e) => e.url.startsWith('/impact-analysis')),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe(() => this.impactAlertCount.set(0));
   }
 
   private showImpactAlert(data: ImpactAlertData): void {

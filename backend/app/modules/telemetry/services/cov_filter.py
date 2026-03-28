@@ -23,6 +23,7 @@ class CoVFilter:
         self.max_staleness_seconds = max_staleness_seconds
         # Key: metric_key → (last_fields_dict, last_write_timestamp)
         self._last_written: dict[str, tuple[dict[str, Any], float]] = {}
+        self._check_count = 0
 
     def should_write(
         self,
@@ -40,6 +41,10 @@ class CoVFilter:
         Returns:
             True if a write is warranted.
         """
+        self._check_count += 1
+        if self._check_count % 1000 == 0:
+            self._prune()
+
         prev = self._last_written.get(key)
         if prev is None:
             return True
@@ -62,6 +67,9 @@ class CoVFilter:
             if threshold is None:
                 return True
 
+            # Monotonic counters — always write to enable rate-of-change queries.
+            # Intentionally short-circuits: if ANY field is "always", the entire
+            # point is written regardless of other field thresholds.
             if threshold == "always":
                 return True
 
@@ -81,3 +89,10 @@ class CoVFilter:
     def record_write(self, key: str, fields: dict[str, Any]) -> None:
         """Record that a write was made, updating tracking state."""
         self._last_written[key] = (dict(fields), time.time())
+
+    def _prune(self) -> None:
+        """Remove entries older than 2x max staleness to prevent unbounded growth."""
+        cutoff = time.time() - (self.max_staleness_seconds * 2)
+        stale_keys = [k for k, (_, ts) in self._last_written.items() if ts < cutoff]
+        for k in stale_keys:
+            del self._last_written[k]

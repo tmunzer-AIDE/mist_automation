@@ -180,13 +180,13 @@
   &.pill-warn.active {
     background: var(--app-warning-pill-bg);
     border-color: var(--app-warning-pill-bg);
-    color: #fff;
+    color: var(--mat-sys-on-primary);
   }
 
   &.pill-err.active {
     background: var(--mat-sys-error);
     border-color: var(--mat-sys-error);
-    color: #fff;
+    color: var(--mat-sys-on-error);
   }
 }
 

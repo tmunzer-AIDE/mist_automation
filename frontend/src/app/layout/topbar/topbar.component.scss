@@ -1,5 +1,8 @@
 :host {
   display: block;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 mat-toolbar {
@@ -23,12 +26,14 @@ mat-toolbar {
 }
 
 .page-title {
-  font-size: 16px;
-  font-weight: 500;
-  margin-left: 8px;
+  font-family: var(--app-font-display);
+  font-size: var(--app-text-lg);
+  font-weight: 600;
+  margin: 0 0 0 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: -0.2px;
 }
 
 .user-btn {

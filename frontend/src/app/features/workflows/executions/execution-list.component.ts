@@ -1,4 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -25,6 +26,7 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
   selector: 'app-execution-list',
   standalone: true,
   imports: [
+    RouterModule,
     FormsModule,
     MatTableModule,
     MatPaginatorModule,
@@ -43,6 +45,11 @@ import { ExecutionDetailDialogComponent } from '../editor/execution-detail-dialo
     DurationPipe,
   ],
   template: `
+    <div class="page-actions">
+      <button mat-stroked-button routerLink="/workflows">
+        <mat-icon>arrow_back</mat-icon> Workflows
+      </button>
+    </div>
     <div class="filters-bar">
       <mat-form-field appearance="outline" class="filter-field">
         <mat-label>Status</mat-label>

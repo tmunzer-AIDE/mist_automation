@@ -10,50 +10,54 @@
   </div>
 
   <mat-nav-list>
-    @for (item of filteredNavItems$ | async; track item.route; let last = $last) {
-      @if (item.children && !collapsed) {
-        <mat-expansion-panel class="nav-group">
-          <mat-expansion-panel-header>
-            <mat-icon>{{ item.icon }}</mat-icon>
-            <span class="nav-label">{{ item.label }}</span>
-          </mat-expansion-panel-header>
-          <div class="nav-group-children">
-            @for (child of item.children; track child.route) {
-              <a
-                mat-list-item
-                [routerLink]="child.route"
-                routerLinkActive="active"
-                [routerLinkActiveOptions]="{ exact: child.route === item.route }"
-              >
-                <mat-icon matListItemIcon>{{ child.icon }}</mat-icon>
-                <span matListItemTitle>{{ child.label }}</span>
-              </a>
-            }
-          </div>
-        </mat-expansion-panel>
-      } @else {
-        <a
-          mat-list-item
-          [routerLink]="item.route"
-          routerLinkActive="active"
-          [matTooltip]="collapsed ? item.label : ''"
-          matTooltipPosition="right"
-        >
-          <mat-icon
-            matListItemIcon
-            [matBadge]="impactAlertCount()"
-            [matBadgeHidden]="item.route !== '/impact-analysis' || impactAlertCount() === 0"
-            matBadgeColor="warn"
-            matBadgeSize="small"
-          >{{ item.icon }}</mat-icon>
-          @if (!collapsed) {
-            <span matListItemTitle>{{ item.label }}</span>
-          }
-        </a>
-      }
-      @if (!last) {
-        <mat-divider class="nav-divider"></mat-divider>
-      }
+    @for (item of filteredNavItems$ | async; track item.route) {
+      <a
+        mat-list-item
+        [routerLink]="item.route"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }"
+        [matTooltip]="collapsed ? item.label : ''"
+        matTooltipPosition="right"
+      >
+        <mat-icon
+          matListItemIcon
+          [matBadge]="impactAlertCount()"
+          [matBadgeHidden]="item.route !== '/impact-analysis' || impactAlertCount() === 0"
+          matBadgeColor="warn"
+          matBadgeSize="small"
+        >{{ item.icon }}</mat-icon>
+        @if (!collapsed) {
+          <span matListItemTitle>{{ item.label }}</span>
+        }
+      </a>
     }
   </mat-nav-list>
+
+  <!-- Admin section pinned to bottom -->
+  @if (adminItem$ | async; as admin) {
+    <div class="admin-section">
+      <mat-nav-list>
+        <a
+          mat-list-item
+          [matMenuTriggerFor]="adminMenu"
+          [matTooltip]="collapsed ? admin.label : ''"
+          matTooltipPosition="right"
+          [class.admin-active]="currentUrl().startsWith('/admin')"
+        >
+          <mat-icon matListItemIcon>{{ admin.icon }}</mat-icon>
+          @if (!collapsed) {
+            <span matListItemTitle>{{ admin.label }}</span>
+          }
+        </a>
+      </mat-nav-list>
+      <mat-menu #adminMenu="matMenu" yPosition="above">
+        @for (child of admin.children; track child.route) {
+          <a mat-menu-item [routerLink]="child.route">
+            <mat-icon>{{ child.icon }}</mat-icon>
+            <span>{{ child.label }}</span>
+          </a>
+        }
+      </mat-menu>
+    </div>
+  }
 </div>

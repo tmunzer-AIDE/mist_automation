@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.dependencies import require_admin, require_impact_role
 from app.models.user import User
 from app.modules.telemetry.schemas import (
+    _DURATION_RE,
+    _FIELD_RE,
+    _MAC_RE,
+    _UUID_RE,
+    _WINDOW_RE,
     ALLOWED_AGGREGATIONS,
     ALLOWED_MEASUREMENTS,
     AggregateQueryResponse,
@@ -20,19 +25,13 @@ from app.modules.telemetry.schemas import (
     TelemetrySettingsUpdate,
 )
 
+logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/telemetry", tags=["Telemetry"])
-
-# Re-use the MAC regex from schemas for path parameter validation
-_MAC_PATH_RE = re.compile(r"^[a-fA-F0-9]{12}$|^[a-fA-F0-9]{2}(:[a-fA-F0-9]{2}){5}$")
-_FIELD_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
-_WINDOW_RE = re.compile(r"^\d+[smhd]$")
-_DURATION_RE = re.compile(r"^-?\d+[smhd]$")
-_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def _validate_mac_path(mac: str) -> str:
     """Validate and normalize a MAC address from path parameter."""
-    if not _MAC_PATH_RE.match(mac):
+    if not _MAC_RE.match(mac):
         raise HTTPException(status_code=400, detail="Invalid MAC address format")
     return mac.lower().replace(":", "")
 
@@ -81,7 +80,7 @@ async def get_latest_stats(
         # Try stale data
         stats = telemetry_mod._latest_cache.get(mac_clean)
         if stats:
-            raw_entry = telemetry_mod._latest_cache._entries.get(mac_clean)
+            raw_entry = telemetry_mod._latest_cache.get_entry(mac_clean)
             return LatestStatsResponse(
                 mac=mac_clean,
                 fresh=False,
@@ -113,7 +112,7 @@ async def query_range(
     import app.modules.telemetry as telemetry_mod
 
     # Validate inputs (defense in depth — Flux injection prevention)
-    if not _MAC_PATH_RE.match(mac):
+    if not _MAC_RE.match(mac):
         raise HTTPException(status_code=400, detail="Invalid MAC address format")
     mac_clean = mac.lower().replace(":", "")
 
@@ -284,11 +283,13 @@ async def reconnect_websockets(
             message=f"Pipeline started: {result.get('connections', 0)} connection(s) for {result.get('sites', 0)} sites",
         )
     except ValueError as e:
+        logger.warning("telemetry_reconnect_validation_error", error=str(e))
         return ReconnectResponse(
             reconnected=False,
-            message=str(e),
+            message="Pipeline reconnection failed: invalid configuration",
         )
     except Exception as e:
+        logger.error("telemetry_reconnect_failed", error=str(e))
         # Clean up on failure
         try:
             await stop_telemetry_pipeline()
@@ -296,5 +297,5 @@ async def reconnect_websockets(
             pass
         return ReconnectResponse(
             reconnected=False,
-            message=f"Pipeline start failed: {e!s}",
+            message="Pipeline reconnection failed",
         )

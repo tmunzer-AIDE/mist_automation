@@ -26,9 +26,9 @@
 </div>
 
 <!-- Chart -->
-@if (chartConfig()) {
-  <app-backup-chart-card title="Backup activity (30 days)">
-    <div class="chart-container">
+<app-backup-chart-card title="Backup activity (30 days)">
+  <div class="chart-container">
+    @if (chartConfig()) {
       <canvas
         baseChart
         [datasets]="chartConfig()!.data.datasets"
@@ -36,9 +36,11 @@
         [options]="chartConfig()!.options!"
         type="bar"
       ></canvas>
-    </div>
-  </app-backup-chart-card>
-}
+    } @else {
+      <div class="shimmer-block" style="width: 100%; height: 100%;"></div>
+    }
+  </div>
+</app-backup-chart-card>
 
 <!-- Search & Filters -->
 
@@ -110,10 +112,6 @@
   }
 </div>
 
-@if (loadingObjects()) {
-  <app-skeleton-loader type="table" [rows]="5" [columns]="5"></app-skeleton-loader>
-}
-
 @if (!loadingObjects() && objects().length === 0) {
   <app-empty-state
     icon="backup"
@@ -122,10 +120,11 @@
   >
     <button mat-flat-button (click)="openCreateDialog()">Create Backup</button>
   </app-empty-state>
-}
-
-@if (objects().length > 0) {
+} @else {
   <div class="table-card">
+    @if (loadingObjects()) {
+      <app-skeleton-loader [rows]="8" [columns]="6"></app-skeleton-loader>
+    } @else {
     <table mat-table [dataSource]="objects()" matSort [matSortActive]="sortField" [matSortDirection]="sortDirection" (matSortChange)="onSort($event)">
       <ng-container matColumnDef="object_name">
         <th mat-header-cell *matHeaderCellDef mat-sort-header>Name</th>
@@ -168,6 +167,7 @@
         (click)="viewObjectDetail(obj)"
       ></tr>
     </table>
+    }
 
     <mat-paginator
       [length]="objectsTotal()"

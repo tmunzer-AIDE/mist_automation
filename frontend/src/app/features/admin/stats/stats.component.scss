@@ -131,10 +131,11 @@ mat-card {
 
 // Accordion spacing
 mat-accordion {
-  margin-bottom: 32px;
+  display: block;
+  margin-bottom: 24px;
 
   mat-expansion-panel {
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     box-shadow: var(--app-shadow-sm) !important;
     border-radius: var(--app-radius) !important;
   }

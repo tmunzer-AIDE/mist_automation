@@ -52,6 +52,10 @@ class MistWsManager:
 
         Uses ``loop.call_soon_threadsafe()`` to safely post the message into
         the asyncio queue from a non-asyncio thread.
+
+        Note: counter increments are not lock-protected. With multiple WS
+        connections the counts may lose increments under contention. This is
+        acceptable for approximate monitoring stats.
         """
         self._messages_received += 1
         self._last_message_at = time.time()
@@ -60,13 +64,17 @@ class MistWsManager:
             return
 
         try:
-            self._loop.call_soon_threadsafe(self._message_queue.put_nowait, msg)
-        except asyncio.QueueFull:
-            self._messages_bridge_dropped += 1
-            logger.debug("ws_bridge_queue_full")
+            self._loop.call_soon_threadsafe(self._safe_enqueue, msg)
         except RuntimeError:
             # Event loop closed
             pass
+
+    def _safe_enqueue(self, msg: dict[str, Any]) -> None:
+        """Enqueue a message, counting drops. Runs on the event loop thread."""
+        try:
+            self._message_queue.put_nowait(msg)
+        except asyncio.QueueFull:
+            self._messages_bridge_dropped += 1
 
     async def start(self, site_ids: list[str]) -> None:
         """Subscribe to device stats for all sites, auto-scaling connections.

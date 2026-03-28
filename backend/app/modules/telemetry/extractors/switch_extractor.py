@@ -47,10 +47,10 @@ def _extract_device_summary(payload: dict, org_id: str, site_id: str, timestamp:
     """Build device_summary data point from switch payload."""
     cpu_stat = payload.get("cpu_stat", {})
     cpu_idle = cpu_stat.get("idle", 100)
-    cpu_util = 100 - cpu_idle
+    cpu_util = int(100 - cpu_idle)
 
     memory_stat = payload.get("memory_stat", {})
-    mem_usage = memory_stat.get("usage", 0)
+    mem_usage = int(memory_stat.get("usage", 0))
 
     poe_draw_total, poe_max_total = _get_poe_totals(payload)
 
@@ -68,7 +68,7 @@ def _extract_device_summary(payload: dict, org_id: str, site_id: str, timestamp:
             "cpu_util": cpu_util,
             "mem_usage": mem_usage,
             "num_clients": _get_num_clients(payload),
-            "uptime": payload.get("uptime", 0),
+            "uptime": int(payload.get("uptime", 0)),
             "poe_draw_total": poe_draw_total,
             "poe_max_total": poe_max_total,
         },

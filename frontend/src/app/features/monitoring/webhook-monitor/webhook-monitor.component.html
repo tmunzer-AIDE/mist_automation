@@ -58,7 +58,7 @@
   </div>
   <div class="chart-container">
     @if (chartLoading()) {
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+      <div class="shimmer-block" style="width: 100%; height: 200px;"></div>
     } @else if (chartConfig()) {
       <canvas
         baseChart
@@ -138,9 +138,7 @@
   </mat-form-field>
 </div>
 
-@if (loading()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-} @else if (events().length === 0) {
+@if (!loading() && events().length === 0) {
   <app-empty-state
     icon="webhook"
     title="No webhook events"
@@ -149,6 +147,9 @@
   </app-empty-state>
 } @else {
   <div class="table-card" aria-live="polite" aria-relevant="additions">
+    @if (loading()) {
+      <app-skeleton-loader [rows]="8" [columns]="6"></app-skeleton-loader>
+    } @else {
     <table mat-table [dataSource]="pagedEvents()">
       <!-- Event Timestamp -->
       <ng-container matColumnDef="event_timestamp">
@@ -255,6 +256,7 @@
         (click)="openEventDetail(ev)"
       ></tr>
     </table>
+    }
 
     <mat-paginator
       [length]="filteredEvents().length"

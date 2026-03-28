@@ -5,8 +5,8 @@ import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
@@ -43,11 +43,11 @@ interface ReportListResponse {
     MatButtonModule,
     MatIconModule,
     MatDialogModule,
-    MatProgressBarModule,
     MatSnackBarModule,
     MatTooltipModule,
     StatusBadgeComponent,
     EmptyStateComponent,
+    SkeletonLoaderComponent,
     DateTimePipe,
   ],
   templateUrl: './report-list.component.html',

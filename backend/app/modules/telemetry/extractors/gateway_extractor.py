@@ -36,10 +36,10 @@ def _detect_subtype(payload: dict) -> str:
 def _extract_gateway_health(payload: dict, org_id: str, site_id: str, timestamp: int) -> dict:
     """Build gateway_health data point (common to all gateway types)."""
     cpu_stat = payload.get("cpu_stat", {})
-    cpu_idle = cpu_stat.get("idle", 100)
+    cpu_idle = int(cpu_stat.get("idle", 100))
 
     memory_stat = payload.get("memory_stat", {})
-    mem_usage = memory_stat.get("usage", 0)
+    mem_usage = int(memory_stat.get("usage", 0))
 
     tags: dict = {
         "org_id": org_id,
@@ -58,7 +58,7 @@ def _extract_gateway_health(payload: dict, org_id: str, site_id: str, timestamp:
         "fields": {
             "cpu_idle": cpu_idle,
             "mem_usage": mem_usage,
-            "uptime": payload.get("uptime", 0),
+            "uptime": int(payload.get("uptime", 0)),
             "ha_state": payload.get("ha_state", ""),
             "config_status": payload.get("config_status", ""),
         },
@@ -222,7 +222,7 @@ def _extract_gateway_resources(payload: dict, org_id: str, site_id: str, timesta
     for resource in network_resources:
         count = resource.get("count", 0)
         limit = resource.get("limit", 0)
-        utilization_pct = round(count / limit * 100, 1) if limit > 0 else 0
+        utilization_pct = round(count / limit * 100, 1) if limit > 0 else 0.0
 
         points.append(
             {

@@ -26,6 +26,7 @@ import { Subject, Subscription, debounceTime } from 'rxjs';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
+import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { WebhookEventDetailDialogComponent } from '../../../shared/components/webhook-event-detail-dialog/webhook-event-detail-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
@@ -77,6 +78,7 @@ interface ChartRange {
     MatAutocompleteModule,
     BaseChartDirective,
     EmptyStateComponent,
+    SkeletonLoaderComponent,
     StatusBadgeComponent,
     AiIconComponent,
     AiSummaryPanelComponent,

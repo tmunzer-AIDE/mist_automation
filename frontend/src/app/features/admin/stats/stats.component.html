@@ -165,46 +165,11 @@
   </mat-accordion>
 }
 
+<!-- Business Stats -->
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 } @else if (stats(); as stats) {
   <div class="stats-grid">
-    <mat-card>
-      <mat-card-header>
-        <mat-icon mat-card-avatar>people</mat-icon>
-        <mat-card-title>Users</mat-card-title>
-      </mat-card-header>
-      <mat-card-content>
-        <div class="stat-row">
-          <span>Total</span><strong>{{ stats.users.total }}</strong>
-        </div>
-        <div class="stat-row">
-          <span>Active</span><strong>{{ stats.users.active }}</strong>
-        </div>
-        <div class="stat-row">
-          <span>Admins</span><strong>{{ stats.users.admins }}</strong>
-        </div>
-      </mat-card-content>
-    </mat-card>
-
-    <mat-card>
-      <mat-card-header>
-        <mat-icon mat-card-avatar>account_tree</mat-icon>
-        <mat-card-title>Workflows</mat-card-title>
-      </mat-card-header>
-      <mat-card-content>
-        <div class="stat-row">
-          <span>Total</span><strong>{{ stats.workflows.total }}</strong>
-        </div>
-        <div class="stat-row">
-          <span>Enabled</span><strong>{{ stats.workflows.enabled }}</strong>
-        </div>
-        <div class="stat-row">
-          <span>Draft</span><strong>{{ stats.workflows.draft }}</strong>
-        </div>
-      </mat-card-content>
-    </mat-card>
-
     <mat-card>
       <mat-card-header>
         <mat-icon mat-card-avatar>play_circle</mat-icon>
@@ -264,24 +229,5 @@
         </div>
       </mat-card-content>
     </mat-card>
-
-    @if (workerStatus(); as workerStatus) {
-      <mat-card>
-        <mat-card-header>
-          <mat-icon mat-card-avatar>engineering</mat-icon>
-          <mat-card-title>Workers</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          <div class="stat-row">
-            <span>Scheduler</span>
-            <app-status-badge [status]="workerStatus.scheduler.status"></app-status-badge>
-          </div>
-          <div class="stat-row">
-            <span>Scheduled</span>
-            <strong>{{ workerStatus.scheduler.scheduled_workflows }}</strong>
-          </div>
-        </mat-card-content>
-      </mat-card>
-    }
   </div>
 }

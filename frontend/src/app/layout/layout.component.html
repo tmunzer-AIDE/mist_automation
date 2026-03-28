@@ -1,3 +1,4 @@
+<a class="skip-link" href="#main-content">Skip to content</a>
 <mat-sidenav-container
   class="layout-container"
   [class.desktop]="!isMobile()"
@@ -21,7 +22,7 @@
       </div>
     }
     <app-topbar (toggleSidebar)="toggleSidebar()"></app-topbar>
-    <main class="content" [class.full-width]="isFullWidth()">
+    <main id="main-content" class="content" [class.full-width]="isFullWidth()">
       <router-outlet></router-outlet>
     </main>
     @if (llmAvailable()) {

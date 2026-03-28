@@ -1,7 +1,3 @@
-@if (loading()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-}
-
 <div class="page-header">
   <h2>Validation Reports</h2>
   <button mat-flat-button color="primary" (click)="openCreateDialog()">
@@ -18,50 +14,54 @@
   ></app-empty-state>
 } @else {
   <div class="table-card">
-    <table mat-table [dataSource]="reports()" class="mat-elevation-z0">
-      <ng-container matColumnDef="status">
-        <th mat-header-cell *matHeaderCellDef>Status</th>
-        <td mat-cell *matCellDef="let row">
-          <app-status-badge [status]="row.status"></app-status-badge>
-        </td>
-      </ng-container>
+    @if (loading()) {
+      <app-skeleton-loader [rows]="8" [columns]="5"></app-skeleton-loader>
+    } @else {
+      <table mat-table [dataSource]="reports()" class="mat-elevation-z0">
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let row">
+            <app-status-badge [status]="row.status"></app-status-badge>
+          </td>
+        </ng-container>
 
-      <ng-container matColumnDef="site_name">
-        <th mat-header-cell *matHeaderCellDef>Site</th>
-        <td mat-cell *matCellDef="let row">{{ row.site_name || row.site_id }}</td>
-      </ng-container>
+        <ng-container matColumnDef="site_name">
+          <th mat-header-cell *matHeaderCellDef>Site</th>
+          <td mat-cell *matCellDef="let row">{{ row.site_name || row.site_id }}</td>
+        </ng-container>
 
-      <ng-container matColumnDef="report_type">
-        <th mat-header-cell *matHeaderCellDef>Report Type</th>
-        <td mat-cell *matCellDef="let row">{{ formatReportType(row.report_type) }}</td>
-      </ng-container>
+        <ng-container matColumnDef="report_type">
+          <th mat-header-cell *matHeaderCellDef>Report Type</th>
+          <td mat-cell *matCellDef="let row">{{ formatReportType(row.report_type) }}</td>
+        </ng-container>
 
-      <ng-container matColumnDef="created_at">
-        <th mat-header-cell *matHeaderCellDef>Created</th>
-        <td mat-cell *matCellDef="let row">{{ row.created_at | dateTime }}</td>
-      </ng-container>
+        <ng-container matColumnDef="created_at">
+          <th mat-header-cell *matHeaderCellDef>Created</th>
+          <td mat-cell *matCellDef="let row">{{ row.created_at | dateTime }}</td>
+        </ng-container>
 
-      <ng-container matColumnDef="actions">
-        <th mat-header-cell *matHeaderCellDef></th>
-        <td mat-cell *matCellDef="let row">
-          <button
-            mat-icon-button
-            matTooltip="Delete"
-            (click)="deleteReport($event, row)"
-          >
-            <mat-icon>delete</mat-icon>
-          </button>
-        </td>
-      </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let row">
+            <button
+              mat-icon-button
+              matTooltip="Delete"
+              (click)="deleteReport($event, row)"
+            >
+              <mat-icon>delete</mat-icon>
+            </button>
+          </td>
+        </ng-container>
 
-      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-      <tr
-        mat-row
-        *matRowDef="let row; columns: displayedColumns"
-        class="clickable-row"
-        (click)="viewReport(row)"
-      ></tr>
-    </table>
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: displayedColumns"
+          class="clickable-row"
+          (click)="viewReport(row)"
+        ></tr>
+      </table>
+    }
 
     <mat-paginator
       [length]="total()"

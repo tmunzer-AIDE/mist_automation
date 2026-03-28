@@ -7,7 +7,41 @@
 </ng-template>
 
 @if (loading()) {
-  <app-skeleton-loader type="dashboard" [columns]="5"></app-skeleton-loader>
+  <!-- Hero skeleton -->
+  <div class="hero-card">
+    <div class="hero-accent shimmer-block"></div>
+    <div class="hero-body">
+      <div class="hero-top">
+        <div class="hero-primary">
+          <div class="shimmer-block" style="width: 220px; height: 20px;"></div>
+          <div class="shimmer-block" style="width: 180px; height: 14px; margin-top: 8px;"></div>
+        </div>
+      </div>
+      <div class="hero-stats">
+        @for (_ of [1,2,3,4,5]; track $index) {
+          <div class="hero-stat">
+            <div class="shimmer-block" style="width: 40px; height: 24px;"></div>
+            <div class="shimmer-block" style="width: 64px; height: 10px; margin-top: 6px;"></div>
+            <div class="shimmer-block" style="width: 48px; height: 10px; margin-top: 4px; opacity: 0.5;"></div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+  <!-- Chart skeleton -->
+  <div class="dashboard-section">
+    <div class="shimmer-block" style="width: 120px; height: 14px;"></div>
+    <div class="table-card" style="margin-top: 12px; padding: 16px;">
+      <div class="shimmer-block" style="width: 100%; height: 200px;"></div>
+    </div>
+  </div>
+  <!-- Activity skeleton -->
+  <div class="dashboard-section">
+    <div class="shimmer-block" style="width: 100px; height: 14px;"></div>
+    <div class="table-card" style="margin-top: 12px;">
+      <app-skeleton-loader [rows]="4" [columns]="4"></app-skeleton-loader>
+    </div>
+  </div>
 } @else {
   <app-ai-summary-panel
     [open]="aiPanelOpen()"

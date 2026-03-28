@@ -41,6 +41,13 @@ class LatestValueCache:
             return None
         return copy.deepcopy(entry["stats"])
 
+    def get_entry(self, mac: str) -> dict[str, Any] | None:
+        """Get the full cache entry (stats + updated_at) for a device, or None."""
+        entry = self._entries.get(mac)
+        if entry is None:
+            return None
+        return copy.deepcopy(entry)
+
     def get_fresh_entry(self, mac: str, max_age_seconds: float = 60) -> dict[str, Any] | None:
         """Get stats with metadata if fresh, or None if stale/missing.
 
@@ -84,6 +91,14 @@ class LatestValueCache:
     def clear(self) -> None:
         """Remove all entries."""
         self._entries.clear()
+
+    def prune(self, max_age_seconds: float = 3600) -> int:
+        """Remove entries older than max_age_seconds. Returns count of pruned entries."""
+        now = time.time()
+        stale = [mac for mac, entry in self._entries.items() if now - entry["updated_at"] > max_age_seconds]
+        for mac in stale:
+            del self._entries[mac]
+        return len(stale)
 
     def size(self) -> int:
         """Return the number of cached devices."""

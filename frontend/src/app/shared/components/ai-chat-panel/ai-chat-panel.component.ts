@@ -51,7 +51,7 @@ function renderMarkdown(md: string): string {
   imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, AiIconComponent, RestoreDiffCardComponent],
   template: `
     <div class="ai-chat-panel">
-      <div class="chat-messages" #chatMessages>
+      <div class="chat-messages" #chatMessages aria-live="polite" aria-relevant="additions">
         @if (timeline().length === 0 && isLoading()) {
           <div class="loading-hint">
             <div class="typing-indicator">

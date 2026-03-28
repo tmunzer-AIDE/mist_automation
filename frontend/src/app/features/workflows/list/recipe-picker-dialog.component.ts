@@ -42,7 +42,7 @@ const DIFFICULTY_ICONS: Record<string, string> = {
       <div class="quick-start">
         <button class="start-card" (click)="startFromScratch()">
           <mat-icon>add_circle_outline</mat-icon>
-          <span class="card-title">Start from Scratch</span>
+          <span class="card-title">New Workflow</span>
           <span class="card-desc">Blank canvas with a trigger node</span>
         </button>
         <button class="start-card" (click)="startFromScratch('subflow')">

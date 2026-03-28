@@ -200,7 +200,7 @@ import {
   styles: `
     :host {
       display: block;
-      height: 100%;
+      height: calc(100% - 32px);
       overflow-y: auto;
       padding: 16px;
       background: var(--app-canvas-bg, #fafafa);

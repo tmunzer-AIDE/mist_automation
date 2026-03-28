@@ -12,6 +12,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import {
   ImpactAnalysisService,
   SessionListResponse,
@@ -43,6 +44,7 @@ import {
     MatChipsModule,
     MatProgressBarModule,
     MatTooltipModule,
+    SkeletonLoaderComponent,
     StatusBadgeComponent,
     EmptyStateComponent,
     DateTimePipe,

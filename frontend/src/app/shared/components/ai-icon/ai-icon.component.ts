@@ -1,4 +1,4 @@
-import { Component, input, computed } from '@angular/core';
+import { Component, input } from '@angular/core';
 
 @Component({
   selector: 'app-ai-icon',

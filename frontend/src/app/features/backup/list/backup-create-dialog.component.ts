@@ -47,9 +47,8 @@ const BACKUP_TYPES = [
         <mat-form-field appearance="outline">
           <mat-label>Backup Type</mat-label>
           <input matInput [matAutocomplete]="backupTypeAuto"
-                 [value]="backupTypeDisplayValue()"
                  (input)="backupTypeSearch.set($any($event.target).value)">
-          <mat-autocomplete #backupTypeAuto (optionSelected)="form.get('backup_type')!.setValue($event.option.value); onTypeChange()">
+          <mat-autocomplete #backupTypeAuto [displayWith]="backupTypeDisplayFn" (optionSelected)="form.get('backup_type')!.setValue($event.option.value); onTypeChange()">
             @for (type of filteredBackupTypes(); track type.value) {
               <mat-option [value]="type.value">{{ type.label }}</mat-option>
             }
@@ -65,9 +64,8 @@ const BACKUP_TYPES = [
           <mat-form-field appearance="outline">
             <mat-label>Object Type</mat-label>
             <input matInput [matAutocomplete]="objectTypeAuto"
-                   [value]="objectTypeDisplayValue()"
                    (input)="objectTypeSearch.set($any($event.target).value)">
-            <mat-autocomplete #objectTypeAuto (optionSelected)="form.get('object_type')!.setValue($event.option.value); onObjectTypeChange()">
+            <mat-autocomplete #objectTypeAuto [displayWith]="objectTypeDisplayFn" (optionSelected)="form.get('object_type')!.setValue($event.option.value); onObjectTypeChange()">
               @if (loadingObjectTypes()) {
                 <mat-option disabled>Loading...</mat-option>
               }
@@ -89,9 +87,8 @@ const BACKUP_TYPES = [
             <mat-form-field appearance="outline">
               <mat-label>Site</mat-label>
               <input matInput [matAutocomplete]="dialogSiteAuto"
-                     [value]="dialogSiteDisplayValue()"
                      (input)="dialogSiteSearch.set($any($event.target).value)">
-              <mat-autocomplete #dialogSiteAuto (optionSelected)="form.get('site_id')!.setValue($event.option.value); onSiteChange()">
+              <mat-autocomplete #dialogSiteAuto [displayWith]="siteDisplayFn" (optionSelected)="form.get('site_id')!.setValue($event.option.value); onSiteChange()">
                 @for (site of filteredSites(); track site.id) {
                   <mat-option [value]="site.id">{{ site.name }}</mat-option>
                 }
@@ -233,21 +230,15 @@ export class BackupCreateDialogComponent implements OnInit {
     return q ? all.filter((s) => s.name.toLowerCase().includes(q)) : all;
   });
 
-  // ── Display values for autocomplete inputs ─────────────────────────
-  backupTypeDisplayValue = computed(() => {
-    const val = this.form.get('backup_type')?.value;
-    return this.backupTypes.find((t) => t.value === val)?.label ?? '';
-  });
+  // ── Display functions for autocomplete inputs ──────────────────────
+  backupTypeDisplayFn = (value: string): string =>
+    BACKUP_TYPES.find((t) => t.value === value)?.label ?? value;
 
-  objectTypeDisplayValue = computed(() => {
-    const val = this.form.get('object_type')?.value;
-    return this.allObjectTypes().find((t) => t.value === val)?.label ?? '';
-  });
+  objectTypeDisplayFn = (value: string): string =>
+    this.allObjectTypes().find((t) => t.value === value)?.label ?? value;
 
-  dialogSiteDisplayValue = computed(() => {
-    const val = this.form.get('site_id')?.value;
-    return this.sites().find((s) => s.id === val)?.name ?? '';
-  });
+  siteDisplayFn = (value: string): string =>
+    this.sites().find((s) => s.id === value)?.name ?? value;
 
   form = this.fb.group({
     backup_type: ['full', Validators.required],

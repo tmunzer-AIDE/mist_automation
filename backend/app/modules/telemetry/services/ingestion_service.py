@@ -61,7 +61,6 @@ COV_THRESHOLDS: dict[str, dict[str, str | float]] = {
         "rx_bytes": "always",
         "tx_pkts": "always",
         "rx_pkts": "always",
-        "redundancy_state": "exact",
     },
     "gateway_spu": {
         "spu_cpu": 5.0,
@@ -133,7 +132,6 @@ class IngestionService:
 
         # Stats
         self._messages_processed = 0
-        self._messages_dropped = 0
         self._points_extracted = 0
         self._points_written = 0
         self._points_filtered = 0
@@ -279,6 +277,10 @@ class IngestionService:
         self._messages_processed += 1
         self._last_message_at = time.time()
 
+        # Periodic cache pruning (every 1000 messages)
+        if self._messages_processed % 1000 == 0:
+            self._cache.prune(max_age_seconds=3600)
+
     def get_stats(self) -> dict[str, Any]:
         """Return ingestion statistics."""
         return {
@@ -286,7 +288,6 @@ class IngestionService:
             "queue_size": self._queue.qsize(),
             "queue_capacity": self._queue.maxsize,
             "messages_processed": self._messages_processed,
-            "messages_dropped": self._messages_dropped,
             "points_extracted": self._points_extracted,
             "points_written": self._points_written,
             "points_filtered": self._points_filtered,

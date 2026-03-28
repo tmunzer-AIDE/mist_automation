@@ -374,6 +374,24 @@ textarea:not([disabled]) {
   }
 }
 
+// ── Shimmer utility (reusable for chart/dashboard skeleton blocks) ───────
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+.shimmer-block {
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-container) 0%,
+    var(--mat-sys-surface-container-high) 50%,
+    var(--mat-sys-surface-container) 100%
+  );
+  background-size: 400px 100%;
+  animation: shimmer var(--app-duration-emphasis) ease-in-out infinite;
+}
+
 .mat-mdc-snack-bar-container {
   margin-top: 64px;
 }

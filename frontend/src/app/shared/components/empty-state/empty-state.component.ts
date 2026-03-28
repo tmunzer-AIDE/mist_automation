@@ -21,6 +21,16 @@ import { MatIconModule } from '@angular/material/icon';
   `,
   styles: [
     `
+      @keyframes fade-slide-up {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
       .empty-state {
         display: flex;
         flex-direction: column;
@@ -28,6 +38,7 @@ import { MatIconModule } from '@angular/material/icon';
         justify-content: center;
         padding: 64px 24px;
         text-align: center;
+        animation: fade-slide-up 200ms ease-out;
       }
       .icon-circle {
         width: 80px;

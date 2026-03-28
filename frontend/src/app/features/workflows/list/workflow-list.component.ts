@@ -10,8 +10,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
+import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
@@ -43,7 +43,7 @@ import { RecipePickerDialogComponent } from './recipe-picker-dialog.component';
     MatMenuModule,
     MatDialogModule,
     MatTooltipModule,
-    MatProgressBarModule,
+    SkeletonLoaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
     AiIconComponent,

@@ -29,10 +29,10 @@ def _extract_device_summary(payload: dict, org_id: str, site_id: str, timestamp:
             "model": payload.get("model", ""),
         },
         "fields": {
-            "cpu_util": payload.get("cpu_util", 0),
+            "cpu_util": int(payload.get("cpu_util", 0)),
             "mem_usage": mem_usage,
-            "num_clients": payload.get("num_clients", 0),
-            "uptime": payload.get("uptime", 0),
+            "num_clients": int(payload.get("num_clients", 0)),
+            "uptime": int(payload.get("uptime", 0)),
         },
         "time": timestamp,
     }

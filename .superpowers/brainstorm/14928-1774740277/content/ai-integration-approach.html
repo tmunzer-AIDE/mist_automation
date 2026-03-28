@@ -1,0 +1,157 @@
+<h2>AI Summary Integration Style</h2>
+<p class="subtitle">How should the AI summary sit within the page layout? Currently it's a separate panel that pushes content down. We want it integrated into the design.</p>
+
+<div class="cards">
+  <div class="card" data-choice="accordion" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #1a1a2e;">
+      <!-- Mockup: Accordion style -->
+      <div style="font-family: system-ui; color: #e0e0e0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-size: 18px; font-weight: 600;">v24 &rarr; v25</span>
+          <span style="color: #999; font-size: 13px;">6 differences</span>
+        </div>
+        <!-- Chips -->
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <span style="padding: 4px 12px; border-radius: 16px; background: rgba(255,255,255,0.1); font-size: 12px;">added 4</span>
+          <span style="padding: 4px 12px; border-radius: 16px; background: rgba(255,255,255,0.1); font-size: 12px;">modified 2</span>
+        </div>
+        <!-- AI Summary accordion row -->
+        <div style="border: 1px solid rgba(100,180,255,0.3); border-radius: 8px; margin-bottom: 12px; overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(100,180,255,0.06); cursor: pointer;">
+            <span style="color: #64b4ff; font-size: 14px;">&#10042;</span>
+            <span style="font-size: 13px; font-weight: 500; color: #64b4ff;">AI Analysis</span>
+            <span style="margin-left: auto; color: #666; font-size: 12px;">&#9660;</span>
+          </div>
+          <div style="padding: 12px 14px; font-size: 12px; color: #bbb; border-top: 1px solid rgba(100,180,255,0.15);">
+            AP US-NY-AP01 was mapped to a floor plan. Low risk change...
+            <div style="margin-top: 8px; padding: 6px 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-size: 11px; color: #888;">Ask a follow-up...</div>
+          </div>
+        </div>
+        <!-- Diff entries -->
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <div style="padding: 8px 12px; border: 1px solid rgba(100,180,255,0.3); border-radius: 6px; display: flex; justify-content: space-between;">
+            <span style="font-size: 12px;">&rsaquo; modified_time</span>
+            <span style="font-size: 10px; color: #64b4ff; background: rgba(100,180,255,0.15); padding: 2px 8px; border-radius: 4px;">MODIFIED</span>
+          </div>
+          <div style="padding: 8px 12px; border: 1px solid rgba(80,200,120,0.3); border-radius: 6px; display: flex; justify-content: space-between;">
+            <span style="font-size: 12px;">&rsaquo; x</span>
+            <span style="font-size: 10px; color: #50c878; background: rgba(80,200,120,0.15); padding: 2px 8px; border-radius: 4px;">ADDED</span>
+          </div>
+          <div style="padding: 8px 12px; border: 1px solid rgba(80,200,120,0.3); border-radius: 6px; display: flex; justify-content: space-between;">
+            <span style="font-size: 12px;">&rsaquo; y</span>
+            <span style="font-size: 10px; color: #50c878; background: rgba(80,200,120,0.15); padding: 2px 8px; border-radius: 4px;">ADDED</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Inline Accordion</h3>
+      <p>A collapsible row between the chips and diff entries. Sits in the content flow. Click to expand/collapse. Subtle border matches the diff entries style. Reusable as a component that takes a "slot" position.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="drawer" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #1a1a2e;">
+      <!-- Mockup: Sliding drawer from right edge -->
+      <div style="font-family: system-ui; color: #e0e0e0; display: flex; gap: 12px;">
+        <!-- Left: page content -->
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 16px; font-weight: 600;">v24 &rarr; v25</span>
+            <span style="color: #999; font-size: 12px;">6 diffs</span>
+          </div>
+          <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+            <span style="padding: 3px 10px; border-radius: 12px; background: rgba(255,255,255,0.1); font-size: 11px;">added 4</span>
+            <span style="padding: 3px 10px; border-radius: 12px; background: rgba(255,255,255,0.1); font-size: 11px;">modified 2</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <div style="padding: 6px 10px; border: 1px solid rgba(100,180,255,0.3); border-radius: 5px; display: flex; justify-content: space-between; font-size: 11px;">
+              <span>&rsaquo; modified_time</span>
+              <span style="color: #64b4ff; font-size: 9px;">MOD</span>
+            </div>
+            <div style="padding: 6px 10px; border: 1px solid rgba(80,200,120,0.3); border-radius: 5px; display: flex; justify-content: space-between; font-size: 11px;">
+              <span>&rsaquo; x</span>
+              <span style="color: #50c878; font-size: 9px;">ADD</span>
+            </div>
+            <div style="padding: 6px 10px; border: 1px solid rgba(80,200,120,0.3); border-radius: 5px; display: flex; justify-content: space-between; font-size: 11px;">
+              <span>&rsaquo; y</span>
+              <span style="color: #50c878; font-size: 9px;">ADD</span>
+            </div>
+          </div>
+        </div>
+        <!-- Right: AI drawer -->
+        <div style="width: 45%; border-left: 1px solid rgba(100,180,255,0.2); padding-left: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+            <span style="color: #64b4ff; font-size: 13px;">&#10042;</span>
+            <span style="font-size: 12px; font-weight: 500; color: #64b4ff;">AI Analysis</span>
+            <span style="margin-left: auto; color: #666; font-size: 11px; cursor: pointer;">&times;</span>
+          </div>
+          <div style="font-size: 11px; color: #bbb; line-height: 1.5;">
+            AP mapped to floor plan. Coordinate fields added...
+            <div style="margin-top: 6px; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 10px; color: #888;">Ask a follow-up...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Side Drawer</h3>
+      <p>Page content shrinks and AI panel slides in from the right as a side panel. Similar to the persistent panel approach but scoped to the section. Harder to reuse across different page layouts.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="expandable-card" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #1a1a2e;">
+      <!-- Mockup: Expandable card integrated into the diff card -->
+      <div style="font-family: system-ui; color: #e0e0e0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-size: 18px; font-weight: 600;">v24 &rarr; v25</span>
+          <span style="color: #999; font-size: 13px;">6 differences</span>
+        </div>
+        <!-- Chips + AI button on same line -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
+          <span style="padding: 4px 12px; border-radius: 16px; background: rgba(255,255,255,0.1); font-size: 12px;">added 4</span>
+          <span style="padding: 4px 12px; border-radius: 16px; background: rgba(255,255,255,0.1); font-size: 12px;">modified 2</span>
+          <span style="margin-left: auto;"></span>
+          <span style="padding: 4px 12px; border-radius: 16px; border: 1px solid rgba(100,180,255,0.4); font-size: 12px; color: #64b4ff; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+            &#10042; AI Analysis
+          </span>
+        </div>
+        <!-- Expandable AI section (shown as expanded) -->
+        <div style="margin: 12px 0; padding: 14px; background: rgba(100,180,255,0.04); border-radius: 10px; border: 1px solid rgba(100,180,255,0.15);">
+          <div style="font-size: 12px; color: #ccc; line-height: 1.6;">
+            <strong style="color: #e0e0e0;">What Changed:</strong> AP US-NY-AP01 was mapped to a floor plan with coordinates (x=312, y=345).<br><br>
+            <strong style="color: #e0e0e0;">Impact:</strong> Low risk. Better visual monitoring, coverage heatmaps, and troubleshooting.
+          </div>
+          <div style="margin-top: 10px; padding: 8px 12px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 11px; color: #888; display: flex; align-items: center; justify-content: space-between;">
+            <span>Ask a follow-up question...</span>
+            <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(100,180,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; color: #64b4ff;">&uarr;</span>
+          </div>
+        </div>
+        <!-- Diff entries -->
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <div style="padding: 8px 12px; border: 1px solid rgba(100,180,255,0.3); border-radius: 6px; display: flex; justify-content: space-between;">
+            <span style="font-size: 12px;">&rsaquo; modified_time</span>
+            <span style="font-size: 10px; color: #64b4ff; background: rgba(100,180,255,0.15); padding: 2px 8px; border-radius: 4px;">MODIFIED</span>
+          </div>
+          <div style="padding: 8px 12px; border: 1px solid rgba(80,200,120,0.3); border-radius: 6px; display: flex; justify-content: space-between;">
+            <span style="font-size: 12px;">&rsaquo; x</span>
+            <span style="font-size: 10px; color: #50c878; background: rgba(80,200,120,0.15); padding: 2px 8px; border-radius: 4px;">ADDED</span>
+          </div>
+          <div style="padding: 8px 12px; border: 1px solid rgba(80,200,120,0.3); border-radius: 6px; display: flex; justify-content: space-between;">
+            <span style="font-size: 12px;">&rsaquo; y</span>
+            <span style="font-size: 10px; color: #50c878; background: rgba(80,200,120,0.15); padding: 2px 8px; border-radius: 4px;">ADDED</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Integrated Expandable Card</h3>
+      <p>The "AI Analysis" toggle sits inline with the chips. When clicked, an analysis card expands between the chips and the diff list with a smooth animation. The trigger button becomes part of the page's existing visual language. Most integrated feel — the AI is part of the data, not a separate layer.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Key Difference</h3>
+  <p class="subtitle">A = separate collapsible row. B = side panel (layout shift). C = button is inline with chips, analysis expands below as part of the same card flow. C is the most "native" feel and easiest to reuse since it's just a trigger button + expandable section.</p>
+</div>

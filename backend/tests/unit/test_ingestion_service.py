@@ -102,7 +102,6 @@ class TestIngestionServiceInit:
         )
         assert svc._running is False
         assert svc._messages_processed == 0
-        assert svc._messages_dropped == 0
 
     def test_get_queue_returns_bounded_queue(self):
         from app.modules.telemetry.services.ingestion_service import IngestionService
@@ -409,7 +408,6 @@ class TestIngestionServiceStats:
 
         stats = svc.get_stats()
         assert stats["messages_processed"] == 1
-        assert stats["messages_dropped"] == 0
         assert "queue_size" in stats
         assert "queue_capacity" in stats
         assert stats["running"] is False

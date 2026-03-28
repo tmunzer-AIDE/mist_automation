@@ -132,7 +132,7 @@ def _check_telemetry() -> dict[str, dict[str, Any]]:
         raw = telemetry_mod._ingestion_service.get_stats()
         cap = raw.get("queue_capacity", 1)
         ingestion = {
-            "status": "running" if raw.get("running") else "stopped",
+            "status": "active" if raw.get("running") else "stopped",
             "queue_size": raw.get("queue_size", 0),
             "queue_capacity": cap,
             "queue_pct": round(raw.get("queue_size", 0) / cap * 100, 1) if cap else 0.0,

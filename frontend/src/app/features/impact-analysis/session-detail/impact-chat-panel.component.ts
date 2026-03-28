@@ -67,9 +67,6 @@ function renderMarkdown(md: string): string {
                 <div class="timestamp">{{ msg.timestamp | dateTime: 'time' }}</div>
                 <div class="bubble user-bubble">{{ msg.content }}</div>
               </div>
-              <div class="avatar user-avatar">
-                <mat-icon>person</mat-icon>
-              </div>
             </div>
           }
         }

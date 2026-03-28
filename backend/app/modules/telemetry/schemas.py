@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 # ── Validation constants ──────────────────────────────────────────────────
 
@@ -34,133 +34,6 @@ _DURATION_RE = re.compile(r"^-?\d+[smhd]$")
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
-# ── Validators (reusable) ────────────────────────────────────────────────
-
-
-def _validate_mac(v: str) -> str:
-    if not _MAC_RE.match(v):
-        msg = "MAC must be 12 hex chars (aabbccddeeff) or colon-separated (aa:bb:cc:dd:ee:ff)"
-        raise ValueError(msg)
-    return v.lower().replace(":", "")
-
-
-def _validate_measurement(v: str) -> str:
-    if v not in ALLOWED_MEASUREMENTS:
-        msg = f"measurement must be one of: {', '.join(sorted(ALLOWED_MEASUREMENTS))}"
-        raise ValueError(msg)
-    return v
-
-
-def _validate_field_name(v: str) -> str:
-    if not _FIELD_RE.match(v):
-        msg = "field must be alphanumeric + underscore, max 64 chars"
-        raise ValueError(msg)
-    return v
-
-
-def _validate_aggregation(v: str) -> str:
-    if v not in ALLOWED_AGGREGATIONS:
-        msg = f"agg must be one of: {', '.join(sorted(ALLOWED_AGGREGATIONS))}"
-        raise ValueError(msg)
-    return v
-
-
-def _validate_window(v: str) -> str:
-    if not _WINDOW_RE.match(v):
-        msg = "window must match pattern like 5m, 1h, 30s, 1d"
-        raise ValueError(msg)
-    return v
-
-
-def _validate_duration(v: str) -> str:
-    if v == "now()":
-        return v
-    if not _DURATION_RE.match(v):
-        msg = "duration must match pattern like -1h, -30m, -7d, or now()"
-        raise ValueError(msg)
-    return v
-
-
-# ── Query parameter models ───────────────────────────────────────────────
-
-
-class RangeQueryParams(BaseModel):
-    """Query parameters for /telemetry/query/range."""
-
-    mac: str
-    measurement: str = "device_summary"
-    start: str = "-1h"
-    end: str = "now()"
-
-    @field_validator("mac")
-    @classmethod
-    def validate_mac(cls, v: str) -> str:
-        return _validate_mac(v)
-
-    @field_validator("measurement")
-    @classmethod
-    def validate_measurement(cls, v: str) -> str:
-        return _validate_measurement(v)
-
-    @field_validator("start")
-    @classmethod
-    def validate_start(cls, v: str) -> str:
-        return _validate_duration(v)
-
-    @field_validator("end")
-    @classmethod
-    def validate_end(cls, v: str) -> str:
-        return _validate_duration(v)
-
-
-class AggregateQueryParams(BaseModel):
-    """Query parameters for /telemetry/query/aggregate."""
-
-    site_id: str
-    measurement: str = "device_summary"
-    field: str
-    agg: str = "mean"
-    window: str = "5m"
-    start: str = "-1h"
-    end: str = "now()"
-
-    @field_validator("site_id")
-    @classmethod
-    def validate_site_id(cls, v: str) -> str:
-        if not _UUID_RE.match(v):
-            msg = "site_id must be a valid UUID"
-            raise ValueError(msg)
-        return v
-
-    @field_validator("measurement")
-    @classmethod
-    def validate_measurement(cls, v: str) -> str:
-        return _validate_measurement(v)
-
-    @field_validator("field")
-    @classmethod
-    def validate_field(cls, v: str) -> str:
-        return _validate_field_name(v)
-
-    @field_validator("agg")
-    @classmethod
-    def validate_agg(cls, v: str) -> str:
-        return _validate_aggregation(v)
-
-    @field_validator("window")
-    @classmethod
-    def validate_window(cls, v: str) -> str:
-        return _validate_window(v)
-
-    @field_validator("start")
-    @classmethod
-    def validate_start(cls, v: str) -> str:
-        return _validate_duration(v)
-
-    @field_validator("end")
-    @classmethod
-    def validate_end(cls, v: str) -> str:
-        return _validate_duration(v)
 
 
 # ── Response models ──────────────────────────────────────────────────────

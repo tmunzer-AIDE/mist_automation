@@ -95,13 +95,17 @@ class InfluxDBService:
             except asyncio.QueueFull:
                 self._points_dropped += 1
 
+    _MAX_BATCHES_PER_FLUSH = 50  # prevent tight-loop if ingestion outpaces writes
+
     async def _flush_loop(self) -> None:
-        """Background coroutine: flush buffer periodically or when batch size reached."""
+        """Background coroutine: flush buffer periodically, draining all pending batches."""
         while self._running:
             try:
                 await asyncio.sleep(self._flush_interval)
-                if self._buffer.qsize() > 0:
+                batches = 0
+                while self._buffer.qsize() > 0 and batches < self._MAX_BATCHES_PER_FLUSH:
                     await self._flush()
+                    batches += 1
             except asyncio.CancelledError:
                 break
             except Exception as e:

@@ -78,12 +78,12 @@ async def start_telemetry_pipeline() -> dict:
     logger.info(
         "telemetry_started",
         sites=len(site_ids),
-        ws_connections=len(telemetry_mod._ws_manager._connections) if telemetry_mod._ws_manager else 0,
+        ws_connections=telemetry_mod._ws_manager.get_status()["connections"] if telemetry_mod._ws_manager else 0,
     )
 
     return {
         "sites": len(site_ids),
-        "connections": len(telemetry_mod._ws_manager._connections) if telemetry_mod._ws_manager else 0,
+        "connections": telemetry_mod._ws_manager.get_status()["connections"] if telemetry_mod._ws_manager else 0,
     }
 
 

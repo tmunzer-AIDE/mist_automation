@@ -133,7 +133,7 @@
 
 .summary-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 
@@ -237,7 +237,7 @@ code {
 }
 
 .var-value, .var-count { color: var(--app-neutral); }
-.var-value { font-family: monospace; font-size: 12px; }
+.var-value { font-family: var(--app-font-mono); font-size: 12px; }
 .var-count { text-align: center; }
 
 .var-sub-row {

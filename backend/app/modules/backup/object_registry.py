@@ -75,6 +75,7 @@ class ObjectDef:
     is_list: bool = True
     request_type: str | None = None
     name_fields: list[str] = field(default_factory=lambda: ["name"])
+    get_function: Callable | None = None
 
 
 # ── Org-level object types ──────────────────────────────────────────────────
@@ -264,6 +265,8 @@ SITE_OBJECTS: dict[str, ObjectDef] = {
         mistapi_function=devices.listSiteDevices,
         label="Devices",
         name_fields=["name", "mac"],
+        request_type="all",
+        get_function=devices.getSiteDevice,
     ),
     "maps": ObjectDef(
         mistapi_function=maps.listSiteMaps,

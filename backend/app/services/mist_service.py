@@ -339,7 +339,7 @@ class MistService:
         try:
             if site_id:
                 # Get site devices
-                result = await mistapi.arun(devices.listSiteDevices, self.session, site_id)
+                result = await mistapi.arun(devices.listSiteDevices, self.session, site_id, type="all")
             else:
                 # Get org devices
                 result = await mistapi.arun(orgs_api.devices.listOrgDevices, self.session, self.org_id)

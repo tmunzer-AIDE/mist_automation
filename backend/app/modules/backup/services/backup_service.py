@@ -425,18 +425,23 @@ class BackupService:
             if not obj_def:
                 raise BackupError(f"Unknown object type: {object_type}")
 
-            # Fetch objects
-            fetch_kwargs: dict[str, Any] = {}
-            if scope == "site":
-                fetch_kwargs["site_id"] = site_id
+            # Fetch objects — use get_function for individual lookups when available
+            if obj_def.get_function and object_ids:
+                raw_objects = await self._fetch_objects_individually(
+                    obj_def, object_ids, scope, site_id
+                )
             else:
-                fetch_kwargs["org_id"] = self.org_id
+                fetch_kwargs: dict[str, Any] = {}
+                if scope == "site":
+                    fetch_kwargs["site_id"] = site_id
+                else:
+                    fetch_kwargs["org_id"] = self.org_id
 
-            raw_objects = await fetch_objects(self.mist_service.session, obj_def, **fetch_kwargs)
+                raw_objects = await fetch_objects(self.mist_service.session, obj_def, **fetch_kwargs)
 
-            # Filter to selected IDs if provided (for list types)
-            if obj_def.is_list and object_ids:
-                raw_objects = [o for o in raw_objects if o.get("id") in object_ids]
+                # Filter to selected IDs if provided (for list types)
+                if obj_def.is_list and object_ids:
+                    raw_objects = [o for o in raw_objects if o.get("id") in object_ids]
 
             for obj in raw_objects:
                 try:
@@ -626,6 +631,33 @@ class BackupService:
 
         stats["by_type"][object_type]["total"] += 1
         stats["by_type"][object_type][result] += 1
+
+    async def _fetch_objects_individually(
+        self,
+        obj_def: ObjectDef,
+        object_ids: list[str],
+        scope: str,
+        site_id: str | None,
+    ) -> list[dict]:
+        """Fetch objects one by one using the get_function (e.g. getSiteDevice)."""
+        results: list[dict] = []
+        for oid in object_ids:
+            try:
+                if scope == "site":
+                    result = await mistapi.arun(obj_def.get_function, self.mist_service.session, site_id, oid)
+                else:
+                    result = await mistapi.arun(obj_def.get_function, self.mist_service.session, self.org_id, oid)
+                if result.status_code == 200 and isinstance(result.data, dict):
+                    results.append(result.data)
+                else:
+                    logger.warning(
+                        "individual_fetch_failed",
+                        object_id=oid,
+                        status_code=result.status_code,
+                    )
+            except Exception as e:
+                logger.warning("individual_fetch_error", object_id=oid, error=str(e))
+        return results
 
     async def _fetch_object_from_mist(
         self,
