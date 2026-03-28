@@ -32,7 +32,7 @@ body {
   background-color: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);
-  font-size: 12px;
+  font-size: 14px;
   margin: 0;
   height: 100%;
   scrollbar-width: thin;
@@ -44,12 +44,36 @@ a {
 }
 
 :root {
+  // ── Design tokens ─────────────────────────────────────────────────────────
   --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
   --app-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06);
   --app-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08);
   --app-radius: 12px;
   --app-radius-sm: 8px;
+
+  // Typography
   --app-font-mono: 'JetBrains Mono', monospace;
+  --app-font-display: 'Outfit', sans-serif;
+  --app-text-xs: 11px;
+  --app-text-sm: 12px;
+  --app-text-base: 14px;
+  --app-text-lg: 16px;
+  --app-text-xl: 20px;
+  --app-text-2xl: 28px;
+
+  // Spacing
+  --app-space-xs: 4px;
+  --app-space-sm: 8px;
+  --app-space-md: 12px;
+  --app-space-lg: 16px;
+  --app-space-xl: 24px;
+  --app-space-2xl: 32px;
+
+  // Motion
+  --app-duration-fast: 100ms;
+  --app-duration-default: 150ms;
+  --app-duration-slow: 250ms;
+  --app-duration-emphasis: 2s;
 
   // ── Semantic color tokens (light) ──────────────────────────────────────
 
@@ -318,12 +342,36 @@ a {
 }
 
 // Global transition for interactive elements
-button,
+button:not([disabled]),
 a,
-input,
-select,
-textarea {
-  transition: all 0.15s ease;
+input:not([disabled]),
+select:not([disabled]),
+textarea:not([disabled]) {
+  transition: all var(--app-duration-default) ease;
+}
+
+// Prevent hover feedback on disabled elements
+[disabled],
+.disabled {
+  pointer-events: none;
+}
+
+// ── Focus-visible for keyboard navigation ───────────────────────────────
+*:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+}
+
+// ── Reduced motion ──────────────────────────────────────────────────────
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .mat-mdc-snack-bar-container {
@@ -515,4 +563,10 @@ mat-toolbar.mat-toolbar {
     width: 14px;
     height: 14px;
   }
+}
+
+// ── AI Summary topbar button (shared across all pages) ──
+.ai-summary-btn {
+  margin-left: 8px;
+  font-size: 13px;
 }
