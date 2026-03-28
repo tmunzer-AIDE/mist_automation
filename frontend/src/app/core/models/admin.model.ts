@@ -184,3 +184,77 @@ export interface SmeeStatus {
   running: boolean;
   channel_url: string | null;
 }
+
+export interface ServiceHealth {
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface MongoHealth extends ServiceHealth {
+  collections: number;
+  total_documents: number;
+  storage_size_mb: number;
+  uptime_seconds: number;
+}
+
+export interface RedisHealth extends ServiceHealth {
+  used_memory_mb: number;
+  connected_clients: number;
+  uptime_seconds: number;
+}
+
+export interface InfluxHealth extends ServiceHealth {
+  buffer_size: number;
+  buffer_capacity: number;
+  buffer_pct: number;
+  points_written: number;
+  points_dropped: number;
+  flush_count: number;
+  last_flush_at: number;
+  last_error: string | null;
+}
+
+export interface MistWsHealth extends ServiceHealth {
+  connections: number;
+  connections_ready: number;
+  sites_subscribed: number;
+  messages_received: number;
+  messages_bridge_dropped: number;
+  last_message_at: number;
+  started_at: number;
+}
+
+export interface IngestionHealth extends ServiceHealth {
+  queue_size: number;
+  queue_capacity: number;
+  queue_pct: number;
+  messages_processed: number;
+  points_extracted: number;
+  points_written: number;
+  points_filtered: number;
+  last_message_at: number;
+}
+
+export interface AppWsHealth {
+  connected_clients: number;
+  active_channels: number;
+  total_subscriptions: number;
+}
+
+export interface SchedulerHealth extends ServiceHealth {
+  scheduled_jobs: number;
+}
+
+export interface SystemHealth {
+  overall_status: 'operational' | 'degraded' | 'down';
+  checked_at: number;
+  services: {
+    mongodb: MongoHealth;
+    redis: RedisHealth;
+    influxdb: InfluxHealth;
+    mist_websocket: MistWsHealth;
+    ingestion: IngestionHealth;
+    app_websocket: AppWsHealth;
+    scheduler: SchedulerHealth;
+  };
+}
