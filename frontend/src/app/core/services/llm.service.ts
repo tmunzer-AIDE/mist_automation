@@ -204,6 +204,38 @@ export class LlmService {
     return this.api.post<WebhookSummaryResponse>('/llm/webhooks/summarize', { hours });
   }
 
+  /** Summarize dashboard state */
+  summarizeDashboard(): Observable<SummaryResponse> {
+    return this.api.post<SummaryResponse>('/llm/dashboard/summarize', {});
+  }
+
+  /** Summarize audit logs with current filters */
+  summarizeAuditLogs(filters: {
+    event_type?: string;
+    user_id?: string;
+    start_date?: string;
+    end_date?: string;
+  }): Observable<SummaryResponse> {
+    return this.api.post<SummaryResponse>('/llm/audit-logs/summarize', filters);
+  }
+
+  /** Summarize system logs with current filters */
+  summarizeSystemLogs(filters: {
+    level?: string;
+    logger?: string;
+  }): Observable<SummaryResponse> {
+    return this.api.post<SummaryResponse>('/llm/system-logs/summarize', filters);
+  }
+
+  /** Summarize backup health and changes */
+  summarizeBackups(filters: {
+    object_type?: string;
+    site_id?: string;
+    scope?: string;
+  }): Observable<SummaryResponse> {
+    return this.api.post<SummaryResponse>('/llm/backups/summarize', filters);
+  }
+
   /** Help fill a single workflow node field */
   fieldAssist(
     nodeType: string,
