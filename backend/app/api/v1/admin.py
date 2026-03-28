@@ -5,6 +5,7 @@ Admin API endpoints for system configuration and management.
 import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 
+from app.api.v1.system_health import collect_system_health
 from app.config import settings as settings_module
 from app.core.security import decrypt_sensitive_data, encrypt_sensitive_data
 from app.dependencies import require_admin
@@ -416,6 +417,12 @@ async def get_system_stats(_current_user: User = Depends(require_admin)):
             "admins": _extract(ur, "admins"),
         },
     }
+
+
+@router.get("/admin/system-health", tags=["Admin"])
+async def get_system_health(_current_user: User = Depends(require_admin)):
+    """Get infrastructure health status (admin only)."""
+    return await collect_system_health()
 
 
 @router.post("/admin/mist/test-connection", tags=["Admin"])

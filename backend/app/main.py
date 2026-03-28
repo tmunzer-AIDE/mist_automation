@@ -8,6 +8,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.system_health import start_health_broadcaster, stop_health_broadcaster
 from app.config import settings
 from app.core.database import Database
 from app.core.logger import configure_logging
@@ -118,6 +119,10 @@ async def lifespan(_app: FastAPI):
             except Exception:
                 pass
 
+        # Start system health broadcaster
+        start_health_broadcaster()
+        logger.info("health_broadcaster_started")
+
         # Start WebSocket heartbeat
         from app.core.websocket import ws_manager
 
@@ -131,6 +136,12 @@ async def lifespan(_app: FastAPI):
     finally:
         # Shutdown
         logger.info("application_shutting_down")
+
+        # Stop health broadcaster
+        try:
+            await stop_health_broadcaster()
+        except Exception:
+            pass
 
         # Stop telemetry pipeline
         try:
