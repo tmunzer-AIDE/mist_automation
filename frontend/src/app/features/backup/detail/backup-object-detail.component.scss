@@ -219,31 +219,6 @@ tr.compare-row-selectable { cursor: pointer; }
 tr.compare-row-selected { background: var(--mat-sys-primary-container) !important; border-left: 3px solid var(--mat-sys-primary); }
 .inline-actions { display: flex; gap: 0; justify-content: flex-end; }
 
-.ai-chat-container {
-  margin-top: 12px;
-  border-radius: var(--app-radius, 12px);
-  border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
-  overflow: hidden;
-  background: var(--mat-sys-surface, #fff);
-}
-.ai-chat-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 8px 8px 16px;
-  border-bottom: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
-}
-.ai-chat-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--mat-sys-on-surface, inherit);
-}
-.ai-chat-title-icon {
-  font-size: 20px;
-  width: 20px;
-  height: 20px;
-  color: var(--app-purple);
+.ai-summary-btn {
+  app-ai-icon { vertical-align: middle; }
 }

@@ -5,6 +5,11 @@
       <mat-icon>compare</mat-icon> {{ compareMode() ? 'Exit Compare' : 'Compare Versions' }}
     </button>
   }
+  @if (llmAvailable() && compareMode() && diffEntries().length > 0) {
+    <button mat-stroked-button (click)="summarizeChanges()" [disabled]="aiLoading()" class="ai-summary-btn">
+      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
+    </button>
+  }
 </div>
 
 @if (loading()) {
@@ -30,15 +35,6 @@
             <span class="diff-summary">
               {{ filteredCount() }} difference{{ filteredCount() === 1 ? '' : 's' }}
             </span>
-            @if (llmAvailable() && diffEntries().length > 0) {
-              <button
-                mat-icon-button
-                matTooltip="AI Summary"
-                (click)="summarizeChanges()"
-              >
-                <app-ai-icon [size]="18" [animated]="false"></app-ai-icon>
-              </button>
-            }
           </mat-card-header>
           <mat-card-content>
             @if (diffEntries().length === 0) {
@@ -161,26 +157,15 @@
           </mat-card-content>
         </mat-card>
 
-        @if (aiPanelOpen()) {
-          <div class="ai-chat-container">
-            <div class="ai-chat-topbar">
-              <div class="ai-chat-title">
-                <app-ai-icon [size]="20"></app-ai-icon>
-                <span>AI Assistant</span>
-              </div>
-              <button mat-icon-button matTooltip="Close" (click)="aiPanelOpen.set(false)">
-                <mat-icon>close</mat-icon>
-              </button>
-            </div>
-            <app-ai-chat-panel
-              [threadId]="aiThreadId()"
-              [initialSummary]="aiSummary()"
-              [errorMessage]="aiError()"
-              [parentLoading]="aiLoading()"
-              loadingLabel="Summarizing changes..."
-            ></app-ai-chat-panel>
-          </div>
-        }
+        <app-ai-summary-panel
+          [open]="aiPanelOpen()"
+          [summary]="aiSummary()"
+          [error]="aiError()"
+          [loading]="aiLoading()"
+          [threadId]="aiThreadId()"
+          loadingLabel="Summarizing changes..."
+          (closed)="aiPanelOpen.set(false)"
+        ></app-ai-summary-panel>
       }
     </section>
   }

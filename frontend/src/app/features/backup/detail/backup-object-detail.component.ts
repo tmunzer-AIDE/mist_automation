@@ -20,8 +20,8 @@ import { TopbarService } from '../../../core/services/topbar.service';
 import { ObjectDependencyResponse } from '../../../core/models/backup.model';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
 import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { JsonViewDialogComponent } from './json-view-dialog.component';
@@ -77,8 +77,8 @@ interface DiffGroup {
     MatSnackBarModule,
     EmptyStateComponent,
     StatusBadgeComponent,
-    AiChatPanelComponent,
     AiIconComponent,
+    AiSummaryPanelComponent,
     DateTimePipe,
   ],
   templateUrl: './backup-object-detail.component.html',
