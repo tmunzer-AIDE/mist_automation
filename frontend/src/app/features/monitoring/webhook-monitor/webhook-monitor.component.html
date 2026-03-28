@@ -30,24 +30,15 @@
   }
 </ng-template>
 
-@if (aiPanelOpen()) {
-  <div class="ai-summary-container">
-    <div class="ai-summary-topbar">
-      <div class="ai-summary-title">
-        <app-ai-icon [size]="20"></app-ai-icon>
-        <span>AI Event Summary</span>
-      </div>
-      <button mat-icon-button (click)="aiPanelOpen.set(false)"><mat-icon>close</mat-icon></button>
-    </div>
-    <app-ai-chat-panel
-      [initialSummary]="aiSummary()"
-      [errorMessage]="aiError()"
-      [parentLoading]="aiLoading()"
-      [threadId]="aiThreadId()"
-      loadingLabel="Summarizing events..."
-    ></app-ai-chat-panel>
-  </div>
-}
+<app-ai-summary-panel
+  [open]="aiPanelOpen()"
+  [summary]="aiSummary()"
+  [error]="aiError()"
+  [loading]="aiLoading()"
+  [threadId]="aiThreadId()"
+  loadingLabel="Summarizing events..."
+  (closed)="aiPanelOpen.set(false)"
+></app-ai-summary-panel>
 
 <!-- Chart -->
 <div class="chart-section">
@@ -157,7 +148,7 @@
   >
   </app-empty-state>
 } @else {
-  <div class="table-card">
+  <div class="table-card" aria-live="polite" aria-relevant="additions">
     <table mat-table [dataSource]="pagedEvents()">
       <!-- Event Timestamp -->
       <ng-container matColumnDef="event_timestamp">

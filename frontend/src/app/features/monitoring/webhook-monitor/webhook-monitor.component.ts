@@ -29,8 +29,8 @@ import { EmptyStateComponent } from '../../../shared/components/empty-state/empt
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { WebhookEventDetailDialogComponent } from '../../../shared/components/webhook-event-detail-dialog/webhook-event-detail-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
-import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
 import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
@@ -78,8 +78,8 @@ interface ChartRange {
     BaseChartDirective,
     EmptyStateComponent,
     StatusBadgeComponent,
-    AiChatPanelComponent,
     AiIconComponent,
+    AiSummaryPanelComponent,
     DateTimePipe,
   ],
   templateUrl: './webhook-monitor.component.html',
