@@ -18,7 +18,6 @@ import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
-import { GlobalChatService } from '../../../core/services/global-chat.service';
 import {
   BackupObjectSummary,
   BackupObjectListResponse,
@@ -73,7 +72,6 @@ export class BackupObjectListComponent implements OnInit {
   private readonly snackBar = inject(MatSnackBar);
   private readonly fb = inject(FormBuilder);
   private readonly topbarService = inject(TopbarService);
-  private readonly globalChatService = inject(GlobalChatService);
 
   // ── Object table ─────────────────────────────────────────────────────
   objects = signal<BackupObjectSummary[]>([]);
@@ -178,7 +176,6 @@ export class BackupObjectListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Backups');
-    this.globalChatService.setContext({ page: 'Backups' });
     this.loadObjectTypes();
     this.loadSites();
     this.loadObjects();

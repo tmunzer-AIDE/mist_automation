@@ -184,7 +184,6 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
         this.globalChatService.setContext({
           page: 'Impact Analysis Detail',
           details: { device: session.device_name || session.device_mac, status: session.status },
-          hidePanel: true,
         });
 
         if (this.isActive()) {

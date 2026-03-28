@@ -1,27 +1,21 @@
 .layout-container {
   height: 100%;
 
+  // Override Angular Material's programmatic inline margin-left so that
+  // the content area smoothly follows the sidebar collapse/expand.
   &.desktop ::ng-deep .mat-sidenav-content {
-    margin-left: 200px !important;
+    margin-left: 240px !important;
     transition: margin-left 0.2s ease !important;
   }
 
   &.desktop.sidebar-collapsed ::ng-deep .mat-sidenav-content {
     margin-left: 56px !important;
   }
-
-  // Disable pointer events on iframe/canvas during resize to prevent capture
-  &.resizing {
-    iframe,
-    canvas {
-      pointer-events: none;
-    }
-  }
 }
 
 .sidenav {
   border-right: none;
-  --mat-sidenav-container-width: 200px;
+  --mat-sidenav-container-width: 240px;
   transition: width 0.2s ease;
 
   &.collapsed {
@@ -38,113 +32,14 @@
   font-weight: 500;
 }
 
-// ── Split layout ──────────────────────────────────────
-
-.content-split {
-  display: flex;
-  height: calc(100vh - 64px); // 64px topbar
-  overflow: hidden;
-  position: relative;
-}
-
-.ai-panel-wrapper {
-  flex-shrink: 0;
-  height: 100%;
-  overflow: hidden;
-  border-left: 1px solid var(--mat-sys-outline-variant);
-  transition: width 0.2s ease;
-
-  // Keep inner content at fixed width so text doesn't reflow during collapse
-  > * {
-    min-width: var(--ai-panel-inner-width);
-  }
-
-  &.collapsed {
-    border-left: none;
-  }
-}
-
-.resize-handle {
-  flex-shrink: 0;
-  width: 6px;
-  cursor: col-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  transition: background 0.15s ease;
-  position: relative;
-  z-index: 10;
-
-  &:hover,
-  .resizing & {
-    background: var(--mat-sys-primary-container, rgba(0, 120, 212, 0.08));
-  }
-}
-
-.resize-grip {
-  width: 2px;
-  height: 32px;
-  border-radius: 1px;
-  background: var(--mat-sys-outline-variant);
-  transition: background 0.15s ease, height 0.15s ease;
-
-  .resize-handle:hover &,
-  .resizing & {
-    background: var(--mat-sys-primary);
-    height: 48px;
-  }
-}
-
 .content {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
   padding: 24px 32px;
-
-  // Center content when no AI panel
-  .content-split:not(.has-panel) & {
-    max-width: 1200px;
-    margin: 0 auto;
-  }
+  max-width: 1200px;
+  margin: 0 auto;
 
   &.full-width {
     max-width: none;
     padding: 0;
-    height: 100%;
-    margin: 0;
-  }
-}
-
-// ── Edge tab toggle ───────────────────────────────────
-
-.ai-edge-tab {
-  position: absolute;
-  right: 0;
-  top: 8px;
-  z-index: 20;
-  width: 24px;
-  height: 49px;
-  border: 1px solid var(--mat-sys-outline-variant);
-  border-right: none;
-  border-radius: 6px 0 0 6px;
-  background: var(--mat-sys-surface-container);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: background 0.15s ease, box-shadow 0.15s ease, right 0.2s ease;
-
-  .edge-tab-icon {
-    font-size: 18px;
-    width: 18px;
-    height: 18px;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  &:hover {
-    background: var(--mat-sys-surface-container-high, rgba(0, 0, 0, 0.06));
-    box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.1);
+    height: calc(100vh - 64px);
   }
 }

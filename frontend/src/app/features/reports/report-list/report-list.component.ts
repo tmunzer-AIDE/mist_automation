@@ -10,7 +10,6 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
-import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
@@ -60,7 +59,6 @@ export class ReportListComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
-  private readonly globalChatService = inject(GlobalChatService);
 
   reports = signal<ReportJob[]>([]);
   total = signal(0);
@@ -71,7 +69,6 @@ export class ReportListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Reports');
-    this.globalChatService.setContext({ page: 'Reports' });
     this.loadReports();
   }
 

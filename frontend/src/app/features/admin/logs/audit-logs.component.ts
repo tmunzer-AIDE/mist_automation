@@ -8,7 +8,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -60,7 +59,6 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
   private readonly topbarService = inject(TopbarService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly globalChatService = inject(GlobalChatService);
 
   logs = signal<AuditLogEntry[]>([]);
   total = signal(0);
@@ -88,7 +86,6 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Audit Logs');
-    this.globalChatService.setContext({ page: 'Admin > Audit Logs' });
     this.topbarService.setActions(this.actionsTpl);
     this.loadLogs();
   }

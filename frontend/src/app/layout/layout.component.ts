@@ -1,24 +1,19 @@
-import { Component, inject, signal, HostListener } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterOutlet, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
-import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
-import { AiPanelComponent } from '../shared/components/ai-panel/ai-panel.component';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { AiIconComponent } from '../shared/components/ai-icon/ai-icon.component';
+import { GlobalChatComponent } from '../shared/components/global-chat/global-chat.component';
 import { LlmService } from '../core/services/llm.service';
-import { GlobalChatService } from '../core/services/global-chat.service';
-import { PanelStateService } from '../core/services/panel-state.service';
 import { filter, map } from 'rxjs';
 
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [RouterOutlet, MatIconModule, MatSidenavModule, MatTooltipModule, SidebarComponent, TopbarComponent, AiPanelComponent, AiIconComponent],
+  imports: [RouterOutlet, MatSidenavModule, SidebarComponent, TopbarComponent, GlobalChatComponent],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss',
 })
@@ -27,8 +22,6 @@ export class LayoutComponent {
   private readonly activatedRoute = inject(ActivatedRoute);
   private readonly breakpointObserver = inject(BreakpointObserver);
   private readonly llmService = inject(LlmService);
-  readonly globalChatService = inject(GlobalChatService);
-  readonly panelState = inject(PanelStateService);
 
   isMobile = signal(false);
   sidebarOpen = signal(true);
@@ -36,7 +29,6 @@ export class LayoutComponent {
   isFullWidth = signal(false);
   llmAvailable = signal(false);
   maintenanceMode = signal(false);
-  resizing = signal(false);
 
   constructor() {
     inject(HttpClient)
@@ -80,52 +72,6 @@ export class LayoutComponent {
       this.sidebarOpen.update((v) => !v);
     } else {
       this.sidebarCollapsed.update((v) => !v);
-    }
-  }
-
-  /** Whether the AI panel should render (LLM available + not mobile + page doesn't hide it) */
-  get showAiPanel(): boolean {
-    const ctx = this.globalChatService.context();
-    const pageHidesPanel = ctx?.hidePanel ?? false;
-    return this.llmAvailable() && !this.isMobile() && this.globalChatService.panelOpen() && !pageHidesPanel;
-  }
-
-  /** Whether to show the edge tab toggle (always visible when LLM available, except pages with own chat) */
-  get showAiTab(): boolean {
-    const ctx = this.globalChatService.context();
-    const pageHidesPanel = ctx?.hidePanel ?? false;
-    return this.llmAvailable() && !this.isMobile() && !pageHidesPanel;
-  }
-
-  // ── Resize handle ──────────────────────────────────────
-
-  onResizeStart(event: MouseEvent): void {
-    event.preventDefault();
-    this.resizing.set(true);
-
-    const onMove = (e: MouseEvent) => {
-      // Panel is on the right; width = viewport width - mouse X
-      const newWidth = window.innerWidth - e.clientX;
-      this.panelState.setWidth(newWidth);
-    };
-
-    const onUp = () => {
-      this.resizing.set(false);
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }
-
-  // ── Keyboard shortcut (Ctrl+\) ────────────────────────
-
-  @HostListener('document:keydown', ['$event'])
-  onKeydown(event: KeyboardEvent): void {
-    if (event.ctrlKey && event.key === '\\') {
-      event.preventDefault();
-      this.globalChatService.toggle();
     }
   }
 }

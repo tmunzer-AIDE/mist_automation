@@ -1,3 +1,170 @@
+<!-- System Health -->
+@if (healthLoading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+} @else if (health(); as health) {
+  <!-- Status Ribbon -->
+  <div class="status-ribbon" [class]="overallStatusClass()">
+    <span class="status-dot"></span>
+    <span class="status-text">{{ overallStatusText() }}</span>
+    <span class="status-time">Updated {{ health.checked_at * 1000 | date:'mediumTime' }}</span>
+  </div>
+
+  <!-- KPI Tiles -->
+  <div class="kpi-grid">
+    <div class="kpi-tile">
+      <span class="kpi-value">{{ servicesUp() }}</span>
+      <span class="kpi-label">Services Up</span>
+    </div>
+    <div class="kpi-tile">
+      <span class="kpi-value">{{ health.services.mist_websocket.sites_subscribed }}</span>
+      <span class="kpi-label">Sites</span>
+    </div>
+    <div class="kpi-tile">
+      <span class="kpi-value">{{ health.services.influxdb.buffer_pct }}%</span>
+      <span class="kpi-label">Buffer</span>
+    </div>
+    <div class="kpi-tile">
+      <span class="kpi-value">{{ health.services.influxdb.points_dropped }}</span>
+      <span class="kpi-label">Errors</span>
+    </div>
+    <div class="kpi-tile">
+      <span class="kpi-value">{{ health.services.app_websocket.connected_clients }}</span>
+      <span class="kpi-label">WS Clients</span>
+    </div>
+  </div>
+
+  <!-- Service Detail Panels -->
+  <mat-accordion multi>
+    <!-- Infrastructure -->
+    <mat-expansion-panel expanded>
+      <mat-expansion-panel-header>
+        <mat-panel-title>Infrastructure</mat-panel-title>
+      </mat-expansion-panel-header>
+      <div class="service-cards">
+        <mat-card [class]="'service-card status-' + health.services.mongodb.status">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>storage</mat-icon>
+            <mat-card-title>MongoDB</mat-card-title>
+            <app-status-badge [status]="health.services.mongodb.status"></app-status-badge>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row"><span>Collections</span><strong>{{ health.services.mongodb.collections }}</strong></div>
+            <div class="stat-row"><span>Documents</span><strong>{{ health.services.mongodb.total_documents | number }}</strong></div>
+            <div class="stat-row"><span>Storage</span><strong>{{ health.services.mongodb.storage_size_mb }} MB</strong></div>
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card [class]="'service-card status-' + health.services.redis.status">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>memory</mat-icon>
+            <mat-card-title>Redis</mat-card-title>
+            <app-status-badge [status]="health.services.redis.status"></app-status-badge>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row"><span>Memory</span><strong>{{ health.services.redis.used_memory_mb }} MB</strong></div>
+            <div class="stat-row"><span>Clients</span><strong>{{ health.services.redis.connected_clients }}</strong></div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-expansion-panel>
+
+    <!-- Telemetry Pipeline -->
+    <mat-expansion-panel expanded>
+      <mat-expansion-panel-header>
+        <mat-panel-title>Telemetry Pipeline</mat-panel-title>
+      </mat-expansion-panel-header>
+      <div class="service-cards">
+        <mat-card [class]="'service-card status-' + health.services.influxdb.status">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>show_chart</mat-icon>
+            <mat-card-title>InfluxDB</mat-card-title>
+            <app-status-badge [status]="health.services.influxdb.status"></app-status-badge>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row">
+              <span>Buffer</span>
+              <strong>{{ health.services.influxdb.buffer_size }} / {{ health.services.influxdb.buffer_capacity }}</strong>
+            </div>
+            <mat-progress-bar mode="determinate" [value]="health.services.influxdb.buffer_pct"
+              [class]="health.services.influxdb.buffer_pct > 90 ? 'buffer-critical' : health.services.influxdb.buffer_pct > 70 ? 'buffer-warn' : 'buffer-ok'">
+            </mat-progress-bar>
+            <div class="stat-row"><span>Written</span><strong>{{ health.services.influxdb.points_written | number }}</strong></div>
+            <div class="stat-row"><span>Dropped</span><strong>{{ health.services.influxdb.points_dropped }}</strong></div>
+            @if (health.services.influxdb.last_error) {
+              <div class="stat-row error-row"><span>Last Error</span><strong>{{ health.services.influxdb.last_error }}</strong></div>
+            }
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card [class]="'service-card status-' + health.services.mist_websocket.status">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>cell_tower</mat-icon>
+            <mat-card-title>Mist WebSocket</mat-card-title>
+            <app-status-badge [status]="health.services.mist_websocket.status"></app-status-badge>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row"><span>Connections</span><strong>{{ health.services.mist_websocket.connections_ready }} / {{ health.services.mist_websocket.connections }}</strong></div>
+            <div class="stat-row"><span>Sites</span><strong>{{ health.services.mist_websocket.sites_subscribed }}</strong></div>
+            <div class="stat-row"><span>Messages</span><strong>{{ health.services.mist_websocket.messages_received | number }}</strong></div>
+            <div class="stat-row"><span>Dropped</span><strong>{{ health.services.mist_websocket.messages_bridge_dropped }}</strong></div>
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card [class]="'service-card status-' + health.services.ingestion.status">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>filter_alt</mat-icon>
+            <mat-card-title>Ingestion</mat-card-title>
+            <app-status-badge [status]="health.services.ingestion.status"></app-status-badge>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row">
+              <span>Queue</span>
+              <strong>{{ health.services.ingestion.queue_size }} / {{ health.services.ingestion.queue_capacity }}</strong>
+            </div>
+            <mat-progress-bar mode="determinate" [value]="health.services.ingestion.queue_pct"
+              [class]="health.services.ingestion.queue_pct > 90 ? 'buffer-critical' : health.services.ingestion.queue_pct > 70 ? 'buffer-warn' : 'buffer-ok'">
+            </mat-progress-bar>
+            <div class="stat-row"><span>Processed</span><strong>{{ health.services.ingestion.messages_processed | number }}</strong></div>
+            <div class="stat-row"><span>Written</span><strong>{{ health.services.ingestion.points_written | number }}</strong></div>
+            <div class="stat-row"><span>Filtered</span><strong>{{ health.services.ingestion.points_filtered | number }}</strong></div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-expansion-panel>
+
+    <!-- App WebSocket & Workers -->
+    <mat-expansion-panel expanded>
+      <mat-expansion-panel-header>
+        <mat-panel-title>App WebSocket & Workers</mat-panel-title>
+      </mat-expansion-panel-header>
+      <div class="service-cards">
+        <mat-card class="service-card status-connected">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>sync_alt</mat-icon>
+            <mat-card-title>App WebSocket</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row"><span>Clients</span><strong>{{ health.services.app_websocket.connected_clients }}</strong></div>
+            <div class="stat-row"><span>Channels</span><strong>{{ health.services.app_websocket.active_channels }}</strong></div>
+            <div class="stat-row"><span>Subscriptions</span><strong>{{ health.services.app_websocket.total_subscriptions }}</strong></div>
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card [class]="'service-card status-' + health.services.scheduler.status">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>engineering</mat-icon>
+            <mat-card-title>Scheduler</mat-card-title>
+            <app-status-badge [status]="health.services.scheduler.status"></app-status-badge>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="stat-row"><span>Scheduled Jobs</span><strong>{{ health.services.scheduler.scheduled_jobs }}</strong></div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-expansion-panel>
+  </mat-accordion>
+}
+
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 } @else if (stats(); as stats) {

@@ -2,7 +2,6 @@ import { Component, OnInit, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
 import { TopbarService } from '../../core/services/topbar.service';
-import { GlobalChatService } from '../../core/services/global-chat.service';
 
 @Component({
   selector: 'app-profile',
@@ -49,10 +48,8 @@ import { GlobalChatService } from '../../core/services/global-chat.service';
 })
 export class ProfileComponent implements OnInit {
   private readonly topbarService = inject(TopbarService);
-  private readonly globalChatService = inject(GlobalChatService);
 
   ngOnInit(): void {
     this.topbarService.setTitle('Profile');
-    this.globalChatService.setContext({ page: 'Profile' });
   }
 }

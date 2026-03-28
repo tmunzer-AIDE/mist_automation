@@ -2,7 +2,6 @@
   class="layout-container"
   [class.desktop]="!isMobile()"
   [class.sidebar-collapsed]="sidebarCollapsed() && !isMobile()"
-  [class.resizing]="resizing()"
 >
   <mat-sidenav
     #sidenav
@@ -22,41 +21,11 @@
       </div>
     }
     <app-topbar (toggleSidebar)="toggleSidebar()"></app-topbar>
-    <div class="content-split" [class.has-panel]="showAiPanel">
-      <main class="content" [class.full-width]="isFullWidth()">
-        <router-outlet></router-outlet>
-      </main>
-      @if (showAiTab) {
-        @if (showAiPanel) {
-          <div
-            class="resize-handle"
-            (mousedown)="onResizeStart($event)"
-          >
-            <div class="resize-grip"></div>
-          </div>
-        }
-        <div
-          class="ai-panel-wrapper"
-          [class.collapsed]="!showAiPanel"
-          [style.width.px]="showAiPanel ? panelState.width() : 0"
-          [style.--ai-panel-inner-width.px]="panelState.width()"
-        >
-          <app-ai-panel></app-ai-panel>
-        </div>
-        <button
-          class="ai-edge-tab"
-          [style.right.px]="showAiPanel ? panelState.width() : 0"
-          (click)="globalChatService.toggle()"
-          [matTooltip]="showAiPanel ? 'Hide panel (Ctrl+\\)' : 'Show AI panel (Ctrl+\\)'"
-          matTooltipPosition="left"
-        >
-          @if (showAiPanel) {
-            <mat-icon class="edge-tab-icon">chevron_right</mat-icon>
-          } @else {
-            <app-ai-icon [size]="16" [animated]="false"></app-ai-icon>
-          }
-        </button>
-      }
-    </div>
+    <main class="content" [class.full-width]="isFullWidth()">
+      <router-outlet></router-outlet>
+    </main>
+    @if (llmAvailable()) {
+      <app-global-chat></app-global-chat>
+    }
   </mat-sidenav-content>
 </mat-sidenav-container>

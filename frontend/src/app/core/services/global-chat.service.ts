@@ -6,8 +6,6 @@ export interface PageContext {
   page: string;
   /** Key details about what the user is viewing */
   details?: Record<string, string | number | null>;
-  /** Hide the persistent AI panel (page has its own embedded chat) */
-  hidePanel?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -16,9 +14,6 @@ export class GlobalChatService {
 
   /** Current page context — set by each page component on init */
   readonly context = signal<PageContext | null>(null);
-
-  /** Whether the AI panel is open */
-  readonly panelOpen = signal(true);
 
   /** Set the current page context (called by page components) */
   setContext(ctx: PageContext): void {
@@ -30,14 +25,8 @@ export class GlobalChatService {
     this.context.set(null);
   }
 
-  /** Toggle the AI panel open/closed */
-  toggle(): void {
-    this.panelOpen.update((v) => !v);
-  }
-
   /** Open the global chat, optionally with a pre-filled message */
   open(message?: string): void {
-    this.panelOpen.set(true);
     this.openChat$.next({ message });
   }
 

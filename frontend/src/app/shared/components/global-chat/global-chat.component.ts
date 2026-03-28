@@ -1,0 +1,443 @@
+import { Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, inject, OnInit, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
+import { MatBadgeModule } from '@angular/material/badge';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { McpConfigAvailable } from '../../../core/models/llm.model';
+import { AiChatPanelComponent } from '../ai-chat-panel/ai-chat-panel.component';
+import { AiIconComponent } from '../ai-icon/ai-icon.component';
+import { LlmService } from '../../../core/services/llm.service';
+import { GlobalChatService } from '../../../core/services/global-chat.service';
+import { extractErrorMessage } from '../../utils/error.utils';
+
+@Component({
+  selector: 'app-global-chat',
+  standalone: true,
+  imports: [
+    MatBadgeModule, MatButtonModule, MatCheckboxModule, MatIconModule, MatMenuModule, MatTooltipModule,
+    AiChatPanelComponent, AiIconComponent,
+  ],
+  template: `
+    @if (!isOpen()) {
+      <button
+        class="chat-fab"
+        [class.pulse]="showPulse()"
+        (click)="open()"
+        matTooltip="AI Assistant"
+        matTooltipPosition="left"
+      >
+        <app-ai-icon [size]="36"></app-ai-icon>
+      </button>
+    }
+
+    @if (isOpen()) {
+      <div class="chat-panel">
+        <div class="panel-header">
+          <div class="header-title">
+            <app-ai-icon [size]="22"></app-ai-icon>
+            <span>AI Assistant</span>
+          </div>
+          <div class="header-actions">
+            <button mat-icon-button matTooltip="Open full page" (click)="openFullPage()">
+              <mat-icon>open_in_full</mat-icon>
+            </button>
+            <button mat-icon-button matTooltip="New Chat" (click)="resetChat()">
+              <mat-icon>add_comment</mat-icon>
+            </button>
+            <button mat-icon-button matTooltip="Close" (click)="close()">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+        </div>
+        <div class="panel-body">
+          @if (!threadId() && !loading()) {
+            <!-- Initial state: show input for first message -->
+            <div class="welcome">
+              <app-ai-icon [size]="48" class="welcome-icon-wrap"></app-ai-icon>
+              <p>Ask me anything about your Mist infrastructure.</p>
+              <p class="welcome-hint">I can query backups, workflows, device events, and more.</p>
+            </div>
+          }
+          <app-ai-chat-panel
+            #chatPanel
+            [threadId]="threadId()"
+            [initialSummary]="initialReply()"
+            [errorMessage]="chatError()"
+            [parentLoading]="loading()"
+            [mcpConfigs]="availableMcpConfigs()"
+            [(mcpConfigIds)]="selectedMcpIds"
+          ></app-ai-chat-panel>
+        </div>
+
+        @if (!threadId()) {
+          <div class="initial-input">
+            <div class="chat-input-box">
+              <textarea
+                #initialInput
+                class="chat-textarea"
+                [value]="inputText"
+                (input)="inputText = $any($event.target).value; autoGrow($event)"
+                (keydown.enter)="onEnter($event)"
+                placeholder="Ask a question..."
+                rows="1"
+              ></textarea>
+              <div class="chat-input-actions">
+                @if (availableMcpConfigs().length > 0) {
+                  <button class="mcp-toggle" [class.active]="selectedMcpIds().length > 0" [matMenuTriggerFor]="mcpMenu" [matTooltip]="mcpTooltipText()">
+                    <mat-icon>hub</mat-icon>
+                    <span>{{ selectedMcpIds().length }}</span>
+                  </button>
+                  <mat-menu #mcpMenu="matMenu">
+                    @for (cfg of availableMcpConfigs(); track cfg.id) {
+                      <button mat-menu-item (click)="toggleMcp(cfg.id); $event.stopPropagation()">
+                        <mat-icon>{{ selectedMcpIds().includes(cfg.id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
+                        {{ cfg.name }}
+                      </button>
+                    }
+                  </mat-menu>
+                }
+                <span class="spacer"></span>
+                <button class="send-button" (click)="sendFirst()" [disabled]="loading() || !inputText.trim()">
+                  <mat-icon>arrow_upward</mat-icon>
+                </button>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  `,
+  styles: [
+    `
+      :host {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 1000;
+      }
+
+      .chat-fab {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 120, 212, 0.3);
+        background: rgba(0, 120, 212, 0.1);
+        backdrop-filter: blur(12px);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 20px rgba(0, 120, 212, 0.2), 0 2px 8px rgba(0, 0, 0, 0.15);
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        position: relative;
+
+        &:hover {
+          transform: scale(1.08);
+          border-color: rgba(0, 120, 212, 0.5);
+          box-shadow: 0 8px 28px rgba(0, 120, 212, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+      }
+
+      .chat-fab.pulse::after {
+        content: '';
+        position: absolute;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 2px solid rgba(0, 120, 212, 0.4);
+        animation: pulse-ring 2s ease-out 3;
+      }
+
+      @keyframes pulse-ring {
+        0% { transform: scale(1); opacity: 0.6; }
+        100% { transform: scale(1.8); opacity: 0; }
+      }
+
+      .chat-panel {
+        width: 420px;
+        height: 560px;
+        border-radius: 16px;
+        background: var(--mat-sys-surface);
+        border: 1px solid var(--mat-sys-outline-variant);
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15), 0 6px 16px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: panel-in 250ms cubic-bezier(0.2, 0, 0, 1) forwards;
+        transform-origin: bottom right;
+      }
+
+      @keyframes panel-in {
+        from {
+          opacity: 0;
+          transform: scale(0.4) translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 6px 6px 16px;
+        border-bottom: 1px solid var(--mat-sys-outline-variant);
+        background: var(--mat-sys-surface-container);
+        flex-shrink: 0;
+      }
+
+      .header-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .header-actions {
+        display: flex;
+      }
+
+      .panel-body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        clip-path: inset(0 round 0 0 16px 16px);
+      }
+
+      .welcome {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 24px 16px;
+        text-align: center;
+        color: var(--mat-sys-on-surface-variant);
+      }
+
+      .welcome-icon-wrap {
+        margin-bottom: 12px;
+        opacity: 0.7;
+      }
+
+      .welcome p {
+        margin: 0 0 4px;
+        font-size: 14px;
+      }
+
+      .welcome-hint {
+        font-size: 12px !important;
+        opacity: 0.7;
+      }
+
+      .initial-input {
+        padding: 12px 16px;
+        border-top: 1px solid var(--mat-sys-outline-variant);
+      }
+
+      .chat-input-box {
+        border: 1px solid var(--mat-sys-outline-variant);
+        border-radius: 20px;
+        background: var(--mat-sys-surface-container);
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+        &:focus-within {
+          border-color: var(--mat-sys-primary);
+          box-shadow: 0 0 0 1px var(--mat-sys-primary);
+        }
+      }
+
+      .chat-textarea {
+        width: 100%;
+        border: none;
+        padding: 8px 12px;
+        font: inherit;
+        font-size: 14px;
+        line-height: 1.5;
+        resize: none;
+        background: transparent;
+        color: var(--mat-sys-on-surface);
+        outline: none;
+
+        &::placeholder {
+          color: var(--app-neutral);
+        }
+      }
+
+      .chat-input-actions {
+        display: flex;
+        align-items: center;
+        padding: 0 4px;
+      }
+
+      .spacer {
+        flex: 1;
+      }
+
+      .send-button {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: none;
+        background: var(--mat-sys-primary);
+        color: var(--mat-sys-on-primary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.15s ease;
+
+        &:hover:not(:disabled) { opacity: 0.85; }
+        &:disabled { background: var(--app-neutral); opacity: 0.3; cursor: not-allowed; }
+
+        mat-icon { font-size: 20px; width: 20px; height: 20px; }
+      }
+
+      @media (max-width: 480px) {
+        .chat-panel {
+          width: calc(100vw - 16px);
+          height: calc(100vh - 80px);
+          bottom: 8px;
+          right: 8px;
+          border-radius: 12px;
+        }
+      }
+    `,
+  ],
+})
+export class GlobalChatComponent implements OnInit {
+  private readonly llmService = inject(LlmService);
+  private readonly globalChatService = inject(GlobalChatService);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+
+  isOpen = signal(false);
+  showPulse = signal(true);
+  loading = signal(false);
+  threadId = signal<string | null>(null);
+  initialReply = signal<string | null>(null);
+  chatError = signal<string | null>(null);
+  inputText = '';
+  availableMcpConfigs = signal<McpConfigAvailable[]>([]);
+  selectedMcpIds = signal<string[]>([]);
+  activeMcpConfigs = computed(() =>
+    this.availableMcpConfigs().filter((c) => this.selectedMcpIds().includes(c.id)),
+  );
+  private readonly injector = inject(Injector);
+  private chatPanel = viewChild<AiChatPanelComponent>('chatPanel');
+  private initialInput = viewChild<ElementRef<HTMLTextAreaElement>>('initialInput');
+
+  ngOnInit(): void {
+    // Listen for external open requests (from dashboard, webhook monitor, etc.)
+    this.globalChatService.onOpen().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((event) => {
+      this.open();
+      if (event.message) {
+        this.inputText = event.message;
+        // Auto-send after a tick to let the panel render
+        setTimeout(() => this.sendFirst(), 100);
+      }
+    });
+
+    // Stop pulse after 6 seconds
+    setTimeout(() => this.showPulse.set(false), 6000);
+  }
+
+  open(): void {
+    this.isOpen.set(true);
+    this.showPulse.set(false);
+    // Load available MCP configs (lazy, only when panel opens)
+    if (this.availableMcpConfigs().length === 0) {
+      this.llmService.listAvailableMcpConfigs().subscribe({
+        next: (configs) => this.availableMcpConfigs.set(configs),
+      });
+    }
+    // Focus the input after the panel renders
+    afterNextRender(() => this.initialInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  close(): void {
+    this.isOpen.set(false);
+  }
+
+  openFullPage(): void {
+    const threadId = this.threadId();
+    this.close();
+    this.router.navigate(['/ai-chats'], threadId ? { queryParams: { thread: threadId } } : {});
+  }
+
+  resetChat(): void {
+    this.chatPanel()?.reset();
+    this.threadId.set(null);
+    this.initialReply.set(null);
+    this.chatError.set(null);
+    this.selectedMcpIds.set([]);
+    this.inputText = '';
+  }
+
+  toggleMcp(id: string): void {
+    this.selectedMcpIds.update((ids) =>
+      ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id],
+    );
+  }
+
+  mcpTooltipText = computed(() => {
+    const ids = new Set(this.selectedMcpIds());
+    const names = this.availableMcpConfigs().filter((c) => ids.has(c.id)).map((c) => c.name);
+    return names.length ? 'MCP: ' + names.join(', ') : 'No MCP servers active';
+  });
+
+  autoGrow(event: Event): void {
+    const el = event.target as HTMLTextAreaElement;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 210) + 'px';
+  }
+
+  onEnter(event: Event): void {
+    const ke = event as KeyboardEvent;
+    if (!ke.shiftKey) {
+      ke.preventDefault();
+      this.sendFirst();
+    }
+  }
+
+  sendFirst(): void {
+    const text = this.inputText.trim();
+    if (!text || this.loading()) return;
+
+    this.inputText = '';
+    this.loading.set(true);
+    this.chatError.set(null);
+
+    // Subscribe to WS channel synchronously BEFORE the HTTP request
+    const streamId = crypto.randomUUID();
+    this.chatPanel()?.startStream(streamId, text);
+
+    this.llmService
+      .globalChat(text, this.threadId() || undefined, this.globalChatService.buildContextString() || undefined, streamId, this.selectedMcpIds())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.threadId.set(res.thread_id);
+          this.initialReply.set(res.reply);
+          this.loading.set(false);
+        },
+        error: (err) => {
+          this.chatError.set(extractErrorMessage(err));
+          this.loading.set(false);
+        },
+      });
+  }
+}

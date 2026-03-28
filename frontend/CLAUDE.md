@@ -34,7 +34,6 @@ Angular 21 frontend for the Mist Automation platform. Uses standalone components
 - **Signals for state**: Use `signal()` for component state, `computed()` for derived values. Never use `ChangeDetectorRef` — signals auto-trigger change detection in zoneless mode.
 - **Template reads**: Access signals with `()` syntax: `@if (loading())`, `{{ data().name }}`
 - **Subscription cleanup**: Use `takeUntilDestroyed(destroyRef)` for `ngOnInit` subscriptions; use a `rebuild$` subject with `takeUntil` for subscriptions that reset on input changes (see block-config-panel)
-- **AI Panel**: Persistent split layout (`AiPanelComponent` in `shared/components/ai-panel/`). Renders as left pane next to page content when LLM is enabled. Thread history, chat, and context breadcrumb are integrated. `PanelStateService` persists width/collapsed to localStorage. `Ctrl+\` toggles visibility. Hidden on mobile and when LLM is disabled.
 
 ### Workflow Editor (Graph-based)
 

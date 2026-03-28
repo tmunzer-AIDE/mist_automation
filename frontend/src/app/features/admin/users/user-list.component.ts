@@ -8,7 +8,6 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Store } from '@ngrx/store';
@@ -49,7 +48,6 @@ export class UserListComponent implements OnInit {
   private readonly store = inject(Store);
   private readonly destroyRef = inject(DestroyRef);
   private readonly topbarService = inject(TopbarService);
-  private readonly globalChatService = inject(GlobalChatService);
 
   currentUserId: string | null = null;
   users = signal<UserResponse[]>([]);
@@ -61,7 +59,6 @@ export class UserListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Users');
-    this.globalChatService.setContext({ page: 'Admin > Users' });
     this.store
       .select(selectCurrentUser)
       .pipe(takeUntilDestroyed(this.destroyRef))
