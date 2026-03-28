@@ -1,4 +1,25 @@
+<ng-template #topbarActions>
+  @if (llmAvailable()) {
+    <button mat-stroked-button (click)="summarize()" [disabled]="aiLoading()" class="ai-summary-btn">
+      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
+    </button>
+  }
+</ng-template>
+
+<app-ai-summary-panel
+  [open]="aiPanelOpen()"
+  [summary]="aiSummary()"
+  [error]="aiError()"
+  [loading]="aiLoading()"
+  [threadId]="aiThreadId()"
+  loadingLabel="Analyzing backups..."
+  (closed)="aiPanelOpen.set(false)"
+></app-ai-summary-panel>
+
 <div class="page-actions">
+  <button mat-stroked-button routerLink="/backup/jobs">
+    <mat-icon>work_history</mat-icon> Jobs
+  </button>
   <button mat-flat-button class="btn-accent" (click)="openCreateDialog()">
     <mat-icon>add</mat-icon> New Backup
   </button>
@@ -90,7 +111,7 @@
 </div>
 
 @if (loadingObjects()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  <app-skeleton-loader type="table" [rows]="5" [columns]="5"></app-skeleton-loader>
 }
 
 @if (!loadingObjects() && objects().length === 0) {

@@ -1,4 +1,13 @@
-import { Component, computed, inject, OnInit, signal, ViewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+  TemplateRef,
+  ViewChild,
+} from '@angular/core';
 import { NgClass } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, FormControl } from '@angular/forms';
@@ -9,8 +18,8 @@ import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
@@ -18,6 +27,7 @@ import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js/auto';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { LlmService } from '../../../core/services/llm.service';
 import {
   BackupObjectSummary,
   BackupObjectListResponse,
@@ -28,9 +38,12 @@ import {
 } from '../../../core/models/backup.model';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import {
   getChartColor,
   baseChartOptions,
@@ -51,27 +64,40 @@ import {
     MatButtonModule,
     MatIconModule,
     MatDialogModule,
-    MatProgressBarModule,
     MatSnackBarModule,
+    SkeletonLoaderComponent,
     MatFormFieldModule,
     MatInputModule,
     MatAutocompleteModule,
     BaseChartDirective,
     EmptyStateComponent,
     StatusBadgeComponent,
+    AiIconComponent,
+    AiSummaryPanelComponent,
     BackupChartCardComponent,
     DateTimePipe,
   ],
   templateUrl: './backup-object-list.component.html',
   styleUrl: './backup-object-list.component.scss',
 })
-export class BackupObjectListComponent implements OnInit {
+export class BackupObjectListComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly dialog = inject(MatDialog);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
   private readonly fb = inject(FormBuilder);
   private readonly topbarService = inject(TopbarService);
+  private readonly llmService = inject(LlmService);
+
+  @ViewChild('topbarActions', { static: true }) topbarActionsRef!: TemplateRef<unknown>;
+
+  // AI Summary
+  llmAvailable = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
 
   // ── Object table ─────────────────────────────────────────────────────
   objects = signal<BackupObjectSummary[]>([]);
@@ -176,6 +202,11 @@ export class BackupObjectListComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Backups');
+    this.topbarService.setActions(this.topbarActionsRef);
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => {},
+    });
     this.loadObjectTypes();
     this.loadSites();
     this.loadObjects();
@@ -346,5 +377,35 @@ export class BackupObjectListComponent implements OnInit {
         }, 2000);
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.topbarService.clearActions();
+  }
+
+  summarize(): void {
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    const f = this.filterForm.value;
+    this.llmService
+      .summarizeBackups({
+        object_type: f.object_type || undefined,
+        site_id: f.site_id || undefined,
+        scope: f.scope || undefined,
+      })
+      .subscribe({
+        next: (res) => {
+          this.aiThreadId.set(res.thread_id);
+          this.aiSummary.set(res.summary);
+          this.aiLoading.set(false);
+        },
+        error: (err) => {
+          this.aiError.set(extractErrorMessage(err));
+          this.aiLoading.set(false);
+        },
+      });
   }
 }
