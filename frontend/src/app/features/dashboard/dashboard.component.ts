@@ -1,9 +1,19 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+  TemplateRef,
+  ViewChild,
+} from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { Store } from '@ngrx/store';
+import { SkeletonLoaderComponent } from '../../shared/components/skeleton-loader/skeleton-loader.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter, take, switchMap, catchError } from 'rxjs';
 import { of } from 'rxjs';
@@ -15,13 +25,16 @@ import { AuthService } from '../../core/services/auth.service';
 import { ImpactAnalysisService } from '../../core/services/impact-analysis.service';
 import { TopbarService } from '../../core/services/topbar.service';
 import { GlobalChatService } from '../../core/services/global-chat.service';
+import { LlmService } from '../../core/services/llm.service';
 import { WebSocketService } from '../../core/services/websocket.service';
 import { HealthResponse } from '../../core/models/session.model';
 import { UserResponse } from '../../core/models/user.model';
 import { SessionSummary } from '../impact-analysis/models/impact-analysis.model';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { AiIconComponent } from '../../shared/components/ai-icon/ai-icon.component';
+import { AiSummaryPanelComponent } from '../../shared/components/ai-summary-panel/ai-summary-panel.component';
 import { DateTimePipe } from '../../shared/pipes/date-time.pipe';
+import { extractErrorMessage } from '../../shared/utils/error.utils';
 import {
   DashboardStats,
   DashboardActivity,
@@ -41,16 +54,17 @@ import {
     RouterModule,
     MatIconModule,
     MatButtonModule,
-    MatProgressBarModule,
+    SkeletonLoaderComponent,
     BaseChartDirective,
     StatusBadgeComponent,
     AiIconComponent,
+    AiSummaryPanelComponent,
     DateTimePipe,
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   private readonly store = inject(Store);
   private readonly api = inject(ApiService);
   private readonly authService = inject(AuthService);
@@ -60,6 +74,17 @@ export class DashboardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly topbarService = inject(TopbarService);
   private readonly globalChat = inject(GlobalChatService);
+  private readonly llmService = inject(LlmService);
+
+  @ViewChild('topbarActions', { static: true }) topbarActions!: TemplateRef<unknown>;
+
+  // AI Summary
+  llmAvailable = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
 
   user = signal<UserResponse | null>(null);
   stats = signal<DashboardStats | null>(null);
@@ -101,7 +126,12 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Dashboard');
+    this.topbarService.setActions(this.topbarActions);
     this.globalChat.setContext({ page: 'Dashboard', details: { view: 'System overview' } });
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => {},
+    });
     this.authService.checkHealth().subscribe({
       next: (h) => this.health.set(h),
     });
@@ -235,12 +265,26 @@ export class DashboardComponent implements OnInit {
     this.chartConfig.set({ type: 'bar', data: { labels, datasets }, options });
   }
 
-  analyzeIncident(): void {
-    this.globalChat.open(
-      'Analyze recent incidents in the last 24 hours. ' +
-        'Check for device events (offline, config failures, port issues), ' +
-        'recent configuration changes in backups, and any active alarms. ' +
-        'Summarize findings and highlight anything that needs attention.'
-    );
+  ngOnDestroy(): void {
+    this.topbarService.clearActions();
+  }
+
+  summarize(): void {
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    this.llmService.summarizeDashboard().subscribe({
+      next: (res) => {
+        this.aiThreadId.set(res.thread_id);
+        this.aiSummary.set(res.summary);
+        this.aiLoading.set(false);
+      },
+      error: (err) => {
+        this.aiError.set(extractErrorMessage(err));
+        this.aiLoading.set(false);
+      },
+    });
   }
 }

@@ -1,6 +1,24 @@
+<ng-template #topbarActions>
+  @if (llmAvailable()) {
+    <button mat-stroked-button (click)="summarize()" [disabled]="aiLoading()" class="ai-summary-btn">
+      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
+    </button>
+  }
+</ng-template>
+
 @if (loading()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  <app-skeleton-loader type="dashboard" [columns]="5"></app-skeleton-loader>
 } @else {
+  <app-ai-summary-panel
+    [open]="aiPanelOpen()"
+    [summary]="aiSummary()"
+    [error]="aiError()"
+    [loading]="aiLoading()"
+    [threadId]="aiThreadId()"
+    loadingLabel="Analyzing dashboard..."
+    (closed)="aiPanelOpen.set(false)"
+  ></app-ai-summary-panel>
+
   <!-- Hero Card -->
   <div class="hero-card">
     <div class="hero-accent"></div>
@@ -9,9 +27,6 @@
         <div class="hero-primary">
           <h2 class="hero-greeting">Welcome back, {{ displayName() }}</h2>
           <p class="hero-sub">Here's your overview for the last {{ statsWindowDays() }} days.</p>
-          <button mat-stroked-button class="incident-btn" (click)="analyzeIncident()">
-            <app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Analyze Incidents
-          </button>
         </div>
         @if (health(); as h) {
           <div class="hero-health">

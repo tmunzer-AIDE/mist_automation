@@ -6,7 +6,7 @@
   border-radius: var(--app-radius);
   background: var(--mat-sys-surface-container-low);
   box-shadow: var(--app-shadow-sm);
-  margin-bottom: 20px;
+  margin-bottom: var(--app-space-xl);
   overflow: hidden;
 }
 
@@ -20,8 +20,8 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 20px 24px;
+  gap: var(--app-space-xl);
+  padding: var(--app-space-xl);
 }
 
 .hero-top {
@@ -41,11 +41,11 @@
 
 .hero-greeting {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--app-text-xl);
   font-weight: 600;
   color: var(--mat-sys-on-surface);
   letter-spacing: -0.2px;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--app-font-display);
 }
 
 .hero-sub {
@@ -137,8 +137,8 @@
 .highlights-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: var(--app-space-sm);
+  margin-bottom: var(--app-space-xl);
 }
 
 .highlight-card {
@@ -335,4 +335,26 @@
 .welcome-actions {
   display: flex;
   gap: 8px;
+}
+
+// ── Responsive ─────────────────────────────────────────────────────────
+
+@media (max-width: 768px) {
+  .hero-stats {
+    flex-direction: column;
+  }
+
+  .hero-top {
+    flex-direction: column;
+  }
+
+  .highlights-section {
+    gap: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-body {
+    padding: 16px;
+  }
 }
