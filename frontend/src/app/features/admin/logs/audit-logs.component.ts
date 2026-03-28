@@ -13,8 +13,12 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { AuditLogEntry, AuditLogListResponse } from '../../../core/models/admin.model';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 const EVENT_TYPES = [
   'user_login',
@@ -46,6 +50,8 @@ const EVENT_TYPES = [
     MatProgressBarModule,
     MatSnackBarModule,
     MatTooltipModule,
+    AiIconComponent,
+    AiSummaryPanelComponent,
     DateTimePipe,
   ],
   templateUrl: './audit-logs.component.html',
@@ -57,8 +63,17 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly fb = inject(FormBuilder);
   private readonly topbarService = inject(TopbarService);
+  private readonly llmService = inject(LlmService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly destroyRef = inject(DestroyRef);
+
+  // AI Summary
+  llmAvailable = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
 
   logs = signal<AuditLogEntry[]>([]);
   total = signal(0);
@@ -87,6 +102,10 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.topbarService.setTitle('Audit Logs');
     this.topbarService.setActions(this.actionsTpl);
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => {},
+    });
     this.loadLogs();
   }
 
@@ -169,6 +188,33 @@ export class AuditLogsComponent implements OnInit, OnDestroy {
         error: () => {
           this.exporting.set(false);
           this.snackBar.open('Export failed', 'OK', { duration: 5000 });
+        },
+      });
+  }
+
+  summarize(): void {
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    const f = this.filterForm.value;
+    this.llmService
+      .summarizeAuditLogs({
+        event_type: f.event_type || undefined,
+        user_id: f.user_id || undefined,
+        start_date: f.start_date || undefined,
+        end_date: f.end_date || undefined,
+      })
+      .subscribe({
+        next: (res) => {
+          this.aiThreadId.set(res.thread_id);
+          this.aiSummary.set(res.summary);
+          this.aiLoading.set(false);
+        },
+        error: (err) => {
+          this.aiError.set(extractErrorMessage(err));
+          this.aiLoading.set(false);
         },
       });
   }
