@@ -69,7 +69,6 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
       <!-- Header -->
       <div class="panel-header">
         <div class="header-title">
-          <app-ai-icon [size]="20"></app-ai-icon>
           <span>Assistant</span>
         </div>
         <div class="header-actions">

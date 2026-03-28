@@ -3,12 +3,13 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterOutlet, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
+import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
 import { AiPanelComponent } from '../shared/components/ai-panel/ai-panel.component';
-import { AiIconComponent } from '../shared/components/ai-icon/ai-icon.component';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { AiIconComponent } from '../shared/components/ai-icon/ai-icon.component';
 import { LlmService } from '../core/services/llm.service';
 import { GlobalChatService } from '../core/services/global-chat.service';
 import { PanelStateService } from '../core/services/panel-state.service';
@@ -17,7 +18,7 @@ import { filter, map } from 'rxjs';
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [RouterOutlet, MatSidenavModule, MatTooltipModule, SidebarComponent, TopbarComponent, AiPanelComponent, AiIconComponent],
+  imports: [RouterOutlet, MatIconModule, MatSidenavModule, MatTooltipModule, SidebarComponent, TopbarComponent, AiPanelComponent, AiIconComponent],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss',
 })

@@ -26,18 +26,22 @@
       <main class="content" [class.full-width]="isFullWidth()">
         <router-outlet></router-outlet>
       </main>
-      @if (showAiPanel) {
+      @if (showAiTab) {
+        @if (showAiPanel) {
+          <div
+            class="resize-handle"
+            (mousedown)="onResizeStart($event)"
+          >
+            <div class="resize-grip"></div>
+          </div>
+        }
         <div
-          class="resize-handle"
-          (mousedown)="onResizeStart($event)"
+          class="ai-panel-wrapper"
+          [class.collapsed]="!showAiPanel"
+          [style.width.px]="showAiPanel ? panelState.width() : 0"
         >
-          <div class="resize-grip"></div>
-        </div>
-        <div class="ai-panel-wrapper" [style.width.px]="panelState.width()">
           <app-ai-panel></app-ai-panel>
         </div>
-      }
-      @if (showAiTab) {
         <button
           class="ai-edge-tab"
           [style.right.px]="showAiPanel ? panelState.width() : 0"
@@ -45,7 +49,11 @@
           [matTooltip]="showAiPanel ? 'Hide panel (Ctrl+\\)' : 'Show AI panel (Ctrl+\\)'"
           matTooltipPosition="left"
         >
-          <app-ai-icon [size]="16" [animated]="false"></app-ai-icon>
+          @if (showAiPanel) {
+            <mat-icon class="edge-tab-icon">chevron_right</mat-icon>
+          } @else {
+            <app-ai-icon [size]="16" [animated]="false"></app-ai-icon>
+          }
         </button>
       }
     </div>
