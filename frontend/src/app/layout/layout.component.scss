@@ -54,6 +54,11 @@
   border-left: 1px solid var(--mat-sys-outline-variant);
   transition: width 0.2s ease;
 
+  // Keep inner content at fixed width so text doesn't reflow during collapse
+  > * {
+    min-width: var(--ai-panel-inner-width);
+  }
+
   &.collapsed {
     border-left: none;
   }

@@ -39,6 +39,7 @@
           class="ai-panel-wrapper"
           [class.collapsed]="!showAiPanel"
           [style.width.px]="showAiPanel ? panelState.width() : 0"
+          [style.--ai-panel-inner-width.px]="panelState.width()"
         >
           <app-ai-panel></app-ai-panel>
         </div>
