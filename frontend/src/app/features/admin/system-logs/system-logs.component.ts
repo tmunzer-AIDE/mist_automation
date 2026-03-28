@@ -25,7 +25,11 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { UpperCasePipe } from '@angular/common';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
+import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
+import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 interface LogEntry {
   timestamp: string;
@@ -59,6 +63,8 @@ const ALL_LEVELS = ['debug', 'info', 'warning', 'error', 'critical'];
     MatProgressSpinnerModule,
     MatSnackBarModule,
     MatTooltipModule,
+    AiIconComponent,
+    AiSummaryPanelComponent,
     UpperCasePipe,
   ],
   templateUrl: './system-logs.component.html',
@@ -67,11 +73,20 @@ const ALL_LEVELS = ['debug', 'info', 'warning', 'error', 'critical'];
 export class SystemLogsComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private topbar = inject(TopbarService);
+  private readonly llmService = inject(LlmService);
   private ws = inject(WebSocketService);
   private snackBar = inject(MatSnackBar);
   private destroyRef = inject(DestroyRef);
 
   @ViewChild('actions', { static: true }) actionsRef!: TemplateRef<unknown>;
+
+  // AI Summary
+  llmAvailable = signal(false);
+  aiPanelOpen = signal(false);
+  aiLoading = signal(false);
+  aiSummary = signal<string | null>(null);
+  aiError = signal<string | null>(null);
+  aiThreadId = signal<string | null>(null);
 
   logs = signal<LogEntry[]>([]);
   loading = signal(false);
@@ -125,6 +140,10 @@ export class SystemLogsComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.topbar.setTitle('System Logs');
     this.topbar.setActions(this.actionsRef);
+    this.llmService.getStatus().subscribe({
+      next: (s) => this.llmAvailable.set(s.enabled),
+      error: () => {},
+    });
     this.ws.connected$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((c) => this.connected.set(c));
     this.loadHistory();
     this.subscribeToLogs();
@@ -276,5 +295,31 @@ export class SystemLogsComponent implements OnInit, OnDestroy {
   extraEntries(extra: Record<string, string>): [string, string][] {
     if (!extra) return [];
     return Object.entries(extra);
+  }
+
+  summarize(): void {
+    this.aiPanelOpen.set(true);
+    this.aiLoading.set(true);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+
+    const levels = this.selectedLevels();
+    const loggers = this.selectedLoggers();
+    this.llmService
+      .summarizeSystemLogs({
+        level: levels.length ? levels.join(',') : undefined,
+        logger: loggers.length ? loggers.join(',') : undefined,
+      })
+      .subscribe({
+        next: (res) => {
+          this.aiThreadId.set(res.thread_id);
+          this.aiSummary.set(res.summary);
+          this.aiLoading.set(false);
+        },
+        error: (err) => {
+          this.aiError.set(extractErrorMessage(err));
+          this.aiLoading.set(false);
+        },
+      });
   }
 }

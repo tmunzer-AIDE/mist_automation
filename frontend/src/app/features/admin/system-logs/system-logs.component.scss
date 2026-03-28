@@ -66,7 +66,7 @@
 .log-container {
   flex: 1;
   overflow-y: auto;
-  font-family: 'Roboto Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--app-font-mono);
   font-size: 12px;
   line-height: 1.5;
   border: 1px solid var(--app-neutral-border, rgba(0, 0, 0, 0.12));
