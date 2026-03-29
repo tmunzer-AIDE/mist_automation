@@ -23,22 +23,17 @@
   <button mat-icon-button (click)="clearEvents()" matTooltip="Clear events">
     <mat-icon>delete_sweep</mat-icon>
   </button>
-  @if (llmAvailable()) {
-    <button mat-stroked-button (click)="summarizeWithAI()" [disabled]="aiLoading()" class="ai-summary-btn">
-      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
-    </button>
-  }
 </ng-template>
 
-<app-ai-summary-panel
-  [open]="aiPanelOpen()"
+<app-ai-inline-analysis
+  [llmAvailable]="llmAvailable()"
   [summary]="aiSummary()"
   [error]="aiError()"
   [loading]="aiLoading()"
   [threadId]="aiThreadId()"
   loadingLabel="Summarizing events..."
-  (closed)="aiPanelOpen.set(false)"
-></app-ai-summary-panel>
+  (analyzeRequested)="summarizeWithAI()"
+/>
 
 <!-- Chart -->
 <div class="chart-section">

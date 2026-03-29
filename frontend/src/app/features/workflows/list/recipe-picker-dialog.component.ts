@@ -1,13 +1,14 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RecipeResponse, RecipeService } from '../../../core/services/recipe.service';
+import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 
 const CATEGORIES = [
   { value: '', label: 'All' },
@@ -34,6 +35,7 @@ const DIFFICULTY_ICONS: Record<string, string> = {
     MatChipsModule,
     MatProgressBarModule,
     MatSnackBarModule,
+    AiIconComponent,
   ],
   template: `
     <h2 mat-dialog-title>Create New Workflow</h2>
@@ -50,6 +52,13 @@ const DIFFICULTY_ICONS: Record<string, string> = {
           <span class="card-title">New Sub-Flow</span>
           <span class="card-desc">Reusable callable workflow</span>
         </button>
+        @if (llmAvailable) {
+          <button class="start-card" (click)="startWithAI()">
+            <app-ai-icon [size]="28" [animated]="false"></app-ai-icon>
+            <span class="card-title">Create with AI</span>
+            <span class="card-desc">Describe your workflow in plain text</span>
+          </button>
+        }
       </div>
 
       <!-- Recipe section -->
@@ -258,6 +267,7 @@ export class RecipePickerDialogComponent implements OnInit {
   private readonly dialogRef = inject(MatDialogRef<RecipePickerDialogComponent>);
   private readonly snackBar = inject(MatSnackBar);
   private readonly destroyRef = inject(DestroyRef);
+  readonly llmAvailable: boolean = inject(MAT_DIALOG_DATA)?.llmAvailable ?? false;
 
   readonly categories = CATEGORIES;
 
@@ -306,6 +316,10 @@ export class RecipePickerDialogComponent implements OnInit {
     } else {
       this.router.navigate(['/workflows/new']);
     }
+  }
+
+  startWithAI(): void {
+    this.dialogRef.close('ai');
   }
 
   useRecipe(recipe: RecipeResponse): void {

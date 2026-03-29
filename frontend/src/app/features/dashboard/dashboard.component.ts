@@ -1,14 +1,4 @@
-import {
-  Component,
-  computed,
-  DestroyRef,
-  inject,
-  OnDestroy,
-  OnInit,
-  signal,
-  TemplateRef,
-  ViewChild,
-} from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -31,8 +21,7 @@ import { HealthResponse } from '../../core/models/session.model';
 import { UserResponse } from '../../core/models/user.model';
 import { SessionSummary } from '../impact-analysis/models/impact-analysis.model';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
-import { AiIconComponent } from '../../shared/components/ai-icon/ai-icon.component';
-import { AiSummaryPanelComponent } from '../../shared/components/ai-summary-panel/ai-summary-panel.component';
+import { AiInlineAnalysisComponent } from '../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
 import { DateTimePipe } from '../../shared/pipes/date-time.pipe';
 import { extractErrorMessage } from '../../shared/utils/error.utils';
 import {
@@ -57,14 +46,13 @@ import {
     SkeletonLoaderComponent,
     BaseChartDirective,
     StatusBadgeComponent,
-    AiIconComponent,
-    AiSummaryPanelComponent,
+    AiInlineAnalysisComponent,
     DateTimePipe,
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
-export class DashboardComponent implements OnInit, OnDestroy {
+export class DashboardComponent implements OnInit {
   private readonly store = inject(Store);
   private readonly api = inject(ApiService);
   private readonly authService = inject(AuthService);
@@ -76,11 +64,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private readonly globalChat = inject(GlobalChatService);
   private readonly llmService = inject(LlmService);
 
-  @ViewChild('topbarActions', { static: true }) topbarActions!: TemplateRef<unknown>;
-
   // AI Summary
   llmAvailable = signal(false);
-  aiPanelOpen = signal(false);
   aiLoading = signal(false);
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
@@ -126,7 +111,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Dashboard');
-    this.topbarService.setActions(this.topbarActions);
     this.globalChat.setContext({ page: 'Dashboard', details: { view: 'System overview' } });
     this.llmService.getStatus().subscribe({
       next: (s) => this.llmAvailable.set(s.enabled),
@@ -265,12 +249,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.chartConfig.set({ type: 'bar', data: { labels, datasets }, options });
   }
 
-  ngOnDestroy(): void {
-    this.topbarService.clearActions();
-  }
-
   summarize(): void {
-    this.aiPanelOpen.set(true);
     this.aiLoading.set(true);
     this.aiSummary.set(null);
     this.aiError.set(null);

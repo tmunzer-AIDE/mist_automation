@@ -29,22 +29,17 @@
   <button mat-icon-button matTooltip="Export JSON" (click)="exportJson()">
     <mat-icon>download</mat-icon>
   </button>
-  @if (llmAvailable()) {
-    <button mat-stroked-button (click)="summarize()" [disabled]="aiLoading()" class="ai-summary-btn">
-      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
-    </button>
-  }
 </ng-template>
 
-<app-ai-summary-panel
-  [open]="aiPanelOpen()"
+<app-ai-inline-analysis
+  [llmAvailable]="llmAvailable()"
   [summary]="aiSummary()"
   [error]="aiError()"
   [loading]="aiLoading()"
   [threadId]="aiThreadId()"
   loadingLabel="Analyzing system logs..."
-  (closed)="aiPanelOpen.set(false)"
-></app-ai-summary-panel>
+  (analyzeRequested)="summarize()"
+/>
 
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>

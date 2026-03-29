@@ -27,8 +27,7 @@ import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { LlmService } from '../../../core/services/llm.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
-import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
-import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
+import { AiInlineAnalysisComponent } from '../../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
 interface LogEntry {
@@ -63,8 +62,7 @@ const ALL_LEVELS = ['debug', 'info', 'warning', 'error', 'critical'];
     MatProgressSpinnerModule,
     MatSnackBarModule,
     MatTooltipModule,
-    AiIconComponent,
-    AiSummaryPanelComponent,
+    AiInlineAnalysisComponent,
     UpperCasePipe,
   ],
   templateUrl: './system-logs.component.html',
@@ -82,7 +80,6 @@ export class SystemLogsComponent implements OnInit, OnDestroy {
 
   // AI Summary
   llmAvailable = signal(false);
-  aiPanelOpen = signal(false);
   aiLoading = signal(false);
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
@@ -298,7 +295,6 @@ export class SystemLogsComponent implements OnInit, OnDestroy {
   }
 
   summarize(): void {
-    this.aiPanelOpen.set(true);
     this.aiLoading.set(true);
     this.aiSummary.set(null);
     this.aiError.set(null);

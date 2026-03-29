@@ -166,8 +166,15 @@ export class WorkflowListComponent implements OnInit {
     const ref = this.dialog.open(RecipePickerDialogComponent, {
       width: '620px',
       maxHeight: '85vh',
+      data: { llmAvailable: this.llmAvailable() },
     });
-    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.loadWorkflows());
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result) => {
+      if (result === 'ai') {
+        this.createWithAI();
+      } else {
+        this.loadWorkflows();
+      }
+    });
   }
 
   createSubflow(): void {

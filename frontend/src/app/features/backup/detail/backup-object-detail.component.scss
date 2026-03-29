@@ -27,6 +27,8 @@
 
 .diff-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 
+.diff-ai-chip { margin-left: auto; }
+
 .filter-chip {
   display: inline-flex;
   align-items: center;
@@ -218,7 +220,3 @@ table { width: 100%; }
 tr.compare-row-selectable { cursor: pointer; }
 tr.compare-row-selected { background: var(--mat-sys-primary-container) !important; border-left: 3px solid var(--mat-sys-primary); }
 .inline-actions { display: flex; gap: 0; justify-content: flex-end; }
-
-.ai-summary-btn {
-  app-ai-icon { vertical-align: middle; }
-}

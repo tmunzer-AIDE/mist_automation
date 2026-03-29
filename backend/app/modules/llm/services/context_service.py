@@ -336,7 +336,11 @@ async def get_backup_summary_context(
     if not objects:
         return "No backup objects matching the specified filters.", 0
 
-    stale = [o for o in objects if o.backed_up_at and o.backed_up_at < cutoff_7d]
+    stale = [
+        o
+        for o in objects
+        if o.backed_up_at and o.backed_up_at.replace(tzinfo=timezone.utc) < cutoff_7d
+    ]
 
     by_type: dict[str, int] = {}
     for o in objects:
@@ -353,10 +357,14 @@ async def get_backup_summary_context(
     if stale:
         lines.append("\nStale objects:")
         for o in stale[:20]:
-            age = (now - o.backed_up_at).days if o.backed_up_at else "never"
+            age = (now - o.backed_up_at.replace(tzinfo=timezone.utc)).days if o.backed_up_at else "never"
             lines.append(f"  - {o.object_type}/{o.object_name or o.object_id} — {age} days old")
 
-    changed = [o for o in objects if o.backed_up_at and o.backed_up_at >= cutoff_7d and o.version > 1]
+    changed = [
+        o
+        for o in objects
+        if o.backed_up_at and o.backed_up_at.replace(tzinfo=timezone.utc) >= cutoff_7d and o.version > 1
+    ]
     if changed:
         lines.append(f"\nRecently changed objects ({len(changed)}):")
         for o in changed[:20]:

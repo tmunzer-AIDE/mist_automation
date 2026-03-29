@@ -31,7 +31,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import { WebhookEventDetailDialogComponent } from '../../../shared/components/webhook-event-detail-dialog/webhook-event-detail-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
-import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
+import { AiInlineAnalysisComponent } from '../../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { WebhookEventService } from '../../../core/services/webhook-event.service';
@@ -81,7 +81,7 @@ interface ChartRange {
     SkeletonLoaderComponent,
     StatusBadgeComponent,
     AiIconComponent,
-    AiSummaryPanelComponent,
+    AiInlineAnalysisComponent,
     DateTimePipe,
   ],
   templateUrl: './webhook-monitor.component.html',
@@ -101,7 +101,6 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
 
   // AI Summary
   llmAvailable = signal(false);
-  aiPanelOpen = signal(false);
   aiLoading = signal(false);
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
@@ -361,7 +360,6 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   }
 
   summarizeWithAI(): void {
-    this.aiPanelOpen.set(true);
     this.aiLoading.set(true);
     this.aiSummary.set(null);
     this.aiError.set(null);

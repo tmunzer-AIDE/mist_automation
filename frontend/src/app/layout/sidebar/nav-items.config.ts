@@ -8,21 +8,21 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
-  { label: 'Webhook Monitor', icon: 'webhook', route: '/monitoring' },
-  {
-    label: 'Reports',
-    icon: 'assessment',
-    route: '/reports',
-    roles: ['post_deployment', 'admin'],
-  },
+  { label: 'Workflows', icon: 'account_tree', route: '/workflows' },
+  { label: 'Backups', icon: 'backup', route: '/backup' },
+  { label: 'Webhooks', icon: 'webhook', route: '/monitoring' },
   {
     label: 'Impact Analysis',
     icon: 'analytics',
     route: '/impact-analysis',
     roles: ['impact_analysis', 'admin'],
   },
-  { label: 'Backups', icon: 'backup', route: '/backup' },
-  { label: 'Workflows', icon: 'account_tree', route: '/workflows' },
+  {
+    label: 'Reports',
+    icon: 'assessment',
+    route: '/reports',
+    roles: ['post_deployment', 'admin'],
+  },
 ];
 
 export const ADMIN_NAV_ITEM: NavItem = {

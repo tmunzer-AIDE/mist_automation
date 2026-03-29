@@ -1,11 +1,3 @@
-<ng-template #topbarActions>
-  @if (llmAvailable()) {
-    <button mat-stroked-button (click)="summarize()" [disabled]="aiLoading()" class="ai-summary-btn">
-      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
-    </button>
-  }
-</ng-template>
-
 @if (loading()) {
   <!-- Hero skeleton -->
   <div class="hero-card">
@@ -43,16 +35,6 @@
     </div>
   </div>
 } @else {
-  <app-ai-summary-panel
-    [open]="aiPanelOpen()"
-    [summary]="aiSummary()"
-    [error]="aiError()"
-    [loading]="aiLoading()"
-    [threadId]="aiThreadId()"
-    loadingLabel="Analyzing dashboard..."
-    (closed)="aiPanelOpen.set(false)"
-  ></app-ai-summary-panel>
-
   <!-- Hero Card -->
   <div class="hero-card">
     <div class="hero-accent"></div>
@@ -70,6 +52,16 @@
           </div>
         }
       </div>
+
+      <app-ai-inline-analysis
+        [llmAvailable]="llmAvailable()"
+        [summary]="aiSummary()"
+        [error]="aiError()"
+        [loading]="aiLoading()"
+        [threadId]="aiThreadId()"
+        loadingLabel="Analyzing dashboard..."
+        (analyzeRequested)="summarize()"
+      />
 
       @if (hasAnyModuleRole() && stats(); as s) {
         <div class="hero-stats">

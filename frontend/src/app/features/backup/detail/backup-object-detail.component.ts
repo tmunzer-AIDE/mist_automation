@@ -20,8 +20,7 @@ import { TopbarService } from '../../../core/services/topbar.service';
 import { ObjectDependencyResponse } from '../../../core/models/backup.model';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
-import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
+import { AiInlineAnalysisComponent } from '../../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { JsonViewDialogComponent } from './json-view-dialog.component';
@@ -77,8 +76,7 @@ interface DiffGroup {
     MatSnackBarModule,
     EmptyStateComponent,
     StatusBadgeComponent,
-    AiIconComponent,
-    AiSummaryPanelComponent,
+    AiInlineAnalysisComponent,
     DateTimePipe,
   ],
   templateUrl: './backup-object-detail.component.html',
@@ -104,7 +102,6 @@ export class BackupObjectDetailComponent implements OnInit {
   aiThreadId = signal<string | null>(null);
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
-  aiPanelOpen = signal(false);
   aiLoading = signal(false);
   selectedVersionId = signal<string | null>(null);
   dependencies = signal<ObjectDependencyResponse | null>(null);
@@ -235,7 +232,8 @@ export class BackupObjectDetailComponent implements OnInit {
     this.compareMode.set(false);
     this.compareVersions.set([null, null]);
     this.aiThreadId.set(null);
-    this.aiPanelOpen.set(false);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
     this.diffEntries.set([]);
     this.activeFilters.set(new Set());
     this.expandedGroups.set(new Set());
@@ -500,7 +498,6 @@ export class BackupObjectDetailComponent implements OnInit {
     const v1 = this.compareVersions()[1];
     if (!v0 || !v1) return;
 
-    this.aiPanelOpen.set(true);
     this.aiLoading.set(true);
     this.aiSummary.set(null);
     this.aiError.set(null);

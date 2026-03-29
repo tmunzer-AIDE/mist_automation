@@ -1,13 +1,4 @@
-import {
-  Component,
-  computed,
-  inject,
-  OnDestroy,
-  OnInit,
-  signal,
-  TemplateRef,
-  ViewChild,
-} from '@angular/core';
+import { Component, computed, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, FormControl } from '@angular/forms';
@@ -38,8 +29,7 @@ import {
 } from '../../../core/models/backup.model';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
-import { AiSummaryPanelComponent } from '../../../shared/components/ai-summary-panel/ai-summary-panel.component';
+import { AiInlineAnalysisComponent } from '../../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
@@ -72,15 +62,14 @@ import {
     BaseChartDirective,
     EmptyStateComponent,
     StatusBadgeComponent,
-    AiIconComponent,
-    AiSummaryPanelComponent,
+    AiInlineAnalysisComponent,
     BackupChartCardComponent,
     DateTimePipe,
   ],
   templateUrl: './backup-object-list.component.html',
   styleUrl: './backup-object-list.component.scss',
 })
-export class BackupObjectListComponent implements OnInit, OnDestroy {
+export class BackupObjectListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly dialog = inject(MatDialog);
   private readonly router = inject(Router);
@@ -89,11 +78,8 @@ export class BackupObjectListComponent implements OnInit, OnDestroy {
   private readonly topbarService = inject(TopbarService);
   private readonly llmService = inject(LlmService);
 
-  @ViewChild('topbarActions', { static: true }) topbarActionsRef!: TemplateRef<unknown>;
-
   // AI Summary
   llmAvailable = signal(false);
-  aiPanelOpen = signal(false);
   aiLoading = signal(false);
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
@@ -202,7 +188,6 @@ export class BackupObjectListComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.topbarService.setTitle('Backups');
-    this.topbarService.setActions(this.topbarActionsRef);
     this.llmService.getStatus().subscribe({
       next: (s) => this.llmAvailable.set(s.enabled),
       error: () => {},
@@ -379,12 +364,7 @@ export class BackupObjectListComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnDestroy(): void {
-    this.topbarService.clearActions();
-  }
-
   summarize(): void {
-    this.aiPanelOpen.set(true);
     this.aiLoading.set(true);
     this.aiSummary.set(null);
     this.aiError.set(null);

@@ -15,9 +15,6 @@
   <button mat-stroked-button routerLink="/workflows/executions">
     <mat-icon>history</mat-icon> Executions
   </button>
-  @if (llmAvailable()) {
-    <button mat-stroked-button (click)="createWithAI()"><app-ai-icon [size]="18" [animated]="false"></app-ai-icon> Create with AI</button>
-  }
   <button mat-stroked-button (click)="importWorkflow()"><mat-icon>upload</mat-icon> Import</button>
   <button mat-flat-button (click)="createWorkflow()"><mat-icon>add</mat-icon> New</button>
 </div>

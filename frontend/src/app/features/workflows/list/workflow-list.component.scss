@@ -134,9 +134,13 @@
   cursor: pointer;
 }
 
+.page-actions {
+  align-items: center;
+}
+
 .filter-chips {
   display: flex;
-  gap: 4px;
+  gap: 8px;
 
   button.active {
     background: var(--mat-sys-primary-container, #e3f2fd);

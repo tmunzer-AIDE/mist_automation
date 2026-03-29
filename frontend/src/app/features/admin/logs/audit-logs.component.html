@@ -1,23 +1,18 @@
 <ng-template #actions>
-  @if (llmAvailable()) {
-    <button mat-stroked-button (click)="summarize()" [disabled]="aiLoading()" class="ai-summary-btn">
-      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
-    </button>
-  }
-  <button mat-stroked-button (click)="exportCsv()" [disabled]="exporting()" matTooltip="Export filtered logs as CSV" style="margin-left: 8px">
+  <button mat-stroked-button (click)="exportCsv()" [disabled]="exporting()" matTooltip="Export filtered logs as CSV">
     <mat-icon>download</mat-icon> {{ exporting() ? 'Exporting...' : 'Export CSV' }}
   </button>
 </ng-template>
 
-<app-ai-summary-panel
-  [open]="aiPanelOpen()"
+<app-ai-inline-analysis
+  [llmAvailable]="llmAvailable()"
   [summary]="aiSummary()"
   [error]="aiError()"
   [loading]="aiLoading()"
   [threadId]="aiThreadId()"
   loadingLabel="Analyzing audit logs..."
-  (closed)="aiPanelOpen.set(false)"
-></app-ai-summary-panel>
+  (analyzeRequested)="summarize()"
+/>
 
 <div class="filters" [formGroup]="filterForm">
   <mat-form-field appearance="outline">

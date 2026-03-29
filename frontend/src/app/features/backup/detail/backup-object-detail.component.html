@@ -5,11 +5,6 @@
       <mat-icon>compare</mat-icon> {{ compareMode() ? 'Exit Compare' : 'Compare Versions' }}
     </button>
   }
-  @if (llmAvailable() && compareMode() && diffEntries().length > 0) {
-    <button mat-stroked-button (click)="summarizeChanges()" [disabled]="aiLoading()" class="ai-summary-btn">
-      <app-ai-icon [size]="16" [animated]="false"></app-ai-icon> AI Summary
-    </button>
-  }
 </div>
 
 @if (loading()) {
@@ -40,7 +35,7 @@
             @if (diffEntries().length === 0) {
               <p class="no-diff">No differences found between these versions.</p>
             } @else {
-              <!-- Toolbar: filter chips + expand/collapse all -->
+              <!-- Toolbar: filter chips + AI analysis + expand/collapse all -->
               <div class="diff-toolbar">
                 <div class="diff-filter-chips">
                   @for (type of ['added', 'removed', 'modified']; track type) {
@@ -57,6 +52,16 @@
                     }
                   }
                 </div>
+                <app-ai-inline-analysis
+                  class="diff-ai-chip"
+                  [llmAvailable]="llmAvailable()"
+                  [summary]="aiSummary()"
+                  [error]="aiError()"
+                  [loading]="aiLoading()"
+                  [threadId]="aiThreadId()"
+                  loadingLabel="Summarizing changes..."
+                  (analyzeRequested)="summarizeChanges()"
+                />
                 <button
                   mat-icon-button
                   class="expand-all-btn"
@@ -157,15 +162,6 @@
           </mat-card-content>
         </mat-card>
 
-        <app-ai-summary-panel
-          [open]="aiPanelOpen()"
-          [summary]="aiSummary()"
-          [error]="aiError()"
-          [loading]="aiLoading()"
-          [threadId]="aiThreadId()"
-          loadingLabel="Summarizing changes..."
-          (closed)="aiPanelOpen.set(false)"
-        ></app-ai-summary-panel>
       }
     </section>
   }
