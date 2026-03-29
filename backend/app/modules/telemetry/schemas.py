@@ -22,6 +22,7 @@ ALLOWED_MEASUREMENTS = frozenset(
         "gateway_resources",
         "gateway_cluster",
         "gateway_dhcp",
+        "switch_dhcp",
     }
 )
 

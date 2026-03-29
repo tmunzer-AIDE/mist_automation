@@ -86,6 +86,11 @@ COV_THRESHOLDS: dict[str, dict[str, str | float]] = {
         "num_leased": "exact",
         "utilization_pct": 3.0,
     },
+    "switch_dhcp": {
+        "num_ips": "exact",
+        "num_leased": "exact",
+        "utilization_pct": 3.0,
+    },
 }
 
 

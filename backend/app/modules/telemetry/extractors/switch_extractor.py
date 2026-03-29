@@ -4,6 +4,7 @@ Produces:
 - device_summary: cpu_util, mem_usage, num_clients, uptime, poe_draw_total, poe_max_total
 - port_stats: per UP port — port_id, up, tx_pkts, rx_pkts, speed
 - module_stats: per VC member — fpc_idx, temp_max, poe_draw, vc_role, vc_links_count, mem_usage
+- switch_dhcp: per DHCP scope — num_ips, num_leased, utilization_pct
 """
 
 from __future__ import annotations
@@ -162,11 +163,44 @@ def _extract_module_stats(payload: dict, org_id: str, site_id: str, timestamp: i
     return points
 
 
+def _extract_switch_dhcp(payload: dict, org_id: str, site_id: str, timestamp: int) -> list[dict]:
+    """Build switch_dhcp data points from dhcpd_stat."""
+    dhcpd_stat = payload.get("dhcpd_stat")
+    if not dhcpd_stat:
+        return []
+
+    points: list[dict] = []
+    for network_name, scope_data in dhcpd_stat.items():
+        num_ips = scope_data.get("num_ips", 0)
+        num_leased = scope_data.get("num_leased", 0)
+        utilization_pct = round(num_leased / num_ips * 100, 1) if num_ips > 0 else 0.0
+
+        points.append(
+            {
+                "measurement": "switch_dhcp",
+                "tags": {
+                    "org_id": org_id,
+                    "site_id": site_id,
+                    "mac": payload.get("mac", ""),
+                    "network_name": network_name,
+                },
+                "fields": {
+                    "num_ips": num_ips,
+                    "num_leased": num_leased,
+                    "utilization_pct": utilization_pct,
+                },
+                "time": timestamp,
+            }
+        )
+
+    return points
+
+
 def extract_points(payload: dict, org_id: str, site_id: str) -> list[dict]:
     """Extract InfluxDB data points from a raw switch WebSocket payload.
 
-    Returns one device_summary point, plus port_stats for each UP port
-    and module_stats for each VC member.
+    Returns one device_summary point, plus port_stats for each UP port,
+    module_stats for each VC member, and switch_dhcp for each DHCP scope.
     """
     timestamp = get_timestamp(payload)
     points: list[dict] = []
@@ -174,5 +208,6 @@ def extract_points(payload: dict, org_id: str, site_id: str) -> list[dict]:
     points.append(_extract_device_summary(payload, org_id, site_id, timestamp))
     points.extend(_extract_port_stats(payload, org_id, site_id))
     points.extend(_extract_module_stats(payload, org_id, site_id, timestamp))
+    points.extend(_extract_switch_dhcp(payload, org_id, site_id, timestamp))
 
     return points
