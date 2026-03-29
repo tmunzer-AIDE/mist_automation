@@ -195,6 +195,7 @@ async def transition(session: MonitoringSession, new_status: SessionStatus) -> N
     )
     await broadcast_session_update(session)
     await _broadcast_summary_update()
+    await _update_group_summary(session)
 
 
 async def config_applied(
@@ -246,6 +247,7 @@ async def add_incident(session: MonitoringSession, incident: DeviceIncident) -> 
             },
         },
     )
+    await _update_group_summary(session)
 
 
 async def resolve_incident(session: MonitoringSession, event_type: str, device_mac: str) -> None:
@@ -294,6 +296,7 @@ async def resolve_incident(session: MonitoringSession, event_type: str, device_m
                 },
             },
         )
+        await _update_group_summary(session)
 
 
 async def cancel_session(session_id: str) -> MonitoringSession | None:
@@ -325,6 +328,7 @@ async def escalate_impact(session: MonitoringSession, severity: str) -> None:
         f"impact:{session.id}",
         {"type": "impact_severity_changed", "data": {"severity": severity}},
     )
+    await _update_group_summary(session)
 
 
 async def get_session_summary() -> dict[str, int]:
@@ -431,3 +435,15 @@ async def _broadcast_summary_update() -> None:
             "data": summary,
         },
     )
+
+
+async def _update_group_summary(session: MonitoringSession) -> None:
+    """If this session belongs to a change group, recompute the group summary."""
+    if not session.change_group_id:
+        return
+    try:
+        from app.modules.impact_analysis.services import change_group_service
+
+        await change_group_service.update_summary(session.change_group_id)
+    except Exception as e:
+        logger.warning("group_summary_update_failed", session_id=str(session.id), error=str(e))
