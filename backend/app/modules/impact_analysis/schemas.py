@@ -161,6 +161,8 @@ class SessionSummaryResponse(BaseModel):
     impacted: int = Field(default=0, description="Sessions with detected impact")
     completed_24h: int = Field(default=0, description="Sessions completed in the last 24 hours")
     total: int = Field(default=0, description="Total sessions")
+    active_groups: int = Field(default=0, description="Active change groups")
+    impacted_groups_24h: int = Field(default=0, description="Impacted groups in last 24h")
 
 
 # ── Admin settings ────────────────────────────────────────────────────────
@@ -203,3 +205,92 @@ class SessionChatResponse(BaseModel):
     reply: str
     thread_id: str
     usage: dict = Field(default_factory=dict)
+
+
+# ── Change Group schemas ─────────────────────────────────────────────────
+
+
+class IncidentSummaryResponse(BaseModel):
+    type: str
+    severity: str
+    timestamp: datetime
+    resolved: bool = False
+
+
+class SLEDeltaResponse(BaseModel):
+    metric: str
+    baseline: float
+    current: float
+    delta_pct: float
+
+
+class DeviceSummaryResponse(BaseModel):
+    """Per-device summary within a change group."""
+
+    session_id: str
+    device_mac: str
+    device_name: str
+    device_type: str
+    site_name: str
+    status: str
+    impact_severity: str
+    failed_checks: list[str] = Field(default_factory=list)
+    active_incidents: list[IncidentSummaryResponse] = Field(default_factory=list)
+    worst_sle_delta: SLEDeltaResponse | None = None
+
+
+class DeviceTypeCountsResponse(BaseModel):
+    total: int = 0
+    monitoring: int = 0
+    completed: int = 0
+    impacted: int = 0
+
+
+class ValidationCheckSummaryResponse(BaseModel):
+    check_name: str
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+
+class GroupSummaryResponse(BaseModel):
+    total_devices: int = 0
+    by_type: dict[str, DeviceTypeCountsResponse] = Field(default_factory=dict)
+    worst_severity: str = "none"
+    validation_summary: list[ValidationCheckSummaryResponse] = Field(default_factory=list)
+    sle_summary: dict[str, SLEDeltaResponse] = Field(default_factory=dict)
+    devices: list[DeviceSummaryResponse] = Field(default_factory=list)
+    status: str = "monitoring"
+    last_updated: datetime | None = None
+
+
+class ChangeGroupResponse(BaseModel):
+    """Summary view for group list."""
+
+    id: str
+    audit_id: str
+    org_id: str
+    site_id: str | None = None
+    change_source: str
+    change_description: str
+    triggered_by: str | None = None
+    triggered_at: datetime
+    session_count: int
+    summary: GroupSummaryResponse
+    ai_assessment: dict | None = None
+    ai_assessment_error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChangeGroupDetailResponse(ChangeGroupResponse):
+    """Full detail view including timeline."""
+
+    timeline: list[TimelineEntryResponse] = Field(default_factory=list)
+
+
+class ChangeGroupListResponse(BaseModel):
+    """Paginated list of change groups."""
+
+    groups: list[ChangeGroupResponse]
+    total: int
