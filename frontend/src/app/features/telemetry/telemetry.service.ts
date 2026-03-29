@@ -10,6 +10,8 @@ import {
   AggregateResult,
   RangeResult,
   DeviceLiveEvent,
+  SiteUpdateEvent,
+  OrgUpdateEvent,
   TimeRange,
 } from './models';
 
@@ -68,5 +70,13 @@ export class TelemetryService {
 
   subscribeToDevice(mac: string): Observable<DeviceLiveEvent> {
     return this.ws.subscribe<DeviceLiveEvent>(`telemetry:device:${mac}`);
+  }
+
+  subscribeToSite(siteId: string): Observable<SiteUpdateEvent> {
+    return this.ws.subscribe<SiteUpdateEvent>(`telemetry:site:${siteId}`);
+  }
+
+  subscribeToOrg(): Observable<OrgUpdateEvent> {
+    return this.ws.subscribe<OrgUpdateEvent>('telemetry:org');
   }
 }

@@ -183,3 +183,13 @@ export interface RangeResult {
   points: Record<string, unknown>[];
   count: number;
 }
+
+export interface SiteUpdateEvent {
+  mac: string;
+  device_type: string;
+}
+
+export interface OrgUpdateEvent {
+  mac: string;
+  device_type: string;
+}
