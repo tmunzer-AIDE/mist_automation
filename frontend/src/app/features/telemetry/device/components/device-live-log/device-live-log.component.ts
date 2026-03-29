@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DecimalPipe, DatePipe, UpperCasePipe } from '@angular/common';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { Subscription } from 'rxjs';
 import { TelemetryService } from '../../../telemetry.service';
 import { DeviceLiveEvent } from '../../../models';
@@ -18,7 +19,7 @@ const MAX_LOG_ROWS = 100;
 @Component({
   selector: 'app-device-live-log',
   standalone: true,
-  imports: [DecimalPipe, DatePipe, UpperCasePipe],
+  imports: [DecimalPipe, DatePipe, UpperCasePipe, MatButtonToggleModule],
   templateUrl: './device-live-log.component.html',
   styleUrl: './device-live-log.component.scss',
 })
@@ -29,6 +30,8 @@ export class DeviceLiveLogComponent implements OnChanges {
   private wsSub?: Subscription;
 
   readonly entries = signal<DeviceLiveEvent[]>([]);
+  readonly viewMode = signal<'formatted' | 'raw'>('formatted');
+  readonly expandedRows = signal<Set<number>>(new Set());
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['mac'] && this.mac) {
@@ -48,5 +51,27 @@ export class DeviceLiveLogComponent implements OnChanges {
           return next.length > MAX_LOG_ROWS ? next.slice(0, MAX_LOG_ROWS) : next;
         });
       });
+  }
+
+  setViewMode(mode: 'formatted' | 'raw'): void {
+    this.viewMode.set(mode);
+  }
+
+  toggleExpand(index: number): void {
+    const expanded = new Set(this.expandedRows());
+    if (expanded.has(index)) {
+      expanded.delete(index);
+    } else {
+      expanded.add(index);
+    }
+    this.expandedRows.set(expanded);
+  }
+
+  isExpanded(index: number): boolean {
+    return this.expandedRows().has(index);
+  }
+
+  formatJson(obj: Record<string, unknown> | undefined): string {
+    return obj ? JSON.stringify(obj, null, 2) : '{}';
   }
 }

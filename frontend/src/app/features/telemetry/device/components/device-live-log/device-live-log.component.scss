@@ -1,3 +1,10 @@
+.live-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
 .live-log {
   font-family: var(--app-font-mono, monospace);
   font-size: var(--app-text-sm);
@@ -64,4 +71,28 @@
 
 .wan-down {
   color: var(--app-error);
+}
+
+.raw-row {
+  cursor: pointer;
+}
+
+.expand-hint {
+  font-size: var(--app-text-xs);
+  color: var(--mat-sys-primary);
+  margin-left: auto;
+}
+
+.raw-json {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--mat-sys-surface-container);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  padding: 12px;
+  margin: 0 0 4px 0;
+  overflow-x: auto;
+  max-height: 400px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
