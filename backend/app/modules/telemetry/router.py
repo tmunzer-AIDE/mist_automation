@@ -137,7 +137,7 @@ async def get_scope_sites(
 ) -> ScopeSitesResponse:
     """Return all sites with device counts from InfluxDB (last 24h).
 
-    Resolves site names from the in-memory cache when available.
+    Resolves site names from the Mist API.
     """
     import app.modules.telemetry as telemetry_mod
 
@@ -146,15 +146,18 @@ async def get_scope_sites(
 
     raw_sites = await telemetry_mod._influxdb_service.query_distinct_sites(hours=24)
 
-    # Build a site_id -> site_name lookup from the latest cache
+    # Resolve site names from Mist API
     site_names: dict[str, str] = {}
-    if telemetry_mod._latest_cache is not None:
-        for _mac, entry in telemetry_mod._latest_cache.get_all_entries().items():
-            payload = entry.get("stats", {})
-            sid = payload.get("site_id")
-            sname = payload.get("site_name")
-            if sid and sname and sid not in site_names:
-                site_names[sid] = sname
+    try:
+        from app.services.mist_service_factory import create_mist_service
+
+        mist = await create_mist_service()
+        mist_sites = await mist.get_sites()
+        for s in mist_sites:
+            site_names[s.get("id", "")] = s.get("name", "")
+    except Exception:
+        logger.warning("telemetry_scope_sites_name_resolution_failed")
+        pass
 
     sites: list[SiteSummaryRecord] = []
     for item in raw_sites:
