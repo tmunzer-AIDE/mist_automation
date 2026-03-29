@@ -9,7 +9,7 @@ const routes: Routes = [
   {
     path: 'site/:id',
     loadComponent: () =>
-      import('./scope/telemetry-scope.component').then((m) => m.TelemetryScopeComponent),
+      import('./site/telemetry-site.component').then((m) => m.TelemetrySiteComponent),
   },
   {
     path: 'device/:mac',

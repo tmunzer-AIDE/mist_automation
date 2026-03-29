@@ -88,3 +88,33 @@
     color: var(--app-success);
   }
 }
+
+.site-autocomplete {
+  min-width: 260px;
+}
+
+.chart-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.chart-container {
+  flex: 1;
+  min-width: 280px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  padding: 12px;
+  background: var(--mat-sys-surface);
+
+  .chart-title {
+    font-size: var(--app-text-xs);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  canvas {
+    max-height: 200px;
+  }
+}

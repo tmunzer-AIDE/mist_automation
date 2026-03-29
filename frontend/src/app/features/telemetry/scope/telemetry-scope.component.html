@@ -3,22 +3,32 @@
     <mat-progress-bar mode="indeterminate" />
   }
 
-  <!-- Header with breadcrumb + time range picker -->
+  <!-- Header row: title + site autocomplete -->
   <div class="page-header">
-    <div class="page-title">
-      Telemetry
-      @if (siteId()) {
-        > Site View
-      }
-    </div>
-    <div class="time-range-picker">
-      <span class="label">Time range:</span>
-      @for (tr of timeRanges; track tr) {
-        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
-          {{ tr }}
-        </button>
-      }
-    </div>
+    <div class="page-title">Telemetry</div>
+    <mat-form-field appearance="outline" class="site-autocomplete">
+      <mat-label>Select site</mat-label>
+      <input matInput [formControl]="siteSearchCtrl" [matAutocomplete]="siteAuto" />
+      <mat-autocomplete
+        #siteAuto="matAutocomplete"
+        [displayWith]="displaySiteName"
+        (optionSelected)="selectSite($event.option.value)"
+      >
+        @for (site of filteredSites(); track site.site_id) {
+          <mat-option [value]="site">{{ site.site_name }} ({{ site.total_devices }})</mat-option>
+        }
+      </mat-autocomplete>
+    </mat-form-field>
+  </div>
+
+  <!-- Time range picker -->
+  <div class="time-range-picker">
+    <span class="label">Time range:</span>
+    @for (tr of timeRanges; track tr) {
+      <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
+        {{ tr }}
+      </button>
+    }
   </div>
 
   <!-- AP section -->
@@ -32,6 +42,11 @@
           <div class="kpi-label">Avg CPU</div>
           <div class="kpi-value">{{ ap!.avg_cpu_util | number: '1.0-1' }}%</div>
           <div class="kpi-sub">max {{ ap!.max_cpu_util | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Avg Memory</div>
+          <div class="kpi-value">{{ ap!.avg_mem_usage | number: '1.0-1' }}%</div>
         </div>
 
         <div class="kpi-card">
@@ -54,6 +69,42 @@
           <div class="kpi-value">{{ ap!.reporting_active }}/{{ ap!.reporting_total }}</div>
         </div>
       </div>
+
+      <div class="chart-row">
+        @if (apCpuChart()) {
+          <div class="chart-container">
+            <div class="chart-title">Avg CPU &amp; Memory</div>
+            <canvas
+              baseChart
+              [data]="apCpuChart()!.data"
+              [options]="apCpuChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+        @if (apClientsChart()) {
+          <div class="chart-container">
+            <div class="chart-title">Total Clients</div>
+            <canvas
+              baseChart
+              [data]="apClientsChart()!.data"
+              [options]="apClientsChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+        @if (apBandChart()) {
+          <div class="chart-container">
+            <div class="chart-title">Band Utilization</div>
+            <canvas
+              baseChart
+              [data]="apBandChart()!.data"
+              [options]="apBandChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+      </div>
     </section>
   }
 
@@ -70,19 +121,25 @@
         </div>
 
         <div class="kpi-card">
+          <div class="kpi-label">Avg Memory</div>
+          <div class="kpi-value">{{ sw!.avg_mem_usage | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
           <div class="kpi-label">Total Clients</div>
           <div class="kpi-value">{{ sw!.total_clients | number }}</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Ports</div>
+          <div class="kpi-value">{{ sw!.ports_up }}/{{ sw!.ports_total }}</div>
+          <div class="kpi-sub">up</div>
         </div>
 
         <div class="kpi-card">
           <div class="kpi-label">PoE Draw</div>
           <div class="kpi-value">{{ sw!.poe_draw_total | number: '1.0-0' }}W</div>
           <div class="kpi-sub">of {{ sw!.poe_max_total | number: '1.0-0' }}W</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">DHCP Leases</div>
-          <div class="kpi-value">{{ sw!.total_dhcp_leases | number }}</div>
         </div>
 
         <div
@@ -92,6 +149,42 @@
           <div class="kpi-label">Reporting</div>
           <div class="kpi-value">{{ sw!.reporting_active }}/{{ sw!.reporting_total }}</div>
         </div>
+      </div>
+
+      <div class="chart-row">
+        @if (swCpuChart()) {
+          <div class="chart-container">
+            <div class="chart-title">Avg CPU &amp; Memory</div>
+            <canvas
+              baseChart
+              [data]="swCpuChart()!.data"
+              [options]="swCpuChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+        @if (swPoeChart()) {
+          <div class="chart-container">
+            <div class="chart-title">PoE Draw</div>
+            <canvas
+              baseChart
+              [data]="swPoeChart()!.data"
+              [options]="swPoeChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+        @if (swClientsChart()) {
+          <div class="chart-container">
+            <div class="chart-title">Wired Clients</div>
+            <canvas
+              baseChart
+              [data]="swClientsChart()!.data"
+              [options]="swClientsChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
       </div>
     </section>
   }
@@ -109,14 +202,24 @@
         </div>
 
         <div class="kpi-card">
+          <div class="kpi-label">Avg Memory</div>
+          <div class="kpi-value">{{ gw!.avg_mem_usage | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
           <div class="kpi-label">WAN Links</div>
           <div class="kpi-value">{{ gw!.wan_links_up }}/{{ gw!.wan_links_total }}</div>
           <div class="kpi-sub">up</div>
         </div>
 
         <div class="kpi-card">
-          <div class="kpi-label">DHCP Leases</div>
-          <div class="kpi-value">{{ gw!.total_dhcp_leases | number }}</div>
+          <div class="kpi-label">SPU CPU</div>
+          <div class="kpi-value">{{ gw!.avg_spu_cpu | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">SPU Sessions</div>
+          <div class="kpi-value">{{ gw!.total_spu_sessions | number }}</div>
         </div>
 
         <div
@@ -127,17 +230,42 @@
           <div class="kpi-value">{{ gw!.reporting_active }}/{{ gw!.reporting_total }}</div>
         </div>
       </div>
-    </section>
-  }
 
-  @if (devices() && devices()!.devices.length > 0) {
-    <section class="device-section">
-      <h3 class="section-title">Devices</h3>
-      <app-scope-device-table
-        [devices]="devices()!.devices"
-        [isOrgScope]="isOrgScope()"
-        (deviceSelected)="navigateToDevice($event)"
-      />
+      <div class="chart-row">
+        @if (gwCpuChart()) {
+          <div class="chart-container">
+            <div class="chart-title">CPU &amp; Memory</div>
+            <canvas
+              baseChart
+              [data]="gwCpuChart()!.data"
+              [options]="gwCpuChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+        @if (gwSpuChart()) {
+          <div class="chart-container">
+            <div class="chart-title">SPU Sessions &amp; CPU</div>
+            <canvas
+              baseChart
+              [data]="gwSpuChart()!.data"
+              [options]="gwSpuChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+        @if (gwWanChart()) {
+          <div class="chart-container">
+            <div class="chart-title">WAN Traffic</div>
+            <canvas
+              baseChart
+              [data]="gwWanChart()!.data"
+              [options]="gwWanChart()!.options"
+              type="line"
+            ></canvas>
+          </div>
+        }
+      </div>
     </section>
   }
 </div>
