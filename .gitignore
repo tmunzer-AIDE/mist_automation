@@ -3,6 +3,7 @@
 .vscode/
 .idea/
 .angular/
+.superpowers/
 # Python bytecode
 __pycache__/
 *.py[cod]
