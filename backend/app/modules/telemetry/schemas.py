@@ -109,3 +109,62 @@ class ReconnectResponse(BaseModel):
     connections: int = 0
     sites: int = 0
     message: str = ""
+
+
+# ── Scope summary models ──────────────────────────────────────────────────
+
+
+class BandSummary(BaseModel):
+    avg_util_all: float = 0.0
+    avg_noise_floor: float = 0.0
+
+
+class APScopeSummary(BaseModel):
+    reporting_active: int = 0
+    reporting_total: int = 0
+    avg_cpu_util: float = 0.0
+    max_cpu_util: float = 0.0
+    total_clients: int = 0
+    bands: dict[str, BandSummary] = Field(default_factory=dict)
+
+
+class SwitchScopeSummary(BaseModel):
+    reporting_active: int = 0
+    reporting_total: int = 0
+    avg_cpu_util: float = 0.0
+    total_clients: int = 0
+    poe_draw_total: float = 0.0
+    poe_max_total: float = 0.0
+    total_dhcp_leases: int = 0
+
+
+class GatewayScopeSummary(BaseModel):
+    reporting_active: int = 0
+    reporting_total: int = 0
+    avg_cpu_util: float = 0.0
+    wan_links_up: int = 0
+    wan_links_total: int = 0
+    total_dhcp_leases: int = 0
+
+
+class ScopeSummaryResponse(BaseModel):
+    ap: APScopeSummary | None = None
+    switch: SwitchScopeSummary | None = None
+    gateway: GatewayScopeSummary | None = None
+
+
+class DeviceSummaryRecord(BaseModel):
+    mac: str
+    site_id: str
+    device_type: str
+    name: str
+    model: str
+    cpu_util: float | None = None
+    num_clients: int | None = None
+    last_seen: float | None = None
+    fresh: bool
+
+
+class ScopeDevicesResponse(BaseModel):
+    total: int
+    devices: list[DeviceSummaryRecord]
