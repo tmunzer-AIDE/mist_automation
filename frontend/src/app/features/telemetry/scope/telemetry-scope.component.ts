@@ -133,6 +133,7 @@ export class TelemetryScopeComponent implements OnInit {
         this.summary.set(summary);
         this.sites.set(sites.sites);
       },
+      error: () => {},
     });
   }
 

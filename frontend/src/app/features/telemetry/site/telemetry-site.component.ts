@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DecimalPipe, DatePipe, TitleCasePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
@@ -51,7 +51,7 @@ Chart.register(...registerables);
   templateUrl: './telemetry-site.component.html',
   styleUrl: './telemetry-site.component.scss',
 })
-export class TelemetrySiteComponent implements OnInit {
+export class TelemetrySiteComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -125,6 +125,10 @@ export class TelemetrySiteComponent implements OnInit {
     return this.summary()?.gateway ?? null;
   }
 
+  ngOnDestroy(): void {
+    this.wsSub?.unsubscribe();
+  }
+
   ngOnInit(): void {
     this.deviceSearchCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -138,7 +142,7 @@ export class TelemetrySiteComponent implements OnInit {
         this.wsSub?.unsubscribe();
         this.wsSub = this.telemetryService
           .subscribeToSite(id)
-          .pipe(debounceTime(5000), takeUntilDestroyed(this.destroyRef))
+          .pipe(debounceTime(5000))
           .subscribe(() => this.refreshSummary(id));
       }
     });
@@ -153,6 +157,7 @@ export class TelemetrySiteComponent implements OnInit {
         this.summary.set(summary);
         this.devices.set(devices);
       },
+      error: () => {},
     });
   }
 

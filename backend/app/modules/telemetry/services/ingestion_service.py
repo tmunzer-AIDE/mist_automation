@@ -558,7 +558,7 @@ class IngestionService:
             await ws_manager.broadcast(f"telemetry:device:{mac}", event)
 
         # Broadcast lightweight refresh signals to site and org channels
-        if site_id:
+        if site_id and mac and device_type:
             tick = {"mac": mac, "device_type": device_type}
             await ws_manager.broadcast(f"telemetry:site:{site_id}", tick)
             await ws_manager.broadcast("telemetry:org", tick)
