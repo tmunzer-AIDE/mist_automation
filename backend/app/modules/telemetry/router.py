@@ -539,9 +539,7 @@ async def query_aggregate(
     """Query aggregated telemetry data across all devices at a site or org."""
     import app.modules.telemetry as telemetry_mod
 
-    # Validate scope params (exactly one of site_id or org_id required)
-    if not site_id and not org_id:
-        raise HTTPException(status_code=400, detail="Provide either site_id or org_id")
+    # Validate scope params (at most one of site_id or org_id; omitting both = org-wide)
     if site_id and org_id:
         raise HTTPException(status_code=400, detail="Provide either site_id or org_id, not both")
     if site_id and not _UUID_RE.match(site_id):
