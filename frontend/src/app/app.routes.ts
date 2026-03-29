@@ -58,6 +58,10 @@ export const routes: Routes = [
         path: 'impact-analysis',
         loadChildren: () => import('./features/impact-analysis/impact-analysis.routes'),
       },
+      {
+        path: 'telemetry',
+        loadChildren: () => import('./features/telemetry/telemetry.routes'),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

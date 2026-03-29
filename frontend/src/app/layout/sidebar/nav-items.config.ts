@@ -18,6 +18,12 @@ export const NAV_ITEMS: NavItem[] = [
     roles: ['impact_analysis', 'admin'],
   },
   {
+    label: 'Telemetry',
+    icon: 'sensors',
+    route: '/telemetry',
+    roles: ['impact_analysis', 'admin'],
+  },
+  {
     label: 'Reports',
     icon: 'assessment',
     route: '/reports',
