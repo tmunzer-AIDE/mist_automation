@@ -168,3 +168,73 @@ Black (120 char), Ruff (isort + pycodestyle + pyflakes + bugbear + comprehension
 ## OpenAPI Specification
 
 When modifying API endpoints, update the OpenAPI spec in `openapi.yaml` accordingly. This file is used for generating API client SDKs and must be kept in sync with the actual implementation. Use `openapi-generator validate -i ./openapi.yaml` to validate the spec after editing.
+
+## Mist Cloud Object Model
+
+Based on OAS v2602.1.6. Hierarchy: **MSP** → **Organization** → **Site**.
+
+### Object Hierarchy & CRUD
+
+**MSP level**: MSP (CRUD), SSOs, SSO Roles, Org Groups, Licenses (R/U)
+
+**Org level** — grouped by domain:
+
+| Domain | Objects |
+|--------|---------|
+| **Identity & Access** | SSOs, SSO Roles, NAC Portals, NAC Rules (→ refs NAC Tags), NAC Tags, PSK Portals, PSKs, User MACs |
+| **Wireless Config** | WLANs, WLAN Templates (→ contains WLANs), RF Templates, AP Templates, SDK Templates, SDK Invites, WxRules (→ refs WxTags), WxTags, WxTunnels |
+| **Network & Security** | Networks, Network Templates (→ refs Networks), VPNs, Services, Service Policies (→ refs Services), Security Policies (→ refs Services), IDP Profiles, SecIntel Profiles, AAMW Profiles, AV Profiles |
+| **Device Management** | Device Profiles, Gateway Templates, Inventory (CRU), MxEdges (→ belongs to MxClusters), MxClusters, MxTunnels, EVPN Topologies |
+| **Site Management** | Site Groups (→ groups Sites), Site Templates, Alarm Templates, Asset Filters, Assets, Webhooks, Licenses (R/U), Tickets (CRU) |
+
+**Org singletons**: Org Setting (R/U)
+
+**Site level**:
+
+| Domain | Objects |
+|--------|---------|
+| **Wireless** | WLANs, WxRules (→ refs WxTags), WxTags, WxTunnels, PSKs, RSSI Zones, Zones |
+| **Maps & Assets** | Maps, Beacons, vBeacons, Asset Filters (→ filters Assets), Assets |
+| **Infrastructure** | Devices (R/U, assigned from Org Inventory), EVPN Topologies, MxEdges (RUD), Webhooks |
+
+**Site singletons**: Site Setting (R/U)
+
+### Template/Profile Inheritance (Org → Site via "derived" APIs)
+
+Org objects are inherited at site level through `listSite*Derived` endpoints:
+- **WLANs**, **WxRules** → derived at site wireless level
+- **RF Templates**, **AP Templates**, **Network Templates**, **Site Templates** → derived into Site Setting
+- **Networks**, **Services**, **Service Policies**, **VPNs** → derived into Site Setting
+- **SecIntel/AAMW/AV/IDP Profiles** → derived into Site Setting
+- **Device Profiles**, **Gateway Templates** → derived into Site Devices
+
+### Site → Template Assignment (via site info fields)
+
+Sites reference templates via ID fields in the **site info** response (`getSiteInfo`):
+`alarmtemplate_id`, `aptemplate_id`, `gatewaytemplate_id`, `networktemplate_id`, `rftemplate_id`, `sitetemplate_id`, `secpolicy_id`, `sitegroup_ids`
+
+### Gateway Configuration Merge Order
+
+Effective config = **Gateway Template** (org) → overridden by **Device-level config** (`getSiteDevice`). Key config sections:
+- `port_config`: dict of interface → `{usage: "wan"|<network_name>, name, wan_type, ...}`
+- `ip_configs`: dict of network_name → `{ip, netmask, type}`
+- `dhcpd_config`: dict with top-level `enabled` bool + per-network keys → `{type: "local"|"relay", ip_start, ip_end, servers}`. `type: "local"` = DHCP server.
+- `networks`: list of network objects
+
+### Jinja2 Variable Sources
+
+Objects that can contain `{{ variable }}` patterns resolved against `site_setting.vars`:
+- Site Templates, Network Templates, RF Templates, Gateway Templates
+- WLANs (org and site level)
+- Services (Applications), Service Policies (Application Policies)
+
+### Device Stats & Events
+
+- `listSiteDevicesStats(type="ap"|"switch"|"gateway")` — device stats list; defaults to `type="ap"` when omitted (mistapi default). **The `clients` (LLDP neighbors) array is stripped from site-level list responses.** Use `listOrgDevicesStats(org_id, type, site_id, mac, fields="*")` for full stats including `clients`, or `getSiteDeviceStats(site_id, device_id)` for a single device. `port_stat` may be **empty for gateways**.
+- `searchSiteSwOrGwPorts(device_type="switch"|"gateway")` — reliable port status for switches and gateways
+- `searchSiteDeviceEvents` (in `devices` module, NOT `events`) — config events: `AP_CONFIGURED`, `SW_CONFIGURED`, `GW_CONFIGURED`, `*_CONFIG_CHANGED_BY_USER`, `AP_CONFIG_CHANGED_BY_RRM`, `*_CONFIG_FAILED`
+- Device `status` values: `"connected"` (pass), `"upgrading"`/`"restarting"` (warn), anything else (fail)
+
+### VC Links (Virtual Chassis) — IMPORTANT
+
+**The `vc_links` array in switch stats ONLY contains links that are UP.** Down/disconnected VC links are simply absent from the array. Therefore, every entry in `vc_links` is an active link — do NOT check for an `up` field or filter entries. Counting `len(vc_links)` (or summing dicts) directly gives the number of UP VC ports. **Do not add `.get("up")` or any similar filter — this has been incorrectly flagged by code review multiple times and is WRONG.**

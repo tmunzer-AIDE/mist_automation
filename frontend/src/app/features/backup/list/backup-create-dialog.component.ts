@@ -4,6 +4,8 @@ import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatSelectModule } from '@angular/material/select';
+
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -32,6 +34,7 @@ const BACKUP_TYPES = [
     MatFormFieldModule,
     MatInputModule,
     MatAutocompleteModule,
+    MatSelectModule,
     MatButtonModule,
     MatCheckboxModule,
     MatProgressBarModule,
@@ -46,13 +49,11 @@ const BACKUP_TYPES = [
         <!-- Backup Type -->
         <mat-form-field appearance="outline">
           <mat-label>Backup Type</mat-label>
-          <input matInput [matAutocomplete]="backupTypeAuto"
-                 (input)="backupTypeSearch.set($any($event.target).value)">
-          <mat-autocomplete #backupTypeAuto [displayWith]="backupTypeDisplayFn" (optionSelected)="form.get('backup_type')!.setValue($event.option.value); onTypeChange()">
-            @for (type of filteredBackupTypes(); track type.value) {
+          <mat-select formControlName="backup_type" (selectionChange)="onTypeChange()">
+            @for (type of backupTypes; track type.value) {
               <mat-option [value]="type.value">{{ type.label }}</mat-option>
             }
-          </mat-autocomplete>
+          </mat-select>
           @if (selectedTypeDescription) {
             <mat-hint>{{ selectedTypeDescription }}</mat-hint>
           }
@@ -203,14 +204,8 @@ export class BackupCreateDialogComponent implements OnInit {
   siteObjectTypes = signal<MistObjectTypeOption[]>([]);
 
   // ── Select search ──────────────────────────────────────────────────
-  backupTypeSearch = signal('');
   objectTypeSearch = signal('');
   dialogSiteSearch = signal('');
-
-  filteredBackupTypes = computed(() => {
-    const q = this.backupTypeSearch().toLowerCase();
-    return q ? this.backupTypes.filter((t) => t.label.toLowerCase().includes(q)) : this.backupTypes;
-  });
 
   filteredOrgObjectTypes = computed(() => {
     const q = this.objectTypeSearch().toLowerCase();
@@ -231,9 +226,6 @@ export class BackupCreateDialogComponent implements OnInit {
   });
 
   // ── Display functions for autocomplete inputs ──────────────────────
-  backupTypeDisplayFn = (value: string): string =>
-    BACKUP_TYPES.find((t) => t.value === value)?.label ?? value;
-
   objectTypeDisplayFn = (value: string): string =>
     this.allObjectTypes().find((t) => t.value === value)?.label ?? value;
 
