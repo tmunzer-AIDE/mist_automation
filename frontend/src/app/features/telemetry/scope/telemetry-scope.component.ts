@@ -24,7 +24,6 @@ import {
   GatewayScopeSummary,
   BandSummary,
   AggregateResult,
-  OrgUpdateEvent,
 } from '../models';
 
 Chart.register(...registerables);
