@@ -284,6 +284,102 @@ class InfluxDBService:
             )
             return []
 
+    async def query_distinct_sites(self, hours: int = 24) -> list[dict[str, Any]]:
+        """Query distinct site_ids from device_summary, grouped by device_type with MAC counts.
+
+        Args:
+            hours: Lookback window in hours (default 24).
+
+        Returns:
+            List of dicts, each with 'site_id' and 'device_counts' (dict of device_type -> count).
+            Returns empty list if not connected or on error.
+        """
+        if not self._client:
+            return []
+
+        query = (
+            f'from(bucket: "{self.bucket}")'
+            f" |> range(start: -{hours}h)"
+            ' |> filter(fn: (r) => r._measurement == "device_summary")'
+            ' |> filter(fn: (r) => r._field == "cpu_util")'
+            ' |> distinct(column: "mac")'
+            " |> count()"
+            ' |> group(columns: ["site_id", "device_type"])'
+            " |> sum()"
+        )
+
+        try:
+            query_api = self._client.query_api()
+            tables = await query_api.query(query)
+            # Collect per-site, per-type counts
+            site_map: dict[str, dict[str, int]] = {}
+            for table in tables:
+                for record in table.records:
+                    site_id = record.values.get("site_id", "")
+                    device_type = record.values.get("device_type", "unknown")
+                    count = int(record.values.get("_value", 0))
+                    if site_id not in site_map:
+                        site_map[site_id] = {}
+                    site_map[site_id][device_type] = count
+
+            return [{"site_id": sid, "device_counts": counts} for sid, counts in site_map.items()]
+        except Exception as e:
+            self._last_error = str(e)
+            logger.warning("influxdb_query_distinct_sites_error", error=str(e), hours=hours)
+            return []
+
+    async def query_distinct_device_count(
+        self, site_id: str | None = None, device_type: str | None = None, hours: int = 24
+    ) -> int:
+        """Count distinct device MACs in device_summary over the given time window.
+
+        Args:
+            site_id: Optional site UUID filter.
+            device_type: Optional device type filter (e.g., 'ap', 'switch', 'gateway').
+            hours: Lookback window in hours (default 24).
+
+        Returns:
+            Number of distinct devices. Returns 0 if not connected or on error.
+        """
+        if not self._client:
+            return 0
+
+        filters = (
+            ' |> filter(fn: (r) => r._measurement == "device_summary")'
+            ' |> filter(fn: (r) => r._field == "cpu_util")'
+        )
+        if site_id:
+            filters += f' |> filter(fn: (r) => r.site_id == "{site_id}")'
+        if device_type:
+            filters += f' |> filter(fn: (r) => r.device_type == "{device_type}")'
+
+        query = (
+            f'from(bucket: "{self.bucket}")'
+            f" |> range(start: -{hours}h)"
+            f"{filters}"
+            ' |> distinct(column: "mac")'
+            " |> count()"
+            " |> sum()"
+        )
+
+        try:
+            query_api = self._client.query_api()
+            tables = await query_api.query(query)
+            for table in tables:
+                for record in table.records:
+                    return int(record.values.get("_value", 0))
+            return 0
+        except Exception as e:
+            self._last_error = str(e)
+            logger.warning(
+                "influxdb_query_distinct_device_count_error",
+                error=str(e),
+                site_id=site_id,
+                device_type=device_type,
+                hours=hours,
+            )
+            return 0
+
     def get_stats(self) -> dict[str, Any]:
         """Return service statistics."""
         return {
