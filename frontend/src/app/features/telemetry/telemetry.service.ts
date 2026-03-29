@@ -22,13 +22,13 @@ export class TelemetryService {
   getScopeSummary(siteId?: string): Observable<ScopeSummary> {
     const params: Record<string, string> = {};
     if (siteId) params['site_id'] = siteId;
-    return this.api.get<ScopeSummary>('/telemetry/scope/summary', { params });
+    return this.api.get<ScopeSummary>('/telemetry/scope/summary', params);
   }
 
   getScopeDevices(siteId?: string): Observable<ScopeDevices> {
     const params: Record<string, string> = {};
     if (siteId) params['site_id'] = siteId;
-    return this.api.get<ScopeDevices>('/telemetry/scope/devices', { params });
+    return this.api.get<ScopeDevices>('/telemetry/scope/devices', params);
   }
 
   getLatestStats(mac: string): Observable<LatestStats> {
@@ -52,7 +52,7 @@ export class TelemetryService {
     };
     if (params.siteId) p['site_id'] = params.siteId;
     if (params.orgId) p['org_id'] = params.orgId;
-    return this.api.get<AggregateResult>('/telemetry/query/aggregate', { params: p });
+    return this.api.get<AggregateResult>('/telemetry/query/aggregate', p);
   }
 
   subscribeToDevice(mac: string): Observable<DeviceLiveEvent> {
