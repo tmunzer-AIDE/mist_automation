@@ -311,7 +311,6 @@ class InfluxDBService:
             f'from(bucket: "{self.bucket}")'
             f" |> range(start: -{hours}h)"
             ' |> filter(fn: (r) => r._measurement == "device_summary" or r._measurement == "gateway_health")'
-            ' |> filter(fn: (r) => r._field == "cpu_util")'
             ' |> distinct(column: "mac")'
             " |> count()"
             ' |> group(columns: ["site_id", "device_type"])'
