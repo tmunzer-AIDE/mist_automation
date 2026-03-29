@@ -1,0 +1,41 @@
+<div class="live-log">
+  @if (entries().length === 0) {
+    <div class="empty">Waiting for live events...</div>
+  }
+  @for (entry of entries(); track entry.timestamp) {
+    <div class="log-row">
+      <span class="ts">{{ entry.timestamp * 1000 | date: 'HH:mm:ss' }}</span>
+      <span class="dtype" [class]="'badge-' + entry.device_type">{{
+        entry.device_type | uppercase
+      }}</span>
+      <span class="field">CPU: {{ entry.summary.cpu_util | number: '1.0-0' }}%</span>
+      <span class="field">Mem: {{ entry.summary.mem_usage | number: '1.0-0' }}%</span>
+      @if (entry.summary.num_clients !== undefined) {
+        <span class="field">Clients: {{ entry.summary.num_clients }}</span>
+      }
+      @if (entry.device_type === 'ap' && entry.bands?.length) {
+        @for (band of entry.bands!; track band.band) {
+          <span class="field band"
+            >{{ band.band === 'band_24' ? '2.4G' : band.band === 'band_5' ? '5G' : '6G' }}: util={{
+              band.util_all | number: '1.0-0'
+            }}% cl={{ band.num_clients }}</span
+          >
+        }
+      }
+      @if (entry.device_type === 'switch') {
+        <span class="field">PoE: {{ entry.summary.poe_draw_total | number: '1.0-0' }}W</span>
+        <span class="field">Ports UP: {{ entry.ports?.length ?? 0 }}</span>
+      }
+      @if (entry.device_type === 'gateway') {
+        @if (entry.summary.ha_state) {
+          <span class="field">{{ entry.summary.ha_state }}</span>
+        }
+        @for (wan of entry.wan ?? []; track wan.port_id) {
+          <span class="field" [class.wan-up]="wan.up" [class.wan-down]="!wan.up">
+            {{ wan.wan_name || wan.port_id }}: {{ wan.up ? 'UP' : 'DOWN' }}
+          </span>
+        }
+      }
+    </div>
+  }
+</div>

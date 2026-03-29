@@ -1,0 +1,67 @@
+.live-log {
+  font-family: var(--app-font-mono, monospace);
+  font-size: var(--app-text-sm);
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--mat-sys-surface-container-low);
+  border-radius: var(--app-radius-sm);
+  padding: var(--app-space-sm);
+}
+
+.empty {
+  color: var(--mat-sys-on-surface-variant);
+  padding: var(--app-space-md);
+  text-align: center;
+}
+
+.log-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-sm);
+  padding: var(--app-space-xs) 6px;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  align-items: center;
+}
+
+.ts {
+  color: var(--mat-sys-on-surface-variant);
+  min-width: 70px;
+}
+
+.dtype {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+}
+
+.badge-ap {
+  background: var(--app-info-bg);
+  color: var(--app-info);
+}
+
+.badge-switch {
+  background: var(--app-success-bg);
+  color: var(--app-success);
+}
+
+.badge-gateway {
+  background: var(--app-warning-bg);
+  color: var(--app-warning);
+}
+
+.field {
+  color: var(--mat-sys-on-surface);
+}
+
+.band {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.wan-up {
+  color: var(--app-success);
+}
+
+.wan-down {
+  color: var(--app-error);
+}
