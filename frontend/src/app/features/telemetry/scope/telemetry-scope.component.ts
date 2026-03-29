@@ -3,7 +3,7 @@ import { DecimalPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin } from 'rxjs';
+import { forkJoin, debounceTime } from 'rxjs';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -24,6 +24,7 @@ import {
   GatewayScopeSummary,
   BandSummary,
   AggregateResult,
+  OrgUpdateEvent,
 } from '../models';
 
 Chart.register(...registerables);
@@ -102,6 +103,10 @@ export class TelemetryScopeComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));
     this.loadData();
+    this.telemetryService
+      .subscribeToOrg()
+      .pipe(debounceTime(5000), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshSummary());
   }
 
   loadData(): void {
@@ -117,6 +122,18 @@ export class TelemetryScopeComponent implements OnInit {
         this.loadCharts();
       },
       error: () => this.loading.set(false),
+    });
+  }
+
+  private refreshSummary(): void {
+    forkJoin({
+      summary: this.telemetryService.getScopeSummary(),
+      sites: this.telemetryService.getScopeSites(),
+    }).subscribe({
+      next: ({ summary, sites }) => {
+        this.summary.set(summary);
+        this.sites.set(sites.sites);
+      },
     });
   }
 
