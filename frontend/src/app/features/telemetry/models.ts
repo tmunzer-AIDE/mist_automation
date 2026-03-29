@@ -10,6 +10,7 @@ export interface APScopeSummary {
   reporting_total: number;
   avg_cpu_util: number;
   max_cpu_util: number;
+  avg_mem_usage: number;
   total_clients: number;
   bands: Record<string, BandSummary>;
 }
@@ -17,7 +18,10 @@ export interface SwitchScopeSummary {
   reporting_active: number;
   reporting_total: number;
   avg_cpu_util: number;
+  avg_mem_usage: number;
   total_clients: number;
+  ports_up: number;
+  ports_total: number;
   poe_draw_total: number;
   poe_max_total: number;
   total_dhcp_leases: number;
@@ -26,9 +30,12 @@ export interface GatewayScopeSummary {
   reporting_active: number;
   reporting_total: number;
   avg_cpu_util: number;
+  avg_mem_usage: number;
   wan_links_up: number;
   wan_links_total: number;
   total_dhcp_leases: number;
+  avg_spu_cpu: number;
+  total_spu_sessions: number;
 }
 export interface ScopeSummary {
   ap: APScopeSummary | null;
@@ -51,6 +58,18 @@ export interface DeviceSummaryRecord {
 export interface ScopeDevices {
   total: number;
   devices: DeviceSummaryRecord[];
+}
+
+export interface ScopeSite {
+  site_id: string;
+  site_name: string;
+  device_counts: Record<string, number>;
+  total_devices: number;
+}
+
+export interface ScopeSites {
+  sites: ScopeSite[];
+  total: number;
 }
 
 // Latest device stats
@@ -153,4 +172,14 @@ export interface DeviceLiveEvent {
   spu?: SpuStats;
   cluster?: ClusterStats;
   resources?: ResourceStats[];
+  raw?: Record<string, unknown>;
+}
+
+export interface RangeResult {
+  mac: string;
+  measurement: string;
+  start: string;
+  end: string;
+  points: Record<string, unknown>[];
+  count: number;
 }
