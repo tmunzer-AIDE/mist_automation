@@ -16,6 +16,7 @@ from typing import Any
 
 import structlog
 
+from app.core.websocket import ws_manager
 from app.modules.telemetry.extractors import extract_points
 from app.modules.telemetry.services.cov_filter import CoVFilter
 from app.modules.telemetry.services.influxdb_service import InfluxDBService
@@ -114,6 +115,277 @@ def _build_cov_key(point: dict[str, Any]) -> str:
     tag_suffix = ",".join(sub_parts) if sub_parts else ""
 
     return f"{mac}:{measurement}:{tag_suffix}"
+
+
+def _build_device_ws_event(payload: dict[str, Any], device_type: str) -> dict[str, Any]:
+    """Build a WebSocket broadcast payload from a raw device stats message.
+
+    Extracts the relevant summary + detail fields per device type so frontend
+    clients on the live device page receive a compact, pre-shaped event.
+    """
+    ts = int(payload.get("last_seen") or payload.get("_time") or time.time())
+    event: dict[str, Any] = {"device_type": device_type, "timestamp": ts}
+
+    if device_type == "ap":
+        event["summary"] = _build_ap_summary(payload)
+        event["bands"] = _build_ap_bands(payload)
+
+    elif device_type == "switch":
+        event["summary"] = _build_switch_summary(payload)
+        event["ports"] = _build_switch_ports(payload)
+        event["modules"] = _build_switch_modules(payload)
+        event["dhcp"] = _build_dhcp(payload)
+
+    elif device_type == "gateway":
+        event["summary"] = _build_gateway_summary(payload)
+        event["wan"] = _build_gateway_wan(payload)
+        event["dhcp"] = _build_dhcp(payload)
+        spu = _build_gateway_spu(payload)
+        if spu:
+            event["spu"] = spu
+        cluster = _build_gateway_cluster(payload)
+        if cluster:
+            event["cluster"] = cluster
+        resources = _build_gateway_resources(payload)
+        if resources:
+            event["resources"] = resources
+
+    return event
+
+
+# ---------------------------------------------------------------------------
+# Per-device-type WS event builders
+# ---------------------------------------------------------------------------
+
+
+def _build_ap_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    cpu_util = int(payload.get("cpu_util", 0))
+    mem_total = payload.get("mem_total_kb", 0)
+    mem_used = payload.get("mem_used_kb", 0)
+    if mem_total > 0:
+        mem_usage = int(mem_used / mem_total * 100)
+    else:
+        memory_stat = payload.get("memory_stat", {})
+        mem_usage = int(memory_stat.get("usage", 0))
+    return {
+        "cpu_util": cpu_util,
+        "mem_usage": mem_usage,
+        "num_clients": int(payload.get("num_clients", 0)),
+        "uptime": int(payload.get("uptime", 0)),
+    }
+
+
+def _build_ap_bands(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    radio_stat = payload.get("radio_stat")
+    if not radio_stat:
+        return []
+    bands: list[dict[str, Any]] = []
+    for band_key in ("band_24", "band_5", "band_6"):
+        bd = radio_stat.get(band_key)
+        if not bd or bd.get("disabled", False):
+            continue
+        bands.append(
+            {
+                "band": band_key,
+                "util_all": bd.get("util_all", 0),
+                "num_clients": bd.get("num_clients", 0),
+                "noise_floor": bd.get("noise_floor", 0),
+                "channel": bd.get("channel", 0),
+                "power": bd.get("power", 0),
+                "bandwidth": bd.get("bandwidth", 0),
+            }
+        )
+    return bands
+
+
+def _build_switch_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    cpu_stat = payload.get("cpu_stat", {})
+    cpu_util = int(100 - cpu_stat.get("idle", 100))
+    memory_stat = payload.get("memory_stat", {})
+    mem_usage = int(memory_stat.get("usage", 0))
+
+    # Client count
+    clients_stats = payload.get("clients_stats")
+    if clients_stats:
+        num_clients = clients_stats.get("total", {}).get("num_wired_clients", 0) or 0
+    else:
+        clients = payload.get("clients")
+        num_clients = len(clients) if clients else 0
+
+    # PoE totals
+    poe_draw_total = 0.0
+    poe_max_total = 0.0
+    for mod in payload.get("module_stat", []):
+        poe = mod.get("poe")
+        if poe:
+            poe_draw_total += poe.get("power_draw", 0.0)
+            poe_max_total += poe.get("max_power", 0.0)
+
+    return {
+        "cpu_util": cpu_util,
+        "mem_usage": mem_usage,
+        "num_clients": num_clients,
+        "uptime": int(payload.get("uptime", 0)),
+        "poe_draw_total": poe_draw_total,
+        "poe_max_total": poe_max_total,
+    }
+
+
+def _build_switch_ports(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if_stat = payload.get("if_stat")
+    if not if_stat:
+        return []
+    ports: list[dict[str, Any]] = []
+    for if_key, port_data in if_stat.items():
+        if not port_data.get("up", False):
+            continue
+        ports.append(
+            {
+                "port_id": port_data.get("port_id", if_key),
+                "speed": port_data.get("speed", 0),
+                "tx_pkts": port_data.get("tx_pkts", 0),
+                "rx_pkts": port_data.get("rx_pkts", 0),
+            }
+        )
+    return ports
+
+
+def _build_switch_modules(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    modules = payload.get("module_stat")
+    if not modules:
+        return []
+    result: list[dict[str, Any]] = []
+    for mod in modules:
+        temperatures = mod.get("temperatures", [])
+        temp_max = max((t.get("celsius", 0) for t in temperatures), default=0)
+        poe = mod.get("poe", {})
+        poe_draw = poe.get("power_draw", 0.0) if poe else 0.0
+        # vc_links only contains UP links — len() is the count of active links
+        vc_links = mod.get("vc_links", [])
+        result.append(
+            {
+                "fpc_idx": mod.get("_idx", 0),
+                "vc_role": mod.get("vc_role", ""),
+                "temp_max": temp_max,
+                "poe_draw": poe_draw,
+                "vc_links_count": len(vc_links),
+                "mem_usage": mod.get("memory_stat", {}).get("usage", 0),
+            }
+        )
+    return result
+
+
+def _build_dhcp(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build DHCP scope list — shared by switch and gateway."""
+    dhcpd_stat = payload.get("dhcpd_stat")
+    if not dhcpd_stat:
+        return []
+    result: list[dict[str, Any]] = []
+    for network_name, scope_data in dhcpd_stat.items():
+        num_ips = scope_data.get("num_ips", 0)
+        num_leased = scope_data.get("num_leased", 0)
+        utilization_pct = round(num_leased / num_ips * 100, 1) if num_ips > 0 else 0.0
+        result.append(
+            {
+                "network_name": network_name,
+                "num_ips": num_ips,
+                "num_leased": num_leased,
+                "utilization_pct": utilization_pct,
+            }
+        )
+    return result
+
+
+def _build_gateway_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    cpu_stat = payload.get("cpu_stat", {})
+    cpu_util = int(100 - cpu_stat.get("idle", 100))
+    memory_stat = payload.get("memory_stat", {})
+    mem_usage = int(memory_stat.get("usage", 0))
+    return {
+        "cpu_util": cpu_util,
+        "mem_usage": mem_usage,
+        "uptime": int(payload.get("uptime", 0)),
+        "ha_state": payload.get("ha_state", ""),
+        "config_status": payload.get("config_status", ""),
+    }
+
+
+def _build_gateway_wan(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if_stat = payload.get("if_stat")
+    if not if_stat:
+        return []
+    wan_ports: list[dict[str, Any]] = []
+    for _if_key, port_data in if_stat.items():
+        if port_data.get("port_usage") != "wan":
+            continue
+        wan_ports.append(
+            {
+                "port_id": port_data.get("port_id", _if_key),
+                "wan_name": port_data.get("wan_name", ""),
+                "up": port_data.get("up", False),
+                "tx_bytes": port_data.get("tx_bytes", 0),
+                "rx_bytes": port_data.get("rx_bytes", 0),
+                "tx_pkts": port_data.get("tx_pkts", 0),
+                "rx_pkts": port_data.get("rx_pkts", 0),
+            }
+        )
+    return wan_ports
+
+
+def _build_gateway_spu(payload: dict[str, Any]) -> dict[str, Any] | None:
+    spu_stat = payload.get("spu_stat")
+    if not spu_stat:
+        return None
+    spu = spu_stat[0]
+    return {
+        "spu_cpu": spu.get("spu_cpu", 0),
+        "spu_sessions": spu.get("spu_current_session", 0),
+        "spu_max_sessions": spu.get("spu_max_session", 0),
+        "spu_memory": spu.get("spu_memory", 0),
+    }
+
+
+def _build_gateway_cluster(payload: dict[str, Any]) -> dict[str, Any] | None:
+    cluster_config = payload.get("cluster_config")
+    if not cluster_config:
+        return None
+    control_link_info = cluster_config.get("control_link_info", {})
+    control_link_up = control_link_info.get("status", "").lower() == "up"
+    fabric_link_info = cluster_config.get("fabric_link_info", {})
+    fabric_status = fabric_link_info.get("Status", fabric_link_info.get("status", ""))
+    fabric_link_up = fabric_status.lower() in ("up", "enabled")
+    return {
+        "status": cluster_config.get("status", ""),
+        "operational": cluster_config.get("operational", ""),
+        "primary_health": cluster_config.get("primary_node_health", ""),
+        "secondary_health": cluster_config.get("secondary_node_health", ""),
+        "control_link_up": control_link_up,
+        "fabric_link_up": fabric_link_up,
+    }
+
+
+def _build_gateway_resources(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    module_stat = payload.get("module_stat")
+    if not module_stat:
+        return []
+    first_module = module_stat[0]
+    network_resources = first_module.get("network_resources")
+    if not network_resources:
+        return []
+    result: list[dict[str, Any]] = []
+    for resource in network_resources:
+        count = resource.get("count", 0)
+        limit = resource.get("limit", 0)
+        utilization_pct = round(count / limit * 100, 1) if limit > 0 else 0.0
+        result.append(
+            {
+                "resource_type": resource.get("type", ""),
+                "count": count,
+                "limit": limit,
+                "utilization_pct": utilization_pct,
+            }
+        )
+    return result
 
 
 class IngestionService:
@@ -278,6 +550,11 @@ class IngestionService:
             )
             await self._influxdb.write_points(filtered_points)
             self._points_written += len(filtered_points)
+
+        # 8. Broadcast to any live device page subscribers
+        if mac and device_type:
+            event = _build_device_ws_event(payload, device_type)
+            await ws_manager.broadcast(f"telemetry:device:{mac}", event)
 
         self._messages_processed += 1
         self._last_message_at = time.time()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -476,3 +476,186 @@ class TestIngestionServiceLifecycle:
         assert influxdb.write_points.called
 
         await svc.stop()
+
+
+# ---------------------------------------------------------------------------
+# Tests: WebSocket broadcast after ingestion
+# ---------------------------------------------------------------------------
+
+
+class TestIngestionServiceBroadcast:
+    """Test that _process_message broadcasts device events to WebSocket subscribers."""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_called_for_ap_after_processing(self):
+        """After processing an AP message, ws_manager.broadcast is awaited."""
+        from app.modules.telemetry.services.ingestion_service import IngestionService
+
+        influxdb = _make_influxdb_mock()
+        svc = IngestionService(
+            influxdb=influxdb,
+            cache=LatestValueCache(),
+            cov_filter=CoVFilter(),
+            org_id="org-1",
+        )
+        msg = _make_ws_message("site-1", _ap_payload(mac="aabbccddeeff"))
+
+        with patch(
+            "app.modules.telemetry.services.ingestion_service.ws_manager"
+        ) as mock_ws:
+            mock_ws.broadcast = AsyncMock()
+            await svc._process_message(msg)
+
+            mock_ws.broadcast.assert_awaited_once()
+            call_args = mock_ws.broadcast.call_args
+            channel = call_args[0][0]
+            payload = call_args[0][1]
+
+            assert channel == "telemetry:device:aabbccddeeff"
+            assert payload["device_type"] == "ap"
+            assert "summary" in payload
+            assert "bands" in payload
+            assert payload["summary"]["cpu_util"] == 42
+            assert payload["summary"]["num_clients"] == 5
+
+    @pytest.mark.asyncio
+    async def test_broadcast_called_for_switch_after_processing(self):
+        """After processing a switch message, ws_manager.broadcast is awaited with switch fields."""
+        from app.modules.telemetry.services.ingestion_service import IngestionService
+
+        influxdb = _make_influxdb_mock()
+        svc = IngestionService(
+            influxdb=influxdb,
+            cache=LatestValueCache(),
+            cov_filter=CoVFilter(),
+            org_id="org-1",
+        )
+        msg = _make_ws_message("site-1", _switch_payload(mac="112233445566"))
+
+        with patch(
+            "app.modules.telemetry.services.ingestion_service.ws_manager"
+        ) as mock_ws:
+            mock_ws.broadcast = AsyncMock()
+            await svc._process_message(msg)
+
+            mock_ws.broadcast.assert_awaited_once()
+            call_args = mock_ws.broadcast.call_args
+            channel = call_args[0][0]
+            payload = call_args[0][1]
+
+            assert channel == "telemetry:device:112233445566"
+            assert payload["device_type"] == "switch"
+            assert "summary" in payload
+            assert "ports" in payload
+            assert "modules" in payload
+            assert "dhcp" in payload
+            assert payload["summary"]["cpu_util"] == 20  # 100 - 80 idle
+
+    @pytest.mark.asyncio
+    async def test_broadcast_called_for_gateway_after_processing(self):
+        """After processing a gateway message, ws_manager.broadcast is awaited with gateway fields."""
+        from app.modules.telemetry.services.ingestion_service import IngestionService
+
+        influxdb = _make_influxdb_mock()
+        svc = IngestionService(
+            influxdb=influxdb,
+            cache=LatestValueCache(),
+            cov_filter=CoVFilter(),
+            org_id="org-1",
+        )
+        gw_payload = {
+            "mac": "aabb11223344",
+            "type": "gateway",
+            "model": "SRX300",
+            "cpu_stat": {"idle": 85},
+            "memory_stat": {"usage": 40},
+            "uptime": 99999,
+            "last_seen": 1774576960,
+            "ha_state": "active",
+            "config_status": "synced",
+            "spu_stat": [
+                {
+                    "spu_cpu": 15,
+                    "spu_current_session": 500,
+                    "spu_max_session": 10000,
+                    "spu_memory": 25,
+                }
+            ],
+        }
+        msg = _make_ws_message("site-1", gw_payload)
+
+        with patch(
+            "app.modules.telemetry.services.ingestion_service.ws_manager"
+        ) as mock_ws:
+            mock_ws.broadcast = AsyncMock()
+            await svc._process_message(msg)
+
+            mock_ws.broadcast.assert_awaited_once()
+            call_args = mock_ws.broadcast.call_args
+            channel = call_args[0][0]
+            payload = call_args[0][1]
+
+            assert channel == "telemetry:device:aabb11223344"
+            assert payload["device_type"] == "gateway"
+            assert "summary" in payload
+            assert "wan" in payload
+            assert "dhcp" in payload
+            assert "spu" in payload
+            assert payload["summary"]["cpu_util"] == 15  # 100 - 85 idle
+            assert payload["summary"]["ha_state"] == "active"
+            assert payload["spu"]["spu_sessions"] == 500
+
+    @pytest.mark.asyncio
+    async def test_no_broadcast_when_mac_missing(self):
+        """Messages without MAC don't trigger broadcast."""
+        from app.modules.telemetry.services.ingestion_service import IngestionService
+
+        influxdb = _make_influxdb_mock()
+        svc = IngestionService(
+            influxdb=influxdb,
+            cache=LatestValueCache(),
+            cov_filter=CoVFilter(),
+            org_id="org-1",
+        )
+        payload_no_mac = {
+            "type": "ap",
+            "model": "AP45",
+            "cpu_util": 10,
+            "uptime": 100,
+            "last_seen": 1774576960,
+        }
+        msg = _make_ws_message("site-1", payload_no_mac)
+
+        with patch(
+            "app.modules.telemetry.services.ingestion_service.ws_manager"
+        ) as mock_ws:
+            mock_ws.broadcast = AsyncMock()
+            await svc._process_message(msg)
+            mock_ws.broadcast.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_broadcast_when_device_type_missing(self):
+        """Messages without device_type don't trigger broadcast."""
+        from app.modules.telemetry.services.ingestion_service import IngestionService
+
+        influxdb = _make_influxdb_mock()
+        svc = IngestionService(
+            influxdb=influxdb,
+            cache=LatestValueCache(),
+            cov_filter=CoVFilter(),
+            org_id="org-1",
+        )
+        # Basic payload: has mac but no type and model doesn't start with AP
+        payload_no_type = {
+            "mac": "aabbccddeeff",
+            "uptime": 3600,
+            "last_seen": 1774576960,
+        }
+        msg = _make_ws_message("site-1", payload_no_type)
+
+        with patch(
+            "app.modules.telemetry.services.ingestion_service.ws_manager"
+        ) as mock_ws:
+            mock_ws.broadcast = AsyncMock()
+            await svc._process_message(msg)
+            mock_ws.broadcast.assert_not_awaited()
