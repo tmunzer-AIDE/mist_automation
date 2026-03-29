@@ -3,7 +3,7 @@ import { DecimalPipe, DatePipe, TitleCasePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin } from 'rxjs';
+import { forkJoin, debounceTime, Subscription } from 'rxjs';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -64,6 +64,8 @@ export class TelemetrySiteComponent implements OnInit {
   readonly summary = signal<ScopeSummary | null>(null);
   readonly devices = signal<ScopeDevices | null>(null);
   readonly activeDeviceType = signal('');
+
+  private wsSub?: Subscription;
 
   readonly deviceSearchCtrl = new FormControl('');
   private readonly searchTerm = signal('');
@@ -133,7 +135,24 @@ export class TelemetrySiteComponent implements OnInit {
       this.siteId.set(id);
       if (id) {
         this.loadData();
+        this.wsSub?.unsubscribe();
+        this.wsSub = this.telemetryService
+          .subscribeToSite(id)
+          .pipe(debounceTime(5000), takeUntilDestroyed(this.destroyRef))
+          .subscribe(() => this.refreshSummary(id));
       }
+    });
+  }
+
+  private refreshSummary(siteId: string): void {
+    forkJoin({
+      summary: this.telemetryService.getScopeSummary(siteId),
+      devices: this.telemetryService.getScopeDevices(siteId, this.activeDeviceType() || undefined),
+    }).subscribe({
+      next: ({ summary, devices }) => {
+        this.summary.set(summary);
+        this.devices.set(devices);
+      },
     });
   }
 
