@@ -168,3 +168,15 @@ class DeviceSummaryRecord(BaseModel):
 class ScopeDevicesResponse(BaseModel):
     total: int
     devices: list[DeviceSummaryRecord]
+
+
+class SiteSummaryRecord(BaseModel):
+    site_id: str
+    site_name: str = ""
+    device_counts: dict[str, int] = {}
+    total_devices: int = 0
+
+
+class ScopeSitesResponse(BaseModel):
+    sites: list[SiteSummaryRecord]
+    total: int = 0

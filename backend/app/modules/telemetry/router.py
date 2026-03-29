@@ -27,7 +27,9 @@ from app.modules.telemetry.schemas import (
     RangeQueryResponse,
     ReconnectResponse,
     ScopeDevicesResponse,
+    ScopeSitesResponse,
     ScopeSummaryResponse,
+    SiteSummaryRecord,
     SwitchScopeSummary,
     TelemetrySettingsResponse,
     TelemetrySettingsUpdate,
@@ -127,6 +129,51 @@ def _extract_cpu_util(payload: dict[str, Any]) -> float | None:
         if idle is not None:
             return round(100.0 - float(idle), 2)
     return None
+
+
+@router.get("/scope/sites", response_model=ScopeSitesResponse)
+async def get_scope_sites(
+    _current_user: User = Depends(require_impact_role),
+) -> ScopeSitesResponse:
+    """Return all sites with device counts from InfluxDB (last 24h).
+
+    Resolves site names from the in-memory cache when available.
+    """
+    import app.modules.telemetry as telemetry_mod
+
+    if telemetry_mod._influxdb_service is None:
+        raise HTTPException(status_code=503, detail="Telemetry service not available")
+
+    raw_sites = await telemetry_mod._influxdb_service.query_distinct_sites(hours=24)
+
+    # Build a site_id -> site_name lookup from the latest cache
+    site_names: dict[str, str] = {}
+    if telemetry_mod._latest_cache is not None:
+        for _mac, entry in telemetry_mod._latest_cache.get_all_entries().items():
+            payload = entry.get("stats", {})
+            sid = payload.get("site_id")
+            sname = payload.get("site_name")
+            if sid and sname and sid not in site_names:
+                site_names[sid] = sname
+
+    sites: list[SiteSummaryRecord] = []
+    for item in raw_sites:
+        sid = item["site_id"]
+        device_counts = item.get("device_counts", {})
+        total_devices = sum(device_counts.values())
+        sites.append(
+            SiteSummaryRecord(
+                site_id=sid,
+                site_name=site_names.get(sid, ""),
+                device_counts=device_counts,
+                total_devices=total_devices,
+            )
+        )
+
+    # Sort by site_name (empty names sort last)
+    sites.sort(key=lambda s: (s.site_name == "", s.site_name.lower()))
+
+    return ScopeSitesResponse(sites=sites, total=len(sites))
 
 
 @router.get("/scope/summary", response_model=ScopeSummaryResponse)
