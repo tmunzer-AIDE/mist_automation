@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import structlog
+from beanie import PydanticObjectId
 
 from app.core.tasks import create_background_task
 from app.models.system import SystemConfig
@@ -278,6 +279,53 @@ async def _lookup_audit(audit_id: str) -> dict[str, Any] | None:
         return None
 
 
+async def _ensure_change_group(
+    audit_id: str | None,
+    org_id: str,
+    site_id: str,
+    site_name: str,
+    event_type: str,
+    payload: dict[str, Any],
+    session_id: PydanticObjectId,
+) -> PydanticObjectId | None:
+    """Create or find a ChangeGroup for this audit_id and link the session."""
+    if not audit_id:
+        return None
+
+    try:
+        from app.modules.impact_analysis.services import change_group_service
+
+        # Infer change source from event type
+        if "AP_" in event_type:
+            change_source = "ap_config"
+        elif "SW_" in event_type:
+            change_source = "switch_config"
+        elif "GW_" in event_type:
+            change_source = "gateway_config"
+        else:
+            change_source = "config"
+
+        # Build description from audit data if available
+        change_description = payload.get("text") or f"{event_type} at {site_name}"
+
+        triggered_by = payload.get("commit_user") or payload.get("admin_name") or None
+
+        group, _is_new = await change_group_service.get_or_create_group(
+            audit_id=audit_id,
+            org_id=org_id,
+            site_id=site_id,
+            change_source=change_source,
+            change_description=change_description,
+            triggered_by=triggered_by,
+        )
+
+        await change_group_service.add_session_to_group(group.id, session_id)
+        return group.id
+    except Exception:
+        logger.warning("change_group_assignment_failed", audit_id=audit_id, session_id=str(session_id), exc_info=True)
+        return None
+
+
 async def _handle_pre_config_trigger(
     webhook_event_id: str,
     event_type: str,
@@ -308,6 +356,24 @@ async def _handle_pre_config_trigger(
 
     # Record config change in timeline
     await _add_timeline_and_tag(session, webhook_event_id, event_type, device_name, "info")
+
+    # Assign to change group if audit_id present
+    audit_id = payload.get("audit_id")
+    if audit_id and session.change_group_id is None:
+        group_id = await _ensure_change_group(
+            audit_id=audit_id,
+            org_id=org_id,
+            site_id=site_id,
+            site_name=site_name,
+            event_type=event_type,
+            payload=payload,
+            session_id=session.id,
+        )
+        if group_id:
+            await MonitoringSession.find_one(MonitoringSession.id == session.id).update(
+                {"$set": {"change_group_id": group_id}}
+            )
+            session.change_group_id = group_id
 
     if is_new:
         from app.modules.impact_analysis.workers.monitoring_worker import run_monitoring_pipeline
@@ -416,6 +482,24 @@ async def _handle_configured(
 
     await _add_timeline_and_tag(session, webhook_event_id, event_type, device_name, "info")
 
+    # Assign to change group if audit_id present
+    audit_id = payload.get("audit_id")
+    if audit_id and session.change_group_id is None:
+        group_id = await _ensure_change_group(
+            audit_id=audit_id,
+            org_id=org_id,
+            site_id=site_id,
+            site_name=site_name,
+            event_type=event_type,
+            payload=payload,
+            session_id=session.id,
+        )
+        if group_id:
+            await MonitoringSession.find_one(MonitoringSession.id == session.id).update(
+                {"$set": {"change_group_id": group_id}}
+            )
+            session.change_group_id = group_id
+
     if is_new:
         from app.modules.impact_analysis.workers.monitoring_worker import run_monitoring_pipeline
 
@@ -461,9 +545,9 @@ async def _handle_config_failed(
         await session_manager.transition(session, SessionStatus.FAILED)
 
         # Use targeted $set instead of full save to avoid overwriting transition state
-        await MonitoringSession.find_one(MonitoringSession.id == session.id).update({
-            "$set": {"progress": {"phase": "failed", "message": "Config failed to apply", "percent": 100}}
-        })
+        await MonitoringSession.find_one(MonitoringSession.id == session.id).update(
+            {"$set": {"progress": {"phase": "failed", "message": "Config failed to apply", "percent": 100}}}
+        )
         session.progress = {"phase": "failed", "message": "Config failed to apply", "percent": 100}
 
         await ws_manager.broadcast(
