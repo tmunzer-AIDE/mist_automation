@@ -17,7 +17,7 @@ Angular 21 frontend for the Mist Automation platform. Uses standalone components
 ### Project Layout
 
 - `src/app/core/` — Singleton services, models, guards, interceptors, NgRx auth state
-- `src/app/features/` — Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile
+- `src/app/features/` — Lazy-loaded feature areas: auth, dashboard, admin, backup, workflows, profile, reports, impact-analysis, telemetry
 - `src/app/shared/` — Reusable components (DataTable, StatusBadge, ConfirmDialog, PageHeader), directives (hasRole), pipes (fileSize, dateTime), validators, utils (chart-defaults)
 - `src/app/layout/` — Responsive sidebar + topbar shell (wraps authenticated routes)
 
