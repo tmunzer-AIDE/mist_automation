@@ -136,6 +136,7 @@ MODULES: list[AppModule] = [
         model_imports=[
             ("app.modules.impact_analysis.models", "MonitoringSession"),
             ("app.modules.impact_analysis.models", "SessionLogEntry"),
+            ("app.modules.impact_analysis.change_group", "ChangeGroup"),
         ],
         tags=["Impact Analysis"],
     ),

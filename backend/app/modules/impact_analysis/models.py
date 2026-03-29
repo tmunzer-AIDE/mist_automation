@@ -8,7 +8,7 @@ capturing incidents, SLE baselines/snapshots, topology, and AI assessments.
 from datetime import datetime, timezone
 from enum import Enum
 
-from beanie import Document
+from beanie import Document, PydanticObjectId
 from pydantic import BaseModel, Field
 from pymongo import ASCENDING, IndexModel
 
@@ -154,6 +154,12 @@ class MonitoringSession(TimestampMixin, Document):
     device_name: str = Field(default="", description="Device name")
     device_type: DeviceType = Field(..., description="Device type: ap, switch, or gateway")
     device_mist_id: str | None = Field(default=None, description="Mist device UUID (resolved from MAC via topology)")
+
+    # Change group reference (if this session is part of a grouped config change)
+    change_group_id: PydanticObjectId | None = Field(
+        default=None, description="Parent ChangeGroup ID (if part of a multi-device change)"
+    )
+
     device_clients: list[dict] = Field(
         default_factory=list, description="LLDP neighbor MACs captured at baseline (for AP-switch correlation)"
     )
