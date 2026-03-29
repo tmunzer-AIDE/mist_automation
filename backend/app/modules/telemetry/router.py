@@ -408,6 +408,7 @@ async def get_scope_summary(
 @router.get("/scope/devices", response_model=ScopeDevicesResponse)
 async def get_scope_devices(
     site_id: str | None = Query(None, description="Site UUID to filter by"),
+    device_type: str | None = Query(None, description="Device type: ap, switch, gateway"),
     _current_user: User = Depends(require_impact_role),
 ) -> ScopeDevicesResponse:
     """Return a flat list of all cached devices with basic metrics.
@@ -419,6 +420,9 @@ async def get_scope_devices(
 
     if site_id is not None and not _UUID_RE.match(site_id):
         raise HTTPException(status_code=400, detail="Invalid site_id format")
+
+    if device_type is not None and device_type not in ("ap", "switch", "gateway"):
+        raise HTTPException(status_code=400, detail="Invalid device_type; must be ap, switch, or gateway")
 
     if telemetry_mod._latest_cache is None:
         raise HTTPException(status_code=503, detail="Telemetry cache not available")
@@ -434,6 +438,9 @@ async def get_scope_devices(
             continue
 
         dtype = _detect_device_type(payload) or "unknown"
+
+        if device_type and dtype != device_type:
+            continue
         fresh = (now - updated_at) < 60
         cpu = _extract_cpu_util(payload)
 

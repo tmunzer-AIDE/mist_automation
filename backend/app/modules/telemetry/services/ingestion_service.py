@@ -125,6 +125,7 @@ def _build_device_ws_event(payload: dict[str, Any], device_type: str) -> dict[st
     """
     ts = int(payload.get("last_seen") or payload.get("_time") or time.time())
     event: dict[str, Any] = {"device_type": device_type, "timestamp": ts}
+    event["raw"] = payload
 
     if device_type == "ap":
         event["summary"] = _build_ap_summary(payload)
