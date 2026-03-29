@@ -130,5 +130,14 @@
     </section>
   }
 
-  <!-- Device table: Task 8 -->
+  @if (devices() && devices()!.devices.length > 0) {
+    <section class="device-section">
+      <h3 class="section-title">Devices</h3>
+      <app-scope-device-table
+        [devices]="devices()!.devices"
+        [isOrgScope]="isOrgScope()"
+        (deviceSelected)="navigateToDevice($event)"
+      />
+    </section>
+  }
 </div>

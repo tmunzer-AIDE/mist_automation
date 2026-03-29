@@ -16,11 +16,18 @@ import {
   SwitchScopeSummary,
   GatewayScopeSummary,
 } from '../models';
+import { ScopeDeviceTableComponent } from './components/scope-device-table/scope-device-table.component';
 
 @Component({
   selector: 'app-telemetry-scope',
   standalone: true,
-  imports: [DecimalPipe, MatButtonModule, MatIconModule, MatProgressBarModule],
+  imports: [
+    DecimalPipe,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressBarModule,
+    ScopeDeviceTableComponent,
+  ],
   templateUrl: './telemetry-scope.component.html',
   styleUrl: './telemetry-scope.component.scss',
 })
