@@ -84,6 +84,10 @@ class LatestValueCache:
         """Get all cached stats. Returns a deep copy."""
         return {mac: copy.deepcopy(entry["stats"]) for mac, entry in self._entries.items()}
 
+    def get_all_entries(self) -> dict[str, dict[str, Any]]:
+        """Get all entries (stats + updated_at) as a deep copy."""
+        return {mac: copy.deepcopy(entry) for mac, entry in self._entries.items()}
+
     def remove(self, mac: str) -> None:
         """Remove a device from the cache."""
         self._entries.pop(mac, None)

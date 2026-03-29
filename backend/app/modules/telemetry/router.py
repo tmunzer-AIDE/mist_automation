@@ -171,7 +171,7 @@ async def get_scope_summary(
     gw_wan_total: int = 0
     gw_dhcp_leases: int = 0
 
-    for _mac, entry in telemetry_mod._latest_cache._entries.items():
+    for _mac, entry in telemetry_mod._latest_cache.get_all_entries().items():
         payload = entry.get("stats", {})
         updated_at = entry.get("updated_at", 0)
 
@@ -325,7 +325,7 @@ async def get_scope_devices(
     now = _time.time()
     devices: list[DeviceSummaryRecord] = []
 
-    for mac, entry in telemetry_mod._latest_cache._entries.items():
+    for mac, entry in telemetry_mod._latest_cache.get_all_entries().items():
         payload = entry.get("stats", {})
         updated_at = entry.get("updated_at", 0)
 
