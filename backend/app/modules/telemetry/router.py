@@ -197,6 +197,7 @@ async def get_scope_summary(
 
     # Accumulators per device type
     ap_cpus: list[float] = []
+    ap_mems: list[float] = []
     ap_clients: int = 0
     ap_total: int = 0
     ap_active: int = 0
@@ -204,19 +205,32 @@ async def get_scope_summary(
     band_data: dict[str, tuple[list[float], list[float]]] = {}
 
     sw_cpus: list[float] = []
+    sw_mems: list[float] = []
     sw_clients: int = 0
     sw_total: int = 0
     sw_active: int = 0
     sw_poe_draw: float = 0.0
     sw_poe_max: float = 0.0
     sw_dhcp_leases: int = 0
+    sw_ports_up: int = 0
+    sw_ports_total: int = 0
 
     gw_cpus: list[float] = []
+    gw_mems: list[float] = []
     gw_total: int = 0
     gw_active: int = 0
     gw_wan_up: int = 0
     gw_wan_total: int = 0
     gw_dhcp_leases: int = 0
+    gw_spu_cpus: list[float] = []
+    gw_spu_sessions: int = 0
+
+    influxdb_totals: dict[str, int] = {}
+    if telemetry_mod._influxdb_service is not None:
+        for dtype in ("ap", "switch", "gateway"):
+            influxdb_totals[dtype] = await telemetry_mod._influxdb_service.query_distinct_device_count(
+                site_id=site_id, device_type=dtype, hours=24
+            )
 
     for _mac, entry in telemetry_mod._latest_cache.get_all_entries().items():
         payload = entry.get("stats", {})
@@ -238,6 +252,10 @@ async def get_scope_summary(
                 ap_active += 1
             if cpu is not None:
                 ap_cpus.append(cpu)
+            mem_total = payload.get("mem_total_kb", 0) or 0
+            mem_used = payload.get("mem_used_kb", 0) or 0
+            if mem_total > 0:
+                ap_mems.append(mem_used / mem_total * 100)
             ap_clients += int(payload.get("num_clients", 0) or 0)
             # Radio bands
             radio_stat = payload.get("radio_stat")
@@ -260,6 +278,11 @@ async def get_scope_summary(
                 sw_active += 1
             if cpu is not None:
                 sw_cpus.append(cpu)
+            memory_stat = payload.get("memory_stat")
+            if isinstance(memory_stat, dict):
+                mem_usage = memory_stat.get("usage")
+                if mem_usage is not None:
+                    sw_mems.append(float(mem_usage))
             # Wired clients via clients_stats.total.num_wired_clients
             clients_stats = payload.get("clients_stats")
             if isinstance(clients_stats, dict):
@@ -276,6 +299,15 @@ async def get_scope_summary(
                     if isinstance(poe, dict):
                         sw_poe_draw += float(poe.get("power_draw", 0) or 0)
                         sw_poe_max += float(poe.get("max_power", 0) or 0)
+            # Port counts from if_stat
+            if_stat = payload.get("if_stat")
+            if isinstance(if_stat, dict):
+                for _if_key, port_data in if_stat.items():
+                    if not isinstance(port_data, dict):
+                        continue
+                    sw_ports_total += 1
+                    if port_data.get("up"):
+                        sw_ports_up += 1
             # DHCP from dhcpd_stat
             dhcpd_stat = payload.get("dhcpd_stat")
             if isinstance(dhcpd_stat, dict):
@@ -289,6 +321,21 @@ async def get_scope_summary(
                 gw_active += 1
             if cpu is not None:
                 gw_cpus.append(cpu)
+            memory_stat = payload.get("memory_stat")
+            if isinstance(memory_stat, dict):
+                mem_usage = memory_stat.get("usage")
+                if mem_usage is not None:
+                    gw_mems.append(float(mem_usage))
+            spu_stat = payload.get("spu_stat")
+            if isinstance(spu_stat, list) and spu_stat:
+                spu = spu_stat[0]
+                if isinstance(spu, dict):
+                    spu_cpu = spu.get("spu_cpu")
+                    if spu_cpu is not None:
+                        gw_spu_cpus.append(float(spu_cpu))
+                    spu_sessions = spu.get("spu_current_session")
+                    if spu_sessions is not None:
+                        gw_spu_sessions += int(spu_sessions)
             # WAN links from if_stat
             if_stat = payload.get("if_stat")
             if isinstance(if_stat, dict):
@@ -318,9 +365,10 @@ async def get_scope_summary(
             )
         ap_summary = APScopeSummary(
             reporting_active=ap_active,
-            reporting_total=ap_total,
+            reporting_total=influxdb_totals.get("ap", ap_total),
             avg_cpu_util=round(sum(ap_cpus) / len(ap_cpus), 2) if ap_cpus else 0.0,
             max_cpu_util=round(max(ap_cpus), 2) if ap_cpus else 0.0,
+            avg_mem_usage=round(sum(ap_mems) / len(ap_mems), 2) if ap_mems else 0.0,
             total_clients=ap_clients,
             bands=bands,
         )
@@ -329,9 +377,12 @@ async def get_scope_summary(
     if sw_total > 0:
         sw_summary = SwitchScopeSummary(
             reporting_active=sw_active,
-            reporting_total=sw_total,
+            reporting_total=influxdb_totals.get("switch", sw_total),
             avg_cpu_util=round(sum(sw_cpus) / len(sw_cpus), 2) if sw_cpus else 0.0,
+            avg_mem_usage=round(sum(sw_mems) / len(sw_mems), 2) if sw_mems else 0.0,
             total_clients=sw_clients,
+            ports_up=sw_ports_up,
+            ports_total=sw_ports_total,
             poe_draw_total=round(sw_poe_draw, 2),
             poe_max_total=round(sw_poe_max, 2),
             total_dhcp_leases=sw_dhcp_leases,
@@ -341,11 +392,14 @@ async def get_scope_summary(
     if gw_total > 0:
         gw_summary = GatewayScopeSummary(
             reporting_active=gw_active,
-            reporting_total=gw_total,
+            reporting_total=influxdb_totals.get("gateway", gw_total),
             avg_cpu_util=round(sum(gw_cpus) / len(gw_cpus), 2) if gw_cpus else 0.0,
+            avg_mem_usage=round(sum(gw_mems) / len(gw_mems), 2) if gw_mems else 0.0,
             wan_links_up=gw_wan_up,
             wan_links_total=gw_wan_total,
             total_dhcp_leases=gw_dhcp_leases,
+            avg_spu_cpu=round(sum(gw_spu_cpus) / len(gw_spu_cpus), 2) if gw_spu_cpus else 0.0,
+            total_spu_sessions=gw_spu_sessions,
         )
 
     return ScopeSummaryResponse(ap=ap_summary, switch=sw_summary, gateway=gw_summary)

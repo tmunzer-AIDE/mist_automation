@@ -124,6 +124,7 @@ class APScopeSummary(BaseModel):
     reporting_total: int = 0
     avg_cpu_util: float = 0.0
     max_cpu_util: float = 0.0
+    avg_mem_usage: float = 0.0
     total_clients: int = 0
     bands: dict[str, BandSummary] = Field(default_factory=dict)
 
@@ -132,7 +133,10 @@ class SwitchScopeSummary(BaseModel):
     reporting_active: int = 0
     reporting_total: int = 0
     avg_cpu_util: float = 0.0
+    avg_mem_usage: float = 0.0
     total_clients: int = 0
+    ports_up: int = 0
+    ports_total: int = 0
     poe_draw_total: float = 0.0
     poe_max_total: float = 0.0
     total_dhcp_leases: int = 0
@@ -142,9 +146,12 @@ class GatewayScopeSummary(BaseModel):
     reporting_active: int = 0
     reporting_total: int = 0
     avg_cpu_util: float = 0.0
+    avg_mem_usage: float = 0.0
     wan_links_up: int = 0
     wan_links_total: int = 0
     total_dhcp_leases: int = 0
+    avg_spu_cpu: float = 0.0
+    total_spu_sessions: int = 0
 
 
 class ScopeSummaryResponse(BaseModel):
