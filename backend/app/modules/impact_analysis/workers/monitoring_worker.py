@@ -394,7 +394,11 @@ async def run_monitoring_pipeline(session_id: str) -> None:
             )
 
             # Wait for both to complete (validation finishes first, SLE runs 60 min)
-            await asyncio.gather(validation_task, sle_task, return_exceptions=True)
+            results = await asyncio.gather(validation_task, sle_task, return_exceptions=True)
+            for i, r in enumerate(results):
+                if isinstance(r, BaseException):
+                    branch = "validation" if i == 0 else "sle"
+                    logger.error(f"monitoring_{branch}_branch_failed", session_id=session_id, error=str(r))
 
         # ── Phase 2 (recovery): VALIDATING — SLE still running ───────────
         elif session.status == SessionStatus.VALIDATING:

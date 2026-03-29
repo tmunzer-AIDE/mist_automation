@@ -11,6 +11,19 @@
   height: 160px;
 }
 
+// ── Top actions bar (AI button + Jobs + New Backup) ───────────────────────
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+
+  app-ai-inline-analysis {
+    margin-right: auto;
+  }
+}
+
 // ── Accent button ──────────────────────────────────────────────────────────
 
 .btn-accent {

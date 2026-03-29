@@ -1,12 +1,13 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { HttpClient } from '@angular/common/http';
 import { Router, RouterOutlet, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
+import { combineLatest } from 'rxjs';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
 import { GlobalChatComponent } from '../shared/components/global-chat/global-chat.component';
+import { ApiService } from '../core/services/api.service';
 import { LlmService } from '../core/services/llm.service';
 import { filter, map } from 'rxjs';
 
@@ -18,10 +19,12 @@ import { filter, map } from 'rxjs';
   styleUrl: './layout.component.scss',
 })
 export class LayoutComponent {
+  private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly activatedRoute = inject(ActivatedRoute);
   private readonly breakpointObserver = inject(BreakpointObserver);
   private readonly llmService = inject(LlmService);
+  private readonly destroyRef = inject(DestroyRef);
 
   isMobile = signal(false);
   sidebarOpen = signal(true);
@@ -31,22 +34,26 @@ export class LayoutComponent {
   maintenanceMode = signal(false);
 
   constructor() {
-    inject(HttpClient)
-      .get<any>('/health')
-      .pipe(takeUntilDestroyed())
+    combineLatest([
+      this.api.getRaw<{ maintenance_mode: boolean }>('/health'),
+      this.llmService.getStatus(),
+    ])
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (h: any) => this.maintenanceMode.set(h.maintenance_mode ?? false),
-        error: () => {},
+        next: ([healthData, llmStatus]) => {
+          this.maintenanceMode.set(healthData.maintenance_mode ?? false);
+          this.llmAvailable.set(llmStatus.enabled);
+        },
+        error: (err) => {
+          console.error('Failed to fetch health/llm status:', err);
+          this.maintenanceMode.set(false);
+          this.llmAvailable.set(false);
+        },
       });
-
-    this.llmService.getStatus().subscribe({
-      next: (s) => this.llmAvailable.set(s.enabled),
-      error: () => this.llmAvailable.set(false),
-    });
 
     this.breakpointObserver
       .observe([Breakpoints.Handset])
-      .pipe(takeUntilDestroyed())
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => {
         this.isMobile.set(result.matches);
         this.sidebarOpen.set(!result.matches);
@@ -60,7 +67,7 @@ export class LayoutComponent {
           while (route.firstChild) route = route.firstChild;
           return route.snapshot.data;
         }),
-        takeUntilDestroyed(),
+        takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((data) => {
         this.isFullWidth.set(!!data['fullWidth']);

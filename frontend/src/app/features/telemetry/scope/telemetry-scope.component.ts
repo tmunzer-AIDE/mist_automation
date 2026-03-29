@@ -172,39 +172,38 @@ export class TelemetryScopeComponent implements OnInit {
 
     if (this.hasAP()) {
       this.loadLineChart(
-        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr },
-        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr },
+        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr, deviceType: 'ap' },
+        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr, deviceType: 'ap' },
         'Avg CPU %',
         'Avg Memory %',
         this.apCpuChart,
       );
       this.loadSingleChart(
-        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr },
+        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, deviceType: 'ap' },
         'Total Clients',
         this.apClientsChart,
       );
-      this.loadSingleChart(
-        { measurement: 'radio_stats', field: 'util_all', agg: 'mean', timeRange: tr },
-        'Avg Radio Util %',
+      this.loadBandChart(
+        { measurement: 'radio_stats', field: 'util_all', agg: 'mean', timeRange: tr, groupBy: 'band' },
         this.apBandChart,
       );
     }
 
     if (this.hasSwitch()) {
       this.loadLineChart(
-        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr },
-        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr },
+        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr, deviceType: 'switch' },
+        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr, deviceType: 'switch' },
         'Avg CPU %',
         'Avg Memory %',
         this.swCpuChart,
       );
       this.loadSingleChart(
-        { measurement: 'device_summary', field: 'poe_draw_total', agg: 'sum', timeRange: tr },
+        { measurement: 'device_summary', field: 'poe_draw_total', agg: 'sum', timeRange: tr, deviceType: 'switch' },
         'PoE Draw (W)',
         this.swPoeChart,
       );
       this.loadSingleChart(
-        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr },
+        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, deviceType: 'switch' },
         'Wired Clients',
         this.swClientsChart,
       );
@@ -236,8 +235,8 @@ export class TelemetryScopeComponent implements OnInit {
   }
 
   private loadLineChart(
-    params1: { measurement: string; field: string; agg: string; timeRange: TimeRange },
-    params2: { measurement: string; field: string; agg: string; timeRange: TimeRange },
+    params1: { measurement: string; field: string; agg: string; timeRange: TimeRange; deviceType?: string },
+    params2: { measurement: string; field: string; agg: string; timeRange: TimeRange; deviceType?: string },
     label1: string,
     label2: string,
     target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
@@ -252,12 +251,22 @@ export class TelemetryScopeComponent implements OnInit {
   }
 
   private loadSingleChart(
-    params: { measurement: string; field: string; agg: string; timeRange: TimeRange },
+    params: { measurement: string; field: string; agg: string; timeRange: TimeRange; deviceType?: string },
     label: string,
     target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
   ): void {
     this.telemetryService.queryAggregate(params).subscribe({
       next: (result) => target.set(this.buildSingleLineConfig(result, label)),
+      error: () => target.set(null),
+    });
+  }
+
+  private loadBandChart(
+    params: { measurement: string; field: string; agg: string; timeRange: TimeRange; groupBy: string },
+    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
+  ): void {
+    this.telemetryService.queryAggregate(params).subscribe({
+      next: (result) => target.set(this.buildBandLineConfig(result)),
       error: () => target.set(null),
     });
   }
@@ -331,6 +340,37 @@ export class TelemetryScopeComponent implements OnInit {
         plugins: {
           legend: { position: 'bottom' },
         },
+      },
+    };
+  }
+
+  private buildBandLineConfig(result: AggregateResult): ChartConfiguration<'line'> {
+    const bandLabels: Record<string, string> = { band_24: '2.4G', band_5: '5G', band_6: '6G' };
+    const bandMap = new Map<string, { x: number; y: number }[]>();
+    for (const point of result.points) {
+      const band = (point['band'] as string) ?? 'unknown';
+      if (!bandMap.has(band)) bandMap.set(band, []);
+      bandMap.get(band)!.push({ x: new Date(point._time).getTime(), y: point._value });
+    }
+    return {
+      type: 'line',
+      data: {
+        datasets: Array.from(bandMap.entries()).map(([band, data]) => ({
+          label: bandLabels[band] ?? band,
+          data,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { type: 'time', display: true },
+          y: { beginAtZero: true },
+        },
+        plugins: { legend: { position: 'bottom' } },
       },
     };
   }

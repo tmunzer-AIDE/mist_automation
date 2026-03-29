@@ -2,15 +2,25 @@
 Request/response schemas for the reports module.
 """
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
 class ValidationReportCreate(BaseModel):
     """Request body for creating a post-deployment validation report."""
 
     site_id: str = Field(..., description="Mist site ID to validate")
+
+    @field_validator("site_id")
+    @classmethod
+    def validate_site_id(cls, v: str) -> str:
+        if not _UUID_RE.match(v):
+            raise ValueError("site_id must be a valid UUID")
+        return v
 
 
 class ReportJobResponse(BaseModel):

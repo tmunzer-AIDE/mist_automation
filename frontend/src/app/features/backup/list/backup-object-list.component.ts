@@ -30,6 +30,7 @@ import {
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { AiInlineAnalysisComponent } from '../../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
+import { AiAnalysisResultComponent } from '../../../shared/components/ai-inline-analysis/ai-analysis-result.component';
 import { BackupCreateDialogComponent } from './backup-create-dialog.component';
 import { BackupChartCardComponent } from '../shared/backup-chart-card.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
@@ -63,6 +64,7 @@ import {
     EmptyStateComponent,
     StatusBadgeComponent,
     AiInlineAnalysisComponent,
+    AiAnalysisResultComponent,
     BackupChartCardComponent,
     DateTimePipe,
   ],
@@ -84,6 +86,8 @@ export class BackupObjectListComponent implements OnInit {
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
   aiThreadId = signal<string | null>(null);
+  aiExpanded = signal(true);
+  aiHasContent = computed(() => !!this.aiSummary() || !!this.aiError() || this.aiLoading());
 
   // ── Object table ─────────────────────────────────────────────────────
   objects = signal<BackupObjectSummary[]>([]);

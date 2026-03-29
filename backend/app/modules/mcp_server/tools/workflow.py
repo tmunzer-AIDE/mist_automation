@@ -9,8 +9,29 @@ from typing import Annotated, Any
 from fastmcp import Context
 from pydantic import Field
 
-from app.modules.mcp_server.helpers import cap_list, elicit_confirmation, to_json
+from app.modules.mcp_server.helpers import elicit_confirmation, to_json
 from app.modules.mcp_server.server import mcp, mcp_user_id_var
+
+# Node types whose configs may contain encrypted OAuth / auth secrets
+_OAUTH_NODE_TYPES = {"webhook", "servicenow"}
+
+
+def _encrypt_nodes(
+    new_nodes: list,
+    existing_nodes: list | None = None,
+) -> None:
+    """Encrypt sensitive fields in OAuth-capable nodes before persisting."""
+    from app.modules.automation.services.oauth_secrets import encrypt_node_secrets, merge_node_secrets
+
+    existing_map: dict[str, dict] = {}
+    if existing_nodes:
+        existing_map = {n.id: n.config for n in existing_nodes if n.type in _OAUTH_NODE_TYPES}
+
+    for node in new_nodes:
+        if node.type in _OAUTH_NODE_TYPES:
+            if node.id in existing_map:
+                merge_node_secrets(node.config, existing_map[node.id])
+            encrypt_node_secrets(node.config)
 
 
 @mcp.tool()
@@ -104,6 +125,7 @@ async def _detail(*, workflow_id: str, **_kwargs) -> str:
     """Get workflow details with node summary and recent executions."""
     from beanie import PydanticObjectId
 
+    from app.models.user import User
     from app.modules.automation.models.execution import WorkflowExecution
     from app.modules.automation.models.workflow import Workflow
 
@@ -117,6 +139,13 @@ async def _detail(*, workflow_id: str, **_kwargs) -> str:
 
     if not wf:
         return to_json({"error": f"Workflow '{workflow_id}' not found"})
+
+    # Access check — mirrors REST API's ownership/sharing filter
+    user_id = mcp_user_id_var.get()
+    if user_id:
+        user = await User.get(PydanticObjectId(user_id))
+        if user and not wf.can_be_accessed_by(user):
+            return to_json({"error": "Access denied"})
 
     # Compact node summary (strip config, position, output_ports)
     node_summary = [{"id": n.id, "type": n.type, "name": n.name} for n in (wf.nodes or [])]
@@ -238,18 +267,39 @@ async def _create(
     if not nodes:
         return to_json({"error": "nodes are required for action=create"})
 
+    from pydantic import ValidationError
+
+    from app.models.user import User
+
+    # Verify user context and role before proceeding
+    user_id = mcp_user_id_var.get()
+    if not user_id:
+        return to_json({"error": "Access denied: user context not available"})
+
+    user = await User.get(PydanticObjectId(user_id))
+    if not user or not user.can_manage_workflows():
+        return to_json({"error": "Access denied: automation role required"})
+
     # Parse and validate graph
     try:
         parsed_nodes = [WorkflowNode(**n) for n in nodes]
         parsed_edges = [WorkflowEdge(**e) for e in (edges or [])]
         validate_graph(parsed_nodes, parsed_edges, workflow_type=workflow_type)
-    except Exception as e:
-        return to_json({"validation_errors": [str(e)]})
+    except ValidationError as ve:
+        return to_json({"validation_errors": [str(ve)]})
+    except Exception:
+        return to_json({"error": "Graph validation failed"})
 
-    # Verify user context before elicitation
-    user_id = mcp_user_id_var.get()
-    if not user_id:
-        return to_json({"error": "Access denied: user context not available"})
+    # Circular subflow check (mirrors REST API)
+    from app.modules.automation.services.graph_validator import validate_no_circular_subflow_references
+
+    try:
+        await validate_no_circular_subflow_references(None, parsed_nodes)
+    except Exception:
+        return to_json({"error": "Circular sub-flow reference detected"})
+
+    # Encrypt OAuth/auth secrets before persisting (mirrors REST API)
+    _encrypt_nodes(parsed_nodes)
 
     # Elicit confirmation
     await elicit_confirmation(ctx, f"Create workflow '{name}' with {len(nodes)} nodes?")
@@ -313,6 +363,7 @@ async def _update(
 
     # Apply changes
     changes = []
+    prev_nodes = list(wf.nodes) if nodes is not None else None  # snapshot for secrets merge
     if name:
         wf.name = name
         changes.append(f"name='{name}'")
@@ -333,8 +384,12 @@ async def _update(
     wf_type = wf.workflow_type or "standard"
     try:
         validate_graph(wf.nodes, wf.edges, workflow_type=wf_type)
-    except Exception as e:
-        return to_json({"validation_errors": [str(e)]})
+    except Exception:
+        return to_json({"error": "Graph validation failed"})
+
+    # Encrypt OAuth/auth secrets before persisting (mirrors REST API)
+    if nodes is not None:
+        _encrypt_nodes(wf.nodes, existing_nodes=prev_nodes)
 
     # Elicit confirmation
     await elicit_confirmation(ctx, f"Update workflow '{wf.name}'? Changes: {', '.join(changes)}")

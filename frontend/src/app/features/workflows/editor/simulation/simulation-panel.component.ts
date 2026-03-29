@@ -986,7 +986,11 @@ export class SimulationPanelComponent implements OnInit, OnDestroy {
     this.workflowService
       .cancelSimulation(this.workflowId, execId)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe();
+      .subscribe({
+        error: (err) => {
+          console.error('Failed to cancel simulation:', err);
+        },
+      });
   }
 
   debugWithAI(): void {

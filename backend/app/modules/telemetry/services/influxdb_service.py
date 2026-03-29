@@ -230,6 +230,8 @@ class InfluxDBService:
         end: str = "now()",
         site_id: str | None = None,
         org_id: str | None = None,
+        device_type: str | None = None,
+        group_by: str | None = None,
     ) -> list[dict[str, Any]]:
         """Query aggregated data across all devices at a site or org.
 
@@ -249,11 +251,15 @@ class InfluxDBService:
         if not self._client:
             return []
 
-        scope_filter = (
-            f' |> filter(fn: (r) => r.site_id == "{site_id}")'
-            if site_id
-            else f' |> filter(fn: (r) => r.org_id == "{org_id}")'
-        )
+        if site_id:
+            scope_filter = f' |> filter(fn: (r) => r.site_id == "{site_id}")'
+        elif org_id:
+            scope_filter = f' |> filter(fn: (r) => r.org_id == "{org_id}")'
+        else:
+            scope_filter = ""
+
+        device_type_filter = f' |> filter(fn: (r) => r.device_type == "{device_type}")' if device_type else ""
+        group_cols = f'["_measurement", "_field", "{group_by}"]' if group_by else '["_measurement", "_field"]'
 
         query = (
             f'from(bucket: "{self.bucket}")'
@@ -261,6 +267,9 @@ class InfluxDBService:
             f' |> filter(fn: (r) => r._measurement == "{measurement}")'
             f"{scope_filter}"
             f' |> filter(fn: (r) => r._field == "{field}")'
+            f"{device_type_filter}"
+            f" |> aggregateWindow(every: {window}, fn: mean, createEmpty: false)"
+            f" |> group(columns: {group_cols})"
             f" |> aggregateWindow(every: {window}, fn: {agg}, createEmpty: false)"
         )
 
@@ -297,10 +306,11 @@ class InfluxDBService:
         if not self._client:
             return []
 
+        # Query both device_summary and gateway_health to include all device types
         query = (
             f'from(bucket: "{self.bucket}")'
             f" |> range(start: -{hours}h)"
-            ' |> filter(fn: (r) => r._measurement == "device_summary")'
+            ' |> filter(fn: (r) => r._measurement == "device_summary" or r._measurement == "gateway_health")'
             ' |> filter(fn: (r) => r._field == "cpu_util")'
             ' |> distinct(column: "mac")'
             " |> count()"
@@ -344,8 +354,10 @@ class InfluxDBService:
         if not self._client:
             return 0
 
+        # Gateway extractor writes to gateway_health, not device_summary
+        measurement = "gateway_health" if device_type == "gateway" else "device_summary"
         filters = (
-            ' |> filter(fn: (r) => r._measurement == "device_summary")'
+            f' |> filter(fn: (r) => r._measurement == "{measurement}")'
             ' |> filter(fn: (r) => r._field == "cpu_util")'
         )
         if site_id:

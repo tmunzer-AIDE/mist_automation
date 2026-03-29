@@ -27,20 +27,7 @@ async def _broadcast_window_update(window, msg_type: str = "aggregation_updated"
 
         await ws_manager.broadcast(
             f"workflow:{window.workflow_id}:aggregation",
-            {
-                "type": msg_type,
-                "data": {
-                    "window_id": str(window.id) if hasattr(window, "id") else str(window.get("_id", "")),
-                    "workflow_id": str(window.workflow_id) if hasattr(window, "workflow_id") else str(window.get("workflow_id", "")),
-                    "group_key": window.group_key if hasattr(window, "group_key") else "",
-                    "status": window.status if hasattr(window, "status") else "collecting",
-                    "event_count": window.event_count if hasattr(window, "event_count") else 0,
-                    "site_id": window.site_id if hasattr(window, "site_id") else None,
-                    "site_name": window.site_name if hasattr(window, "site_name") else None,
-                    "window_end": window.window_end.isoformat() if hasattr(window, "window_end") and window.window_end else "",
-                    "window_seconds": window.window_seconds if hasattr(window, "window_seconds") else 0,
-                },
-            },
+            {"type": msg_type, "data": window.to_summary()},
         )
     except Exception as e:
         logger.debug("ws_broadcast_failed", error=str(e))
@@ -79,6 +66,8 @@ async def buffer_event_for_aggregation(
 
     incoming_event_type = event_payload.get("type")
     device_id = event_payload.get(device_key) or event_payload.get("mac") or "unknown"
+    # Sanitize device_id for use as MongoDB dot-notation field key
+    device_id = device_id.replace(".", "_").replace("$", "_")
 
     # ── Closing event check ──────────────────────────────────────────────────
     if closing_event_type and incoming_event_type == closing_event_type:

@@ -460,9 +460,11 @@ async def _handle_config_failed(
         await session_manager.escalate_impact(session, "critical")
         await session_manager.transition(session, SessionStatus.FAILED)
 
+        # Use targeted $set instead of full save to avoid overwriting transition state
+        await MonitoringSession.find_one(MonitoringSession.id == session.id).update({
+            "$set": {"progress": {"phase": "failed", "message": "Config failed to apply", "percent": 100}}
+        })
         session.progress = {"phase": "failed", "message": "Config failed to apply", "percent": 100}
-        session.update_timestamp()
-        await session.save()
 
         await ws_manager.broadcast(
             "impact:alerts",

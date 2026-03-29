@@ -24,7 +24,6 @@ import {
   WorkflowType,
 } from '../../../core/models/workflow.model';
 import { TopbarService } from '../../../core/services/topbar.service';
-import { AiIconComponent } from '../../../shared/components/ai-icon/ai-icon.component';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
 import { WorkflowAiDialogComponent } from './workflow-ai-dialog.component';
 import { RecipePickerDialogComponent } from './recipe-picker-dialog.component';
@@ -46,7 +45,6 @@ import { RecipePickerDialogComponent } from './recipe-picker-dialog.component';
     SkeletonLoaderComponent,
     EmptyStateComponent,
     StatusBadgeComponent,
-    AiIconComponent,
     DateTimePipe,
   ],
   templateUrl: './workflow-list.component.html',

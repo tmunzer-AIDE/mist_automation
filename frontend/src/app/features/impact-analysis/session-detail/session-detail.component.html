@@ -1,102 +1,90 @@
 @if (loading()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+<mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
 @if (session(); as s) {
-  <!-- Header -->
-  <div class="detail-header">
-    <button mat-icon-button (click)="goBack()" matTooltip="Back to list">
-      <mat-icon>arrow_back</mat-icon>
-    </button>
-    <div class="header-info">
-      <div class="header-title">
-        <mat-icon class="device-type-icon">{{ deviceTypeIcon(s.device_type) }}</mat-icon>
-        <h2>{{ s.device_name || s.device_mac }}</h2>
-        <app-status-badge [status]="s.status"></app-status-badge>
-        @if (hasImpact()) {
-          <span class="impact-badge" [class]="'impact-' + impactSeverity()">
-            {{ impactSeverity() | titlecase }} Impact
-          </span>
-        } @else if (isCompleted()) {
-          <span class="impact-badge ok">No Impact</span>
-        }
-      </div>
-      <div class="header-meta">
-        <span>
-          <mat-icon>location_on</mat-icon>
-          {{ s.site_name }}
-        </span>
-        <span>
-          <mat-icon>category</mat-icon>
-          {{ formatDeviceType(s.device_type) }}
-        </span>
-        <span>
-          <mat-icon>schedule</mat-icon>
-          Detected {{ s.created_at | dateTime: 'short' }}
-        </span>
-        @if (s.completed_at) {
-          <span>
-            <mat-icon>check_circle</mat-icon>
-            Completed {{ s.completed_at | dateTime: 'short' }}
-          </span>
-        }
-      </div>
+<!-- Header -->
+<div class="detail-header">
+  <button mat-icon-button (click)="goBack()" matTooltip="Back to list">
+    <mat-icon>arrow_back</mat-icon>
+  </button>
+  <div class="header-info">
+    <div class="header-title">
+      <mat-icon class="device-type-icon">{{ deviceTypeIcon(s.device_type) }}</mat-icon>
+      <h2>{{ s.device_name || s.device_mac }}</h2>
+      <app-status-badge [status]="s.status"></app-status-badge>
+      @if (hasImpact()) {
+      <span class="impact-badge" [class]="'impact-' + impactSeverity()">
+        {{ impactSeverity() | titlecase }} Impact
+      </span>
+      } @else if (isCompleted()) {
+      <span class="impact-badge ok">No Impact</span>
+      }
     </div>
-    <div class="header-actions">
-      @if (isActive()) {
-        <button
-          mat-stroked-button
-          color="warn"
-          (click)="cancelSession()"
-          [disabled]="cancelling()"
-        >
-          <mat-icon>stop</mat-icon>
-          Cancel
-        </button>
+    <div class="header-meta">
+      <span>
+        <mat-icon>location_on</mat-icon>
+        {{ s.site_name }}
+      </span>
+      <span>
+        <mat-icon>category</mat-icon>
+        {{ formatDeviceType(s.device_type) }}
+      </span>
+      <span>
+        <mat-icon>schedule</mat-icon>
+        Detected {{ s.created_at | dateTime: 'short' }}
+      </span>
+      @if (s.completed_at) {
+      <span>
+        <mat-icon>check_circle</mat-icon>
+        Completed {{ s.completed_at | dateTime: 'short' }}
+      </span>
       }
     </div>
   </div>
+  <div class="header-actions">
+    @if (isActive()) {
+    <button mat-stroked-button color="warn" (click)="cancelSession()" [disabled]="cancelling()">
+      <mat-icon>stop</mat-icon>
+      Cancel
+    </button>
+    }
+  </div>
+</div>
+
+<div class="detail-content">
 
   <!-- Verdict banner (only when completed with AI assessment) -->
   @if (isCompleted()) {
-    <div class="verdict-banner" [class]="'verdict-' + impactSeverity()">
-      <div class="verdict-content">
-        @if (impactSeverity() === 'none') {
-          <mat-icon>check_circle</mat-icon>
-        } @else {
-          <mat-icon>warning</mat-icon>
-        }
-        <span class="verdict-text">{{ verdictSummary() }}</span>
-      </div>
-      <button mat-stroked-button (click)="reanalyze()" [disabled]="reanalyzing()">
-        <mat-icon>refresh</mat-icon>
-        Re-analyze
-      </button>
+  <div class="verdict-banner" [class]="'verdict-' + impactSeverity()">
+    <div class="verdict-content">
+      @if (impactSeverity() === 'none') {
+      <mat-icon>check_circle</mat-icon>
+      } @else {
+      <mat-icon>warning</mat-icon>
+      }
+      <span class="verdict-text">{{ verdictSummary() }}</span>
     </div>
+    <button mat-stroked-button (click)="reanalyze()" [disabled]="reanalyzing()">
+      <mat-icon>refresh</mat-icon>
+      Re-analyze
+    </button>
+  </div>
   }
 
   <!-- Failed state -->
   @if (s.status === 'failed') {
-    <div class="error-banner">
-      <mat-icon>error</mat-icon>
-      <span>An error occurred during the impact analysis.</span>
-    </div>
+  <div class="error-banner">
+    <mat-icon>error</mat-icon>
+    <span>An error occurred during the impact analysis.</span>
+  </div>
   }
 
   <!-- Split view -->
   <div class="split-view">
-    <app-impact-chat-panel
-      class="chat-panel"
-      [messages]="chatMessages()"
-      [sessionId]="s.id"
-      [isActive]="isActive()"
-      [llmEnabled]="llmEnabled()"
-      (messageSent)="onChatMessageSent()"
-    />
-    <app-impact-data-panel
-      class="data-panel"
-      [session]="s"
-      [timeProgress]="timeProgress()"
-    />
+    <app-impact-chat-panel class="chat-panel" [messages]="chatMessages()" [sessionId]="s.id" [isActive]="isActive()"
+      [llmEnabled]="llmEnabled()" (messageSent)="onChatMessageSent()" />
+    <app-impact-data-panel class="data-panel" [session]="s" [timeProgress]="timeProgress()" />
   </div>
+</div>
 }

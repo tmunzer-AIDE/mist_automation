@@ -1,29 +1,21 @@
-<ng-template #actions>
+<div class="actions">
+  <app-ai-inline-analysis [llmAvailable]="llmAvailable()" [summary]="aiSummary()" [error]="aiError()"
+    [loading]="aiLoading()" [threadId]="aiThreadId()" loadingLabel="Analyzing audit logs..."
+    (analyzeRequested)="summarize()" />
+
   <button mat-stroked-button (click)="exportCsv()" [disabled]="exporting()" matTooltip="Export filtered logs as CSV">
     <mat-icon>download</mat-icon> {{ exporting() ? 'Exporting...' : 'Export CSV' }}
   </button>
-</ng-template>
-
-<app-ai-inline-analysis
-  [llmAvailable]="llmAvailable()"
-  [summary]="aiSummary()"
-  [error]="aiError()"
-  [loading]="aiLoading()"
-  [threadId]="aiThreadId()"
-  loadingLabel="Analyzing audit logs..."
-  (analyzeRequested)="summarize()"
-/>
-
+</div>
 <div class="filters" [formGroup]="filterForm">
   <mat-form-field appearance="outline">
     <mat-label>Event Type</mat-label>
-    <input matInput [matAutocomplete]="eventTypeAuto"
-           (input)="eventTypeSearch.set($any($event.target).value)"
-           [formControl]="eventTypeInput">
+    <input matInput [matAutocomplete]="eventTypeAuto" (input)="eventTypeSearch.set($any($event.target).value)"
+      [formControl]="eventTypeInput">
     <mat-autocomplete #eventTypeAuto (optionSelected)="onEventTypeSelected($event)">
       <mat-option value="">All</mat-option>
       @for (type of filteredEventTypes(); track type) {
-        <mat-option [value]="type">{{ type }}</mat-option>
+      <mat-option [value]="type">{{ type }}</mat-option>
       }
     </mat-autocomplete>
   </mat-form-field>
@@ -50,7 +42,7 @@
 </div>
 
 @if (loading()) {
-  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+<mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
 <div class="table-card">
@@ -93,13 +85,7 @@
     <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
   </table>
 
-  <mat-paginator
-    [length]="total()"
-    [pageSize]="pageSize()"
-    [pageIndex]="pageIndex()"
-    [pageSizeOptions]="[25, 50, 100]"
-    (page)="onPage($event)"
-    showFirstLastButtons
-  >
+  <mat-paginator [length]="total()" [pageSize]="pageSize()" [pageIndex]="pageIndex()" [pageSizeOptions]="[25, 50, 100]"
+    (page)="onPage($event)" showFirstLastButtons>
   </mat-paginator>
 </div>

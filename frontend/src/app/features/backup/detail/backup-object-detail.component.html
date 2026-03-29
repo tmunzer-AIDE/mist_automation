@@ -60,6 +60,8 @@
                   [loading]="aiLoading()"
                   [threadId]="aiThreadId()"
                   loadingLabel="Summarizing changes..."
+                  [buttonOnly]="true"
+                  [(expanded)]="aiExpanded"
                   (analyzeRequested)="summarizeChanges()"
                 />
                 <button
@@ -71,6 +73,16 @@
                   <mat-icon>{{ allExpanded() ? 'unfold_less' : 'unfold_more' }}</mat-icon>
                 </button>
               </div>
+
+              @if (aiHasContent() && aiExpanded()) {
+                <app-ai-analysis-result
+                  [threadId]="aiThreadId()"
+                  [summary]="aiSummary()"
+                  [error]="aiError()"
+                  [loading]="aiLoading()"
+                  loadingLabel="Summarizing changes..."
+                />
+              }
 
               <!-- Grouped diff list -->
               <div class="diff-list">

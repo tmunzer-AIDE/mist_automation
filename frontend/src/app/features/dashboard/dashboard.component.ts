@@ -22,6 +22,7 @@ import { UserResponse } from '../../core/models/user.model';
 import { SessionSummary } from '../impact-analysis/models/impact-analysis.model';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { AiInlineAnalysisComponent } from '../../shared/components/ai-inline-analysis/ai-inline-analysis.component';
+import { AiAnalysisResultComponent } from '../../shared/components/ai-inline-analysis/ai-analysis-result.component';
 import { DateTimePipe } from '../../shared/pipes/date-time.pipe';
 import { extractErrorMessage } from '../../shared/utils/error.utils';
 import {
@@ -47,6 +48,7 @@ import {
     BaseChartDirective,
     StatusBadgeComponent,
     AiInlineAnalysisComponent,
+    AiAnalysisResultComponent,
     DateTimePipe,
   ],
   templateUrl: './dashboard.component.html',
@@ -70,6 +72,8 @@ export class DashboardComponent implements OnInit {
   aiSummary = signal<string | null>(null);
   aiError = signal<string | null>(null);
   aiThreadId = signal<string | null>(null);
+  aiExpanded = signal(true);
+  aiHasContent = computed(() => !!this.aiSummary() || !!this.aiError() || this.aiLoading());
 
   user = signal<UserResponse | null>(null);
   stats = signal<DashboardStats | null>(null);

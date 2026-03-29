@@ -51,6 +51,8 @@ export class TelemetryService {
     field: string;
     agg?: string;
     timeRange: TimeRange;
+    deviceType?: string;
+    groupBy?: string;
   }): Observable<AggregateResult> {
     const p: Record<string, string> = {
       measurement: params.measurement,
@@ -61,6 +63,8 @@ export class TelemetryService {
     };
     if (params.siteId) p['site_id'] = params.siteId;
     if (params.orgId) p['org_id'] = params.orgId;
+    if (params.deviceType) p['device_type'] = params.deviceType;
+    if (params.groupBy) p['group_by'] = params.groupBy;
     return this.api.get<AggregateResult>('/telemetry/query/aggregate', p);
   }
 

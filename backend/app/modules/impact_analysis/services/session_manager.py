@@ -143,6 +143,7 @@ async def create_or_merge_session(
 async def transition(session: MonitoringSession, new_status: SessionStatus) -> None:
     """Transition a session to a new status with validation.
 
+    Uses atomic update with optimistic lock on current status to prevent race conditions.
     Raises ValueError if the transition is not allowed.
     """
     allowed = VALID_TRANSITIONS.get(session.status, set())
@@ -150,14 +151,31 @@ async def transition(session: MonitoringSession, new_status: SessionStatus) -> N
         raise ValueError(f"Cannot transition from {session.status} to {new_status}")
 
     old_status = session.status
-    session.status = new_status
+    now = datetime.now(timezone.utc)
 
+    update_fields: dict = {
+        "status": new_status.value,
+        "updated_at": now,
+    }
     # Set completed_at for terminal states
     if new_status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED}:
-        session.completed_at = datetime.now(timezone.utc)
+        update_fields["completed_at"] = now
 
-    session.update_timestamp()
-    await session.save()
+    # Atomic update with optimistic lock on current status
+    result = await MonitoringSession.find_one(
+        MonitoringSession.id == session.id,
+        MonitoringSession.status == old_status,
+    ).update({"$set": update_fields})
+
+    if not result:
+        logger.warning("session_transition_conflict", session_id=str(session.id), from_status=old_status, to_status=new_status)
+        return
+
+    # Update in-memory object to reflect the change
+    session.status = new_status
+    session.updated_at = now
+    if "completed_at" in update_fields:
+        session.completed_at = update_fields["completed_at"]
 
     # Record transition in timeline
     await append_timeline_entry(
@@ -197,12 +215,15 @@ async def config_applied(
 
 
 async def add_incident(session: MonitoringSession, incident: DeviceIncident) -> None:
-    """Append an incident to the session and broadcast the update."""
+    """Append an incident to the session atomically and broadcast the update."""
     from app.core.websocket import ws_manager
 
+    now = datetime.now(timezone.utc)
+    await MonitoringSession.find_one(MonitoringSession.id == session.id).update(
+        {"$push": {"incidents": incident.model_dump()}, "$set": {"updated_at": now}}
+    )
     session.incidents.append(incident)
-    session.update_timestamp()
-    await session.save()
+    session.updated_at = now
     logger.info(
         "incident_added",
         session_id=str(session.id),
@@ -228,20 +249,32 @@ async def add_incident(session: MonitoringSession, incident: DeviceIncident) -> 
 
 
 async def resolve_incident(session: MonitoringSession, event_type: str, device_mac: str) -> None:
-    """Mark matching unresolved incidents as resolved."""
+    """Mark matching unresolved incidents as resolved atomically."""
     from app.core.websocket import ws_manager
 
     now = datetime.now(timezone.utc)
-    resolved_count = 0
+
+    # Atomic update: resolve all matching unresolved incidents
+    result = await MonitoringSession.get_motor_collection().update_one(
+        {"_id": session.id},
+        {
+            "$set": {
+                "incidents.$[elem].resolved": True,
+                "incidents.$[elem].resolved_at": now,
+                "updated_at": now,
+            }
+        },
+        array_filters=[{"elem.event_type": event_type, "elem.device_mac": device_mac, "elem.resolved": False}],
+    )
+    resolved_count = result.modified_count
+
+    # Update in-memory state
     for incident in session.incidents:
         if incident.event_type == event_type and incident.device_mac == device_mac and not incident.resolved:
             incident.resolved = True
             incident.resolved_at = now
-            resolved_count += 1
 
     if resolved_count > 0:
-        session.update_timestamp()
-        await session.save()
         logger.info(
             "incidents_resolved",
             session_id=str(session.id),

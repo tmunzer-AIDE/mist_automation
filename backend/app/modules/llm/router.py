@@ -60,10 +60,24 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
+def _parse_oid(value: str, label: str = "ID") -> PydanticObjectId:
+    """Parse a string to PydanticObjectId, raising 400 on invalid format."""
+    try:
+        return PydanticObjectId(value)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid {label}") from exc
+
+
 # ── LLM rate limiter (per-user sliding window) ───────────────────────────────
 _llm_requests: dict[str, list[float]] = defaultdict(list)
 _LLM_RATE_WINDOW = 60  # 1 minute
 _LLM_RATE_MAX = 20  # max requests per window
+
+
+def _sanitize_prior_turn(content: str, max_len: int) -> str:
+    """Truncate and strip prompt-injection markers from prior conversation turns."""
+    text = content[:max_len]
+    return text.replace("```", "").replace("---", "").replace("***", "")
 
 
 def _check_llm_rate_limit(user_id: str) -> None:
@@ -250,7 +264,7 @@ async def update_llm_config(
     from app.core.security import encrypt_sensitive_data
     from app.modules.llm.models import LLMConfig
 
-    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    cfg = await LLMConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
 
@@ -283,7 +297,7 @@ async def delete_llm_config(
     """Delete an LLM configuration (cannot delete the default)."""
     from app.modules.llm.models import LLMConfig
 
-    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    cfg = await LLMConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
     if cfg.is_default:
@@ -301,7 +315,7 @@ async def set_default_llm_config(
     """Set an LLM configuration as the default."""
     from app.modules.llm.models import LLMConfig
 
-    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    cfg = await LLMConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
 
@@ -339,7 +353,7 @@ async def _resolve_api_key(api_key: str | None, config_id: str | None) -> str:
         from app.core.security import decrypt_sensitive_data
         from app.modules.llm.models import LLMConfig
 
-        cfg = await LLMConfig.get(PydanticObjectId(config_id))
+        cfg = await LLMConfig.get(_parse_oid(config_id, "config ID"))
         if cfg and cfg.api_key:
             return decrypt_sensitive_data(cfg.api_key)
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API key required")
@@ -409,7 +423,7 @@ async def list_config_models(
     from app.core.security import decrypt_sensitive_data
     from app.modules.llm.models import LLMConfig
 
-    cfg = await LLMConfig.get(PydanticObjectId(config_id))
+    cfg = await LLMConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
     if not cfg.api_key:
@@ -521,7 +535,7 @@ async def update_mcp_config(
     from app.core.security import encrypt_sensitive_data
     from app.modules.llm.models import MCPConfig
 
-    cfg = await MCPConfig.get(PydanticObjectId(config_id))
+    cfg = await MCPConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
 
@@ -547,7 +561,7 @@ async def delete_mcp_config(
     """Delete an MCP server configuration."""
     from app.modules.llm.models import MCPConfig
 
-    cfg = await MCPConfig.get(PydanticObjectId(config_id))
+    cfg = await MCPConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
     await cfg.delete()
@@ -566,7 +580,7 @@ async def test_mcp_config(
     from app.modules.llm.models import MCPConfig
     from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPServerConfig
 
-    cfg = await MCPConfig.get(PydanticObjectId(config_id))
+    cfg = await MCPConfig.get(_parse_oid(config_id, "config ID"))
     if not cfg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
 
@@ -610,7 +624,7 @@ async def test_mcp_connection_anonymous(
         from app.core.security import decrypt_sensitive_data
         from app.modules.llm.models import MCPConfig
 
-        cfg = await MCPConfig.get(PydanticObjectId(request.config_id))
+        cfg = await MCPConfig.get(_parse_oid(request.config_id, "config ID"))
         if cfg and cfg.headers:
             headers = json_mod.loads(decrypt_sensitive_data(cfg.headers))
 
@@ -874,7 +888,7 @@ async def _continue_with_mcp(thread, message: str, current_user: User, stream_id
     prior_turns = []
     for m in messages:
         if m["role"] in ("user", "assistant"):
-            prior_turns.append(f"{m['role']}: {m['content'][:300]}")
+            prior_turns.append(f"{m['role']}: {_sanitize_prior_turn(m['content'], 300)}")
     # Skip the last user message (it's the current one, passed as task)
     context_summary = ""
     if len(prior_turns) > 1:
@@ -1186,7 +1200,7 @@ async def debug_execution(
     from app.modules.llm.services.prompt_builders import build_debug_prompt
 
     # Verify the user can access the workflow that owns this execution
-    execution = await WorkflowExecution.get(PydanticObjectId(request.execution_id))
+    execution = await WorkflowExecution.get(_parse_oid(request.execution_id, "execution ID"))
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
     workflow = await Workflow.get(execution.workflow_id)
@@ -1481,7 +1495,7 @@ async def global_chat(
         history = thread.get_messages_for_llm(max_turns=10)
         context_summary = ""
         if len(history) > 2:
-            prior_turns = [f"{m['role']}: {m['content'][:200]}" for m in history[1:-1]]
+            prior_turns = [f"{m['role']}: {_sanitize_prior_turn(m['content'], 200)}" for m in history[1:-1]]
             context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[-6:])
 
         result = await agent.run(
@@ -1609,7 +1623,7 @@ async def get_thread(
     """Get a conversation thread with full message history."""
     from app.modules.llm.models import ConversationThread
 
-    thread = await ConversationThread.get(PydanticObjectId(thread_id))
+    thread = await ConversationThread.get(_parse_oid(thread_id, "thread ID"))
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     if thread.user_id != current_user.id:
@@ -1637,7 +1651,7 @@ async def delete_thread(
     """Delete a conversation thread."""
     from app.modules.llm.models import ConversationThread
 
-    thread = await ConversationThread.get(PydanticObjectId(thread_id))
+    thread = await ConversationThread.get(_parse_oid(thread_id, "thread ID"))
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     if thread.user_id != current_user.id:

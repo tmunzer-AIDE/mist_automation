@@ -137,20 +137,17 @@ def _encrypt_workflow_secrets(
 
 def _window_summary(window) -> dict:
     """Build a summary dict from an AggregationWindow."""
+    if hasattr(window, "to_summary"):
+        return window.to_summary()
+    # Fallback for raw dicts (e.g. from aggregation pipeline results)
     return {
-        "window_id": str(window.id) if hasattr(window, "id") else str(window.get("_id", "")),
-        "group_key": window.group_key if hasattr(window, "group_key") else window.get("group_key", ""),
-        "event_count": window.event_count if hasattr(window, "event_count") else window.get("event_count", 0),
-        "site_id": window.site_id if hasattr(window, "site_id") else window.get("site_id"),
-        "site_name": window.site_name if hasattr(window, "site_name") else window.get("site_name"),
-        "window_end": (
-            window.window_end.isoformat()
-            if hasattr(window, "window_end") and window.window_end
-            else window.get("window_end", "")
-        ),
-        "window_seconds": (
-            window.window_seconds if hasattr(window, "window_seconds") else window.get("window_seconds", 0)
-        ),
+        "window_id": str(window.get("_id", "")),
+        "group_key": window.get("group_key", ""),
+        "event_count": window.get("event_count", 0),
+        "site_id": window.get("site_id"),
+        "site_name": window.get("site_name"),
+        "window_end": window.get("window_end", ""),
+        "window_seconds": window.get("window_seconds", 0),
     }
 
 
@@ -431,35 +428,33 @@ async def list_all_executions(
     if trigger_type:
         match["trigger_type"] = trigger_type
 
-    total = await WorkflowExecution.find(match).count()
-
-    executions = await WorkflowExecution.aggregate(
+    projection = {
+        "_id": 1, "workflow_id": 1, "workflow_name": 1, "status": 1, "trigger_type": 1,
+        "started_at": 1, "completed_at": 1, "duration_ms": 1,
+        "nodes_executed": 1, "nodes_succeeded": 1, "nodes_failed": 1, "is_simulation": 1,
+    }
+    facet_result = await WorkflowExecution.aggregate(
         [
             {"$match": match},
-            {"$sort": {"started_at": -1}},
-            {"$skip": skip},
-            {"$limit": limit},
             {
-                "$project": {
-                    "_id": 1,
-                    "workflow_id": 1,
-                    "workflow_name": 1,
-                    "status": 1,
-                    "trigger_type": 1,
-                    "started_at": 1,
-                    "completed_at": 1,
-                    "duration_ms": 1,
-                    "nodes_executed": 1,
-                    "nodes_succeeded": 1,
-                    "nodes_failed": 1,
-                    "is_simulation": 1,
+                "$facet": {
+                    "total": [{"$count": "count"}],
+                    "data": [
+                        {"$sort": {"started_at": -1}},
+                        {"$skip": skip},
+                        {"$limit": limit},
+                        {"$project": projection},
+                    ],
                 }
             },
         ]
     ).to_list()
 
+    row = facet_result[0] if facet_result else {"total": [], "data": []}
+    total = row["total"][0]["count"] if row["total"] else 0
+
     return {
-        "executions": [_execution_summary(ex) for ex in executions],
+        "executions": [_execution_summary(ex) for ex in row["data"]],
         "total": total,
     }
 
@@ -749,38 +744,33 @@ async def list_workflow_executions(
     if not workflow.can_be_accessed_by(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    total = await WorkflowExecution.find(WorkflowExecution.workflow_id == workflow.id).count()
-
-    # Use aggregation with projection to avoid fetching large fields
-    # (node_results, node_snapshots, trigger_data, variables, logs)
-    # that can be very large with for_each loop iterations.
-    executions = await WorkflowExecution.aggregate(
+    projection = {
+        "_id": 1, "workflow_id": 1, "workflow_name": 1, "status": 1, "trigger_type": 1,
+        "started_at": 1, "completed_at": 1, "duration_ms": 1,
+        "nodes_executed": 1, "nodes_succeeded": 1, "nodes_failed": 1, "is_simulation": 1,
+    }
+    facet_result = await WorkflowExecution.aggregate(
         [
             {"$match": {"workflow_id": workflow.id}},
-            {"$sort": {"started_at": -1}},
-            {"$skip": skip},
-            {"$limit": limit},
             {
-                "$project": {
-                    "_id": 1,
-                    "workflow_id": 1,
-                    "workflow_name": 1,
-                    "status": 1,
-                    "trigger_type": 1,
-                    "started_at": 1,
-                    "completed_at": 1,
-                    "duration_ms": 1,
-                    "nodes_executed": 1,
-                    "nodes_succeeded": 1,
-                    "nodes_failed": 1,
-                    "is_simulation": 1,
+                "$facet": {
+                    "total": [{"$count": "count"}],
+                    "data": [
+                        {"$sort": {"started_at": -1}},
+                        {"$skip": skip},
+                        {"$limit": limit},
+                        {"$project": projection},
+                    ],
                 }
             },
         ]
     ).to_list()
 
+    row = facet_result[0] if facet_result else {"total": [], "data": []}
+    total = row["total"][0]["count"] if row["total"] else 0
+
     return {
-        "executions": [_execution_summary(ex) for ex in executions],
+        "executions": [_execution_summary(ex) for ex in row["data"]],
         "total": total,
     }
 

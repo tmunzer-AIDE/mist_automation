@@ -44,6 +44,20 @@ class AggregationWindow(Document):
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    def to_summary(self) -> dict:
+        """Build a serialisable summary dict (shared by REST + WS broadcasts)."""
+        return {
+            "window_id": str(self.id),
+            "workflow_id": str(self.workflow_id),
+            "group_key": self.group_key,
+            "status": self.status,
+            "event_count": self.event_count,
+            "site_id": self.site_id,
+            "site_name": self.site_name,
+            "window_end": self.window_end.isoformat() if self.window_end else "",
+            "window_seconds": self.window_seconds,
+        }
+
     class Settings:
         name = "aggregation_windows"
         indexes = [

@@ -23,14 +23,14 @@
   <!-- Chart skeleton -->
   <div class="dashboard-section">
     <div class="shimmer-block" style="width: 120px; height: 14px;"></div>
-    <div class="table-card" style="margin-top: 12px; padding: 16px;">
+    <div class="table-card table-card-spaced">
       <div class="shimmer-block" style="width: 100%; height: 200px;"></div>
     </div>
   </div>
   <!-- Activity skeleton -->
   <div class="dashboard-section">
     <div class="shimmer-block" style="width: 100px; height: 14px;"></div>
-    <div class="table-card" style="margin-top: 12px;">
+    <div class="table-card table-card-spaced-top">
       <app-skeleton-loader [rows]="4" [columns]="4"></app-skeleton-loader>
     </div>
   </div>
@@ -44,24 +44,37 @@
           <h2 class="hero-greeting">Welcome back, {{ displayName() }}</h2>
           <p class="hero-sub">Here's your overview for the last {{ statsWindowDays() }} days.</p>
         </div>
-        @if (health(); as h) {
-          <div class="hero-health">
-            <app-status-badge [status]="h.status"></app-status-badge>
-            <span class="hero-meta">v{{ h.version }}</span>
-            <span class="hero-env">{{ h.environment }}</span>
-          </div>
-        }
+        <div class="hero-right">
+          @if (health(); as h) {
+            <div class="hero-health">
+              <app-status-badge [status]="h.status"></app-status-badge>
+              <span class="hero-meta">v{{ h.version }}</span>
+              <span class="hero-env">{{ h.environment }}</span>
+            </div>
+          }
+          <app-ai-inline-analysis
+            [llmAvailable]="llmAvailable()"
+            [summary]="aiSummary()"
+            [error]="aiError()"
+            [loading]="aiLoading()"
+            [threadId]="aiThreadId()"
+            loadingLabel="Analyzing dashboard..."
+            [buttonOnly]="true"
+            [(expanded)]="aiExpanded"
+            (analyzeRequested)="summarize()"
+          />
+        </div>
       </div>
 
-      <app-ai-inline-analysis
-        [llmAvailable]="llmAvailable()"
-        [summary]="aiSummary()"
-        [error]="aiError()"
-        [loading]="aiLoading()"
-        [threadId]="aiThreadId()"
-        loadingLabel="Analyzing dashboard..."
-        (analyzeRequested)="summarize()"
-      />
+      @if (aiHasContent() && aiExpanded()) {
+        <app-ai-analysis-result
+          [threadId]="aiThreadId()"
+          [summary]="aiSummary()"
+          [error]="aiError()"
+          [loading]="aiLoading()"
+          loadingLabel="Analyzing dashboard..."
+        />
+      }
 
       @if (hasAnyModuleRole() && stats(); as s) {
         <div class="hero-stats">

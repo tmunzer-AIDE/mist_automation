@@ -153,11 +153,19 @@
 }
 
 // ── Split view layout ───────────────────────────────────────────────────
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  height: calc(100vh - 175px);
+}
+
 .split-view {
   display: flex;
   gap: 16px;
   min-height: 0;
-  height: calc(100vh - 175px);
+  flex-grow: 1;
 }
 
 .chat-panel {

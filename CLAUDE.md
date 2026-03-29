@@ -122,7 +122,7 @@ See `backend/app/modules/telemetry/CLAUDE.md` for full details.
 
 ### DRY (Don't Repeat Yourself)
 
-- **Service factories**: Always use `create_mist_service()`, `create_llm_service()`, `create_local_mcp_client()` — never instantiate manually.
+- **Service factories**: Always use `create_mist_service()`, `create_llm_service()`, `create_local_mcp_client()`, `await GitService.create()` — never instantiate manually.
 - **Response helpers**: Extract `_*_to_response()` helpers for building API responses from documents (e.g., `user_to_response()`, `_dict_to_response()`, `_execution_summary()`).
 - **Shared utilities**: Use `facet_counts()`, `strip_template_braces()`, `_sanitize_for_prompt()`, `deep_diff()`, `_paginated_query()` — search codebase before creating new helpers.
 - **Variable substitution**: `_substitute_value()` is the single recursive dispatcher; `substitute_in_dict`/`substitute_in_list` are thin wrappers.
@@ -130,6 +130,7 @@ See `backend/app/modules/telemetry/CLAUDE.md` for full details.
 - **Celery app**: Import from `app.core.celery_app` — never create Celery instances in modules.
 - **Impact analysis sessions**: Use `session_manager` functions — never query/update `MonitoringSession` directly from other modules.
 - **Site data coordinator**: Use `SiteDataCoordinator.get_or_create(site_id)` for shared site-level data.
+- **Aggregation window summaries**: Use `AggregationWindow.to_summary()` model method — never build summary dicts inline.
 
 ### Efficiency
 

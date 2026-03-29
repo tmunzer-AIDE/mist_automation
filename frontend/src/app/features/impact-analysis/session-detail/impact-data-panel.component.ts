@@ -79,6 +79,39 @@ import {
         <div class="section-divider"></div>
       }
 
+      <!-- Incidents -->
+      <div class="section">
+        <div class="section-header">
+          Incidents
+          <span class="count-badge">{{ session()?.incident_count ?? 0 }}</span>
+        </div>
+        @if (session()?.incidents?.length) {
+          @for (incident of session()!.incidents; track $index) {
+            <div class="incident-row">
+              <mat-icon [class]="'incident-icon severity-' + incident.severity">
+                @switch (incident.severity) {
+                  @case ('critical') { error }
+                  @case ('warning') { warning }
+                  @default { info }
+                }
+              </mat-icon>
+              <div class="incident-info">
+                <div class="incident-type">{{ incident.event_type }}</div>
+                <div class="incident-meta">
+                  {{ incident.timestamp | dateTime: 'short' }}
+                  @if (incident.resolved) {
+                    <span class="resolved-badge">Resolved</span>
+                  }
+                </div>
+              </div>
+            </div>
+          }
+        } @else {
+          <div class="empty-hint">No incidents detected</div>
+        }
+      </div>
+      <div class="section-divider"></div>
+
       <!-- Validation Checks -->
       @if (session()?.validation_results) {
         <div class="section">
@@ -161,46 +194,13 @@ import {
             <div class="empty-hint">Awaiting SLE data</div>
           }
         </div>
-        <div class="section-divider"></div>
       }
-
-      <!-- Incidents -->
-      <div class="section">
-        <div class="section-header">
-          Incidents
-          <span class="count-badge">{{ session()?.incident_count ?? 0 }}</span>
-        </div>
-        @if (session()?.incidents?.length) {
-          @for (incident of session()!.incidents; track $index) {
-            <div class="incident-row">
-              <mat-icon [class]="'incident-icon severity-' + incident.severity">
-                @switch (incident.severity) {
-                  @case ('critical') { error }
-                  @case ('warning') { warning }
-                  @default { info }
-                }
-              </mat-icon>
-              <div class="incident-info">
-                <div class="incident-type">{{ incident.event_type }}</div>
-                <div class="incident-meta">
-                  {{ incident.timestamp | dateTime: 'short' }}
-                  @if (incident.resolved) {
-                    <span class="resolved-badge">Resolved</span>
-                  }
-                </div>
-              </div>
-            </div>
-          }
-        } @else {
-          <div class="empty-hint">No incidents detected</div>
-        }
-      </div>
     </div>
   `,
   styles: `
     :host {
       display: block;
-      height: calc(100% - 32px);
+      // height: calc(100% - 32px);
       overflow-y: auto;
       padding: 16px;
       background: var(--app-canvas-bg, #fafafa);

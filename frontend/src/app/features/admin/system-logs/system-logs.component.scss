@@ -3,7 +3,13 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  padding: 24px 16px 0;
+  //padding: 24px 16px 0;
+}
+
+
+app-ai-inline-analysis {
+  display: block;
+  margin-bottom: 16px;
 }
 
 // ── Topbar elements ──────────────────────────────────────────────────────────

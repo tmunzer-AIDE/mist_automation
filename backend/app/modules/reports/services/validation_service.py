@@ -74,6 +74,7 @@ class _ProgressTracker:
         self.overall_completed = 0
         self.overall_total = 0  # 0 = discovery phase (indeterminate)
         self._persist_counter = 0
+        self._persist_lock = asyncio.Lock()
 
     async def start_step(self, step_id: str, message: str = "") -> None:
         self.steps[step_id]["status"] = "running"
@@ -132,13 +133,14 @@ class _ProgressTracker:
         )
 
     async def _persist(self) -> None:
-        self.report.progress = {
-            "overall_completed": self.overall_completed,
-            "overall_total": self.overall_total,
-            "steps": list(self.steps.values()),
-        }
-        self.report.update_timestamp()
-        await self.report.save()
+        async with self._persist_lock:
+            self.report.progress = {
+                "overall_completed": self.overall_completed,
+                "overall_total": self.overall_total,
+                "steps": list(self.steps.values()),
+            }
+            self.report.update_timestamp()
+            await self.report.save()
 
 
 async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
@@ -215,12 +217,11 @@ async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
 
         # ── Execution phase (determinate progress bar) ───────────────
 
-        # Pre-fetch switch UP ports to compute cable test total
-        up_ports_by_mac = await _fetch_switch_up_ports(session, site_id)
-
-        # Compute total cable test ports for progress tracking
-        # (need switch stats to know which are connected)
-        sw_stats_resp = await mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="switch", limit=1000)
+        # Parallel fetch: switch UP ports + switch device stats
+        up_ports_by_mac, sw_stats_resp = await asyncio.gather(
+            _fetch_switch_up_ports(session, site_id),
+            mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="switch", limit=1000),
+        )
         switch_stats = sw_stats_resp.data if sw_stats_resp.status_code == 200 else []
         total_cable_ports = sum(
             len(up_ports_by_mac.get(sw.get("mac", ""), [])) for sw in switch_stats if sw.get("status") == "connected"
@@ -1151,15 +1152,25 @@ async def _validate_single_gateway(
     }
 
 
+_jinja_env = None
+
+
+def _get_jinja_env():
+    """Get or create shared Jinja2 SandboxedEnvironment (module-level singleton)."""
+    global _jinja_env
+    if _jinja_env is None:
+        from app.utils.variables import create_jinja_env
+
+        _jinja_env = create_jinja_env()
+    return _jinja_env
+
+
 def _resolve_vars(text: str, site_vars: dict) -> str:
     """Resolve Jinja2 variables in a string using site vars."""
     if not text or "{{" not in text:
         return text
     try:
-        from app.utils.variables import create_jinja_env
-
-        env = create_jinja_env()
-        return env.from_string(text).render(site_vars)
+        return _get_jinja_env().from_string(text).render(site_vars)
     except Exception:
         return text
 

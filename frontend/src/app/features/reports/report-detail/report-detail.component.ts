@@ -26,6 +26,22 @@ import { HttpClient } from '@angular/common/http';
 import { ApiService } from '../../../core/services/api.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import {
+  getCheckValue,
+  getCheckStatus,
+  getWanPorts,
+  getDeviceOverallStatus,
+  getCableTestSummary,
+  getCableTestStatus,
+  isCableStatusOk,
+  statusLabel,
+  DeviceResult,
+  SwitchResult,
+  DeviceCheck,
+  WanPort,
+  VcMember,
+  CableTestResult,
+} from '../../../shared/utils/device-status.utils';
 
 interface ReportDetail {
   id: string;
@@ -91,51 +107,6 @@ interface GroupedVariable {
   value: string;
   status: string;
   occurrences: TemplateVarCheck[];
-}
-
-interface DeviceCheck {
-  check: string;
-  status: string;
-  value: string;
-  ports?: WanPort[];
-}
-
-interface WanPort {
-  port: string;
-  up: boolean;
-  speed: number;
-  full_duplex: boolean;
-}
-
-interface DeviceResult {
-  device_id: string;
-  name: string;
-  mac: string;
-  model: string;
-  checks: DeviceCheck[];
-}
-
-interface VcMember {
-  member_id: string;
-  mac: string;
-  serial: string;
-  model: string;
-  firmware: string;
-  status: string;
-  vc_ports_up: number;
-  checks: DeviceCheck[];
-}
-
-interface CableTestResult {
-  port: string;
-  status: string;
-  pairs: { pair: string; status: string; length: string }[];
-  raw?: string[];
-}
-
-interface SwitchResult extends DeviceResult {
-  virtual_chassis: { status: string; members: VcMember[]; message?: string } | null;
-  cable_tests: CableTestResult[];
 }
 
 interface GatewayWanPort {
@@ -345,26 +316,33 @@ export class ReportDetailComponent implements OnInit, OnDestroy {
   }
 
   private _downloadFile(url: string, filename: string): void {
-    this.http.get(url, { responseType: 'blob' }).subscribe((blob) => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
+    this.api
+      .getBlob(url.replace('/api/v1/', ''))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        },
+        error: (err) => {
+          console.error('Failed to download file:', err);
+        },
+      });
   }
 
   getCheckValue(device: DeviceResult, checkName: string): string {
-    return device.checks.find((c) => c.check === checkName)?.value ?? '';
+    return getCheckValue(device, checkName);
   }
 
   getCheckStatus(device: DeviceResult, checkName: string): string {
-    return device.checks.find((c) => c.check === checkName)?.status ?? 'info';
+    return getCheckStatus(device, checkName);
   }
 
   getWanPorts(device: DeviceResult): WanPort[] {
-    const check = device.checks.find((c) => c.check === 'wan_port_status');
-    return (check?.ports as WanPort[]) ?? [];
+    return getWanPorts(device);
   }
 
   openDeviceDetail(type: 'switch' | 'gateway', device: SwitchResult | GatewayResult): void {
@@ -391,55 +369,23 @@ export class ReportDetailComponent implements OnInit, OnDestroy {
   }
 
   getCableTestSummary(sw: SwitchResult): string {
-    if (!sw.cable_tests?.length) return '';
-    const failed = sw.cable_tests.filter((ct) => ct.status === 'fail').length;
-    if (failed > 0) return `${sw.cable_tests.length} ports (${failed} failed)`;
-    return `${sw.cable_tests.length} ports`;
+    return getCableTestSummary(sw);
   }
 
   getCableTestStatus(sw: SwitchResult): string {
-    if (!sw.cable_tests?.length) return 'info';
-    if (sw.cable_tests.some((ct) => ct.status === 'fail')) return 'fail';
-    if (sw.cable_tests.some((ct) => ct.status === 'warn')) return 'warn';
-    return 'pass';
+    return getCableTestStatus(sw);
   }
 
   getDeviceOverallStatus(device: DeviceResult | SwitchResult): string {
-    // Check all device checks
-    const hasFail = device.checks.some((c) => c.status === 'fail');
-    if (hasFail) return 'fail';
-
-    // Check cable tests (switches)
-    if ('cable_tests' in device) {
-      const sw = device as SwitchResult;
-      if (sw.cable_tests?.some((ct) => ct.status === 'fail')) return 'fail';
-      // Check VC member failures
-      if (sw.virtual_chassis?.members?.some((m) => m.checks.some((c) => c.status === 'fail')))
-        return 'fail';
-    }
-
-    const hasWarn = device.checks.some((c) => c.status === 'warn');
-    if (hasWarn) return 'warn';
-
-    return this.getCheckStatus(device, 'connection_status');
+    return getDeviceOverallStatus(device);
   }
 
   isCableStatusOk(status: string): boolean {
-    const s = status.toLowerCase();
-    return s === 'normal' || s === 'ok' || s === 'pass' || s === 'passed';
+    return isCableStatusOk(status);
   }
 
   statusLabel(status: string): string {
-    switch (status) {
-      case 'pass':
-        return 'Success';
-      case 'fail':
-        return 'Failed';
-      case 'warn':
-        return 'Warning';
-      default:
-        return 'Info';
-    }
+    return statusLabel(status);
   }
 
   statusIcon(status: string): string {

@@ -27,6 +27,8 @@ ALLOWED_MEASUREMENTS = frozenset(
 )
 
 ALLOWED_AGGREGATIONS = frozenset({"mean", "max", "min", "sum", "count", "last"})
+ALLOWED_DEVICE_TYPES = frozenset({"ap", "switch", "gateway"})
+ALLOWED_GROUP_BY = frozenset({"band", "device_type"})
 
 _MAC_RE = re.compile(r"^[a-fA-F0-9]{12}$|^[a-fA-F0-9]{2}(:[a-fA-F0-9]{2}){5}$")
 _FIELD_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")

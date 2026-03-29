@@ -2,6 +2,7 @@
 Backup and restore API endpoints.
 """
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -42,6 +43,7 @@ logger = structlog.get_logger(__name__)
 _site_name_cache: dict[str, str] = {}
 _site_name_cache_time: float = 0.0
 _SITE_NAME_CACHE_TTL: float = 300.0  # 5 minutes
+_site_name_cache_lock = asyncio.Lock()
 
 
 async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
@@ -87,16 +89,17 @@ async def _resolve_site_names(site_ids: set[str]) -> dict[str, str]:
     # 3. Fallback to Mist API for any still-unresolved IDs (refresh cache if stale)
     if missing:
         now = time.monotonic()
-        if now - _site_name_cache_time > _SITE_NAME_CACHE_TTL:
-            try:
-                from app.services.mist_service_factory import create_mist_service
+        async with _site_name_cache_lock:
+            if now - _site_name_cache_time > _SITE_NAME_CACHE_TTL:
+                try:
+                    from app.services.mist_service_factory import create_mist_service
 
-                service = await create_mist_service()
-                sites = await service.get_sites()
-                _site_name_cache = {s.get("id", ""): s.get("name", s.get("id", "")[:8]) for s in sites}
-                _site_name_cache_time = now
-            except Exception as exc:
-                logger.debug("site_name_api_fallback_failed", error=str(exc))
+                    service = await create_mist_service()
+                    sites = await service.get_sites()
+                    _site_name_cache = {s.get("id", ""): s.get("name", s.get("id", "")[:8]) for s in sites}
+                    _site_name_cache_time = now
+                except Exception as exc:
+                    logger.debug("site_name_api_fallback_failed", error=str(exc))
 
         for sid in missing:
             if sid in _site_name_cache:
@@ -132,28 +135,37 @@ async def list_backups(
     if org_id:
         query["org_id"] = org_id
 
-    # Get total count
-    total = await BackupJob.find(query).count()
+    facet_result = await BackupJob.aggregate(
+        [
+            {"$match": query},
+            {
+                "$facet": {
+                    "total": [{"$count": "count"}],
+                    "data": [{"$sort": {"created_at": -1}}, {"$skip": skip}, {"$limit": limit}],
+                }
+            },
+        ]
+    ).to_list()
 
-    # Get backups with pagination
-    backups = await BackupJob.find(query).sort("-created_at").skip(skip).limit(limit).to_list()
+    row = facet_result[0] if facet_result else {"total": [], "data": []}
+    total = row["total"][0]["count"] if row["total"] else 0
 
     return BackupJobListResponse(
         backups=[
             BackupJobResponse(
-                id=str(backup.id),
-                backup_type=backup.backup_type.value,
-                org_id=backup.org_id,
-                org_name=backup.org_name,
-                site_id=backup.site_id,
-                site_name=backup.site_name,
-                status=backup.status.value,
-                object_count=backup.object_count,
-                size_bytes=backup.size_bytes,
-                created_at=backup.created_at,
-                created_by=str(backup.created_by) if backup.created_by else None,
+                id=str(b["_id"]),
+                backup_type=b.get("backup_type", ""),
+                org_id=b.get("org_id", ""),
+                org_name=b.get("org_name"),
+                site_id=b.get("site_id"),
+                site_name=b.get("site_name"),
+                status=b.get("status", ""),
+                object_count=b.get("object_count", 0),
+                size_bytes=b.get("size_bytes", 0),
+                created_at=b.get("created_at"),
+                created_by=str(b["created_by"]) if b.get("created_by") else None,
             )
-            for backup in backups
+            for b in row["data"]
         ],
         total=total,
     )
@@ -625,29 +637,44 @@ async def list_backup_changes(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date format") from exc
 
-    total = await BackupObject.find(query).count()
-    docs = await BackupObject.find(query).sort([("backed_up_at", -1)]).skip(skip).limit(limit).to_list()
+    facet_result = await BackupObject.aggregate(
+        [
+            {"$match": query},
+            {
+                "$facet": {
+                    "total": [{"$count": "count"}],
+                    "data": [{"$sort": {"backed_up_at": -1}}, {"$skip": skip}, {"$limit": limit}],
+                }
+            },
+        ]
+    ).to_list()
+
+    row = facet_result[0] if facet_result else {"total": [], "data": []}
+    total = row["total"][0]["count"] if row["total"] else 0
+    docs = row["data"]
 
     # Resolve site names
-    site_ids = {d.site_id for d in docs if d.site_id}
+    site_ids = {d.get("site_id") for d in docs if d.get("site_id")}
     site_names = await _resolve_site_names(site_ids)
 
     changes = []
     for d in docs:
+        sid = d.get("site_id")
+        evt = d.get("event_type", "")
         changes.append(
             BackupChangeEvent(
-                id=str(d.id),
-                object_id=d.object_id,
-                object_type=d.object_type,
-                object_name=d.object_name,
-                site_id=d.site_id,
-                site_name=site_names.get(d.site_id) if d.site_id else None,
-                scope="org" if not d.site_id else "site",
-                event_type=d.event_type.value if hasattr(d.event_type, "value") else d.event_type,
-                version=d.version,
-                changed_fields=d.changed_fields,
-                backed_up_at=d.backed_up_at,
-                backed_up_by=d.backed_up_by,
+                id=str(d["_id"]),
+                object_id=d.get("object_id", ""),
+                object_type=d.get("object_type", ""),
+                object_name=d.get("object_name"),
+                site_id=sid,
+                site_name=site_names.get(sid) if sid else None,
+                scope="org" if not sid else "site",
+                event_type=evt.value if hasattr(evt, "value") else evt,
+                version=d.get("version", 1),
+                changed_fields=d.get("changed_fields", []),
+                backed_up_at=d.get("backed_up_at"),
+                backed_up_by=d.get("backed_up_by"),
             )
         )
 
@@ -942,25 +969,37 @@ async def get_backup_logs(
     if level:
         query["level"] = level
 
-    total = await BackupLogEntry.find(query).count()
-    entries = await BackupLogEntry.find(query).sort([("timestamp", 1)]).skip(skip).limit(limit).to_list()
+    facet_result = await BackupLogEntry.aggregate(
+        [
+            {"$match": query},
+            {
+                "$facet": {
+                    "total": [{"$count": "count"}],
+                    "data": [{"$sort": {"timestamp": 1}}, {"$skip": skip}, {"$limit": limit}],
+                }
+            },
+        ]
+    ).to_list()
+
+    row = facet_result[0] if facet_result else {"total": [], "data": []}
+    total = row["total"][0]["count"] if row["total"] else 0
 
     return BackupLogListResponse(
         logs=[
             BackupLogEntryResponse(
-                id=str(e.id),
-                backup_job_id=str(e.backup_job_id),
-                timestamp=e.timestamp,
-                level=e.level,
-                phase=e.phase,
-                message=e.message,
-                object_type=e.object_type,
-                object_id=e.object_id,
-                object_name=e.object_name,
-                site_id=e.site_id,
-                details=e.details,
+                id=str(e["_id"]),
+                backup_job_id=str(e["backup_job_id"]),
+                timestamp=e["timestamp"],
+                level=e.get("level", "info"),
+                phase=e.get("phase", ""),
+                message=e.get("message", ""),
+                object_type=e.get("object_type"),
+                object_id=e.get("object_id"),
+                object_name=e.get("object_name"),
+                site_id=e.get("site_id"),
+                details=e.get("details"),
             )
-            for e in entries
+            for e in row["data"]
         ],
         total=total,
     )

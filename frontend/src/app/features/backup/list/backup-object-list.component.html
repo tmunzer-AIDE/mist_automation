@@ -1,14 +1,15 @@
-<app-ai-inline-analysis
-  [llmAvailable]="llmAvailable()"
-  [summary]="aiSummary()"
-  [error]="aiError()"
-  [loading]="aiLoading()"
-  [threadId]="aiThreadId()"
-  loadingLabel="Analyzing backups..."
-  (analyzeRequested)="summarize()"
-/>
-
-<div class="page-actions">
+<div class="top-actions">
+  <app-ai-inline-analysis
+    [llmAvailable]="llmAvailable()"
+    [summary]="aiSummary()"
+    [error]="aiError()"
+    [loading]="aiLoading()"
+    [threadId]="aiThreadId()"
+    loadingLabel="Analyzing backups..."
+    [buttonOnly]="true"
+    [(expanded)]="aiExpanded"
+    (analyzeRequested)="summarize()"
+  />
   <button mat-stroked-button routerLink="/backup/jobs">
     <mat-icon>work_history</mat-icon> Jobs
   </button>
@@ -16,6 +17,16 @@
     <mat-icon>add</mat-icon> New Backup
   </button>
 </div>
+
+@if (aiHasContent() && aiExpanded()) {
+  <app-ai-analysis-result
+    [threadId]="aiThreadId()"
+    [summary]="aiSummary()"
+    [error]="aiError()"
+    [loading]="aiLoading()"
+    loadingLabel="Analyzing backups..."
+  />
+}
 
 <!-- Chart -->
 <app-backup-chart-card title="Backup activity (30 days)">

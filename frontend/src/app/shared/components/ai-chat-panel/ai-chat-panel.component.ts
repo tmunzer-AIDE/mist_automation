@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -13,6 +14,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
 import { MatButtonModule } from '@angular/material/button';
@@ -740,6 +742,7 @@ export class AiChatPanelComponent {
   private readonly llmService = inject(LlmService);
   private readonly wsService = inject(WebSocketService);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly chatMessagesEl = viewChild<ElementRef<HTMLDivElement>>('chatMessages');
   private readonly chatInputEl = viewChild<ElementRef<HTMLTextAreaElement>>('chatInput');
   private streamSub: Subscription | null = null;
@@ -1032,7 +1035,14 @@ export class AiChatPanelComponent {
     const elicit = this.pendingElicitation();
     if (!elicit) return;
     this.pendingElicitation.set(null);
-    this.llmService.respondToElicitation(elicit.requestId, accepted).subscribe();
+    this.llmService
+      .respondToElicitation(elicit.requestId, accepted)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        error: (err) => {
+          console.error('Failed to respond to elicitation:', err);
+        },
+      });
   }
 
   private scrollToBottom(): void {

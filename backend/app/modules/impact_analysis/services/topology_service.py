@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 # Per-site topology cache (TTL 30s)
 _topology_cache: dict[str, tuple[float, SiteTopology]] = {}
 _CACHE_TTL = 30.0
+_topology_cache_lock = asyncio.Lock()
 
 
 async def build_site_topology(site_id: str, org_id: str, pre_fetched: RawSiteData | None = None) -> SiteTopology | None:
@@ -32,19 +33,20 @@ async def build_site_topology(site_id: str, org_id: str, pre_fetched: RawSiteDat
         pre_fetched: Optional pre-fetched RawSiteData to avoid redundant API calls
                      (e.g. when the caller already has the data from another source).
     """
-    # Check cache
-    cached = _topology_cache.get(site_id)
-    if cached and (time.monotonic() - cached[0]) < _CACHE_TTL:
-        return cached[1]
+    # Check cache (with lock to prevent stampede)
+    async with _topology_cache_lock:
+        cached = _topology_cache.get(site_id)
+        if cached and (time.monotonic() - cached[0]) < _CACHE_TTL:
+            return cached[1]
 
-    try:
-        raw_data = pre_fetched or await _fetch_raw_data(site_id, org_id)
-        topo = build_topology(site_id, raw_data)
-        _topology_cache[site_id] = (time.monotonic(), topo)
-        return topo
-    except Exception as e:
-        logger.error("topology_build_failed", site_id=site_id, error=str(e))
-        return None
+        try:
+            raw_data = pre_fetched or await _fetch_raw_data(site_id, org_id)
+            topo = build_topology(site_id, raw_data)
+            _topology_cache[site_id] = (time.monotonic(), topo)
+            return topo
+        except Exception as e:
+            logger.error("topology_build_failed", site_id=site_id, error=str(e))
+            return None
 
 
 async def _safe_fetch(coro: Any, default: Any = None) -> Any:

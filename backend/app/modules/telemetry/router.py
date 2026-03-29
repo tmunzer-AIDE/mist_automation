@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time as _time
 from typing import Any
 
@@ -17,6 +18,8 @@ from app.modules.telemetry.schemas import (
     _UUID_RE,
     _WINDOW_RE,
     ALLOWED_AGGREGATIONS,
+    ALLOWED_DEVICE_TYPES,
+    ALLOWED_GROUP_BY,
     ALLOWED_MEASUREMENTS,
     AggregateQueryResponse,
     APScopeSummary,
@@ -230,10 +233,15 @@ async def get_scope_summary(
 
     influxdb_totals: dict[str, int] = {}
     if telemetry_mod._influxdb_service is not None:
-        for dtype in ("ap", "switch", "gateway"):
-            influxdb_totals[dtype] = await telemetry_mod._influxdb_service.query_distinct_device_count(
-                site_id=site_id, device_type=dtype, hours=24
+        results = await asyncio.gather(
+            *(
+                telemetry_mod._influxdb_service.query_distinct_device_count(
+                    site_id=site_id, device_type=dtype, hours=24
+                )
+                for dtype in ("ap", "switch", "gateway")
             )
+        )
+        influxdb_totals = dict(zip(("ap", "switch", "gateway"), results))
 
     for _mac, entry in telemetry_mod._latest_cache.get_all_entries().items():
         payload = entry.get("stats", {})
@@ -537,6 +545,8 @@ async def query_aggregate(
     window: str = Query("5m", description="Aggregation window (e.g., 5m, 1h)"),
     start: str = Query("-1h", description="Range start"),
     end: str = Query("now()", description="Range end"),
+    device_type: str | None = Query(None, description="Filter by device type (ap, switch, gateway)"),
+    group_by: str | None = Query(None, description="Tag column to group results by (band, device_type)"),
     _current_user: User = Depends(require_impact_role),
 ) -> AggregateQueryResponse:
     """Query aggregated telemetry data across all devices at a site or org."""
@@ -558,6 +568,16 @@ async def query_aggregate(
         )
     if not _FIELD_RE.match(field):
         raise HTTPException(status_code=400, detail="Invalid field name")
+    if device_type and device_type not in ALLOWED_DEVICE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid device_type. Allowed: {', '.join(sorted(ALLOWED_DEVICE_TYPES))}",
+        )
+    if group_by and group_by not in ALLOWED_GROUP_BY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid group_by. Allowed: {', '.join(sorted(ALLOWED_GROUP_BY))}",
+        )
     if agg not in ALLOWED_AGGREGATIONS:
         raise HTTPException(
             status_code=400,
@@ -576,6 +596,7 @@ async def query_aggregate(
     points = await telemetry_mod._influxdb_service.query_aggregate(
         measurement=measurement, field=field, agg=agg, window=window,
         start=start, end=end, site_id=site_id, org_id=org_id,
+        device_type=device_type, group_by=group_by,
     )
     return AggregateQueryResponse(
         site_id=site_id,

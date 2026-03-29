@@ -55,7 +55,7 @@ def _sanitize_execution_error(exc: Exception) -> str:
         return f"HTTP {exc.response.status_code} from external API"
     if isinstance(exc, httpx.ConnectError):
         return "Failed to connect to external service"
-    if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)):
+    if isinstance(exc, httpx.TimeoutException):
         return "Request to external service timed out"
     if isinstance(exc, KeyError):
         return "Missing required configuration key"
@@ -210,7 +210,7 @@ class WorkflowExecutor:
         recursion_depth: int = 0,
         max_recursion_depth: int = 5,
     ):
-        self.mist_service = mist_service or MistService()
+        self.mist_service = mist_service
         self.variable_context: dict[str, Any] = {"trigger": {}, "nodes": {}, "results": {}}
         self._progress_callback = progress_callback
         self._cached_render_context: dict[str, Any] | None = None
@@ -306,7 +306,7 @@ class WorkflowExecutor:
             await execution.save()
 
             await _update_workflow_stats_atomic(workflow, success=False, timestamp=start_time)
-            raise WorkflowExecutionError(f"Workflow execution failed: {e}") from e
+            raise WorkflowExecutionError(f"Workflow execution failed: {_sanitize_execution_error(e)}") from e
 
         # Calculate duration
         end_time = datetime.now(timezone.utc)
@@ -1105,6 +1105,8 @@ class WorkflowExecutor:
         Returns a dict with ``status_code`` and ``body`` keys so templates
         can access the response uniformly via ``{{ nodes.Name.body.field }}``.
         """
+        if not self.mist_service:
+            raise WorkflowExecutionError("Mist API service not configured")
         endpoint = self._render_template(config.get("api_endpoint", ""))
         params = self._render_dict(config.get("api_params", {}) or {})
 
@@ -1269,6 +1271,8 @@ class WorkflowExecutor:
         Calls the appropriate device utility function (ping, traceroute, ARP, etc.)
         and awaits the WebSocket-streamed results via UtilResponse.
         """
+        if not self.mist_service:
+            raise WorkflowExecutionError("Mist API service not configured")
         from mistapi.device_utils import ap, ex, srx, ssr
 
         from app.modules.automation.device_utils_catalog import is_allowed
@@ -1332,8 +1336,10 @@ class WorkflowExecutor:
             raise WorkflowExecutionError("LLM module is required for ai_agent nodes but is not available") from e
 
         config = node.config
-        task = self._render_template(config.get("agent_task", ""))
-        system_prompt = self._render_template(config.get("agent_system_prompt", ""))
+        from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
+
+        task = _sanitize_for_prompt(self._render_template(config.get("agent_task", "")), max_len=4000)
+        system_prompt = _sanitize_for_prompt(self._render_template(config.get("agent_system_prompt", "")), max_len=2000)
         max_iterations = min(int(config.get("max_iterations", 10)), 25)
 
         if not task:
@@ -1680,8 +1686,8 @@ class WorkflowExecutor:
                 dry_run=dry_run,
             )
         except Exception as e:
-            execution.add_log(f"Sub-flow '{target_workflow.name}' failed: {e}", "error")
-            raise WorkflowExecutionError(f"Sub-flow '{target_workflow.name}' execution failed: {e}") from e
+            execution.add_log(f"Sub-flow '{target_workflow.name}' failed: {_sanitize_execution_error(e)}", "error")
+            raise WorkflowExecutionError(f"Sub-flow '{target_workflow.name}' execution failed: {_sanitize_execution_error(e)}") from e
 
         # Link child execution to parent
         execution.child_execution_ids.append(child_execution.id)

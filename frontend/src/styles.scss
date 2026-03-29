@@ -470,6 +470,16 @@ textarea:not([disabled]) {
   }
 }
 
+// Table card utility variants
+.table-card-spaced {
+  margin-top: 12px;
+  padding: 16px;
+}
+
+.table-card-spaced-top {
+  margin-top: 12px;
+}
+
 .clickable-row {
   cursor: pointer;
   transition: background 0.15s ease;

@@ -10,6 +10,15 @@
   }
 }
 
+.actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
 .details-cell {
   max-width: 300px;
   overflow: hidden;

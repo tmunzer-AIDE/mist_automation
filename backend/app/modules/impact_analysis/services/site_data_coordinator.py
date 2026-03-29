@@ -129,6 +129,7 @@ class SiteDataCoordinator:
         self._site_id = site_id
         self._cache: SitePollData | None = None
         self._cache_time: float = 0.0
+        self._fetch_lock = asyncio.Lock()
 
     # ── Instance methods ────────────────────────────────────────────────────
 
@@ -161,16 +162,17 @@ class SiteDataCoordinator:
                 fetched_at=datetime.now(timezone.utc),
             )
 
-        # Check instance cache
-        now = time.monotonic()
-        if self._cache and (now - self._cache_time) < _CACHE_TTL:
-            return self._cache
+        # Check instance cache (with lock to prevent stampede)
+        async with self._fetch_lock:
+            now = time.monotonic()
+            if self._cache and (now - self._cache_time) < _CACHE_TTL:
+                return self._cache
 
-        # Fetch fresh site-level data
-        data = await self._fetch_all_site_data(site_id, org_id, device_type=device_type)
-        self._cache = data
-        self._cache_time = time.monotonic()
-        return data
+            # Fetch fresh site-level data
+            data = await self._fetch_all_site_data(site_id, org_id, device_type=device_type)
+            self._cache = data
+            self._cache_time = time.monotonic()
+            return data
 
     async def _fetch_all_site_data(self, site_id: str, org_id: str, device_type: str = "ap") -> SitePollData:
         """Parallel fetch of all site-level data sources.

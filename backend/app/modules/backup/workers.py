@@ -122,7 +122,7 @@ async def perform_backup(
         # Git integration (if enabled)
         if settings.backup_git_enabled and settings.backup_git_repo_url:
             try:
-                git_service = GitService(
+                git_service = await GitService.create(
                     repo_url=settings.backup_git_repo_url,
                     branch=settings.backup_git_branch,
                     author_name=settings.backup_git_author_name,
@@ -176,12 +176,12 @@ async def perform_backup(
         if backup_job:
             backup_job.status = BackupStatus.FAILED
             backup_job.completed_at = datetime.now(timezone.utc)
-            backup_job.error = str(e)[:200]
+            backup_job.error = "Backup failed unexpectedly"
             await backup_job.save()
 
             try:
                 backup_logger = BackupLogger(backup_id)
-                await backup_logger.error("complete", f"Backup failed: {str(e)}", details={"error": str(e)})
+                await backup_logger.error("complete", "Backup failed", details={"error": str(e)})
             except Exception:
                 pass
 
@@ -880,11 +880,11 @@ async def perform_incremental_backup(org_id: str, audit_events: list[dict]) -> N
             if backup_job:
                 backup_job.status = BackupStatus.FAILED
                 backup_job.completed_at = datetime.now(timezone.utc)
-                backup_job.error = str(exc)[:200]
+                backup_job.error = "Incremental backup failed unexpectedly"
                 await backup_job.save()
                 backup_logger = BackupLogger(str(backup_job.id))
                 await backup_logger.error(
-                    "complete", f"Incremental backup failed: {str(exc)}", details={"error": str(exc)}
+                    "complete", "Incremental backup failed", details={"error": str(exc)}
                 )
         except Exception:
             pass

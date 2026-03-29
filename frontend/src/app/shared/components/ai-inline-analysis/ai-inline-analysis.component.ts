@@ -1,4 +1,4 @@
-import { Component, computed, effect, input, output, signal } from '@angular/core';
+import { Component, computed, effect, input, model, output } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { AiChatPanelComponent } from '../ai-chat-panel/ai-chat-panel.component';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
@@ -26,7 +26,7 @@ import { AiIconComponent } from '../ai-icon/ai-icon.component';
         }
       </button>
 
-      @if (hasContent() && expanded()) {
+      @if (!buttonOnly() && hasContent() && expanded()) {
         <div class="ai-analysis-section">
           <app-ai-chat-panel
             [threadId]="threadId()"
@@ -48,14 +48,17 @@ import { AiIconComponent } from '../ai-icon/ai-icon.component';
       .ai-trigger-chip {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 5px 14px;
-        border-radius: 16px;
-        border: 1px solid var(--mat-sys-outline-variant);
+        gap: 6px;
+        height: 36px;
+        padding: 0 15px;
+        border-radius: 4px;
+        border: 1px solid var(--mat-sys-outline);
         background: transparent;
         color: var(--mat-sys-on-surface-variant);
         font: inherit;
-        font-size: 12px;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.0178571em;
         cursor: pointer;
         transition:
           border-color 0.15s ease,
@@ -116,11 +119,14 @@ export class AiInlineAnalysisComponent {
   loading = input(false);
   threadId = input<string | null>(null);
   loadingLabel = input('Analyzing...');
+  // When true, only renders the button — parent is responsible for showing the result panel
+  buttonOnly = input(false);
 
   // Emits when user clicks the trigger chip for the first time
   analyzeRequested = output<void>();
 
-  expanded = signal(true);
+  // Two-way bindable so parent can read/control expanded state when buttonOnly=true
+  expanded = model(true);
   hasContent = computed(() => !!this.summary() || !!this.error() || this.loading());
 
   constructor() {

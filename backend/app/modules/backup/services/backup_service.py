@@ -123,7 +123,7 @@ class BackupService:
             logger.error("full_backup_failed", org_id=self.org_id, error=str(e))
             if self.backup_logger:
                 await self.backup_logger.error("complete", f"Full backup failed: {str(e)}", details={"error": str(e)})
-            raise BackupError(f"Full backup failed: {str(e)}")
+            raise BackupError("Full backup failed")
 
     async def _backup_org_objects(self, stats: dict[str, Any]) -> list[dict]:
         """Backup all organization-level objects from the registry.
@@ -467,7 +467,7 @@ class BackupService:
             raise
         except Exception as e:
             logger.error("manual_backup_fetch_failed", error=str(e))
-            raise BackupError(f"Manual backup failed: {str(e)}")
+            raise BackupError("Manual backup failed")
 
         duration = (datetime.now(timezone.utc) - start_time).total_seconds()
         logger.info(
@@ -517,7 +517,7 @@ class BackupService:
                 object_id=object_id,
                 error=str(e),
             )
-            raise BackupError(f"Failed to backup {object_type} {object_id}: {str(e)}")
+            raise BackupError(f"Failed to backup {object_type}")
 
     async def mark_object_deleted(
         self,
@@ -538,26 +538,32 @@ class BackupService:
             logger.warning("object_not_found_for_deletion", object_id=object_id)
             return None
 
-        next_ver = await BackupObject.next_version(object_id)
-
-        deletion_backup = BackupObject(
-            object_type=existing.object_type,
-            object_id=object_id,
-            object_name=existing.object_name,
-            org_id=existing.org_id,
-            site_id=existing.site_id,
-            configuration=existing.configuration,
-            configuration_hash=existing.configuration_hash,
-            version=next_ver,
-            previous_version_id=existing.id,
-            event_type=BackupEventType.DELETED,
-            changed_fields=[],
-            is_deleted=True,
-            deleted_at=datetime.now(timezone.utc),
-            backed_up_by=deleted_by or "system",
-            references=existing.references,
-        )
-        await deletion_backup.insert()
+        for _attempt in range(3):
+            next_ver = await BackupObject.next_version(object_id)
+            try:
+                deletion_backup = BackupObject(
+                    object_type=existing.object_type,
+                    object_id=object_id,
+                    object_name=existing.object_name,
+                    org_id=existing.org_id,
+                    site_id=existing.site_id,
+                    configuration=existing.configuration,
+                    configuration_hash=existing.configuration_hash,
+                    version=next_ver,
+                    previous_version_id=existing.id,
+                    event_type=BackupEventType.DELETED,
+                    changed_fields=[],
+                    is_deleted=True,
+                    deleted_at=datetime.now(timezone.utc),
+                    backed_up_by=deleted_by or "system",
+                    references=existing.references,
+                )
+                await deletion_backup.insert()
+                break
+            except DuplicateKeyError:
+                continue
+        else:
+            raise BackupError(f"Failed to create deletion version for {object_id} after retries")
 
         logger.info(
             "object_marked_deleted",
