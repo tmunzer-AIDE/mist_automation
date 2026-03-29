@@ -157,7 +157,7 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
         this.summary.set(summary);
         this.devices.set(devices);
       },
-      error: () => {},
+      error: (err) => console.error('Failed to refresh telemetry site summary:', err),
     });
   }
 

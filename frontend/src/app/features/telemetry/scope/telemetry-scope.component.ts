@@ -133,7 +133,7 @@ export class TelemetryScopeComponent implements OnInit {
         this.summary.set(summary);
         this.sites.set(sites.sites);
       },
-      error: () => {},
+      error: (err) => console.error('Failed to refresh telemetry scope summary:', err),
     });
   }
 
