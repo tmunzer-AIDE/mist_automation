@@ -146,7 +146,8 @@ async def query_range(
 
 @router.get("/query/aggregate", response_model=AggregateQueryResponse)
 async def query_aggregate(
-    site_id: str = Query(..., description="Site UUID"),
+    site_id: str | None = Query(None, description="Site UUID (mutually exclusive with org_id)"),
+    org_id: str | None = Query(None, description="Org UUID for org-wide aggregation"),
     measurement: str = Query("device_summary", description="InfluxDB measurement name"),
     field: str = Query(..., description="Field to aggregate (e.g., cpu_util)"),
     agg: str = Query("mean", description="Aggregation function"),
@@ -155,12 +156,20 @@ async def query_aggregate(
     end: str = Query("now()", description="Range end"),
     _current_user: User = Depends(require_impact_role),
 ) -> AggregateQueryResponse:
-    """Query aggregated telemetry data across all devices at a site."""
+    """Query aggregated telemetry data across all devices at a site or org."""
     import app.modules.telemetry as telemetry_mod
 
-    # Validate all inputs (defense in depth)
-    if not _UUID_RE.match(site_id):
+    # Validate scope params (exactly one of site_id or org_id required)
+    if not site_id and not org_id:
+        raise HTTPException(status_code=400, detail="Provide either site_id or org_id")
+    if site_id and org_id:
+        raise HTTPException(status_code=400, detail="Provide either site_id or org_id, not both")
+    if site_id and not _UUID_RE.match(site_id):
         raise HTTPException(status_code=400, detail="Invalid site_id format")
+    if org_id and not _UUID_RE.match(org_id):
+        raise HTTPException(status_code=400, detail="Invalid org_id format")
+
+    # Validate all other inputs (defense in depth)
     if measurement not in ALLOWED_MEASUREMENTS:
         raise HTTPException(
             status_code=400,
@@ -183,9 +192,13 @@ async def query_aggregate(
     if not telemetry_mod._influxdb_service:
         raise HTTPException(status_code=503, detail="Telemetry service not available")
 
-    points = await telemetry_mod._influxdb_service.query_aggregate(site_id, measurement, field, agg, window, start, end)
+    points = await telemetry_mod._influxdb_service.query_aggregate(
+        measurement=measurement, field=field, agg=agg, window=window,
+        start=start, end=end, site_id=site_id, org_id=org_id,
+    )
     return AggregateQueryResponse(
         site_id=site_id,
+        org_id=org_id,
         measurement=measurement,
         field=field,
         agg=agg,

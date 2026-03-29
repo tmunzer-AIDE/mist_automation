@@ -61,7 +61,8 @@ class RangeQueryResponse(BaseModel):
 class AggregateQueryResponse(BaseModel):
     """Response for /telemetry/query/aggregate."""
 
-    site_id: str
+    site_id: str | None = None
+    org_id: str | None = None
     measurement: str
     field: str
     agg: str

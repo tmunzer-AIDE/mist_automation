@@ -222,24 +222,26 @@ class InfluxDBService:
 
     async def query_aggregate(
         self,
-        site_id: str,
         measurement: str,
         field: str,
         agg: str = "mean",
         window: str = "5m",
         start: str = "-1h",
         end: str = "now()",
+        site_id: str | None = None,
+        org_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Query aggregated data across all devices at a site.
+        """Query aggregated data across all devices at a site or org.
 
         Args:
-            site_id: Site UUID (pre-validated).
             measurement: InfluxDB measurement name (pre-validated).
             field: Field name to aggregate (pre-validated).
             agg: Aggregation function (pre-validated against allowlist).
             window: Aggregation window (pre-validated, e.g., '5m').
             start: Range start (pre-validated).
             end: Range end (pre-validated).
+            site_id: Site UUID (pre-validated, mutually exclusive with org_id).
+            org_id: Org UUID for org-wide aggregation (pre-validated, mutually exclusive with site_id).
 
         Returns:
             List of dicts, each with _time and aggregated _value.
@@ -247,11 +249,17 @@ class InfluxDBService:
         if not self._client:
             return []
 
+        scope_filter = (
+            f' |> filter(fn: (r) => r.site_id == "{site_id}")'
+            if site_id
+            else f' |> filter(fn: (r) => r.org_id == "{org_id}")'
+        )
+
         query = (
             f'from(bucket: "{self.bucket}")'
             f" |> range(start: {start}, stop: {end})"
             f' |> filter(fn: (r) => r._measurement == "{measurement}")'
-            f' |> filter(fn: (r) => r.site_id == "{site_id}")'
+            f"{scope_filter}"
             f' |> filter(fn: (r) => r._field == "{field}")'
             f" |> aggregateWindow(every: {window}, fn: {agg}, createEmpty: false)"
         )
@@ -270,6 +278,7 @@ class InfluxDBService:
                 "influxdb_query_aggregate_error",
                 error=str(e),
                 site_id=site_id,
+                org_id=org_id,
                 measurement=measurement,
                 field=field,
             )
