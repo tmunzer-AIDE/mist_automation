@@ -3,7 +3,7 @@ import { DecimalPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, debounceTime } from 'rxjs';
+import { EMPTY, Observable, Subject, debounceTime, forkJoin, map, switchMap, tap } from 'rxjs';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -97,10 +97,17 @@ export class TelemetryScopeComponent implements OnInit {
     return this.summary()?.gateway ?? null;
   }
 
+  private readonly chartLoad$ = new Subject<void>();
+
   ngOnInit(): void {
     this.siteSearchCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));
+
+    this.chartLoad$
+      .pipe(switchMap(() => this.buildChartsObservable()), takeUntilDestroyed(this.destroyRef))
+      .subscribe();
+
     this.loadData();
     this.telemetryService
       .subscribeToOrg()
@@ -113,33 +120,37 @@ export class TelemetryScopeComponent implements OnInit {
     forkJoin({
       summary: this.telemetryService.getScopeSummary(),
       sites: this.telemetryService.getScopeSites(),
-    }).subscribe({
-      next: ({ summary, sites }) => {
-        this.summary.set(summary);
-        this.sites.set(sites.sites);
-        this.loading.set(false);
-        this.loadCharts();
-      },
-      error: () => this.loading.set(false),
-    });
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ summary, sites }) => {
+          this.summary.set(summary);
+          this.sites.set(sites.sites);
+          this.loading.set(false);
+          this.chartLoad$.next();
+        },
+        error: () => this.loading.set(false),
+      });
   }
 
   private refreshSummary(): void {
     forkJoin({
       summary: this.telemetryService.getScopeSummary(),
       sites: this.telemetryService.getScopeSites(),
-    }).subscribe({
-      next: ({ summary, sites }) => {
-        this.summary.set(summary);
-        this.sites.set(sites.sites);
-      },
-      error: (err) => console.error('Failed to refresh telemetry scope summary:', err),
-    });
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ summary, sites }) => {
+          this.summary.set(summary);
+          this.sites.set(sites.sites);
+        },
+        error: (err) => console.error('Failed to refresh telemetry scope summary:', err),
+      });
   }
 
   setTimeRange(tr: TimeRange): void {
     this.timeRange.set(tr);
-    this.loadCharts();
+    this.chartLoad$.next();
   }
 
   selectSite(site: ScopeSite): void {
@@ -167,108 +178,142 @@ export class TelemetryScopeComponent implements OnInit {
     return total > 0 && active === total;
   }
 
-  loadCharts(): void {
+  private buildChartsObservable(): Observable<void> {
     const tr = this.timeRange();
+    const tasks: Observable<unknown>[] = [];
 
     if (this.hasAP()) {
-      this.loadLineChart(
-        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr, deviceType: 'ap' },
-        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr, deviceType: 'ap' },
-        'Avg CPU %',
-        'Avg Memory %',
-        this.apCpuChart,
-      );
-      this.loadSingleChart(
-        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, deviceType: 'ap' },
-        'Total Clients',
-        this.apClientsChart,
-      );
-      this.loadBandChart(
-        { measurement: 'radio_stats', field: 'util_all', agg: 'mean', timeRange: tr, groupBy: 'band' },
-        this.apBandChart,
+      tasks.push(
+        forkJoin({
+          d1: this.telemetryService.queryAggregate({
+            measurement: 'device_summary',
+            field: 'cpu_util',
+            agg: 'mean',
+            timeRange: tr,
+            deviceType: 'ap',
+          }),
+          d2: this.telemetryService.queryAggregate({
+            measurement: 'device_summary',
+            field: 'mem_usage',
+            agg: 'mean',
+            timeRange: tr,
+            deviceType: 'ap',
+          }),
+        }).pipe(tap(({ d1, d2 }) => this.apCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU %', 'Avg Memory %')))),
+        this.telemetryService
+          .queryAggregate({
+            measurement: 'device_summary',
+            field: 'num_clients',
+            agg: 'sum',
+            timeRange: tr,
+            deviceType: 'ap',
+          })
+          .pipe(tap((result) => this.apClientsChart.set(this.buildSingleLineConfig(result, 'Total Clients')))),
+        this.telemetryService
+          .queryAggregate({
+            measurement: 'radio_stats',
+            field: 'util_all',
+            agg: 'mean',
+            timeRange: tr,
+            groupBy: 'band',
+          })
+          .pipe(tap((result) => this.apBandChart.set(this.buildBandLineConfig(result)))),
       );
     }
 
     if (this.hasSwitch()) {
-      this.loadLineChart(
-        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr, deviceType: 'switch' },
-        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr, deviceType: 'switch' },
-        'Avg CPU %',
-        'Avg Memory %',
-        this.swCpuChart,
-      );
-      this.loadSingleChart(
-        { measurement: 'device_summary', field: 'poe_draw_total', agg: 'sum', timeRange: tr, deviceType: 'switch' },
-        'PoE Draw (W)',
-        this.swPoeChart,
-      );
-      this.loadSingleChart(
-        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, deviceType: 'switch' },
-        'Wired Clients',
-        this.swClientsChart,
+      tasks.push(
+        forkJoin({
+          d1: this.telemetryService.queryAggregate({
+            measurement: 'device_summary',
+            field: 'cpu_util',
+            agg: 'mean',
+            timeRange: tr,
+            deviceType: 'switch',
+          }),
+          d2: this.telemetryService.queryAggregate({
+            measurement: 'device_summary',
+            field: 'mem_usage',
+            agg: 'mean',
+            timeRange: tr,
+            deviceType: 'switch',
+          }),
+        }).pipe(tap(({ d1, d2 }) => this.swCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU %', 'Avg Memory %')))),
+        this.telemetryService
+          .queryAggregate({
+            measurement: 'device_summary',
+            field: 'poe_draw_total',
+            agg: 'sum',
+            timeRange: tr,
+            deviceType: 'switch',
+          })
+          .pipe(tap((result) => this.swPoeChart.set(this.buildSingleLineConfig(result, 'PoE Draw (W)')))),
+        this.telemetryService
+          .queryAggregate({
+            measurement: 'device_summary',
+            field: 'num_clients',
+            agg: 'sum',
+            timeRange: tr,
+            deviceType: 'switch',
+          })
+          .pipe(tap((result) => this.swClientsChart.set(this.buildSingleLineConfig(result, 'Wired Clients')))),
       );
     }
 
     if (this.hasGateway()) {
-      this.loadLineChart(
-        { measurement: 'gateway_health', field: 'cpu_idle', agg: 'mean', timeRange: tr },
-        { measurement: 'gateway_health', field: 'mem_usage', agg: 'mean', timeRange: tr },
-        'Avg CPU Idle %',
-        'Avg Memory %',
-        this.gwCpuChart,
-      );
-      this.loadLineChart(
-        { measurement: 'gateway_spu', field: 'spu_cpu', agg: 'mean', timeRange: tr },
-        { measurement: 'gateway_spu', field: 'spu_sessions', agg: 'mean', timeRange: tr },
-        'SPU CPU %',
-        'SPU Sessions',
-        this.gwSpuChart,
-      );
-      this.loadLineChart(
-        { measurement: 'gateway_wan', field: 'tx_bytes', agg: 'sum', timeRange: tr },
-        { measurement: 'gateway_wan', field: 'rx_bytes', agg: 'sum', timeRange: tr },
-        'TX Bytes',
-        'RX Bytes',
-        this.gwWanChart,
+      tasks.push(
+        forkJoin({
+          d1: this.telemetryService.queryAggregate({
+            measurement: 'gateway_health',
+            field: 'cpu_idle',
+            agg: 'mean',
+            timeRange: tr,
+          }),
+          d2: this.telemetryService.queryAggregate({
+            measurement: 'gateway_health',
+            field: 'mem_usage',
+            agg: 'mean',
+            timeRange: tr,
+          }),
+        }).pipe(
+          tap(({ d1, d2 }) => this.gwCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU Idle %', 'Avg Memory %'))),
+        ),
+        forkJoin({
+          d1: this.telemetryService.queryAggregate({
+            measurement: 'gateway_spu',
+            field: 'spu_cpu',
+            agg: 'mean',
+            timeRange: tr,
+          }),
+          d2: this.telemetryService.queryAggregate({
+            measurement: 'gateway_spu',
+            field: 'spu_sessions',
+            agg: 'mean',
+            timeRange: tr,
+          }),
+        }).pipe(tap(({ d1, d2 }) => this.gwSpuChart.set(this.buildDualLineConfig(d1, d2, 'SPU CPU %', 'SPU Sessions')))),
+        forkJoin({
+          d1: this.telemetryService.queryAggregate({
+            measurement: 'gateway_wan',
+            field: 'tx_bytes',
+            agg: 'sum',
+            timeRange: tr,
+          }),
+          d2: this.telemetryService.queryAggregate({
+            measurement: 'gateway_wan',
+            field: 'rx_bytes',
+            agg: 'sum',
+            timeRange: tr,
+          }),
+        }).pipe(tap(({ d1, d2 }) => this.gwWanChart.set(this.buildDualLineConfig(d1, d2, 'TX Bytes', 'RX Bytes')))),
       );
     }
-  }
 
-  private loadLineChart(
-    params1: { measurement: string; field: string; agg: string; timeRange: TimeRange; deviceType?: string },
-    params2: { measurement: string; field: string; agg: string; timeRange: TimeRange; deviceType?: string },
-    label1: string,
-    label2: string,
-    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
-  ): void {
-    forkJoin({
-      d1: this.telemetryService.queryAggregate(params1),
-      d2: this.telemetryService.queryAggregate(params2),
-    }).subscribe({
-      next: ({ d1, d2 }) => target.set(this.buildDualLineConfig(d1, d2, label1, label2)),
-      error: () => target.set(null),
-    });
-  }
-
-  private loadSingleChart(
-    params: { measurement: string; field: string; agg: string; timeRange: TimeRange; deviceType?: string },
-    label: string,
-    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
-  ): void {
-    this.telemetryService.queryAggregate(params).subscribe({
-      next: (result) => target.set(this.buildSingleLineConfig(result, label)),
-      error: () => target.set(null),
-    });
-  }
-
-  private loadBandChart(
-    params: { measurement: string; field: string; agg: string; timeRange: TimeRange; groupBy: string },
-    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
-  ): void {
-    this.telemetryService.queryAggregate(params).subscribe({
-      next: (result) => target.set(this.buildBandLineConfig(result)),
-      error: () => target.set(null),
-    });
+    if (tasks.length === 0) return EMPTY;
+    return forkJoin(tasks).pipe(
+      tap({ error: () => {} }),
+      map(() => undefined as void),
+    );
   }
 
   private buildDualLineConfig(
