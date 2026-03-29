@@ -1,0 +1,134 @@
+<div class="telemetry-scope-page">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  <!-- Header with breadcrumb + time range picker -->
+  <div class="page-header">
+    <div class="page-title">
+      Telemetry
+      @if (siteId()) {
+        > Site View
+      }
+    </div>
+    <div class="time-range-picker">
+      <span class="label">Time range:</span>
+      @for (tr of timeRanges; track tr) {
+        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
+          {{ tr }}
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- AP section -->
+  @if (hasAP()) {
+    <section class="device-section">
+      <h3 class="section-title">
+        Access Points ({{ ap!.reporting_active }}/{{ ap!.reporting_total }} reporting)
+      </h3>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Avg CPU</div>
+          <div class="kpi-value">{{ ap!.avg_cpu_util | number: '1.0-1' }}%</div>
+          <div class="kpi-sub">max {{ ap!.max_cpu_util | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Total Clients</div>
+          <div class="kpi-value">{{ ap!.total_clients | number }}</div>
+        </div>
+
+        @for (b of bandEntries(ap!.bands); track b.band) {
+          <div class="kpi-card">
+            <div class="kpi-label">{{ b.label }} Radio Util</div>
+            <div class="kpi-value">{{ b.avg_util_all | number: '1.0-1' }}%</div>
+          </div>
+        }
+
+        <div
+          class="kpi-card"
+          [class.reporting-ok]="reportingOk(ap!.reporting_active, ap!.reporting_total)"
+        >
+          <div class="kpi-label">Reporting</div>
+          <div class="kpi-value">{{ ap!.reporting_active }}/{{ ap!.reporting_total }}</div>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- Switch section -->
+  @if (hasSwitch()) {
+    <section class="device-section">
+      <h3 class="section-title">
+        Switches ({{ sw!.reporting_active }}/{{ sw!.reporting_total }} reporting)
+      </h3>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Avg CPU</div>
+          <div class="kpi-value">{{ sw!.avg_cpu_util | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Total Clients</div>
+          <div class="kpi-value">{{ sw!.total_clients | number }}</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">PoE Draw</div>
+          <div class="kpi-value">{{ sw!.poe_draw_total | number: '1.0-0' }}W</div>
+          <div class="kpi-sub">of {{ sw!.poe_max_total | number: '1.0-0' }}W</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">DHCP Leases</div>
+          <div class="kpi-value">{{ sw!.total_dhcp_leases | number }}</div>
+        </div>
+
+        <div
+          class="kpi-card"
+          [class.reporting-ok]="reportingOk(sw!.reporting_active, sw!.reporting_total)"
+        >
+          <div class="kpi-label">Reporting</div>
+          <div class="kpi-value">{{ sw!.reporting_active }}/{{ sw!.reporting_total }}</div>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- Gateway section -->
+  @if (hasGateway()) {
+    <section class="device-section">
+      <h3 class="section-title">
+        Gateways ({{ gw!.reporting_active }}/{{ gw!.reporting_total }} reporting)
+      </h3>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Avg CPU</div>
+          <div class="kpi-value">{{ gw!.avg_cpu_util | number: '1.0-1' }}%</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">WAN Links</div>
+          <div class="kpi-value">{{ gw!.wan_links_up }}/{{ gw!.wan_links_total }}</div>
+          <div class="kpi-sub">up</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">DHCP Leases</div>
+          <div class="kpi-value">{{ gw!.total_dhcp_leases | number }}</div>
+        </div>
+
+        <div
+          class="kpi-card"
+          [class.reporting-ok]="reportingOk(gw!.reporting_active, gw!.reporting_total)"
+        >
+          <div class="kpi-label">Reporting</div>
+          <div class="kpi-value">{{ gw!.reporting_active }}/{{ gw!.reporting_total }}</div>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- Device table: Task 8 -->
+</div>
