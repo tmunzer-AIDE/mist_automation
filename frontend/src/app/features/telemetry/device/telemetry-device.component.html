@@ -1,0 +1,159 @@
+<div class="telemetry-device-page">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  <!-- Breadcrumb -->
+  <div class="page-header">
+    <div class="breadcrumb">
+      <a routerLink="/telemetry">Telemetry</a>
+      <mat-icon class="sep">chevron_right</mat-icon>
+      <span>{{ deviceName() }}</span>
+    </div>
+  </div>
+
+  @if (latestStats()?.stats) {
+    <!-- KPI cards row -->
+    <section class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">CPU</div>
+        <div class="kpi-value">{{ cpuUtil() | number: '1.0-0' }}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Memory</div>
+        <div class="kpi-value">{{ memUsage() | number: '1.0-0' }}%</div>
+      </div>
+      @if (!isGateway()) {
+        <div class="kpi-card">
+          <div class="kpi-label">Clients</div>
+          <div class="kpi-value">{{ numClients() }}</div>
+        </div>
+      }
+      <div class="kpi-card">
+        <div class="kpi-label">Uptime</div>
+        <div class="kpi-value">{{ uptime() | number: '1.0-0' }}s</div>
+      </div>
+      @if (isGateway()) {
+        <div class="kpi-card">
+          <div class="kpi-label">HA State</div>
+          <div class="kpi-value">{{ haState() }}</div>
+        </div>
+      }
+      @if (isSwitch()) {
+        <div class="kpi-card">
+          <div class="kpi-label">PoE</div>
+          <div class="kpi-value">{{ poeTotalDraw() | number: '1.0-0' }}W</div>
+        </div>
+      }
+    </section>
+
+    <!-- Time range picker (for future charts) -->
+    <div class="time-range-picker">
+      <span class="label">Time range:</span>
+      @for (tr of timeRanges; track tr) {
+        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="timeRange.set(tr)">
+          {{ tr }}
+        </button>
+      }
+    </div>
+
+    <!-- Switch port table -->
+    @if (isSwitch() && portRows().length > 0) {
+      <section class="table-section">
+        <h3 class="section-title">UP Ports</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="portRows()">
+            <ng-container matColumnDef="port_id">
+              <th mat-header-cell *matHeaderCellDef>Port</th>
+              <td mat-cell *matCellDef="let row">{{ row.port_id }}</td>
+            </ng-container>
+            <ng-container matColumnDef="speed">
+              <th mat-header-cell *matHeaderCellDef>Speed</th>
+              <td mat-cell *matCellDef="let row">{{ row.speed | number }}</td>
+            </ng-container>
+            <ng-container matColumnDef="tx_pkts">
+              <th mat-header-cell *matHeaderCellDef>TX Pkts</th>
+              <td mat-cell *matCellDef="let row">{{ row.tx_pkts | number }}</td>
+            </ng-container>
+            <ng-container matColumnDef="rx_pkts">
+              <th mat-header-cell *matHeaderCellDef>RX Pkts</th>
+              <td mat-cell *matCellDef="let row">{{ row.rx_pkts | number }}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="portColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: portColumns"></tr>
+          </table>
+        </div>
+      </section>
+    }
+
+    <!-- Switch VC module table -->
+    @if (isSwitch() && moduleRows().length > 0) {
+      <section class="table-section">
+        <h3 class="section-title">VC Members</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="moduleRows()">
+            <ng-container matColumnDef="fpc_idx">
+              <th mat-header-cell *matHeaderCellDef>FPC</th>
+              <td mat-cell *matCellDef="let row">{{ row.fpc_idx }}</td>
+            </ng-container>
+            <ng-container matColumnDef="vc_role">
+              <th mat-header-cell *matHeaderCellDef>Role</th>
+              <td mat-cell *matCellDef="let row">{{ row.vc_role }}</td>
+            </ng-container>
+            <ng-container matColumnDef="temp_max">
+              <th mat-header-cell *matHeaderCellDef>Max Temp</th>
+              <td mat-cell *matCellDef="let row">{{ row.temp_max | number: '1.0-0' }}°C</td>
+            </ng-container>
+            <ng-container matColumnDef="poe_draw">
+              <th mat-header-cell *matHeaderCellDef>PoE Draw</th>
+              <td mat-cell *matCellDef="let row">{{ row.poe_draw | number: '1.0-0' }}W</td>
+            </ng-container>
+            <ng-container matColumnDef="vc_links_count">
+              <th mat-header-cell *matHeaderCellDef>VC Links</th>
+              <td mat-cell *matCellDef="let row">{{ row.vc_links_count }}</td>
+            </ng-container>
+            <ng-container matColumnDef="mem_usage">
+              <th mat-header-cell *matHeaderCellDef>Memory</th>
+              <td mat-cell *matCellDef="let row">{{ row.mem_usage | number: '1.0-0' }}%</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="moduleColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: moduleColumns"></tr>
+          </table>
+        </div>
+      </section>
+    }
+
+    <!-- DHCP table (switch + gateway) -->
+    @if ((isSwitch() || isGateway()) && dhcpRows().length > 0) {
+      <section class="table-section">
+        <h3 class="section-title">DHCP Pools</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="dhcpRows()">
+            <ng-container matColumnDef="network_name">
+              <th mat-header-cell *matHeaderCellDef>Network</th>
+              <td mat-cell *matCellDef="let row">{{ row.network_name }}</td>
+            </ng-container>
+            <ng-container matColumnDef="leased">
+              <th mat-header-cell *matHeaderCellDef>Leased</th>
+              <td mat-cell *matCellDef="let row">{{ row.num_leased }}/{{ row.num_ips }}</td>
+            </ng-container>
+            <ng-container matColumnDef="utilization_pct">
+              <th mat-header-cell *matHeaderCellDef>Utilization</th>
+              <td mat-cell *matCellDef="let row">{{ row.utilization_pct }}%</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="dhcpColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: dhcpColumns"></tr>
+          </table>
+        </div>
+      </section>
+    }
+  }
+
+  <!-- Live event log -->
+  @if (mac()) {
+    <section class="device-section">
+      <h3 class="section-title">Live Event Log</h3>
+      <app-device-live-log [mac]="mac()" />
+    </section>
+  }
+</div>
