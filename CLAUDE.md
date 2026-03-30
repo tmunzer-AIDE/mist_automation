@@ -88,6 +88,7 @@ See `backend/app/modules/llm/CLAUDE.md` and `backend/app/modules/mcp_server/CLAU
 ### Impact Analysis Module
 
 See `backend/app/modules/impact_analysis/CLAUDE.md` for full details.
+Change groups correlate sessions triggered by the same audit event — see module CLAUDE.md.
 
 ### Telemetry Module
 

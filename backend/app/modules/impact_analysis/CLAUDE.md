@@ -20,6 +20,7 @@ Part of mist_automation — see root `CLAUDE.md` for global architecture and con
 - **WebSocket channels**: `impact:{session_id}` for per-session updates (status changes, SLE snapshots, incidents, validation/analysis completion), `impact:summary` for dashboard widget (active/alert count changes), `impact:alerts` for new alert notifications.
 - **Cleanup worker**: APScheduler job `cleanup_old_sessions()` runs nightly (3:30 UTC), purges `MonitoringSession` documents older than `SystemConfig.impact_analysis_retention_days`.
 - **MCP tools**: Impact analysis search/details exposed via MCP server for AI chat context.
+- **Change Groups** (`change_group.py`, `services/change_group_service.py`): Groups monitoring sessions triggered by the same `audit_id`. `ChangeGroup` document maintains a live `GroupSummary` with per-device status table (recomputed on every child session state change via `_update_group_summary()` in session_manager). AI analysis runs once per group at completion. Use `get_or_create_group(audit_id=...)` — never create ChangeGroup documents directly. WebSocket: `impact:group:{group_id}` for per-group updates.
 
 ## Frontend (`features/impact-analysis/`)
 
@@ -30,4 +31,5 @@ Part of mist_automation — see root `CLAUDE.md` for global architecture and con
 - **Event timeline** (`event-timeline/`): Chronological incidents with resolution status indicators.
 - **AI assessment** (`ai-assessment/`): Rendered markdown (marked + DOMPurify), severity badge, recommendations list.
 - **Dashboard widget**: Active/impacted session counts with live WS updates via `impact:summary` channel. Click navigates to `/impact-analysis`.
+- **Group detail** (`group-detail/`): Change group detail page showing device breakdown table, validation/SLE aggregates, AI assessment, and timeline. WebSocket subscription to `impact:group:{group_id}` for live updates.
 - **Impact analysis service** (`core/services/impact-analysis.service.ts`): API client for sessions CRUD, summary, SLE data, and settings.
