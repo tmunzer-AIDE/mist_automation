@@ -7,6 +7,11 @@ const routes: Routes = [
       import('./session-list/session-list.component').then((m) => m.SessionListComponent),
   },
   {
+    path: 'group/:id',
+    loadComponent: () =>
+      import('./group-detail/group-detail.component').then((m) => m.GroupDetailComponent),
+  },
+  {
     path: ':id',
     loadComponent: () =>
       import('./session-detail/session-detail.component').then(
