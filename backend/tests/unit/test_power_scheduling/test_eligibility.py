@@ -95,3 +95,23 @@ class TestComputeExpectedStatus:
         # Saturday 23:00 UTC
         now = datetime(2026, 4, 4, 23, 0, tzinfo=timezone.utc)  # Saturday
         assert compute_expected_status(schedule, now) == "IDLE"
+
+    def test_weekend_morning_after_weekday_window(self):
+        schedule = _make_schedule(
+            timezone="UTC",
+            windows=[ScheduleWindow(days=[0, 1, 2, 3, 4], start="22:00", end="06:00")],  # weekdays
+        )
+        # Saturday 02:00 UTC — yesterday was Friday (day 4, in active_days), time < 06:00
+        # → morning side of Friday→Saturday crossing window → OFF_HOURS
+        now = datetime(2026, 4, 4, 2, 0, tzinfo=timezone.utc)  # Saturday
+        assert compute_expected_status(schedule, now) == "OFF_HOURS"
+
+    def test_sunday_morning_outside_window(self):
+        schedule = _make_schedule(
+            timezone="UTC",
+            windows=[ScheduleWindow(days=[0, 1, 2, 3, 4], start="22:00", end="06:00")],  # weekdays
+        )
+        # Sunday 02:00 UTC — yesterday was Saturday (day 5, NOT in active_days)
+        # → morning side check fails → IDLE
+        now = datetime(2026, 4, 5, 2, 0, tzinfo=timezone.utc)  # Sunday
+        assert compute_expected_status(schedule, now) == "IDLE"
