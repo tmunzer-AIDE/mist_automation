@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytz
@@ -44,7 +45,7 @@ def register_schedule_jobs(schedule: PowerSchedule, scheduler) -> None:
         )
         scheduler.add_job(
             _end_off_hours_job,
-            trigger=CronTrigger(hour=on_h, minute=on_m, timezone=tz),
+            trigger=CronTrigger(day_of_week=days_str, hour=on_h, minute=on_m, timezone=tz),
             id=f"ps_on_{schedule.site_id}_{i}",
             kwargs={"site_id": schedule.site_id},
             replace_existing=True,
@@ -96,7 +97,6 @@ async def startup_power_scheduling(api_session) -> None:
     starts client WS subscriptions, and runs startup recovery.
     """
     global _client_ws_manager
-    import asyncio
 
     from app.core.tasks import create_background_task
     from app.modules.power_scheduling.services.client_ws_service import ClientStatsWsManager
@@ -108,9 +108,9 @@ async def startup_power_scheduling(api_session) -> None:
 
     scheduler = get_scheduler().scheduler
     site_ids = [s.site_id for s in schedules]
+    loop = asyncio.get_running_loop()
 
     def _client_event_bridge(site_id: str, event_type: str, client_mac: str, ap_mac: str, rssi: int | None) -> None:
-        loop = asyncio.get_event_loop()
 
         async def _dispatch() -> None:
             sched = await PowerSchedule.find_one(PowerSchedule.site_id == site_id)
