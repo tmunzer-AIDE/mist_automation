@@ -135,3 +135,88 @@ export interface SessionChatResponse {
   thread_id: string;
   usage: Record<string, unknown>;
 }
+
+// ── Change Group models ──────────────────────────────────────────────────
+
+export interface IncidentSummary {
+  type: string;
+  severity: string;
+  timestamp: string;
+  resolved: boolean;
+}
+
+export interface SLEDeltaSummary {
+  metric: string;
+  baseline: number;
+  current: number;
+  delta_pct: number;
+}
+
+export interface DeviceSummary {
+  session_id: string;
+  device_mac: string;
+  device_name: string;
+  device_type: string;
+  site_name: string;
+  status: string;
+  impact_severity: string;
+  failed_checks: string[];
+  active_incidents: IncidentSummary[];
+  worst_sle_delta: SLEDeltaSummary | null;
+}
+
+export interface DeviceTypeCounts {
+  total: number;
+  monitoring: number;
+  completed: number;
+  impacted: number;
+}
+
+export interface ValidationCheckSummary {
+  check_name: string;
+  passed: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface GroupSummary {
+  total_devices: number;
+  by_type: Record<string, DeviceTypeCounts>;
+  worst_severity: string;
+  validation_summary: ValidationCheckSummary[];
+  sle_summary: Record<string, SLEDeltaSummary>;
+  devices: DeviceSummary[];
+  status: string;
+  last_updated: string | null;
+}
+
+export interface ChangeGroupResponse {
+  id: string;
+  audit_id: string;
+  org_id: string;
+  site_id: string | null;
+  change_source: string;
+  change_description: string;
+  triggered_by: string | null;
+  triggered_at: string;
+  session_count: number;
+  summary: GroupSummary;
+  ai_assessment: Record<string, unknown> | null;
+  ai_assessment_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChangeGroupDetailResponse extends ChangeGroupResponse {
+  timeline: TimelineEntryResponse[];
+}
+
+export interface ChangeGroupListResponse {
+  groups: ChangeGroupResponse[];
+  total: number;
+}
+
+export interface SessionSummaryWithGroups extends SessionSummary {
+  active_groups: number;
+  impacted_groups_24h: number;
+}

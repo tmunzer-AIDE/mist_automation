@@ -6,6 +6,8 @@ import {
   SessionDetailResponse,
   SessionSummary,
   SessionChatResponse,
+  ChangeGroupListResponse,
+  ChangeGroupDetailResponse,
 } from '../../features/impact-analysis/models/impact-analysis.model';
 
 export interface SessionListResponse {
@@ -78,6 +80,51 @@ export class ImpactAnalysisService {
   ): Observable<SessionChatResponse> {
     return this.api.post<SessionChatResponse>(
       `/impact-analysis/sessions/${sessionId}/chat`,
+      { message, stream_id: streamId ?? null, mcp_config_ids: mcpConfigIds ?? null },
+    );
+  }
+
+  // ── Change Groups ──────────────────────────────────────────────────────
+
+  getGroups(params?: {
+    status?: string;
+    severity?: string;
+    limit?: number;
+    skip?: number;
+  }): Observable<ChangeGroupListResponse> {
+    return this.api.get<ChangeGroupListResponse>('/impact-analysis/groups', params);
+  }
+
+  getGroup(id: string): Observable<ChangeGroupDetailResponse> {
+    return this.api.get<ChangeGroupDetailResponse>(`/impact-analysis/groups/${id}`);
+  }
+
+  getGroupSessions(id: string): Observable<SessionListResponse> {
+    return this.api.get<SessionListResponse>(`/impact-analysis/groups/${id}/sessions`);
+  }
+
+  cancelGroup(id: string): Observable<ChangeGroupDetailResponse> {
+    return this.api.post<ChangeGroupDetailResponse>(
+      `/impact-analysis/groups/${id}/cancel`,
+      {},
+    );
+  }
+
+  analyzeGroup(id: string): Observable<ChangeGroupDetailResponse> {
+    return this.api.post<ChangeGroupDetailResponse>(
+      `/impact-analysis/groups/${id}/analyze`,
+      {},
+    );
+  }
+
+  sendGroupChatMessage(
+    groupId: string,
+    message: string,
+    streamId?: string,
+    mcpConfigIds?: string[],
+  ): Observable<SessionChatResponse> {
+    return this.api.post<SessionChatResponse>(
+      `/impact-analysis/groups/${groupId}/chat`,
       { message, stream_id: streamId ?? null, mcp_config_ids: mcpConfigIds ?? null },
     );
   }
