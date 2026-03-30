@@ -363,10 +363,16 @@ export class ImpactChatPanelComponent {
   /** Chat messages mapped from timeline entries by the parent. */
   readonly messages = input.required<ChatMessage[]>();
 
-  /** Session ID for sending chat messages (mutually exclusive with groupId). */
+  /**
+   * Session ID for sending chat messages.
+   * If both sessionId and groupId are provided, groupId takes precedence.
+   */
   readonly sessionId = input<string>('');
 
-  /** Group ID for sending group chat messages (mutually exclusive with sessionId). */
+  /**
+   * Group ID for sending group chat messages.
+   * If both groupId and sessionId are provided, groupId takes precedence.
+   */
   readonly groupId = input<string>('');
 
   /** Whether the session is still actively running. */
