@@ -1,6 +1,8 @@
-import pytest
+import asyncio
+
 import pytest_asyncio
-from app.modules.power_scheduling.state import get_state, clear_state, PowerScheduleState
+
+from app.modules.power_scheduling.state import clear_state, get_state
 
 
 class TestStateStore:
@@ -9,6 +11,7 @@ class TestStateStore:
         yield
         await clear_state("site-1")
         await clear_state("site-2")
+        await clear_state("site-cancel")
 
     def test_get_state_creates_idle(self):
         state = get_state("site-1")
@@ -27,3 +30,10 @@ class TestStateStore:
         s2 = get_state("site-2")
         s1.status = "OFF_HOURS"
         assert s2.status == "IDLE"
+
+    async def test_clear_state_cancels_grace_tasks(self):
+        state = get_state("site-cancel")
+        task = asyncio.create_task(asyncio.sleep(9999))
+        state.grace_tasks["ap1"] = task
+        await clear_state("site-cancel")
+        assert task.cancelled()

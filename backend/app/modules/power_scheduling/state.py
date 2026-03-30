@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Literal
 
-_states: dict[str, "PowerScheduleState"] = {}
+_states: dict[str, PowerScheduleState] = {}
 _locks: dict[str, asyncio.Lock] = {}
 
 
@@ -45,3 +45,4 @@ async def clear_state(site_id: str) -> None:
     if state:
         for task in state.grace_tasks.values():
             task.cancel()
+        await asyncio.gather(*state.grace_tasks.values(), return_exceptions=True)
