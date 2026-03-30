@@ -25,13 +25,7 @@ def _make_schedule(site_id="s1", critical_ap_macs=None, **kwargs):
 
 
 def _mock_ps_class():
-    """Return (mock_cls, mock_query) replacing PowerSchedule in the service module.
-
-    The service calls: PowerSchedule.find_one(PowerSchedule.site_id == site_id).update(...)
-    Because Beanie is not initialised in unit tests, PowerSchedule.site_id raises
-    AttributeError before find_one is even called.  Replacing the entire class
-    reference in the service module avoids this cleanly.
-    """
+    """Stub PowerSchedule ORM calls used inside the service (find_one().update())."""
     mock_cls = MagicMock()
     mock_query = MagicMock()
     mock_query.update = AsyncMock()
@@ -45,15 +39,17 @@ class TestStartOffHours:
         yield
         await clear_state("s1")
 
-    async def test_zero_client_ap_gets_disabled(self):
+    async def test_empty_ap_gets_profile_disabled(self):
+        """AP with no clients is covered by the off-profile (not added to protected_aps)."""
         schedule = _make_schedule()
-        ap_inventory = [{"mac": "ap1", "deviceprofile_id": None}]
+        ap_inventory = [{"mac": "ap1"}]
         mock_cls, _ = _mock_ps_class()
 
         with (
             patch(f"{_MODULE}.fetch_rf_neighbor_map", new_callable=AsyncMock, return_value={}),
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=ap_inventory),
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock) as mock_assign,
+            patch(f"{_MODULE}._batch_set_ap_overrides", new_callable=AsyncMock),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
@@ -61,27 +57,27 @@ class TestStartOffHours:
             state.client_map = {}
             await start_off_hours(schedule)
 
-        assert "ap1" in state.disabled_aps
-        mock_assign.assert_awaited_once_with("s1", "ap1", "off-prof")
+        assert "ap1" not in state.protected_aps
 
-    async def test_ap_with_clients_goes_to_pending(self):
+    async def test_ap_with_clients_added_to_protected(self):
+        """AP with active clients gets a radio override (added to protected_aps)."""
         schedule = _make_schedule()
-        ap_inventory = [{"mac": "ap1", "deviceprofile_id": None}]
+        ap_inventory = [{"mac": "ap1"}]
         mock_cls, _ = _mock_ps_class()
 
         with (
             patch(f"{_MODULE}.fetch_rf_neighbor_map", new_callable=AsyncMock, return_value={}),
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=ap_inventory),
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock),
+            patch(f"{_MODULE}._batch_set_ap_overrides", new_callable=AsyncMock),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
             state = get_state("s1")
-            state.client_map = {"ap1": {"client-mac"}}
+            state.client_map = {"ap1": {"client-a"}}
             await start_off_hours(schedule)
 
-        assert "ap1" in state.pending_disable
-        assert "ap1" not in state.disabled_aps
+        assert "ap1" in state.protected_aps
 
     async def test_state_becomes_off_hours(self):
         schedule = _make_schedule()
@@ -90,50 +86,26 @@ class TestStartOffHours:
         with (
             patch(f"{_MODULE}.fetch_rf_neighbor_map", new_callable=AsyncMock, return_value={}),
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=[]),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
-            state = get_state("s1")
             await start_off_hours(schedule)
 
-        assert state.status == "OFF_HOURS"
+        assert get_state("s1").status == "OFF_HOURS"
 
-    async def test_multiple_aps_mixed_eligibility(self):
-        """APs without clients are disabled; those with clients go to pending."""
-        schedule = _make_schedule()
-        ap_inventory = [
-            {"mac": "ap1", "deviceprofile_id": "orig-prof"},
-            {"mac": "ap2", "deviceprofile_id": None},
-        ]
+    async def test_critical_ap_never_touched(self):
+        """Critical APs are skipped entirely — not disabled, not protected."""
+        schedule = _make_schedule(critical_ap_macs=["ap1"])
+        ap_inventory = [{"mac": "ap1"}, {"mac": "ap2"}]
         mock_cls, _ = _mock_ps_class()
+        set_mock = AsyncMock()
 
         with (
             patch(f"{_MODULE}.fetch_rf_neighbor_map", new_callable=AsyncMock, return_value={}),
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=ap_inventory),
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock) as mock_assign,
-            patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
-            patch(f"{_MODULE}.PowerSchedule", mock_cls),
-        ):
-            state = get_state("s1")
-            state.client_map = {"ap2": {"client-mac"}}
-            await start_off_hours(schedule)
-
-        assert "ap1" in state.disabled_aps
-        assert state.disabled_aps["ap1"] == "orig-prof"
-        assert "ap2" in state.pending_disable
-        assert "ap2" not in state.disabled_aps
-        mock_assign.assert_awaited_once_with("s1", "ap1", "off-prof")
-
-    async def test_original_profile_preserved(self):
-        """The original deviceprofile_id is stored in disabled_aps for restore."""
-        schedule = _make_schedule()
-        ap_inventory = [{"mac": "ap1", "deviceprofile_id": "my-orig-profile"}]
-        mock_cls, _ = _mock_ps_class()
-
-        with (
-            patch(f"{_MODULE}.fetch_rf_neighbor_map", new_callable=AsyncMock, return_value={}),
-            patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=ap_inventory),
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock),
+            patch(f"{_MODULE}._batch_set_ap_overrides", set_mock),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
@@ -141,24 +113,24 @@ class TestStartOffHours:
             state.client_map = {}
             await start_off_hours(schedule)
 
-        assert state.disabled_aps["ap1"] == "my-orig-profile"
+        assert "ap1" not in state.protected_aps
+        assert "ap2" not in state.protected_aps
 
-    async def test_db_update_called_with_off_hours(self):
-        """DB is updated to OFF_HOURS after transition."""
+    async def test_db_updated_to_off_hours(self):
         schedule = _make_schedule()
         mock_cls, mock_query = _mock_ps_class()
 
         with (
             patch(f"{_MODULE}.fetch_rf_neighbor_map", new_callable=AsyncMock, return_value={}),
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=[]),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
             await start_off_hours(schedule)
 
         mock_query.update.assert_awaited_once()
-        call_args = mock_query.update.call_args[0][0]
-        assert call_args["$set"]["current_status"] == "OFF_HOURS"
+        assert mock_query.update.call_args[0][0]["$set"]["current_status"] == "OFF_HOURS"
 
 
 class TestEndOffHours:
@@ -167,65 +139,52 @@ class TestEndOffHours:
         yield
         await clear_state("s1")
 
-    async def test_disabled_aps_restored(self):
+    async def test_protected_aps_overrides_cleared(self):
+        """end_off_hours clears radio overrides for all protected APs."""
         schedule = _make_schedule()
         mock_cls, _ = _mock_ps_class()
+        clear_mock = AsyncMock()
 
         with (
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock) as mock_assign,
+            patch(f"{_MODULE}._batch_clear_ap_overrides", clear_mock),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
             state = get_state("s1")
             state.status = "OFF_HOURS"
-            state.disabled_aps = {"ap1": "orig-prof", "ap2": None}
+            state.protected_aps = {"ap1", "ap2"}
             await end_off_hours(schedule)
 
-        assert mock_assign.await_count == 2
-        calls = {c.args[1]: c.args[2] for c in mock_assign.await_args_list}
-        assert calls["ap1"] == "orig-prof"
-        assert calls["ap2"] is None
+        clear_mock.assert_awaited_once()
+        cleared_macs = set(clear_mock.call_args[0][1])
+        assert cleared_macs == {"ap1", "ap2"}
 
     async def test_state_becomes_idle(self):
         schedule = _make_schedule()
         mock_cls, _ = _mock_ps_class()
 
         with (
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock),
+            patch(f"{_MODULE}._batch_clear_ap_overrides", new_callable=AsyncMock),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
             state = get_state("s1")
             state.status = "OFF_HOURS"
-            state.disabled_aps = {"ap1": None}
+            state.protected_aps = {"ap1"}
             await end_off_hours(schedule)
 
         assert state.status == "IDLE"
-        assert state.disabled_aps == {}
+        assert state.protected_aps == set()
 
-    async def test_pending_disable_cleared(self):
-        schedule = _make_schedule()
-        mock_cls, _ = _mock_ps_class()
-
-        with (
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock),
-            patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
-            patch(f"{_MODULE}.PowerSchedule", mock_cls),
-        ):
-            state = get_state("s1")
-            state.status = "OFF_HOURS"
-            state.pending_disable = {"ap1", "ap2"}
-            await end_off_hours(schedule)
-
-        assert state.pending_disable == set()
-
-    async def test_db_update_called_with_idle(self):
-        """DB is updated to IDLE after window end."""
+    async def test_db_updated_to_idle(self):
         schedule = _make_schedule()
         mock_cls, mock_query = _mock_ps_class()
 
         with (
-            patch(f"{_MODULE}._assign_profile", new_callable=AsyncMock),
+            patch(f"{_MODULE}._batch_clear_ap_overrides", new_callable=AsyncMock),
+            patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
@@ -234,5 +193,4 @@ class TestEndOffHours:
             await end_off_hours(schedule)
 
         mock_query.update.assert_awaited_once()
-        call_args = mock_query.update.call_args[0][0]
-        assert call_args["$set"]["current_status"] == "IDLE"
+        assert mock_query.update.call_args[0][0]["$set"]["current_status"] == "IDLE"
