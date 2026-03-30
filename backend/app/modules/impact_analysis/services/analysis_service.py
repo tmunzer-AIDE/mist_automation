@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from app.modules.impact_analysis.change_group import ChangeGroup
     from app.modules.impact_analysis.models import MonitoringSession
 
 logger = structlog.get_logger(__name__)
@@ -435,3 +436,174 @@ def _extract_recommendations(text: str) -> list[str]:
         elif in_recommendations and stripped and not stripped.startswith("- ") and not stripped.startswith("*"):
             in_recommendations = False
     return recommendations
+
+
+# ---------------------------------------------------------------------------
+# Group-level analysis
+# ---------------------------------------------------------------------------
+
+
+async def analyze_change_group(group: ChangeGroup) -> dict[str, Any]:
+    """Run AI analysis for a completed change group using the aggregate summary."""
+    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
+
+    if await _is_llm_available():
+        try:
+            return await _ai_group_analysis(group, _sanitize_for_prompt)
+        except Exception as e:
+            logger.warning("group_ai_analysis_error", error=str(e))
+
+    return _rule_based_group_analysis(group)
+
+
+async def _ai_group_analysis(group: ChangeGroup, sanitize_fn: Any) -> dict[str, Any]:
+    """Run AI Agent analysis on a change group with LLM + MCP tools."""
+    from app.modules.llm.services.agent_service import AIAgentService
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.mcp_client import create_local_mcp_client
+
+    llm_service = await create_llm_service()
+    system_prompt = _build_group_system_prompt()
+    user_message = _build_group_user_message(group, sanitize_fn)
+
+    mcp_client = create_local_mcp_client()
+    await mcp_client.connect()
+
+    try:
+        agent = AIAgentService(llm=llm_service, mcp_clients=[mcp_client], max_iterations=10)
+        result = await agent.run(task=user_message, system_prompt=system_prompt)
+
+        return {
+            "has_impact": group.summary.worst_severity != "none",
+            "severity": group.summary.worst_severity,
+            "summary": result.result,
+            "recommendations": _extract_recommendations(result.result),
+            "tool_calls": [
+                {
+                    "tool": tc.tool,
+                    "arguments": tc.arguments,
+                    "result": tc.result[:500] if tc.result else None,
+                    "is_error": tc.is_error,
+                }
+                for tc in (result.tool_calls or [])
+            ],
+            "thinking_texts": result.thinking_texts or [],
+            "source": "ai_agent",
+            "trigger": "group_final",
+        }
+    finally:
+        await mcp_client.disconnect()
+
+
+def _build_group_system_prompt() -> str:
+    """System prompt for group-level impact analysis."""
+    return (
+        "You are a network impact analyst for Juniper Mist. A configuration change affected "
+        "multiple devices simultaneously. You are given an aggregate summary of all affected "
+        "devices including their validation results, SLE metrics, and incidents.\n\n"
+        "Your job is to:\n"
+        "1. Determine the overall impact of this change across all affected devices\n"
+        "2. Identify patterns (e.g., all APs at one site failed the same check)\n"
+        "3. Assess whether the impact is isolated or systemic\n"
+        "4. Provide concrete recommendations: rollback, adjust settings, or accept\n\n"
+        "Be concise and actionable. Focus on cross-device patterns.\n\n"
+        "Format your response as:\n"
+        "**Severity**: [critical/warning/info]\n"
+        "**Summary**: [1-3 sentence summary]\n"
+        "**Affected Pattern**: [which devices/types are impacted and why]\n"
+        "**Recommendations**:\n"
+        "- [recommendation 1]\n"
+        "- [recommendation 2]\n\n"
+        "You have access to MCP tools for backup, workflow, and system data."
+    )
+
+
+def _build_group_user_message(group: ChangeGroup, sanitize_fn: Any) -> str:
+    """Build the user message with the group aggregate summary."""
+    s = group.summary
+    parts: list[str] = []
+
+    parts.append(f"## Change: {sanitize_fn(group.change_description)}")
+    parts.append(f"- Source: {group.change_source}")
+    parts.append(f"- Triggered by: {sanitize_fn(group.triggered_by or 'unknown')}")
+    parts.append(f"- Time: {group.triggered_at.isoformat()}")
+    parts.append(f"- Total devices: {s.total_devices}")
+    parts.append(f"- Status: {s.status}")
+    parts.append(f"- Worst severity: {s.worst_severity}")
+
+    # Device type breakdown
+    parts.append("\n## Device Type Breakdown")
+    for dtype, counts in s.by_type.items():
+        parts.append(
+            f"- {dtype}: {counts.total} total, {counts.monitoring} monitoring, "
+            f"{counts.completed} completed, {counts.impacted} impacted"
+        )
+
+    # Per-device table
+    parts.append("\n## Per-Device Status")
+    parts.append("| Device | Type | Site | Status | Severity | Failed Checks | Incidents | SLE Worst Delta |")
+    parts.append("|--------|------|------|--------|----------|---------------|-----------|-----------------|")
+    for d in s.devices:
+        failed = ", ".join(d.failed_checks) if d.failed_checks else "-"
+        incidents_str = "-"
+        if d.active_incidents:
+            inc_parts = []
+            for inc in d.active_incidents[:3]:
+                resolved_str = " (resolved)" if inc.resolved else ""
+                inc_parts.append(f"{inc.type}{resolved_str}")
+            incidents_str = "; ".join(inc_parts)
+        sle_str = "-"
+        if d.worst_sle_delta:
+            sle_str = f"{d.worst_sle_delta.metric} {d.worst_sle_delta.delta_pct:+.1f}%"
+        parts.append(
+            f"| {sanitize_fn(d.device_name)} | {d.device_type} | {sanitize_fn(d.site_name)} "
+            f"| {d.status} | {d.impact_severity} | {failed} | {incidents_str} | {sle_str} |"
+        )
+
+    # Validation summary
+    if s.validation_summary:
+        parts.append("\n## Validation Summary")
+        for v in s.validation_summary:
+            parts.append(f"- {v.check_name}: {v.passed} passed, {v.failed} failed, {v.skipped} skipped")
+
+    # SLE summary
+    if s.sle_summary:
+        parts.append("\n## SLE Summary (worst per metric)")
+        for metric, delta in s.sle_summary.items():
+            parts.append(f"- {metric}: {delta.baseline:.1f} -> {delta.current:.1f} ({delta.delta_pct:+.1f}%)")
+
+    return "\n".join(parts)
+
+
+def _rule_based_group_analysis(group: ChangeGroup) -> dict[str, Any]:
+    """Fallback rule-based analysis for a change group."""
+    s = group.summary
+    severity = s.worst_severity
+    impacted_count = sum(1 for d in s.devices if d.impact_severity != "none")
+
+    parts = []
+    if severity == "critical":
+        parts.append(f"Critical impact detected on {impacted_count}/{s.total_devices} devices.")
+    elif severity == "warning":
+        parts.append(f"Warning-level impact detected on {impacted_count}/{s.total_devices} devices.")
+    elif severity == "info":
+        parts.append(f"Minor observations on {impacted_count}/{s.total_devices} devices.")
+    else:
+        parts.append(f"No impact detected across {s.total_devices} devices.")
+
+    recommendations: list[str] = []
+    if s.validation_summary:
+        failing = [v for v in s.validation_summary if v.failed > 0]
+        if failing:
+            names = ", ".join(v.check_name for v in failing[:3])
+            parts.append(f"Failing checks: {names}.")
+            recommendations.append(f"Investigate failing checks: {names}")
+
+    return {
+        "has_impact": severity != "none",
+        "severity": severity,
+        "summary": " ".join(parts),
+        "recommendations": recommendations,
+        "source": "rule_based",
+        "trigger": "group_final",
+    }
