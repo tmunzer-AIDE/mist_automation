@@ -27,7 +27,7 @@ async def fetch_rf_neighbor_map(site_id: str) -> dict[str, list[tuple[str, int]]
     responses = []
     for band in ("24", "5", "6"):
         try:
-            data = await mist.get(f"/api/v1/sites/{site_id}/rrm/neighbors/band/{band}")
+            data = await mist.api_get(f"/api/v1/sites/{site_id}/rrm/neighbors/band/{band}")
             responses.append(data)
         except Exception as exc:
             log.warning("rrm_band_fetch_failed", site_id=site_id, band=band, error=str(exc))

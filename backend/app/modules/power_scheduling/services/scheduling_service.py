@@ -24,15 +24,15 @@ log = structlog.get_logger(__name__).bind(module="power_scheduling")
 async def _get_ap_inventory(site_id: str) -> list[dict[str, Any]]:
     """Return list of AP dicts with at least 'mac' and 'deviceprofile_id'."""
     mist = await create_mist_service()
-    data = await mist.get(f"/api/v1/sites/{site_id}/devices?type=ap")
-    return data.get("results", [])
+    data = await mist.api_get(f"/api/v1/sites/{site_id}/devices?type=ap")
+    return data if isinstance(data, list) else []
 
 
 async def _assign_profile(site_id: str, ap_mac: str, profile_id: str | None) -> None:
     """Set or clear the device profile on an AP."""
     mist = await create_mist_service()
     body: dict[str, Any] = {"deviceprofile_id": profile_id}
-    await mist.put(f"/api/v1/sites/{site_id}/devices/{ap_mac}", body)
+    await mist.api_put(f"/api/v1/sites/{site_id}/devices/{ap_mac}", body)
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@ async def _grace_timer(site_id: str, ap_mac: str, schedule: PowerSchedule) -> No
 
     try:
         mist = await create_mist_service()
-        ap_data = await mist.get(f"/api/v1/sites/{site_id}/devices/{ap_mac}")
+        ap_data = await mist.api_get(f"/api/v1/sites/{site_id}/devices/{ap_mac}")
         original = ap_data.get("deviceprofile_id")
         await _assign_profile(site_id, ap_mac, schedule.off_profile_id)
         async with get_lock(site_id):

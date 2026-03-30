@@ -37,15 +37,15 @@ class TestMergeRrmResponses:
 class TestFetchRfNeighborMap:
     async def test_calls_all_three_bands(self):
         mock_mist = AsyncMock()
-        mock_mist.get = AsyncMock(return_value={"results": []})
+        mock_mist.api_get = AsyncMock(return_value={"results": []})
         with patch(
             "app.modules.power_scheduling.services.rrm_service.create_mist_service",
             new_callable=AsyncMock,
             return_value=mock_mist,
         ):
             await fetch_rf_neighbor_map("site-1")
-        assert mock_mist.get.call_count == 3
-        calls = [c.args[0] for c in mock_mist.get.call_args_list]
+        assert mock_mist.api_get.call_count == 3
+        calls = [c.args[0] for c in mock_mist.api_get.call_args_list]
         assert any("24" in c for c in calls)
         assert any("/5" in c for c in calls)
         assert any("/6" in c for c in calls)
