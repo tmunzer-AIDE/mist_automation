@@ -1,22 +1,22 @@
 import {
   Component,
   DestroyRef,
-  OnDestroy,
   OnInit,
+  OnDestroy,
   inject,
   signal,
   computed,
 } from '@angular/core';
-import { DecimalPipe, TitleCasePipe } from '@angular/common';
+import { TitleCasePipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ImpactAnalysisService } from '../../../core/services/impact-analysis.service';
+import { LlmService } from '../../../core/services/llm.service';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
@@ -24,14 +24,11 @@ import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import {
   ChangeGroupDetailResponse,
   DeviceSummary,
-  SLEDeltaSummary,
-  SLE_METRIC_LABELS,
-  VALIDATION_CHECK_LABELS,
+  TimelineEntryResponse,
+  ChatMessage,
 } from '../models/impact-analysis.model';
-import {
-  deviceTypeIcon as _deviceTypeIcon,
-  formatDeviceType as _formatDeviceType,
-} from '../utils/device-type.utils';
+import { ImpactChatPanelComponent } from '../session-detail/impact-chat-panel.component';
+import { GroupDataPanelComponent } from './group-data-panel.component';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
@@ -40,20 +37,22 @@ function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(raw);
 }
 
+let chatMsgCounter = 0;
+
 @Component({
   selector: 'app-group-detail',
   standalone: true,
   imports: [
-    DecimalPipe,
     TitleCasePipe,
     MatIconModule,
     MatButtonModule,
     MatProgressBarModule,
-    MatTableModule,
     MatTooltipModule,
     MatSnackBarModule,
     StatusBadgeComponent,
     DateTimePipe,
+    ImpactChatPanelComponent,
+    GroupDataPanelComponent,
   ],
   template: `
     @if (loading()) {
@@ -119,200 +118,41 @@ function renderMarkdown(md: string): string {
         </div>
       </div>
 
-      <div class="detail-body">
-        <!-- Summary cards -->
-        <div class="summary-cards">
-          <div class="summary-card">
-            <div class="card-value">{{ g.summary.total_devices }}</div>
-            <div class="card-label">Total Devices</div>
-          </div>
-          <div class="summary-card">
-            <div class="card-value impacted">{{ impactedCount() }}</div>
-            <div class="card-label">Impacted</div>
-          </div>
-          <div class="summary-card">
-            <div class="card-value">
-              <app-status-badge [status]="g.summary.status"></app-status-badge>
+      <div class="detail-content">
+        <!-- Verdict banner (only when completed) -->
+        @if (!isActive()) {
+          <div class="verdict-banner" [class]="'verdict-' + worstSeverity()">
+            <div class="verdict-content">
+              @if (worstSeverity() === 'none') {
+                <mat-icon>check_circle</mat-icon>
+              } @else {
+                <mat-icon>warning</mat-icon>
+              }
+              <span class="verdict-text">{{ verdictSummary() }}</span>
             </div>
-            <div class="card-label">Group Status</div>
+            <button mat-stroked-button (click)="reanalyzeGroup()" [disabled]="reanalyzing()">
+              <mat-icon>refresh</mat-icon>
+              Re-analyze
+            </button>
           </div>
+        }
+
+        <!-- Split view -->
+        <div class="split-view">
+          <app-impact-chat-panel
+            class="chat-panel"
+            [messages]="chatMessages()"
+            [groupId]="g.id"
+            [isActive]="isActive()"
+            [llmEnabled]="llmEnabled()"
+            (messageSent)="onChatMessageSent()"
+          />
+          <app-group-data-panel
+            class="data-panel"
+            [group]="g"
+            (deviceClicked)="viewSession($event)"
+          />
         </div>
-
-        <!-- Device breakdown table -->
-        @if (g.summary.devices.length > 0) {
-          <h3 class="section-title">Device Breakdown</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="g.summary.devices" class="mat-elevation-z0">
-              <!-- Impact -->
-              <ng-container matColumnDef="impact">
-                <th mat-header-cell *matHeaderCellDef>Impact</th>
-                <td mat-cell *matCellDef="let row">
-                  @if (row.impact_severity && row.impact_severity !== 'none') {
-                    <app-status-badge [status]="row.impact_severity"></app-status-badge>
-                  } @else if (row.status === 'completed') {
-                    <app-status-badge status="none"></app-status-badge>
-                  }
-                </td>
-              </ng-container>
-
-              <!-- Device -->
-              <ng-container matColumnDef="device">
-                <th mat-header-cell *matHeaderCellDef>Device</th>
-                <td mat-cell *matCellDef="let row">
-                  <div class="device-cell">
-                    <mat-icon class="device-icon">{{
-                      deviceTypeIcon(row.device_type)
-                    }}</mat-icon>
-                    <span>{{ row.device_name || row.device_mac }}</span>
-                  </div>
-                </td>
-              </ng-container>
-
-              <!-- Type -->
-              <ng-container matColumnDef="type">
-                <th mat-header-cell *matHeaderCellDef>Type</th>
-                <td mat-cell *matCellDef="let row">{{
-                  formatDeviceType(row.device_type)
-                }}</td>
-              </ng-container>
-
-              <!-- Site -->
-              <ng-container matColumnDef="site">
-                <th mat-header-cell *matHeaderCellDef>Site</th>
-                <td mat-cell *matCellDef="let row">{{ row.site_name }}</td>
-              </ng-container>
-
-              <!-- Status -->
-              <ng-container matColumnDef="status">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let row">
-                  <app-status-badge [status]="row.status"></app-status-badge>
-                </td>
-              </ng-container>
-
-              <!-- Failed Checks -->
-              <ng-container matColumnDef="failed_checks">
-                <th mat-header-cell *matHeaderCellDef>Failed Checks</th>
-                <td mat-cell *matCellDef="let row">
-                  @if (row.failed_checks.length > 0) {
-                    <span class="failed-checks">
-                      {{ row.failed_checks.length }}
-                    </span>
-                  } @else {
-                    <span class="no-failures">--</span>
-                  }
-                </td>
-              </ng-container>
-
-              <tr mat-header-row *matHeaderRowDef="deviceColumns"></tr>
-              <tr
-                mat-row
-                *matRowDef="let row; columns: deviceColumns"
-                class="clickable-row"
-                (click)="viewSession(row)"
-              ></tr>
-            </table>
-          </div>
-        }
-
-        <!-- Validation overview -->
-        @if (g.summary.validation_summary.length > 0) {
-          <h3 class="section-title">Validation Overview</h3>
-          <div class="validation-grid">
-            @for (check of g.summary.validation_summary; track check.check_name) {
-              <div class="validation-item">
-                <div class="check-name">{{ checkLabel(check.check_name) }}</div>
-                <div class="check-counts">
-                  @if (check.passed > 0) {
-                    <span class="count-pass">
-                      <mat-icon>check_circle</mat-icon>
-                      {{ check.passed }}
-                    </span>
-                  }
-                  @if (check.failed > 0) {
-                    <span class="count-fail">
-                      <mat-icon>cancel</mat-icon>
-                      {{ check.failed }}
-                    </span>
-                  }
-                  @if (check.skipped > 0) {
-                    <span class="count-skip">
-                      <mat-icon>remove_circle_outline</mat-icon>
-                      {{ check.skipped }}
-                    </span>
-                  }
-                </div>
-              </div>
-            }
-          </div>
-        }
-
-        <!-- SLE overview -->
-        @if (sleSummaryEntries().length > 0) {
-          <h3 class="section-title">SLE Overview</h3>
-          <div class="sle-grid">
-            @for (entry of sleSummaryEntries(); track entry.metric) {
-              <div class="sle-item" [class.degraded]="entry.delta_pct < -5">
-                <div class="sle-metric">{{ sleLabel(entry.metric) }}</div>
-                <div class="sle-values">
-                  <span class="sle-baseline">{{ entry.baseline | number: '1.1-1' }}%</span>
-                  <mat-icon class="sle-arrow">arrow_forward</mat-icon>
-                  <span
-                    class="sle-current"
-                    [class.degraded]="entry.delta_pct < -5"
-                    [class.improved]="entry.delta_pct > 5"
-                  >
-                    {{ entry.current | number: '1.1-1' }}%
-                  </span>
-                  <span
-                    class="sle-delta"
-                    [class.negative]="entry.delta_pct < 0"
-                    [class.positive]="entry.delta_pct > 0"
-                  >
-                    {{ entry.delta_pct > 0 ? '+' : '' }}{{ entry.delta_pct | number: '1.1-1' }}%
-                  </span>
-                </div>
-              </div>
-            }
-          </div>
-        }
-
-        <!-- AI assessment -->
-        @if (aiAssessmentHtml()) {
-          <h3 class="section-title">AI Assessment</h3>
-          <div class="ai-assessment">
-            <div class="ai-content" [innerHTML]="aiAssessmentHtml()"></div>
-            @if (aiRecommendations().length > 0) {
-              <div class="ai-recommendations">
-                <h4>Recommendations</h4>
-                <ul>
-                  @for (rec of aiRecommendations(); track rec) {
-                    <li>{{ rec }}</li>
-                  }
-                </ul>
-              </div>
-            }
-          </div>
-        }
-
-        <!-- Timeline -->
-        @if (g.timeline.length > 0) {
-          <h3 class="section-title">Timeline</h3>
-          <div class="timeline">
-            @for (entry of g.timeline; track $index) {
-              <div class="timeline-entry" [class]="'tl-' + (entry.severity || 'info')">
-                <div class="tl-dot"></div>
-                <div class="tl-content">
-                  @if (entry.device_name) {
-                    <span class="tl-device">{{ entry.device_name }}</span>
-                  }
-                  <div class="tl-title">{{ entry.title }}</div>
-                  <div class="tl-time">{{ entry.timestamp | dateTime: 'short' }}</div>
-                </div>
-              </div>
-            }
-          </div>
-        }
       </div>
     }
   `,
@@ -404,292 +244,100 @@ function renderMarkdown(md: string): string {
         flex-shrink: 0;
       }
 
-      /* ── Summary cards ────────────────────────────────────────────── */
-      .summary-cards {
-        display: flex;
-        gap: 16px;
-        margin-bottom: 24px;
-      }
-
-      .summary-card {
-        flex: 1;
-        padding: 16px;
-        border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
-        border-radius: 8px;
-        text-align: center;
-      }
-
-      .card-value {
-        font-size: 28px;
-        font-weight: 700;
-
-        &.impacted {
-          color: var(--app-warning);
-        }
-      }
-
-      .card-label {
-        font-size: 13px;
-        color: var(--app-neutral);
-        margin-top: 4px;
-      }
-
-      /* ── Section titles ───────────────────────────────────────────── */
-      .section-title {
-        font-size: 16px;
-        font-weight: 600;
-        margin: 24px 0 12px;
-      }
-
-      /* ── Device table ─────────────────────────────────────────────── */
-      .device-cell {
+      /* ── Verdict banner ────────────────────────────────────────────── */
+      .verdict-banner {
         display: flex;
         align-items: center;
-        gap: 8px;
-      }
-
-      .device-icon {
-        font-size: 18px;
-        width: 18px;
-        height: 18px;
-        color: var(--app-neutral);
-      }
-
-      .failed-checks {
-        color: var(--app-error);
-        font-weight: 600;
-      }
-
-      .no-failures {
-        color: var(--app-neutral);
-      }
-
-      /* ── Validation grid ──────────────────────────────────────────── */
-      .validation-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 12px;
-      }
-
-      .validation-item {
-        display: flex;
         justify-content: space-between;
-        align-items: center;
-        padding: 10px 14px;
-        border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
+        gap: 16px;
+        padding: 12px 16px;
         border-radius: 8px;
-      }
+        margin-bottom: 16px;
 
-      .check-name {
-        font-size: 13px;
-        font-weight: 500;
-      }
-
-      .check-counts {
-        display: flex;
-        gap: 10px;
-        font-size: 13px;
-
-        span {
-          display: flex;
-          align-items: center;
-          gap: 3px;
+        &.verdict-none {
+          background: var(--app-success-bg);
+          border-left: 4px solid var(--app-success);
+          mat-icon { color: var(--app-success); }
         }
+        &.verdict-info {
+          background: var(--app-info-bg);
+          border-left: 4px solid var(--app-info);
+          mat-icon { color: var(--app-info); }
+        }
+        &.verdict-warning {
+          background: var(--app-warning-bg);
+          border-left: 4px solid var(--app-warning);
+          mat-icon { color: var(--app-warning); }
+        }
+        &.verdict-critical {
+          background: var(--app-error-bg);
+          border-left: 4px solid var(--app-error);
+          mat-icon { color: var(--app-error); }
+        }
+      }
+
+      .verdict-content {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+        min-width: 0;
 
         mat-icon {
-          font-size: 16px;
-          width: 16px;
-          height: 16px;
+          flex-shrink: 0;
+          margin-top: 1px;
         }
       }
 
-      .count-pass {
-        color: var(--app-success);
-      }
-      .count-fail {
-        color: var(--app-error);
-      }
-      .count-skip {
-        color: var(--app-neutral);
-      }
-
-      /* ── SLE grid ─────────────────────────────────────────────────── */
-      .sle-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: 12px;
-      }
-
-      .sle-item {
-        padding: 10px 14px;
-        border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
-        border-radius: 8px;
-
-        &.degraded {
-          border-color: var(--app-warning);
-          background: var(--app-warning-bg);
-        }
-      }
-
-      .sle-metric {
+      .verdict-text {
         font-size: 13px;
-        font-weight: 500;
-        margin-bottom: 6px;
+        line-height: 1.5;
       }
 
-      .sle-values {
+      /* ── Split view layout ─────────────────────────────────────────── */
+      .detail-content {
         display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 14px;
+        flex-direction: column;
+        overflow: hidden;
+        height: calc(100vh - 175px);
       }
 
-      .sle-arrow {
-        font-size: 16px;
-        width: 16px;
-        height: 16px;
-        color: var(--app-neutral);
+      .split-view {
+        display: flex;
+        gap: 16px;
+        min-height: 0;
+        flex-grow: 1;
       }
 
-      .sle-baseline {
-        color: var(--app-neutral);
-      }
-
-      .sle-current {
-        font-weight: 600;
-
-        &.degraded {
-          color: var(--app-error);
-        }
-        &.improved {
-          color: var(--app-success);
-        }
-      }
-
-      .sle-delta {
-        font-size: 12px;
-        font-weight: 600;
-
-        &.negative {
-          color: var(--app-error);
-        }
-        &.positive {
-          color: var(--app-success);
-        }
-      }
-
-      /* ── AI assessment ────────────────────────────────────────────── */
-      .ai-assessment {
-        padding: 16px;
+      .chat-panel {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
         border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
         border-radius: 8px;
       }
 
-      .ai-content {
-        font-size: 14px;
-        line-height: 1.6;
-
-        ::ng-deep {
-          p {
-            margin: 0 0 8px;
-          }
-          ul,
-          ol {
-            margin: 4px 0 8px;
-            padding-left: 20px;
-          }
-        }
-      }
-
-      .ai-recommendations {
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
-
-        h4 {
-          margin: 0 0 8px;
-          font-size: 14px;
-          font-weight: 600;
-        }
-
-        ul {
-          margin: 0;
-          padding-left: 20px;
-        }
-
-        li {
-          font-size: 13px;
-          line-height: 1.5;
-          margin-bottom: 4px;
-        }
-      }
-
-      /* ── Timeline ─────────────────────────────────────────────────── */
-      .timeline {
-        position: relative;
-        padding-left: 20px;
-        border-left: 2px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
-      }
-
-      .timeline-entry {
-        position: relative;
-        padding: 8px 0 16px 16px;
-      }
-
-      .tl-dot {
-        position: absolute;
-        left: -27px;
-        top: 12px;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: var(--app-info);
-        border: 2px solid var(--mat-sys-surface, #fff);
-      }
-
-      .tl-info .tl-dot {
-        background: var(--app-info);
-      }
-      .tl-warning .tl-dot {
-        background: var(--app-warning);
-      }
-      .tl-critical .tl-dot,
-      .tl-error .tl-dot {
-        background: var(--app-error);
-      }
-      .tl-success .tl-dot {
-        background: var(--app-success);
-      }
-
-      .tl-device {
-        font-size: 11px;
-        font-weight: 500;
-        color: var(--app-info);
-        display: block;
-        margin-bottom: 1px;
-      }
-
-      .tl-title {
-        font-size: 13px;
-        line-height: 1.4;
-      }
-
-      .tl-time {
-        font-size: 12px;
-        color: var(--app-neutral);
-        margin-top: 2px;
-      }
-
-      /* ── Detail body ──────────────────────────────────────────────── */
-      .detail-body {
+      .data-panel {
+        width: 340px;
+        flex-shrink: 0;
         overflow-y: auto;
-        padding-bottom: 32px;
+        border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
+        border-radius: 8px;
       }
 
-      /* ── Responsive ───────────────────────────────────────────────── */
-      @media (max-width: 600px) {
-        .summary-cards {
+      /* ── Responsive ────────────────────────────────────────────────── */
+      @media (max-width: 900px) {
+        .split-view {
           flex-direction: column;
+          height: auto;
+        }
+
+        .chat-panel {
+          min-height: 400px;
+        }
+
+        .data-panel {
+          width: 100%;
         }
       }
     `,
@@ -699,6 +347,7 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly service = inject(ImpactAnalysisService);
+  private readonly llmService = inject(LlmService);
   private readonly topbarService = inject(TopbarService);
   private readonly wsService = inject(WebSocketService);
   private readonly snackBar = inject(MatSnackBar);
@@ -708,6 +357,7 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
   loading = signal(true);
   cancelling = signal(false);
   reanalyzing = signal(false);
+  llmEnabled = signal(false);
 
   private groupId = '';
 
@@ -718,42 +368,73 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
 
   worstSeverity = computed(() => this.group()?.summary.worst_severity ?? 'none');
 
-  impactedCount = computed(() => {
+  verdictSummary = computed(() => {
     const g = this.group();
-    if (!g) return 0;
-    return g.summary.devices.filter(
-      (d) => d.impact_severity && d.impact_severity !== 'none',
-    ).length;
+    if (!g) return '';
+    const parts: string[] = [];
+
+    // Validation summary
+    const checks = g.summary.validation_summary;
+    const failedChecks = checks.filter((c) => c.failed > 0);
+    if (failedChecks.length > 0) {
+      const names = failedChecks.map((c) => c.check_name.replace(/_/g, ' ')).join(', ');
+      parts.push(`${failedChecks.length} validation failure${failedChecks.length > 1 ? 's' : ''} (${names})`);
+    } else if (checks.length > 0) {
+      parts.push('all validation checks passed');
+    }
+
+    // Incidents
+    const totalIncidents = g.summary.devices.reduce(
+      (sum, d) => sum + d.active_incidents.length,
+      0,
+    );
+    if (totalIncidents > 0) {
+      const unresolved = g.summary.devices.reduce(
+        (sum, d) => sum + d.active_incidents.filter((i) => !i.resolved).length,
+        0,
+      );
+      const label = unresolved > 0 ? `${unresolved} unresolved` : 'all resolved';
+      parts.push(`${totalIncidents} incident${totalIncidents > 1 ? 's' : ''} (${label})`);
+    }
+
+    // SLE
+    const sleEntries = Object.values(g.summary.sle_summary);
+    const degraded = sleEntries.filter((e) => e.delta_pct < -5);
+    if (degraded.length > 0) {
+      parts.push(`SLE degraded (${degraded.map((d) => d.metric).join(', ')})`);
+    } else if (sleEntries.length > 0) {
+      parts.push('SLE stable');
+    }
+
+    if (parts.length === 0) {
+      return `Configuration change applied to ${g.summary.total_devices} device${g.summary.total_devices !== 1 ? 's' : ''} with no impact detected.`;
+    }
+
+    return parts.join(' \u2014 ');
   });
 
-  sleSummaryEntries = computed<SLEDeltaSummary[]>(() => {
-    const g = this.group();
-    if (!g) return [];
-    return Object.values(g.summary.sle_summary);
+  chatMessages = computed<ChatMessage[]>(() => {
+    const timeline = this.group()?.timeline ?? [];
+    let lastAnalysisIdx = -1;
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].type === 'ai_analysis') {
+        lastAnalysisIdx = i;
+        break;
+      }
+    }
+    return timeline
+      .map((entry, idx) => this._timelineToChat(entry, idx, lastAnalysisIdx))
+      .filter((msg): msg is ChatMessage => msg !== null);
   });
-
-  aiAssessmentHtml = computed(() => {
-    const ai = this.group()?.ai_assessment;
-    if (!ai) return '';
-    const summary = ai['summary'] as string | undefined;
-    return summary ? renderMarkdown(summary) : '';
-  });
-
-  aiRecommendations = computed<string[]>(() => {
-    const ai = this.group()?.ai_assessment;
-    if (!ai) return [];
-    return (ai['recommendations'] as string[]) ?? [];
-  });
-
-  deviceColumns = ['impact', 'device', 'type', 'site', 'status', 'failed_checks'];
-
-  deviceTypeIcon = _deviceTypeIcon;
-  formatDeviceType = _formatDeviceType;
 
   ngOnInit(): void {
     this.groupId = this.route.snapshot.paramMap.get('id') ?? '';
     this.topbarService.setTitle('Change Group');
     this.loadGroup();
+    this.llmService.getStatus().subscribe({
+      next: (status) => this.llmEnabled.set(status.enabled),
+      error: () => this.llmEnabled.set(false),
+    });
   }
 
   loadGroup(): void {
@@ -813,12 +494,73 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
     this.router.navigate(['/impact-analysis']);
   }
 
-  checkLabel(key: string): string {
-    return VALIDATION_CHECK_LABELS[key] ?? key.replace(/_/g, ' ');
+  onChatMessageSent(): void {
+    this.loadGroup();
   }
 
-  sleLabel(key: string): string {
-    return SLE_METRIC_LABELS[key] ?? key;
+  private _timelineToChat(
+    entry: TimelineEntryResponse,
+    idx: number,
+    lastAnalysisIdx: number,
+  ): ChatMessage | null {
+    if (entry.type === 'status_change') return null;
+    if (entry.type === 'ai_analysis' && idx !== lastAnalysisIdx) return null;
+
+    const id = `tl-${chatMsgCounter++}`;
+    const timestamp = entry.timestamp;
+
+    switch (entry.type) {
+      case 'ai_narration':
+        return {
+          id,
+          role: 'ai',
+          type: 'narration',
+          content: entry.title,
+          html: renderMarkdown(entry.title),
+          timestamp,
+          severity: entry.severity || undefined,
+        };
+
+      case 'ai_analysis': {
+        const fullSummary =
+          (this.group()?.ai_assessment?.['summary'] as string) ||
+          (entry.data['summary'] as string) ||
+          entry.title;
+        return {
+          id,
+          role: 'ai',
+          type: 'analysis',
+          content: fullSummary,
+          html: renderMarkdown(fullSummary),
+          timestamp,
+          severity: entry.severity || undefined,
+        };
+      }
+
+      case 'chat_message': {
+        const role = entry.data['role'] as string;
+        const content = (entry.data['content'] as string) || entry.title;
+        return {
+          id,
+          role: role === 'user' ? 'user' : 'ai',
+          type: 'chat',
+          content,
+          html: role === 'user' ? '' : renderMarkdown(content),
+          timestamp,
+        };
+      }
+
+      default:
+        return {
+          id,
+          role: 'system',
+          type: 'event',
+          content: entry.title,
+          html: '',
+          timestamp,
+          severity: entry.severity || undefined,
+        };
+    }
   }
 
   private subscribeToUpdates(): void {
