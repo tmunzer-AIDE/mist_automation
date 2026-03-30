@@ -482,7 +482,11 @@ export class ImpactChatPanelComponent {
     const text = this.userInput.trim();
     const sid = this.sessionId();
     const gid = this.groupId();
-    if (!text || (!sid && !gid) || this.sending()) return;
+    if (!text || this.sending()) return;
+    if (!sid && !gid) {
+      this.error.set('Cannot send message: no active session or group is selected.');
+      return;
+    }
 
     this.userInput = '';
     this.error.set(null);
