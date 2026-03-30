@@ -65,6 +65,7 @@ def _session_to_response(session: MonitoringSession) -> SessionResponse:
         incident_count=len(session.incidents),
         has_impact=has_impact,
         impact_severity=session.impact_severity,
+        change_group_id=str(session.change_group_id) if session.change_group_id else None,
         duration_minutes=session.duration_minutes,
         polls_completed=session.polls_completed,
         polls_total=session.polls_total,

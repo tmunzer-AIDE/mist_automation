@@ -43,6 +43,7 @@ export interface SessionResponse {
   incident_count: number;
   has_impact: boolean;
   impact_severity: string;
+  change_group_id: string | null;
   duration_minutes: number;
   polls_completed: number;
   polls_total: number;

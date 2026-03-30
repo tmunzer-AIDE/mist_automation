@@ -11,7 +11,7 @@ import {
   effect,
 } from '@angular/core';
 import { TitleCasePipe } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -51,6 +51,7 @@ let chatMsgCounter = 0;
   standalone: true,
   imports: [
     TitleCasePipe,
+    RouterLink,
     MatIconModule,
     MatButtonModule,
     MatProgressBarModule,
@@ -270,8 +271,8 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     // for accurate time-based progress. Before that, use created_at as start
     // and estimate based on the session's progress.percent from the backend.
     if (s.monitoring_started_at && s.monitoring_ends_at) {
-      const start = new Date(s.monitoring_started_at).getTime();
-      const end = new Date(s.monitoring_ends_at).getTime();
+      const start = new Date(this.ensureUtc(s.monitoring_started_at)).getTime();
+      const end = new Date(this.ensureUtc(s.monitoring_ends_at)).getTime();
       const now = Date.now();
       const percent = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
       this.timeProgress.set(Math.round(percent));
@@ -281,6 +282,11 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     } else {
       this.timeProgress.set(0);
     }
+  }
+
+  private ensureUtc(value: string): string {
+    if (/[Zz]$/.test(value) || /[+-]\d{2}:\d{2}$/.test(value)) return value;
+    return value + 'Z';
   }
 
   private _timelineToChat(
@@ -376,8 +382,11 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
                   (msg.data['monitoring_ends_at'] as string) ?? current.monitoring_ends_at,
               };
               this.session.set(updated);
-              // Start time progress if monitoring just started
-              if (updated.monitoring_started_at && !this.progressInterval) {
+              if (['completed', 'failed', 'cancelled'].includes(updated.status)) {
+                this.stopTimeProgress();
+                if (updated.status === 'completed') this.timeProgress.set(100);
+              } else if (updated.monitoring_started_at && !this.progressInterval) {
+                // Start time progress if monitoring just started
                 this.startTimeProgress();
               }
             }

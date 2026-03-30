@@ -1,3 +1,31 @@
+// ── Breadcrumb ─────────────────────────────────────────────────────────────
+.breadcrumb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--app-info);
+  text-decoration: none;
+  font-size: 14px;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.breadcrumb-separator {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--app-neutral);
+  margin: 0 4px;
+}
+
 // ── Header ─────────────────────────────────────────────────────────────────
 .detail-header {
   display: flex;
@@ -118,7 +146,7 @@
 
 .verdict-content {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   flex: 1;
   min-width: 0;

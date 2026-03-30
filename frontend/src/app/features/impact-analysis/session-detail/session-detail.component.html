@@ -5,6 +5,12 @@
 @if (session(); as s) {
 <!-- Header -->
 <div class="detail-header">
+  @if (session()?.change_group_id) {
+    <a class="breadcrumb-link" [routerLink]="['/impact-analysis/group', session()!.change_group_id]">
+      <mat-icon>layers</mat-icon> Change Group
+    </a>
+    <mat-icon class="breadcrumb-separator">chevron_right</mat-icon>
+  }
   <button mat-icon-button (click)="goBack()" matTooltip="Back to list">
     <mat-icon>arrow_back</mat-icon>
   </button>

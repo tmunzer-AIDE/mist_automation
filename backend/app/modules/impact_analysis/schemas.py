@@ -64,6 +64,7 @@ class SessionResponse(BaseModel):
     incident_count: int
     has_impact: bool
     impact_severity: str = Field(default="none")
+    change_group_id: str | None = Field(default=None)
     duration_minutes: int
     polls_completed: int
     polls_total: int
