@@ -58,6 +58,19 @@
   color: var(--app-neutral);
 }
 
+.device-counts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.device-count-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
 .mini-progress {
   width: 80px;
 

@@ -31,97 +31,233 @@
       </button>
     }
   </div>
+
+  <button
+    mat-icon-button
+    (click)="toggleViewMode()"
+    [matTooltip]="
+      viewMode() === 'groups' ? 'Show individual sessions' : 'Show change groups'
+    "
+  >
+    <mat-icon>{{ viewMode() === 'groups' ? 'list' : 'layers' }}</mat-icon>
+  </button>
 </div>
 
-@if (!loading() && sessions().length === 0) {
+@if (
+  !loading() &&
+  (viewMode() === 'groups' ? groups().length === 0 : sessions().length === 0)
+) {
   <app-empty-state
     icon="analytics"
-    title="No impact analysis sessions"
-    message="Sessions are created automatically when config changes are detected via webhooks."
+    [title]="
+      viewMode() === 'groups'
+        ? 'No change groups'
+        : 'No impact analysis sessions'
+    "
+    [message]="
+      viewMode() === 'groups'
+        ? 'Groups are created automatically when config changes are detected via webhooks.'
+        : 'Sessions are created automatically when config changes are detected via webhooks.'
+    "
   ></app-empty-state>
 } @else {
   <div class="table-card">
     @if (loading()) {
       <app-skeleton-loader [rows]="8" [columns]="7"></app-skeleton-loader>
     } @else {
-    <table mat-table [dataSource]="sessions()" class="mat-elevation-z0">
-      <!-- Device Name -->
-      <ng-container matColumnDef="device_name">
-        <th mat-header-cell *matHeaderCellDef>Device</th>
-        <td mat-cell *matCellDef="let row">
-          <div class="device-cell">
-            <mat-icon class="device-icon">{{ deviceTypeIcon(row.device_type) }}</mat-icon>
-            <span>{{ row.device_name || row.device_mac }}</span>
-          </div>
-        </td>
-      </ng-container>
+      @switch (viewMode()) {
+        @case ('groups') {
+          <table mat-table [dataSource]="groups()" class="mat-elevation-z0">
+            <!-- Worst Severity -->
+            <ng-container matColumnDef="worst_severity">
+              <th mat-header-cell *matHeaderCellDef>Impact</th>
+              <td mat-cell *matCellDef="let row">
+                @if (
+                  row.summary.worst_severity &&
+                  row.summary.worst_severity !== 'none'
+                ) {
+                  <app-status-badge
+                    [status]="row.summary.worst_severity"
+                  ></app-status-badge>
+                } @else if (row.summary.status === 'completed') {
+                  <app-status-badge status="none"></app-status-badge>
+                }
+              </td>
+            </ng-container>
 
-      <!-- Device Type -->
-      <ng-container matColumnDef="device_type">
-        <th mat-header-cell *matHeaderCellDef>Type</th>
-        <td mat-cell *matCellDef="let row">{{ formatDeviceType(row.device_type) }}</td>
-      </ng-container>
+            <!-- Change Description -->
+            <ng-container matColumnDef="change_description">
+              <th mat-header-cell *matHeaderCellDef>Change</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.change_description }}
+              </td>
+            </ng-container>
 
-      <!-- Site Name -->
-      <ng-container matColumnDef="site_name">
-        <th mat-header-cell *matHeaderCellDef>Site</th>
-        <td mat-cell *matCellDef="let row">{{ row.site_name }}</td>
-      </ng-container>
+            <!-- Triggered By -->
+            <ng-container matColumnDef="triggered_by">
+              <th mat-header-cell *matHeaderCellDef>Triggered By</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.triggered_by || '—' }}
+              </td>
+            </ng-container>
 
-      <!-- Config Changes Count -->
-      <ng-container matColumnDef="config_change_count">
-        <th mat-header-cell *matHeaderCellDef>Changes</th>
-        <td mat-cell *matCellDef="let row">{{ row.config_change_count }}</td>
-      </ng-container>
+            <!-- Device Count with type icons -->
+            <ng-container matColumnDef="device_count">
+              <th mat-header-cell *matHeaderCellDef>Devices</th>
+              <td mat-cell *matCellDef="let row">
+                <div class="device-counts">
+                  @for (
+                    entry of row.summary.by_type | keyvalue;
+                    track entry.key
+                  ) {
+                    <span class="device-count-chip">
+                      <mat-icon class="device-icon">{{
+                        deviceTypeIcon($any(entry.key))
+                      }}</mat-icon>
+                      {{ $any(entry.value).total }}
+                    </span>
+                  }
+                </div>
+              </td>
+            </ng-container>
 
-      <!-- Progress -->
-      <ng-container matColumnDef="progress">
-        <th mat-header-cell *matHeaderCellDef>Progress</th>
-        <td mat-cell *matCellDef="let row">
-          <div class="mini-progress">
-            <mat-progress-bar
-              [mode]="row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled' ? 'determinate' : 'determinate'"
-              [value]="row.progress?.percent ?? 0"
-              [class]="'bar-' + row.status"
-            ></mat-progress-bar>
-          </div>
-        </td>
-      </ng-container>
+            <!-- Status -->
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let row">
+                <app-status-badge
+                  [status]="row.summary.status"
+                ></app-status-badge>
+              </td>
+            </ng-container>
 
-      <!-- Created At -->
-      <ng-container matColumnDef="created_at">
-        <th mat-header-cell *matHeaderCellDef>Detected</th>
-        <td mat-cell *matCellDef="let row">{{ row.created_at | dateTime: 'short' }}</td>
-      </ng-container>
+            <!-- Created At -->
+            <ng-container matColumnDef="created_at">
+              <th mat-header-cell *matHeaderCellDef>Detected</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.created_at | dateTime: 'short' }}
+              </td>
+            </ng-container>
 
-      <!-- Impact Severity (first column, most important) -->
-      <ng-container matColumnDef="has_impact">
-        <th mat-header-cell *matHeaderCellDef>Impact</th>
-        <td mat-cell *matCellDef="let row">
-          @if (row.impact_severity && row.impact_severity !== 'none') {
-            <app-status-badge [status]="row.impact_severity"></app-status-badge>
-          } @else if (row.status === 'completed') {
-            <app-status-badge status="none"></app-status-badge>
-          }
-        </td>
-      </ng-container>
+            <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
+            <tr
+              mat-row
+              *matRowDef="let row; columns: groupColumns"
+              class="clickable-row"
+              (click)="viewGroup(row)"
+            ></tr>
+          </table>
+        }
+        @case ('sessions') {
+          <table mat-table [dataSource]="sessions()" class="mat-elevation-z0">
+            <!-- Device Name -->
+            <ng-container matColumnDef="device_name">
+              <th mat-header-cell *matHeaderCellDef>Device</th>
+              <td mat-cell *matCellDef="let row">
+                <div class="device-cell">
+                  <mat-icon class="device-icon">{{
+                    deviceTypeIcon(row.device_type)
+                  }}</mat-icon>
+                  <span>{{ row.device_name || row.device_mac }}</span>
+                </div>
+              </td>
+            </ng-container>
 
-      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-      <tr
-        mat-row
-        *matRowDef="let row; columns: displayedColumns"
-        class="clickable-row"
-        (click)="viewSession(row)"
-      ></tr>
-    </table>
+            <!-- Device Type -->
+            <ng-container matColumnDef="device_type">
+              <th mat-header-cell *matHeaderCellDef>Type</th>
+              <td mat-cell *matCellDef="let row">{{
+                formatDeviceType(row.device_type)
+              }}</td>
+            </ng-container>
+
+            <!-- Site Name -->
+            <ng-container matColumnDef="site_name">
+              <th mat-header-cell *matHeaderCellDef>Site</th>
+              <td mat-cell *matCellDef="let row">{{ row.site_name }}</td>
+            </ng-container>
+
+            <!-- Config Changes Count -->
+            <ng-container matColumnDef="config_change_count">
+              <th mat-header-cell *matHeaderCellDef>Changes</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.config_change_count }}
+              </td>
+            </ng-container>
+
+            <!-- Progress -->
+            <ng-container matColumnDef="progress">
+              <th mat-header-cell *matHeaderCellDef>Progress</th>
+              <td mat-cell *matCellDef="let row">
+                <div class="mini-progress">
+                  <mat-progress-bar
+                    [mode]="
+                      row.status === 'completed' ||
+                      row.status === 'failed' ||
+                      row.status === 'cancelled'
+                        ? 'determinate'
+                        : 'determinate'
+                    "
+                    [value]="row.progress?.percent ?? 0"
+                    [class]="'bar-' + row.status"
+                  ></mat-progress-bar>
+                </div>
+              </td>
+            </ng-container>
+
+            <!-- Created At -->
+            <ng-container matColumnDef="created_at">
+              <th mat-header-cell *matHeaderCellDef>Detected</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.created_at | dateTime: 'short' }}
+              </td>
+            </ng-container>
+
+            <!-- Impact Severity (first column, most important) -->
+            <ng-container matColumnDef="has_impact">
+              <th mat-header-cell *matHeaderCellDef>Impact</th>
+              <td mat-cell *matCellDef="let row">
+                @if (
+                  row.impact_severity &&
+                  row.impact_severity !== 'none'
+                ) {
+                  <app-status-badge
+                    [status]="row.impact_severity"
+                  ></app-status-badge>
+                } @else if (row.status === 'completed') {
+                  <app-status-badge status="none"></app-status-badge>
+                }
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+            <tr
+              mat-row
+              *matRowDef="let row; columns: displayedColumns"
+              class="clickable-row"
+              (click)="viewSession(row)"
+            ></tr>
+          </table>
+        }
+      }
     }
 
-    <mat-paginator
-      [length]="total()"
-      [pageSize]="pageSize"
-      [pageIndex]="pageIndex"
-      [pageSizeOptions]="[25, 50, 100]"
-      (page)="onPage($event)"
-    ></mat-paginator>
+    @if (viewMode() === 'groups') {
+      <mat-paginator
+        [length]="groupTotal()"
+        [pageSize]="pageSize"
+        [pageIndex]="pageIndex"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onGroupPage($event)"
+      ></mat-paginator>
+    } @else {
+      <mat-paginator
+        [length]="total()"
+        [pageSize]="pageSize"
+        [pageIndex]="pageIndex"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onPage($event)"
+      ></mat-paginator>
+    }
   </div>
 }

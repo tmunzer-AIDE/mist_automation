@@ -1,4 +1,5 @@
 import { Component, computed, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { KeyValuePipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
@@ -23,7 +24,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
-import { SessionResponse } from '../models/impact-analysis.model';
+import { ChangeGroupResponse, SessionResponse } from '../models/impact-analysis.model';
 import {
   deviceTypeIcon as _deviceTypeIcon,
   formatDeviceType as _formatDeviceType,
@@ -48,6 +49,7 @@ import {
     StatusBadgeComponent,
     EmptyStateComponent,
     DateTimePipe,
+    KeyValuePipe,
   ],
   templateUrl: './session-list.component.html',
   styleUrl: './session-list.component.scss',
@@ -62,6 +64,9 @@ export class SessionListComponent implements OnInit {
 
   sessions = signal<SessionResponse[]>([]);
   total = signal(0);
+  groups = signal<ChangeGroupResponse[]>([]);
+  groupTotal = signal(0);
+  viewMode = signal<'groups' | 'sessions'>('groups');
   loading = signal(true);
   pageSize = 25;
   pageIndex = 0;
@@ -99,6 +104,15 @@ export class SessionListComponent implements OnInit {
     'progress',
   ];
 
+  groupColumns = [
+    'worst_severity',
+    'change_description',
+    'triggered_by',
+    'device_count',
+    'status',
+    'created_at',
+  ];
+
   readonly deviceTypes = ['ap', 'switch', 'gateway'];
 
   ngOnInit(): void {
@@ -107,7 +121,7 @@ export class SessionListComponent implements OnInit {
       page: 'Impact Analysis',
       details: { view: 'Session list' },
     });
-    this.loadSessions();
+    this.loadGroups();
     this.subscribeToSummary();
   }
 
@@ -140,13 +154,21 @@ export class SessionListComponent implements OnInit {
 
   onStatusChange(): void {
     this.pageIndex = 0;
-    this.loadSessions();
+    if (this.viewMode() === 'groups') {
+      this.loadGroups();
+    } else {
+      this.loadSessions();
+    }
   }
 
   toggleDeviceType(type: string): void {
     this.activeDeviceType.set(this.activeDeviceType() === type ? '' : type);
     this.pageIndex = 0;
-    this.loadSessions();
+    if (this.viewMode() === 'groups') {
+      this.loadGroups();
+    } else {
+      this.loadSessions();
+    }
   }
 
   viewSession(session: SessionResponse): void {
@@ -179,13 +201,56 @@ export class SessionListComponent implements OnInit {
     return Math.round((session.polls_completed / session.polls_total) * 100);
   }
 
+  loadGroups(): void {
+    this.loading.set(true);
+    const params: Record<string, string | number> = {
+      limit: this.pageSize,
+      skip: this.pageIndex * this.pageSize,
+    };
+    if (this.statusFilter.value) {
+      params['status'] = this.statusFilter.value;
+    }
+    this.service.getGroups(params).subscribe({
+      next: (res) => {
+        this.groups.set(res.groups);
+        this.groupTotal.set(res.total);
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false),
+    });
+  }
+
+  toggleViewMode(): void {
+    this.viewMode.update((m) => (m === 'groups' ? 'sessions' : 'groups'));
+    this.pageIndex = 0;
+    if (this.viewMode() === 'groups') {
+      this.loadGroups();
+    } else {
+      this.loadSessions();
+    }
+  }
+
+  viewGroup(group: ChangeGroupResponse): void {
+    this.router.navigate(['/impact-analysis/group', group.id]);
+  }
+
+  onGroupPage(event: PageEvent): void {
+    this.pageIndex = event.pageIndex;
+    this.pageSize = event.pageSize;
+    this.loadGroups();
+  }
+
   private subscribeToSummary(): void {
     this.wsService
       .subscribe<{ type: string; data: unknown }>('impact:summary')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((msg) => {
         if (msg.type === 'summary_update') {
-          this.loadSessions();
+          if (this.viewMode() === 'groups') {
+            this.loadGroups();
+          } else {
+            this.loadSessions();
+          }
         }
       });
   }
