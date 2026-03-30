@@ -414,9 +414,27 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
         break;
       }
     }
-    return timeline
+    const messages = timeline
       .map((entry, idx) => this._timelineToChat(entry, idx, lastAnalysisIdx))
       .filter((msg): msg is ChatMessage => msg !== null);
+
+    // Aggregate consecutive system events with the same title (e.g., "SLE check 1/6" x3 devices)
+    const aggregated: ChatMessage[] = [];
+    for (const msg of messages) {
+      const prev = aggregated[aggregated.length - 1];
+      if (
+        msg.role === 'system' &&
+        prev?.role === 'system' &&
+        msg.content === prev.content
+      ) {
+        const match = prev.content.match(/\((\d+) devices\)$/);
+        const count = match ? parseInt(match[1], 10) + 1 : 2;
+        prev.content = prev.content.replace(/ \(\d+ devices\)$/, '') + ` (${count} devices)`;
+        continue;
+      }
+      aggregated.push(msg);
+    }
+    return aggregated;
   });
 
   ngOnInit(): void {
