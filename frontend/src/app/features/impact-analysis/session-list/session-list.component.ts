@@ -12,6 +12,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import {
@@ -44,6 +45,7 @@ import {
     MatInputModule,
     MatChipsModule,
     MatProgressBarModule,
+    MatSelectModule,
     MatTooltipModule,
     SkeletonLoaderComponent,
     StatusBadgeComponent,
@@ -220,10 +222,10 @@ export class SessionListComponent implements OnInit {
     });
   }
 
-  toggleViewMode(): void {
-    this.viewMode.update((m) => (m === 'groups' ? 'sessions' : 'groups'));
+  onViewModeChange(mode: 'groups' | 'sessions'): void {
+    this.viewMode.set(mode);
     this.pageIndex = 0;
-    if (this.viewMode() === 'groups') {
+    if (mode === 'groups') {
       this.loadGroups();
     } else {
       this.loadSessions();

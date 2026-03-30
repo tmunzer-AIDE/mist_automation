@@ -1,5 +1,13 @@
 <!-- Filters toolbar -->
 <div class="filters-toolbar">
+  <mat-form-field appearance="outline" class="view-mode-filter">
+    <mat-label>View</mat-label>
+    <mat-select [value]="viewMode()" (selectionChange)="onViewModeChange($event.value)">
+      <mat-option value="groups">Change Groups</mat-option>
+      <mat-option value="sessions">Sessions</mat-option>
+    </mat-select>
+  </mat-form-field>
+
   <mat-form-field appearance="outline" class="status-filter">
     <mat-label>Status</mat-label>
     <input
@@ -31,16 +39,6 @@
       </button>
     }
   </div>
-
-  <button
-    mat-icon-button
-    (click)="toggleViewMode()"
-    [matTooltip]="
-      viewMode() === 'groups' ? 'Show individual sessions' : 'Show change groups'
-    "
-  >
-    <mat-icon>{{ viewMode() === 'groups' ? 'list' : 'layers' }}</mat-icon>
-  </button>
 </div>
 
 @if (
