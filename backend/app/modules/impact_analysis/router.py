@@ -12,6 +12,7 @@ from app.core.tasks import create_background_task
 from app.dependencies import require_admin, require_impact_role
 from app.models.system import SystemConfig
 from app.models.user import User
+from app.modules.impact_analysis.change_group import ChangeGroup
 from app.modules.impact_analysis.models import (
     ConfigChangeEvent,
     DeviceType,
@@ -19,7 +20,11 @@ from app.modules.impact_analysis.models import (
     SessionStatus,
 )
 from app.modules.impact_analysis.schemas import (
+    ChangeGroupDetailResponse,
+    ChangeGroupListResponse,
+    ChangeGroupResponse,
     ConfigChangeEventResponse,
+    GroupSummaryResponse,
     CreateSessionRequest,
     DeviceIncidentResponse,
     ImpactSettingsResponse,
@@ -136,12 +141,80 @@ def _session_to_detail_response(session: MonitoringSession) -> SessionDetailResp
     )
 
 
+def _group_to_response(group: ChangeGroup) -> ChangeGroupResponse:
+    """Build a ChangeGroupResponse from a ChangeGroup document."""
+    return ChangeGroupResponse(
+        id=str(group.id),
+        audit_id=group.audit_id,
+        org_id=group.org_id,
+        site_id=group.site_id,
+        change_source=group.change_source,
+        change_description=group.change_description,
+        triggered_by=group.triggered_by,
+        triggered_at=group.triggered_at,
+        session_count=len(group.session_ids),
+        summary=GroupSummaryResponse(**group.summary.model_dump(mode="json")),
+        ai_assessment=group.ai_assessment,
+        ai_assessment_error=group.ai_assessment_error,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+def _group_to_detail_response(group: ChangeGroup) -> ChangeGroupDetailResponse:
+    """Build a ChangeGroupDetailResponse from a ChangeGroup document."""
+    base = _group_to_response(group)
+    return ChangeGroupDetailResponse(
+        **base.model_dump(),
+        timeline=[
+            TimelineEntryResponse(
+                timestamp=e.timestamp,
+                type=e.type.value,
+                title=e.title,
+                severity=e.severity,
+                data=e.data,
+            )
+            for e in group.timeline
+        ],
+    )
+
+
 async def _get_session(session_id: PydanticObjectId) -> MonitoringSession:
     """Fetch a session by ID or raise 404."""
     session = await MonitoringSession.get(session_id)
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return session
+
+
+async def _get_group(group_id: PydanticObjectId) -> ChangeGroup:
+    """Fetch a change group by ID or raise 404."""
+    group = await ChangeGroup.get(group_id)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Change group not found")
+    return group
+
+
+def _build_group_context(group: ChangeGroup) -> str:
+    """Build context string for group-level AI chat."""
+    parts = [
+        f"Change Group: {group.change_description}",
+        f"Source: {group.change_source}",
+        f"Triggered by: {group.triggered_by or 'unknown'}",
+        f"Devices: {group.summary.total_devices}",
+        f"Status: {group.summary.status}",
+        f"Worst severity: {group.summary.worst_severity}",
+    ]
+    if group.summary.devices:
+        parts.append("\nDevice Summary:")
+        for d in group.summary.devices:
+            line = f"  - {d.device_name} ({d.device_type}): {d.status}, severity={d.impact_severity}"
+            if d.failed_checks:
+                line += f", failed=[{', '.join(d.failed_checks)}]"
+            parts.append(line)
+    if group.ai_assessment and group.ai_assessment.get("summary"):
+        parts.append(f"\nPrevious AI Assessment: {group.ai_assessment['summary'][:500]}")
+    return "\n".join(parts)
 
 
 # ── Session CRUD ──────────────────────────────────────────────────────────
@@ -357,9 +430,12 @@ async def get_session_logs(
 async def get_summary(
     _current_user: User = Depends(require_impact_role),
 ) -> SessionSummaryResponse:
-    """Get dashboard summary counts for impact analysis sessions."""
-    counts = await session_manager.get_session_summary()
-    return SessionSummaryResponse(**counts)
+    """Get dashboard summary counts."""
+    summary = await session_manager.get_session_summary()
+    from app.modules.impact_analysis.services.change_group_service import get_group_summary_counts
+
+    group_counts = await get_group_summary_counts()
+    return SessionSummaryResponse(**summary, **group_counts)
 
 
 # ── SLE data ──────────────────────────────────────────────────────────────
@@ -465,9 +541,7 @@ async def session_chat(
     )
 
     # Get or create conversation thread for this session
-    thread = await _load_or_create_thread(
-        session.conversation_thread_id, current_user.id, "impact_analysis_chat", []
-    )
+    thread = await _load_or_create_thread(session.conversation_thread_id, current_user.id, "impact_analysis_chat", [])
 
     # Persist thread ID on session if this is the first message
     if not session.conversation_thread_id:
@@ -554,6 +628,229 @@ async def get_session(
     """Get full session detail including SLE data, incidents, and AI assessment."""
     session = await _get_session(session_id)
     return _session_to_detail_response(session)
+
+
+# ── Change Groups ────────────────────────────────────────────────────────
+
+
+@router.get("/impact-analysis/groups", response_model=ChangeGroupListResponse)
+async def list_groups(
+    status_filter: str | None = Query(None, alias="status", description="Comma-separated status filter"),
+    severity: str | None = Query(None, description="Filter by worst_severity"),
+    limit: int = Query(25, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    _current_user: User = Depends(require_impact_role),
+) -> ChangeGroupListResponse:
+    """List change groups with optional filtering."""
+    query: dict = {}
+
+    if status_filter:
+        statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
+        if statuses:
+            query["summary.status"] = {"$in": statuses}
+
+    if severity:
+        query["summary.worst_severity"] = severity
+
+    pipeline: list[dict] = [{"$match": query}, {"$sort": {"created_at": -1}}]
+    facet_pipeline = pipeline + [
+        {
+            "$facet": {
+                "total": [{"$count": "n"}],
+                "items": [{"$skip": skip}, {"$limit": limit}],
+            }
+        }
+    ]
+
+    results = await ChangeGroup.aggregate(facet_pipeline).to_list()
+    row = results[0] if results else {}
+    total = row.get("total", [{}])[0].get("n", 0) if row.get("total") else 0
+    item_dicts = row.get("items", [])
+
+    # Re-fetch as documents so we get proper Pydantic model instances
+    item_ids = [item["_id"] for item in item_dicts]
+    groups = await ChangeGroup.find({"_id": {"$in": item_ids}}).sort("-created_at").to_list()
+
+    return ChangeGroupListResponse(
+        groups=[_group_to_response(g) for g in groups],
+        total=total,
+    )
+
+
+@router.post("/impact-analysis/groups/{group_id}/cancel", response_model=ChangeGroupDetailResponse)
+async def cancel_group(
+    group_id: PydanticObjectId,
+    _current_user: User = Depends(require_impact_role),
+) -> ChangeGroupDetailResponse:
+    """Cancel all active sessions in a change group."""
+    group = await _get_group(group_id)
+
+    cancelled_count = 0
+    for session_id in group.session_ids:
+        result = await session_manager.cancel_session(str(session_id))
+        if result:
+            cancelled_count += 1
+
+    if cancelled_count > 0:
+        # Refresh the group summary after cancellations
+        from app.modules.impact_analysis.services.change_group_service import update_summary
+
+        await update_summary(group.id)
+
+    # Re-fetch group to get updated state
+    group = await _get_group(group_id)
+
+    logger.info(
+        "group_cancelled",
+        group_id=str(group_id),
+        cancelled_sessions=cancelled_count,
+        user_id=str(_current_user.id),
+    )
+    return _group_to_detail_response(group)
+
+
+@router.post("/impact-analysis/groups/{group_id}/analyze", response_model=ChangeGroupDetailResponse)
+async def analyze_group(
+    group_id: PydanticObjectId,
+    _current_user: User = Depends(require_impact_role),
+) -> ChangeGroupDetailResponse:
+    """Trigger AI analysis on a change group."""
+    group = await _get_group(group_id)
+
+    from app.modules.impact_analysis.services.change_group_service import trigger_group_ai_analysis
+
+    create_background_task(
+        trigger_group_ai_analysis(str(group.id)),
+        name=f"group-ai-{group.id}",
+    )
+
+    logger.info("group_analyze_triggered", group_id=str(group_id), user_id=str(_current_user.id))
+    return _group_to_detail_response(group)
+
+
+@router.post("/impact-analysis/groups/{group_id}/chat", response_model=SessionChatResponse)
+async def group_chat(
+    group_id: PydanticObjectId,
+    request: SessionChatRequest,
+    current_user: User = Depends(require_impact_role),
+) -> SessionChatResponse:
+    """Send a message to the AI about this change group.
+
+    The AI has full context about the group (child sessions, devices, validation results,
+    SLE metrics, incidents) and access to MCP tools for querying app data.
+    """
+    from app.modules.llm.router import (
+        _agent_result_metadata,
+        _check_llm_rate_limit,
+        _load_external_mcp_clients,
+        _load_or_create_thread,
+        _make_tool_notifier,
+        _mcp_user_session,
+        _usage_dict_from_agent,
+    )
+
+    _check_llm_rate_limit(str(current_user.id))
+
+    from app.modules.llm.services.agent_service import AIAgentService
+    from app.modules.llm.services.llm_service_factory import create_llm_service
+    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
+
+    group = await _get_group(group_id)
+
+    # Build system prompt with group context
+    system_prompt = (
+        "You are an AI network engineer assistant analyzing the impact of a configuration change "
+        "across multiple devices in a Juniper Mist network. You have access to MCP tools to query "
+        "backups, workflows, device stats, and other app data. Be concise and technical. "
+        "Reference specific checks, metrics, and device details in your answers.\n\n"
+        f"Change group context:\n{_sanitize_for_prompt(_build_group_context(group), max_len=4000)}"
+    )
+
+    # Get or create conversation thread for this group
+    thread = await _load_or_create_thread(group.conversation_thread_id, current_user.id, "impact_group_chat", [])
+
+    # Persist thread ID on group if this is the first message
+    if not group.conversation_thread_id:
+        await ChangeGroup.find_one(
+            ChangeGroup.id == group.id,
+            ChangeGroup.conversation_thread_id == None,  # noqa: E711
+        ).update({"$set": {"conversation_thread_id": str(thread.id)}})
+
+    # Set/update system prompt
+    if not thread.messages:
+        thread.add_message("system", system_prompt)
+    elif thread.messages and thread.messages[0].role == "system":
+        thread.messages[0].content = system_prompt
+
+    # Add user message and persist
+    thread.add_message("user", request.message)
+    await thread.save()
+
+    # Run agent with MCP tools (local + optional external)
+    llm = await create_llm_service()
+    elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
+    external = await _load_external_mcp_clients(request.mcp_config_ids or [])
+    async with _mcp_user_session(
+        current_user.id, elicitation_channel=elicit_channel, extra_clients=external
+    ) as mcp_clients:
+        # Include conversation history
+        history = thread.get_messages_for_llm(max_turns=10)
+        context_summary = ""
+        if len(history) > 2:
+            prior_turns = [f"{m['role']}: {m['content'][:200]}" for m in history[1:-1]]
+            context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[-6:])
+
+        agent = AIAgentService(llm=llm, mcp_clients=mcp_clients, max_iterations=10)
+        result = await agent.run(
+            task=request.message,
+            system_prompt=system_prompt + context_summary,
+            on_tool_call=_make_tool_notifier(request.stream_id),
+        )
+
+    reply = result.result
+
+    # Store assistant reply
+    thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
+    await thread.save()
+
+    logger.info(
+        "group_chat_message",
+        group_id=str(group_id),
+        user_id=str(current_user.id),
+        thread_id=str(thread.id),
+    )
+
+    return SessionChatResponse(
+        reply=reply,
+        thread_id=str(thread.id),
+        usage=_usage_dict_from_agent(result),
+    )
+
+
+@router.get("/impact-analysis/groups/{group_id}/sessions", response_model=SessionListResponse)
+async def list_group_sessions(
+    group_id: PydanticObjectId,
+    _current_user: User = Depends(require_impact_role),
+) -> SessionListResponse:
+    """List all monitoring sessions belonging to a change group."""
+    group = await _get_group(group_id)
+
+    sessions = await MonitoringSession.find({"_id": {"$in": group.session_ids}}).sort("-created_at").to_list()
+
+    return SessionListResponse(
+        sessions=[_session_to_response(s) for s in sessions],
+        total=len(sessions),
+    )
+
+
+@router.get("/impact-analysis/groups/{group_id}", response_model=ChangeGroupDetailResponse)
+async def get_group(
+    group_id: PydanticObjectId,
+    _current_user: User = Depends(require_impact_role),
+) -> ChangeGroupDetailResponse:
+    """Get full change group detail including timeline."""
+    group = await _get_group(group_id)
+    return _group_to_detail_response(group)
 
 
 # ── Admin settings ────────────────────────────────────────────────────────
