@@ -95,7 +95,7 @@ function renderMarkdown(md: string): string {
               rows="1"
               class="chat-textarea"
               [(ngModel)]="userInput"
-              placeholder="Ask a question..."
+              [placeholder]="groupId() ? 'Ask about this change group...' : 'Ask a question...'"
               (keydown.enter)="onEnter($event)"
               (input)="autoGrow($event)"
               [disabled]="sending()"
@@ -363,8 +363,17 @@ export class ImpactChatPanelComponent {
   /** Chat messages mapped from timeline entries by the parent. */
   readonly messages = input.required<ChatMessage[]>();
 
-  /** Session ID for sending chat messages. */
-  readonly sessionId = input.required<string>();
+  /**
+   * Session ID for sending chat messages.
+   * If both sessionId and groupId are provided, groupId takes precedence.
+   */
+  readonly sessionId = input<string>('');
+
+  /**
+   * Group ID for sending group chat messages.
+   * If both groupId and sessionId are provided, groupId takes precedence.
+   */
+  readonly groupId = input<string>('');
 
   /** Whether the session is still actively running. */
   readonly isActive = input<boolean>(false);
@@ -478,24 +487,29 @@ export class ImpactChatPanelComponent {
   send(): void {
     const text = this.userInput.trim();
     const sid = this.sessionId();
-    if (!text || !sid || this.sending()) return;
+    const gid = this.groupId();
+    if (!text || this.sending()) return;
+    if (!sid && !gid) {
+      this.error.set('Cannot send message: no active session or group is selected.');
+      return;
+    }
 
     this.userInput = '';
     this.error.set(null);
     this.sending.set(true);
 
-    // Generate stream ID and subscribe to WS before the HTTP call
     const streamId = crypto.randomUUID();
     this.subscribeToStream(`llm:${streamId}`);
 
     const mcpIds = this.selectedMcpIds().length > 0 ? this.selectedMcpIds() : undefined;
-    this.impactService
-      .sendChatMessage(sid, text, streamId, mcpIds)
+    const request$ = gid
+      ? this.impactService.sendGroupChatMessage(gid, text, streamId, mcpIds)
+      : this.impactService.sendChatMessage(sid, text, streamId, mcpIds);
+
+    request$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          // HTTP response arrived — streaming is finalized by the 'done' WS event.
-          // The parent will refresh messages which includes the final AI reply.
           this.streaming.set(false);
           this.streamingContent.set('');
           this.sending.set(false);

@@ -87,6 +87,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
 
   private sessionId = '';
   private progressInterval: ReturnType<typeof setInterval> | null = null;
+  private wsSubscribed = false;
 
   isActive = computed(() => {
     const s = this.session()?.status;
@@ -360,6 +361,8 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   }
 
   private subscribeToProgress(): void {
+    if (this.wsSubscribed) return;
+    this.wsSubscribed = true;
     this.wsService
       .subscribe<{ type: string; data?: Record<string, unknown> }>(`impact:${this.sessionId}`)
       .pipe(takeUntilDestroyed(this.destroyRef))
