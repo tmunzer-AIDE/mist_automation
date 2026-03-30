@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest_asyncio
+import pytest
 
 from app.modules.power_scheduling.models import PowerSchedule, ScheduleWindow
 from app.modules.power_scheduling.services.scheduling_service import end_off_hours, start_off_hours
@@ -40,7 +40,7 @@ def _mock_ps_class():
 
 
 class TestStartOffHours:
-    @pytest_asyncio.fixture(autouse=True)
+    @pytest.fixture(autouse=True)
     async def cleanup(self):
         yield
         await clear_state("s1")
@@ -162,7 +162,7 @@ class TestStartOffHours:
 
 
 class TestEndOffHours:
-    @pytest_asyncio.fixture(autouse=True)
+    @pytest.fixture(autouse=True)
     async def cleanup(self):
         yield
         await clear_state("s1")

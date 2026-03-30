@@ -92,7 +92,7 @@ async def start_off_hours(schedule: PowerSchedule) -> None:
         else:
             async with get_lock(site_id):
                 state.pending_disable.add(ap_mac)
-            reason = "has_clients" if state.client_map.get(ap_mac) else "neighbor_has_clients"
+                reason = "has_clients" if state.client_map.get(ap_mac) else "neighbor_has_clients"
             await _log_event(site_id, "AP_PENDING", ap_mac=ap_mac, reason=reason)
 
     async with get_lock(site_id):
@@ -111,11 +111,13 @@ async def end_off_hours(schedule: PowerSchedule) -> None:
     async with get_lock(site_id):
         state.status = "TRANSITIONING_ON"
         disabled = dict(state.disabled_aps)
-        for task in state.grace_tasks.values():
+        tasks_to_cancel = list(state.grace_tasks.values())
+        for task in tasks_to_cancel:
             task.cancel()
-        await asyncio.gather(*state.grace_tasks.values(), return_exceptions=True)
         state.grace_tasks.clear()
         state.pending_disable.clear()
+
+    await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
 
     for ap_mac, original_profile in disabled.items():
         try:
@@ -319,7 +321,9 @@ async def _handle_rssi_update(
 async def _reevaluate_pending(site_id: str, state: PowerScheduleState, schedule: PowerSchedule) -> None:
     """Check if any pending_disable AP is now eligible after a client_map change."""
     async with get_lock(site_id):
-        now_eligible = [ap for ap in state.pending_disable if can_disable(ap, state, schedule)]
+        now_eligible = [
+            ap for ap in state.pending_disable if can_disable(ap, state, schedule) and ap not in state.grace_tasks
+        ]
 
     for ap_mac in now_eligible:
         await _log_event(site_id, "GRACE_TIMER_START", ap_mac=ap_mac, grace_minutes=schedule.grace_period_minutes)
@@ -328,4 +332,7 @@ async def _reevaluate_pending(site_id: str, state: PowerScheduleState, schedule:
             name=f"grace-{site_id}-{ap_mac}",
         )
         async with get_lock(site_id):
-            state.grace_tasks[ap_mac] = task
+            if ap_mac not in state.grace_tasks:  # double-check under lock
+                state.grace_tasks[ap_mac] = task
+            else:
+                task.cancel()
