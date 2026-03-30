@@ -84,6 +84,7 @@ class TimelineEntryResponse(BaseModel):
     title: str
     severity: str = ""
     data: dict = Field(default_factory=dict)
+    device_name: str | None = None
 
 
 class SessionDetailResponse(SessionResponse):

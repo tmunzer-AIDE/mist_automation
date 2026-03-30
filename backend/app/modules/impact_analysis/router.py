@@ -162,21 +162,55 @@ def _group_to_response(group: ChangeGroup) -> ChangeGroupResponse:
     )
 
 
-def _group_to_detail_response(group: ChangeGroup) -> ChangeGroupDetailResponse:
-    """Build a ChangeGroupDetailResponse from a ChangeGroup document."""
+async def _group_to_detail_response(group: ChangeGroup) -> ChangeGroupDetailResponse:
+    """Build a ChangeGroupDetailResponse from a ChangeGroup document.
+
+    Merges group-level timeline with per-device session timelines,
+    sorted chronologically.
+    """
     base = _group_to_response(group)
+
+    # Start with group-level timeline entries
+    timeline: list[TimelineEntryResponse] = [
+        TimelineEntryResponse(
+            timestamp=e.timestamp,
+            type=e.type.value,
+            title=e.title,
+            severity=e.severity,
+            data=e.data,
+        )
+        for e in group.timeline
+    ]
+
+    # Merge timelines from all child sessions
+    if group.session_ids:
+        sessions = await MonitoringSession.find({"_id": {"$in": group.session_ids}}).to_list()
+        for s in sessions:
+            device_label = s.device_name or s.device_mac
+            for e in s.timeline:
+                timeline.append(
+                    TimelineEntryResponse(
+                        timestamp=e.timestamp,
+                        type=e.type.value,
+                        title=e.title,
+                        severity=e.severity,
+                        data=e.data,
+                        device_name=device_label,
+                    )
+                )
+
+    # Sort by timestamp ascending (normalize tz-naive to UTC for comparison)
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    def _aware(ts: _dt) -> _dt:
+        return ts if ts.tzinfo else ts.replace(tzinfo=_tz.utc)
+
+    timeline.sort(key=lambda e: _aware(e.timestamp))
+
     return ChangeGroupDetailResponse(
         **base.model_dump(),
-        timeline=[
-            TimelineEntryResponse(
-                timestamp=e.timestamp,
-                type=e.type.value,
-                title=e.title,
-                severity=e.severity,
-                data=e.data,
-            )
-            for e in group.timeline
-        ],
+        timeline=timeline,
     )
 
 
@@ -707,7 +741,7 @@ async def cancel_group(
         cancelled_sessions=cancelled_count,
         user_id=str(_current_user.id),
     )
-    return _group_to_detail_response(group)
+    return await _group_to_detail_response(group)
 
 
 @router.post("/impact-analysis/groups/{group_id}/analyze", response_model=ChangeGroupDetailResponse)
@@ -726,7 +760,7 @@ async def analyze_group(
     )
 
     logger.info("group_analyze_triggered", group_id=str(group_id), user_id=str(_current_user.id))
-    return _group_to_detail_response(group)
+    return await _group_to_detail_response(group)
 
 
 @router.post("/impact-analysis/groups/{group_id}/chat", response_model=SessionChatResponse)
@@ -849,9 +883,9 @@ async def get_group(
     group_id: PydanticObjectId,
     _current_user: User = Depends(require_impact_role),
 ) -> ChangeGroupDetailResponse:
-    """Get full change group detail including timeline."""
+    """Get full change group detail including aggregated timeline."""
     group = await _get_group(group_id)
-    return _group_to_detail_response(group)
+    return await _group_to_detail_response(group)
 
 
 # ── Admin settings ────────────────────────────────────────────────────────

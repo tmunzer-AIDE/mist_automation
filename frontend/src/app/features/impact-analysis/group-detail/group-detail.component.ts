@@ -26,7 +26,6 @@ import {
   DeviceSummary,
   SLEDeltaSummary,
   SLE_METRIC_LABELS,
-  TimelineEntryResponse,
   VALIDATION_CHECK_LABELS,
 } from '../models/impact-analysis.model';
 import {
@@ -304,6 +303,9 @@ function renderMarkdown(md: string): string {
               <div class="timeline-entry" [class]="'tl-' + (entry.severity || 'info')">
                 <div class="tl-dot"></div>
                 <div class="tl-content">
+                  @if (entry.device_name) {
+                    <span class="tl-device">{{ entry.device_name }}</span>
+                  }
                   <div class="tl-title">{{ entry.title }}</div>
                   <div class="tl-time">{{ entry.timestamp | dateTime: 'short' }}</div>
                 </div>
@@ -659,6 +661,14 @@ function renderMarkdown(md: string): string {
         background: var(--app-success);
       }
 
+      .tl-device {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--app-info);
+        display: block;
+        margin-bottom: 1px;
+      }
+
       .tl-title {
         font-size: 13px;
         line-height: 1.4;
@@ -822,19 +832,9 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
           case 'group_update':
           case 'group_completed':
           case 'ai_analysis_completed':
+          case 'timeline_entry':
             this.loadGroup();
             break;
-          case 'timeline_entry': {
-            const current = this.group();
-            if (current && msg.data) {
-              const entry = msg.data as unknown as TimelineEntryResponse;
-              this.group.set({
-                ...current,
-                timeline: [...current.timeline, entry],
-              });
-            }
-            break;
-          }
         }
       });
   }

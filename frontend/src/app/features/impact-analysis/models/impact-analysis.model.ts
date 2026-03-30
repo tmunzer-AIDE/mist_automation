@@ -61,6 +61,7 @@ export interface TimelineEntryResponse {
   title: string;
   severity: string;
   data: Record<string, unknown>;
+  device_name: string | null;
 }
 
 export interface SessionDetailResponse extends SessionResponse {
