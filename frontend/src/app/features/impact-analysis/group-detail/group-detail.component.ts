@@ -105,15 +105,6 @@ let chatMsgCounter = 0;
               <mat-icon>stop</mat-icon>
               Cancel
             </button>
-          } @else {
-            <button
-              mat-stroked-button
-              (click)="reanalyzeGroup()"
-              [disabled]="reanalyzing()"
-            >
-              <mat-icon>refresh</mat-icon>
-              Re-analyze
-            </button>
           }
         </div>
       </div>
@@ -360,6 +351,7 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
   llmEnabled = signal(false);
 
   private groupId = '';
+  private wsSubscribed = false;
 
   isActive = computed(() => {
     const g = this.group();
@@ -564,6 +556,8 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
   }
 
   private subscribeToUpdates(): void {
+    if (this.wsSubscribed) return;
+    this.wsSubscribed = true;
     this.wsService
       .subscribe<{ type: string; data?: Record<string, unknown> }>(
         `impact:group:${this.groupId}`,
