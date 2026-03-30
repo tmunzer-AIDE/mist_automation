@@ -6,6 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
+from app.core.tasks import create_background_task
 from app.dependencies import require_impact_role
 from app.models.user import User
 from app.modules.power_scheduling.models import PowerSchedule, PowerScheduleLog, ScheduleWindow
@@ -14,7 +15,7 @@ from app.modules.power_scheduling.services.scheduling_service import (
     end_off_hours_catchup,
     start_off_hours,
 )
-from app.modules.power_scheduling.state import get_state
+from app.modules.power_scheduling.state import clear_state, get_state
 from app.services.mist_service_factory import create_mist_service
 
 log = structlog.get_logger(__name__)
@@ -33,7 +34,6 @@ class ScheduleWindowSchema(BaseModel):
 
 
 class CreateScheduleRequest(BaseModel):
-    site_id: str
     site_name: str
     windows: list[ScheduleWindowSchema]
     grace_period_minutes: int = 5
@@ -215,8 +215,15 @@ async def update_schedule(
     schedule.update_timestamp()
     await schedule.save()
 
+    from app.modules.power_scheduling.workers.schedule_worker import get_client_ws_manager
+
+    ws = get_client_ws_manager()
     if schedule.enabled:
         _register_jobs(schedule)
+        if ws:
+            await ws.add_site(site_id)
+    elif ws:
+        await ws.remove_site(site_id)
 
     return _schedule_to_response(schedule)
 
@@ -243,8 +250,6 @@ async def delete_schedule(
     ws = get_client_ws_manager()
     if ws:
         await ws.remove_site(site_id)
-
-    from app.modules.power_scheduling.state import clear_state
 
     await clear_state(site_id)
     await schedule.delete()
@@ -300,13 +305,9 @@ async def manual_trigger(
 ) -> dict[str, str]:
     schedule = await _get_schedule_or_404(site_id)
     if body.action == "start":
-        from app.core.tasks import create_background_task
-
         create_background_task(start_off_hours(schedule), name=f"ps-manual-start-{site_id}")
         return {"status": "triggered", "action": "start"}
     elif body.action == "end":
-        from app.core.tasks import create_background_task
-
         create_background_task(end_off_hours(schedule), name=f"ps-manual-end-{site_id}")
         return {"status": "triggered", "action": "end"}
     else:
