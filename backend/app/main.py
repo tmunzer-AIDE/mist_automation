@@ -119,6 +119,17 @@ async def lifespan(_app: FastAPI):
             except Exception:
                 pass
 
+        # Start power scheduling
+        try:
+            from app.modules.power_scheduling.workers.schedule_worker import startup_power_scheduling
+            from app.services.mist_service_factory import create_mist_service as _create_mist
+
+            _ps_mist = await _create_mist()
+            await startup_power_scheduling(_ps_mist.session)
+            logger.info("power_scheduling_started")
+        except Exception as e:
+            logger.warning("power_scheduling_start_failed", error=str(e))
+
         # Start system health broadcaster
         start_health_broadcaster()
         logger.info("health_broadcaster_started")
@@ -148,6 +159,16 @@ async def lifespan(_app: FastAPI):
             from app.modules.telemetry.services.lifecycle import stop_telemetry_pipeline
 
             await stop_telemetry_pipeline()
+        except Exception:
+            pass
+
+        # Stop power scheduling WS manager
+        try:
+            from app.modules.power_scheduling.workers.schedule_worker import get_client_ws_manager
+
+            _ps_ws = get_client_ws_manager()
+            if _ps_ws:
+                await _ps_ws.stop()
         except Exception:
             pass
 
