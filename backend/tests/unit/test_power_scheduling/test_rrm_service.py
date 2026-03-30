@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from app.modules.power_scheduling.services.rrm_service import fetch_rf_neighbor_map, merge_rrm_responses
 
 
@@ -37,12 +35,12 @@ class TestMergeRrmResponses:
 
 
 class TestFetchRfNeighborMap:
-    @pytest.mark.asyncio
     async def test_calls_all_three_bands(self):
         mock_mist = AsyncMock()
         mock_mist.get = AsyncMock(return_value={"results": []})
         with patch(
             "app.modules.power_scheduling.services.rrm_service.create_mist_service",
+            new_callable=AsyncMock,
             return_value=mock_mist,
         ):
             await fetch_rf_neighbor_map("site-1")
