@@ -108,12 +108,12 @@
 .diff-path { font-size: 12px; font-weight: 500; font-family: var(--app-font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .diff-type-badge {
-  font: 700 10px/1 inherit;
+  font: 700 11px/1 inherit;
   padding: 1px 8px;
   border-radius: 10px;
   text-transform: uppercase;
   flex-shrink: 0;
-  &.mini { font-size: 9px; padding: 1px 6px; }
+  &.mini { padding: 1px 6px; }
   &.badge-added, .diff-added & { background: var(--app-success-badge-bg); color: var(--app-success-badge); }
   &.badge-removed, .diff-removed & { background: var(--app-error-badge-bg); color: var(--app-error-badge); }
   &.badge-modified, .diff-modified & { background: var(--app-info-badge-bg); color: var(--app-info-badge); }
@@ -172,7 +172,7 @@
   &:hover { background: var(--mat-sys-surface-container-low); }
 }
 
-.ref-type-badge { flex-shrink: 0; font-size: 10px; font-weight: 600; padding: 1px 8px; border-radius: 8px; background: var(--mat-sys-surface-container); color: var(--mat-sys-on-surface-variant); white-space: nowrap; }
+.ref-type-badge { flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 8px; background: var(--mat-sys-surface-container); color: var(--mat-sys-on-surface-variant); white-space: nowrap; }
 
 .ref-name {
   font: 500 13px/1 inherit;
@@ -185,7 +185,7 @@
   &.ref-deleted { color: var(--mat-sys-error); text-decoration: line-through; }
 }
 
-.ref-field { flex-shrink: 0; font-size: 10px; font-family: var(--app-font-mono); color: var(--mat-sys-on-surface-variant); margin-left: auto; }
+.ref-field { flex-shrink: 0; font-size: 11px; font-family: var(--app-font-mono); color: var(--mat-sys-on-surface-variant); margin-left: auto; }
 
 .version-history-section { margin-bottom: 24px; }
 
@@ -207,7 +207,7 @@ table { width: 100%; }
 .field-chips { display: flex; flex-wrap: wrap; gap: 3px; }
 
 .field-chip {
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 6px;
   border-radius: 6px;
   background: var(--mat-sys-surface-container);
