@@ -414,25 +414,39 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
         break;
       }
     }
+    type Tagged = ChatMessage & { _baseContent: string; _devices: string[] };
     const messages = timeline
       .map((entry, idx) => this._timelineToChat(entry, idx, lastAnalysisIdx))
-      .filter((msg): msg is ChatMessage => msg !== null);
+      .filter((msg): msg is Tagged => msg !== null);
 
-    // Aggregate consecutive system events with the same title (e.g., "SLE check 1/6" x3 devices)
-    const aggregated: ChatMessage[] = [];
+    // Aggregate consecutive messages with the same base content
+    const aggregated: Tagged[] = [];
     for (const msg of messages) {
       const prev = aggregated[aggregated.length - 1];
       if (
-        msg.role === 'system' &&
-        prev?.role === 'system' &&
-        msg.content === prev.content
+        prev &&
+        msg.role === prev.role &&
+        msg.type === prev.type &&
+        msg._baseContent === prev._baseContent
       ) {
-        const match = prev.content.match(/\((\d+) devices\)$/);
-        const count = match ? parseInt(match[1], 10) + 1 : 2;
-        prev.content = prev.content.replace(/ \(\d+ devices\)$/, '') + ` (${count} devices)`;
+        prev._devices.push(...msg._devices);
         continue;
       }
       aggregated.push(msg);
+    }
+
+    // Render final messages with device info
+    for (const msg of aggregated) {
+      if (msg._devices.length === 0) continue;
+      if (msg.role === 'system') {
+        msg.content = msg._devices.length > 1
+          ? `${msg._baseContent} (${msg._devices.length} devices)`
+          : `${msg._baseContent} — ${msg._devices[0]}`;
+      } else if (msg.role === 'ai' && msg.type === 'narration') {
+        const prefix = msg._devices.join(', ');
+        msg.content = `**${prefix}:** ${msg._baseContent}`;
+        msg.html = renderMarkdown(msg.content);
+      }
     }
     return aggregated;
   });
@@ -512,12 +526,13 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
     entry: TimelineEntryResponse,
     idx: number,
     lastAnalysisIdx: number,
-  ): ChatMessage | null {
+  ): (ChatMessage & { _baseContent: string; _devices: string[] }) | null {
     if (entry.type === 'status_change') return null;
     if (entry.type === 'ai_analysis' && idx !== lastAnalysisIdx) return null;
 
     const id = `tl-${chatMsgCounter++}`;
     const timestamp = entry.timestamp;
+    const devices = entry.device_name ? [entry.device_name] : [];
 
     switch (entry.type) {
       case 'ai_narration':
@@ -529,6 +544,8 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
           html: renderMarkdown(entry.title),
           timestamp,
           severity: entry.severity || undefined,
+          _baseContent: entry.title,
+          _devices: devices,
         };
 
       case 'ai_analysis': {
@@ -544,6 +561,8 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
           html: renderMarkdown(fullSummary),
           timestamp,
           severity: entry.severity || undefined,
+          _baseContent: fullSummary,
+          _devices: devices,
         };
       }
 
@@ -557,6 +576,8 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
           content,
           html: role === 'user' ? '' : renderMarkdown(content),
           timestamp,
+          _baseContent: content,
+          _devices: [],
         };
       }
 
@@ -569,6 +590,8 @@ export class GroupDetailComponent implements OnInit, OnDestroy {
           html: '',
           timestamp,
           severity: entry.severity || undefined,
+          _baseContent: entry.title,
+          _devices: devices,
         };
     }
   }
