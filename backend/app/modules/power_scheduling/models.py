@@ -62,11 +62,17 @@ class PowerScheduleLog(Document):
     site_id: str = Field(...)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     event_type: Literal[
-        "WINDOW_START", "WINDOW_END",
-        "CATCHUP_START", "CATCHUP_END",
-        "AP_DISABLED", "AP_PENDING", "AP_ENABLED",
-        "GRACE_TIMER_START", "GRACE_TIMER_EXPIRED",
-        "CLIENT_DETECTED", "CLIENT_LEFT",
+        "WINDOW_START",
+        "WINDOW_END",
+        "CATCHUP_START",
+        "CATCHUP_END",
+        "AP_DISABLED",
+        "AP_PENDING",
+        "AP_ENABLED",
+        "GRACE_TIMER_START",
+        "GRACE_TIMER_EXPIRED",
+        "CLIENT_DETECTED",
+        "CLIENT_LEFT",
         "PROFILE_CREATED",
         "ERROR",
     ] = Field(...)

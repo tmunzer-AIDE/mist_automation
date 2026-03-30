@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock, patch
 from pydantic import ValidationError
 from app.modules.power_scheduling.models import PowerSchedule, PowerScheduleLog, ScheduleWindow
 
@@ -21,12 +20,11 @@ class TestScheduleWindow:
 
 class TestPowerSchedule:
     def test_defaults(self):
-        with patch.object(PowerSchedule, "get_motor_collection", return_value=MagicMock()):
-            s = PowerSchedule(
-                site_id="abc", site_name="HQ", timezone="America/New_York",
-                windows=[ScheduleWindow(days=[0, 1, 2, 3, 4], start="22:00", end="06:00")],
-                off_profile_id="prof-123",
-            )
+        s = PowerSchedule.model_construct(
+            site_id="abc", site_name="HQ", timezone="America/New_York",
+            windows=[ScheduleWindow(days=[0, 1, 2, 3, 4], start="22:00", end="06:00")],
+            off_profile_id="prof-123",
+        )
         assert s.neighbor_rssi_threshold_dbm == -65
         assert s.grace_period_minutes == 5
         assert s.roam_rssi_threshold_dbm == -75
