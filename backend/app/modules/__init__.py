@@ -146,6 +146,14 @@ MODULES: list[AppModule] = [
         model_imports=[],
         tags=["Telemetry"],
     ),
+    AppModule(
+        name="power_scheduling",
+        router_module="app.modules.power_scheduling.router",
+        model_imports=[
+            ("app.modules.power_scheduling.models", "PowerSchedule"),
+            ("app.modules.power_scheduling.models", "PowerScheduleLog"),
+        ],
+    ),
 ]
 
 
