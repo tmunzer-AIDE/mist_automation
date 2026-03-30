@@ -268,6 +268,7 @@ class InfluxDBService:
             f"{scope_filter}"
             f' |> filter(fn: (r) => r._field == "{field}")'
             f"{device_type_filter}"
+            ' |> drop(columns: ["name", "model"])'
             f" |> aggregateWindow(every: {window}, fn: mean, createEmpty: false)"
             f" |> group(columns: {group_cols})"
             f" |> aggregateWindow(every: {window}, fn: {agg}, createEmpty: false)"

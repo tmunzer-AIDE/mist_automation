@@ -340,7 +340,7 @@ async def run_monitoring_pipeline(session_id: str) -> None:
 
                 if not config_arrived and session.status == SessionStatus.AWAITING_CONFIG:
                     session.awaiting_config_warnings.append(
-                        "No CONFIGURED event received within 10 minutes. Proceeding to monitoring."
+                        "No CONFIGURED event received within 10 minutes. Session cancelled."
                     )
                     timeout_incident = DeviceIncident(
                         event_type="CONFIG_WAIT_TIMEOUT",
@@ -350,6 +350,18 @@ async def run_monitoring_pipeline(session_id: str) -> None:
                         severity="warning",
                     )
                     await session_manager.add_incident(session, timeout_incident)
+                    session = await MonitoringSession.get(PydanticObjectId(session_id))
+                    if not session:
+                        return
+                    await _narrate_phase(
+                        session,
+                        "config_wait_timeout",
+                        "No configuration event was received within 10 minutes of the change announcement. "
+                        "The configuration may not have been applied to the device. "
+                        "Monitoring cancelled — no impact analysis can be performed without a confirmed config change.",
+                    )
+                    await session_manager.transition(session, SessionStatus.CANCELLED)
+                    return
 
                 session = await MonitoringSession.get(PydanticObjectId(session_id))
                 if not session or session.status in {
