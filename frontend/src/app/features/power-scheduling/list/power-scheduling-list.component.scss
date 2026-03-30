@@ -1,0 +1,28 @@
+.page-header {
+  margin-bottom: 24px;
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.schedule-card {
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.schedule-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.status-off_hours {
+  background-color: var(--app-warning-color) !important;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px;
+  color: var(--app-text-muted);
+}

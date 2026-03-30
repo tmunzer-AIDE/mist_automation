@@ -62,6 +62,10 @@ export const routes: Routes = [
         path: 'telemetry',
         loadChildren: () => import('./features/telemetry/telemetry.routes'),
       },
+      {
+        path: 'power-scheduling',
+        loadChildren: () => import('./features/power-scheduling/power-scheduling.routes'),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

@@ -1,0 +1,23 @@
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.action-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.table-card {
+  background: var(--app-surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.status-off_hours {
+  background-color: var(--app-warning-color) !important;
+}

@@ -24,6 +24,12 @@ export const NAV_ITEMS: NavItem[] = [
     roles: ['impact_analysis', 'admin'],
   },
   {
+    label: 'Power Scheduling',
+    icon: 'power_settings_new',
+    route: '/power-scheduling',
+    roles: ['impact_analysis', 'admin'],
+  },
+  {
     label: 'Reports',
     icon: 'assessment',
     route: '/reports',

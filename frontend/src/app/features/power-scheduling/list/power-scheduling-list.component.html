@@ -1,0 +1,32 @@
+<div class="page-header">
+  <h1>AP Power Scheduling</h1>
+  <span class="subtitle"
+    >{{ schedules().length }} sites configured · {{ activeCount() }} currently in off-hours</span
+  >
+</div>
+
+@if (loading()) {
+  <mat-spinner diameter="40"></mat-spinner>
+} @else if (schedules().length === 0) {
+  <div class="empty-state">
+    <mat-icon>power_settings_new</mat-icon>
+    <p>No sites configured. Add a site to get started.</p>
+  </div>
+} @else {
+  <div class="schedule-grid">
+    @for (s of schedules(); track s.site_id) {
+      <mat-card class="schedule-card" (click)="openDetail(s.site_id)">
+        <mat-card-header>
+          <mat-card-title>{{ s.site_name }}</mat-card-title>
+          <mat-card-subtitle>{{ s.timezone }}</mat-card-subtitle>
+          <mat-chip [class]="'status-' + s.current_status.toLowerCase()">
+            {{ s.current_status === 'OFF_HOURS' ? 'Off-Hours' : 'Active' }}
+          </mat-chip>
+        </mat-card-header>
+        <mat-card-content>
+          <p>{{ s.windows.length }} window(s) · Grace: {{ s.grace_period_minutes }}m</p>
+        </mat-card-content>
+      </mat-card>
+    }
+  </div>
+}
