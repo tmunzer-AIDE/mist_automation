@@ -242,3 +242,19 @@ export interface ClientListResponse {
   clients: ClientStatRecord[];
   total: number;
 }
+
+export interface ClientLiveEvent {
+  timestamp: number;
+  rssi: number | null;
+  snr: number | null;
+  band: string;
+  channel: number | null;
+  tx_bps: number;
+  rx_bps: number;
+  tx_rate: number | null;
+  rx_rate: number | null;
+  ap_mac: string;
+  ssid: string;
+  proto: string;
+  raw?: Record<string, unknown>;
+}

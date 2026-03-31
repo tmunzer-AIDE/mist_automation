@@ -15,6 +15,8 @@ import {
   TimeRange,
   type ClientListResponse,
   type ClientSiteSummary,
+  type ClientStatRecord,
+  type ClientLiveEvent,
 } from './models';
 
 export const TIME_RANGE_MAP: Record<TimeRange, string> = { '1h': '-1h', '6h': '-6h', '24h': '-24h' };
@@ -100,8 +102,16 @@ export class TelemetryService {
     return this.api.get<RangeResult>('/telemetry/query/range', { mac, measurement, start, end });
   }
 
+  getClient(mac: string, siteId: string): Observable<ClientStatRecord> {
+    return this.api.get<ClientStatRecord>(`/telemetry/scope/clients/${mac}`, { site_id: siteId });
+  }
+
   subscribeToDevice(mac: string): Observable<DeviceLiveEvent> {
     return this.ws.subscribe<DeviceLiveEvent>(`telemetry:device:${mac}`);
+  }
+
+  subscribeToClient(mac: string): Observable<ClientLiveEvent> {
+    return this.ws.subscribe<ClientLiveEvent>(`telemetry:client:${mac}`);
   }
 
   subscribeToSite(siteId: string): Observable<SiteUpdateEvent> {
