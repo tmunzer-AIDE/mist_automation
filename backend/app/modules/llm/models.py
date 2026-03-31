@@ -130,6 +130,8 @@ class SkillGitRepo(TimestampMixin, Document):
     local_path: str = Field(default="", description="Absolute path to clone destination (set after first insert)")
     last_refreshed_at: datetime | None = Field(default=None, description="Last successful pull")
     error: str | None = Field(default=None, description="Last clone/pull error")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "skill_git_repos"
@@ -151,6 +153,8 @@ class Skill(TimestampMixin, Document):
     git_repo_id: PydanticObjectId | None = Field(default=None, description="FK to SkillGitRepo if source='git'")
     error: str | None = Field(default=None, description="Last parse/sync error")
     last_synced_at: datetime | None = Field(default=None, description="Last successful SKILL.md parse")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "skills"
