@@ -1,6 +1,6 @@
 <!-- Filters toolbar -->
 <div class="filters-toolbar">
-  <mat-form-field appearance="outline" class="view-mode-filter">
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="view-mode-filter">
     <mat-label>View</mat-label>
     <mat-select [value]="viewMode()" (selectionChange)="onViewModeChange($event.value)">
       <mat-option value="groups">Change Groups</mat-option>
@@ -8,7 +8,7 @@
     </mat-select>
   </mat-form-field>
 
-  <mat-form-field appearance="outline" class="status-filter">
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="status-filter">
     <mat-label>Status</mat-label>
     <input
       matInput
