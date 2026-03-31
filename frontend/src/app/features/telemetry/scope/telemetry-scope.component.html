@@ -5,7 +5,17 @@
 
   <!-- Header row: title + site autocomplete -->
   <div class="page-header">
-    <div class="page-title">Telemetry</div>
+
+    <!-- Time range picker -->
+    <div class="time-range-picker">
+      <span class="label">Time range:</span>
+      @for (tr of timeRanges; track tr) {
+        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
+          {{ tr }}
+        </button>
+      }
+    </div>
+    <span class="spacer"></span>
     <mat-form-field appearance="outline" class="site-autocomplete">
       <mat-label>Select site</mat-label>
       <input matInput [formControl]="siteSearchCtrl" [matAutocomplete]="siteAuto" />
@@ -19,18 +29,34 @@
         }
       </mat-autocomplete>
     </mat-form-field>
-  </div>
 
-  <!-- Time range picker -->
-  <div class="time-range-picker">
-    <span class="label">Time range:</span>
-    @for (tr of timeRanges; track tr) {
-      <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
-        {{ tr }}
-      </button>
-    }
   </div>
-
+  <!-- Wireless Clients section -->
+  @if (clientSummary() && clientSummary()!.total_clients > 0) {
+    <section class="device-section">
+      <h3 class="section-title">Wireless Clients ({{ clientSummary()!.total_clients }} active)</h3>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Avg RSSI</div>
+          <div class="kpi-value">{{ clientSummary()!.avg_rssi | number: '1.0-0' }} dBm</div>
+        </div>
+        @for (entry of clientBandEntries(); track entry.label) {
+          <div class="kpi-card">
+            <div class="kpi-label">{{ entry.label }}</div>
+            <div class="kpi-value">{{ entry.count }}</div>
+          </div>
+        }
+        <div class="kpi-card">
+          <div class="kpi-label">Total TX</div>
+          <div class="kpi-value">{{ clientSummary()!.total_tx_bps | number }} bps</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total RX</div>
+          <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
+        </div>
+      </div>
+    </section>
+  }
   <!-- AP section -->
   @if (hasAP()) {
     <section class="device-section">
@@ -269,30 +295,4 @@
     </section>
   }
 
-  <!-- Wireless Clients section -->
-  @if (clientSummary() && clientSummary()!.total_clients > 0) {
-    <section class="device-section">
-      <h3 class="section-title">Wireless Clients ({{ clientSummary()!.total_clients }} active)</h3>
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Avg RSSI</div>
-          <div class="kpi-value">{{ clientSummary()!.avg_rssi | number: '1.0-0' }} dBm</div>
-        </div>
-        @for (entry of clientBandEntries(); track entry.label) {
-          <div class="kpi-card">
-            <div class="kpi-label">{{ entry.label }}</div>
-            <div class="kpi-value">{{ entry.count }}</div>
-          </div>
-        }
-        <div class="kpi-card">
-          <div class="kpi-label">Total TX</div>
-          <div class="kpi-value">{{ clientSummary()!.total_tx_bps | number }} bps</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Total RX</div>
-          <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
-        </div>
-      </div>
-    </section>
-  }
 </div>

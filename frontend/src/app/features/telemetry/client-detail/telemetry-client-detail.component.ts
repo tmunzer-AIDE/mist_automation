@@ -20,6 +20,7 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService, TIME_RANGE_MAP } from '../telemetry.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { getChartColor } from '../../../shared/utils/chart-defaults';
 import type { ClientStatRecord, ClientLiveEvent, RangeResult, ScopeSite, TimeRange } from '../models';
 
@@ -45,6 +46,7 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
+  private readonly topbarService = inject(TopbarService);
 
   readonly mac = signal('');
   readonly siteId = signal('');
@@ -75,6 +77,7 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
   private wsSub?: Subscription;
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Telemetry');
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const mac = params.get('mac') ?? '';
       const siteId = params.get('id') ?? '';

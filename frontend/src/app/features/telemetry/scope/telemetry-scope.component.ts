@@ -15,6 +15,7 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import {
   TimeRange,
   ScopeSummary,
@@ -50,6 +51,7 @@ export class TelemetryScopeComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
+  private readonly topbarService = inject(TopbarService);
 
   readonly timeRange = signal<TimeRange>('6h');
   readonly loading = signal(false);
@@ -72,10 +74,12 @@ export class TelemetryScopeComponent implements OnInit {
 
   readonly clientBandEntries = computed(() => {
     const counts = this.clientSummary()?.band_counts ?? {};
-    return Object.entries(counts).map(([band, count]) => ({
-      label: band === '24' ? '2.4G' : band === '5' ? '5G' : band === '6' ? '6G' : band,
-      count,
-    }));
+    return ['24', '5', '6']
+      .filter((b) => b in counts)
+      .map((band) => ({
+        label: band === '24' ? '2.4G' : band === '5' ? '5G' : '6G',
+        count: counts[band],
+      }));
   });
 
   readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
@@ -110,6 +114,7 @@ export class TelemetryScopeComponent implements OnInit {
   private readonly chartLoad$ = new Subject<void>();
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Telemetry');
     this.siteSearchCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));

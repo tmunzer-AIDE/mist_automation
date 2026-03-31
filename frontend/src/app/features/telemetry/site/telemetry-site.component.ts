@@ -16,6 +16,7 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import {
   TimeRange,
   ScopeSummary,
@@ -57,6 +58,7 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
+  private readonly topbarService = inject(TopbarService);
 
   readonly siteId = signal('');
   readonly siteName = signal('');
@@ -117,10 +119,12 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
 
   readonly clientBandEntries = computed(() => {
     const counts = this.clientSummary()?.band_counts ?? {};
-    return Object.entries(counts).map(([band, count]) => ({
-      label: band === '24' ? '2.4G' : band === '5' ? '5G' : band === '6' ? '6G' : band,
-      count,
-    }));
+    return ['24', '5', '6']
+      .filter((b) => b in counts)
+      .map((band) => ({
+        label: band === '24' ? '2.4G' : band === '5' ? '5G' : '6G',
+        count: counts[band],
+      }));
   });
 
   get ap(): APScopeSummary | null {
@@ -140,6 +144,7 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Telemetry');
     this.deviceSearchCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));

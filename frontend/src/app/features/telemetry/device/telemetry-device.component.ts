@@ -11,6 +11,7 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { LatestStats, TimeRange } from '../models';
 import { DeviceLiveLogComponent } from './components/device-live-log/device-live-log.component';
 
@@ -36,6 +37,7 @@ export class TelemetryDeviceComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
+  private readonly topbarService = inject(TopbarService);
 
   readonly mac = signal('');
   readonly timeRange = signal<TimeRange>('1h');
@@ -250,6 +252,7 @@ export class TelemetryDeviceComponent implements OnInit {
   readonly resourceColumns = ['resource_type', 'count', 'limit', 'utilization_pct'];
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Telemetry');
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const mac = params.get('mac') ?? '';
       this.mac.set(mac);

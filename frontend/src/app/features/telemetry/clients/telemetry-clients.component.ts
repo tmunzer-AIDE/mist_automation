@@ -23,6 +23,7 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
+import { TopbarService } from '../../../core/services/topbar.service';
 import { getChartColor } from '../../../shared/utils/chart-defaults';
 import type {
   TimeRange,
@@ -59,6 +60,7 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
+  private readonly topbarService = inject(TopbarService);
 
   readonly siteId = signal('');
   readonly siteName = signal('');
@@ -129,6 +131,7 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   private wsSub?: Subscription;
 
   ngOnInit(): void {
+    this.topbarService.setTitle('Telemetry');
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const id = params.get('id') ?? '';
       this.siteId.set(id);
