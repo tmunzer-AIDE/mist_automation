@@ -115,6 +115,7 @@ class TestStartOffHours:
 
         assert "ap1" not in state.protected_aps
         assert "ap2" not in state.protected_aps
+        set_mock.assert_not_awaited()
 
     async def test_db_updated_to_off_hours(self):
         schedule = _make_schedule()
