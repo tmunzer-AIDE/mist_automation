@@ -3,6 +3,7 @@ MCP tool: activate_skill — loads the full instructions for a named Agent Skill
 """
 
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import structlog
 
@@ -47,7 +48,7 @@ async def activate_skill(name: str) -> str:
         resources_block = f"\n<skill_resources>\n{resource_lines}\n</skill_resources>"
 
     return (
-        f'<skill_content name="{name}">\n'
+        f'<skill_content name="{escape(name)}">\n'
         f"{body}\n\n"
         f"Skill directory: {skill.local_path}"
         f"{resources_block}\n"
