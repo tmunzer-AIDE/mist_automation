@@ -778,6 +778,10 @@ async def summarize_backup_change(
         version_id_2=request.version_id_2,
         object_id=ctx.get("object_id", ""),
     )
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
 
     thread = await _load_or_create_thread(
         request.thread_id, current_user.id, "backup_summary", prompt_messages, context_ref=request.version_id_2
@@ -1290,6 +1294,10 @@ async def summarize_dashboard(
     context = await get_dashboard_summary_context()
 
     prompt_messages = build_dashboard_summary_prompt(context)
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "dashboard_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1337,6 +1345,10 @@ async def summarize_audit_logs(
         "end_date": request.end_date,
     }
     prompt_messages = build_audit_log_summary_prompt(context, filters)
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "audit_log_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1377,6 +1389,10 @@ async def summarize_system_logs(
 
     filters = {"level": request.level, "logger": request.logger}
     prompt_messages = build_system_log_summary_prompt(context, filters)
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "system_log_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1418,6 +1434,10 @@ async def summarize_backups(
 
     filters = {"object_type": request.object_type, "site_id": request.site_id, "scope": request.scope}
     prompt_messages = build_backup_list_summary_prompt(context, filters)
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "backup_summary_list", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1453,9 +1473,13 @@ async def global_chat(
         build_global_chat_system_prompt,
         build_workflow_editor_context,
     )
+    from app.modules.llm.services.skills_service import build_skills_catalog
 
     llm = await create_llm_service()
+    skills_catalog = await build_skills_catalog()
     system_prompt = build_global_chat_system_prompt(current_user.roles)
+    if skills_catalog:
+        system_prompt += "\n\n" + skills_catalog
     safe_ctx = _sanitize_for_prompt(request.page_context, max_len=2000) if request.page_context else None
     if safe_ctx:
         system_prompt += f"\n\nCurrent UI context:\n{safe_ctx}"
@@ -1471,6 +1495,8 @@ async def global_chat(
         # Update system prompt with latest page context for existing threads
         if thread.messages and thread.messages[0].role == "system":
             base_prompt = build_global_chat_system_prompt(current_user.roles)
+            if skills_catalog:
+                base_prompt += "\n\n" + skills_catalog
             thread.messages[0].content = base_prompt + f"\n\nCurrent UI context:\n{safe_ctx}"
 
     # Add user message
