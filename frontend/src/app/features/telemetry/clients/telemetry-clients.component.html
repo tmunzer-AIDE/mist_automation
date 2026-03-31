@@ -1,0 +1,183 @@
+<div class="clients-page">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  <div class="page-header">
+    <div class="breadcrumb">
+      <a routerLink="/telemetry">Telemetry</a>
+      <mat-icon class="sep">chevron_right</mat-icon>
+      <a [routerLink]="['/telemetry/site', siteId()]">{{ siteName() }}</a>
+      <mat-icon class="sep">chevron_right</mat-icon>
+      <span>Clients</span>
+    </div>
+    <div class="time-range-picker">
+      @for (tr of timeRanges; track tr) {
+        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
+          {{ tr }}
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (summary()) {
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Clients</div>
+        <div class="kpi-value">{{ summary()!.total_clients | number }}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Avg RSSI</div>
+        <div class="kpi-value">{{ summary()!.avg_rssi | number: '1.0-0' }} dBm</div>
+      </div>
+      @for (b of bandEntries(); track b.label) {
+        <div class="kpi-card">
+          <div class="kpi-label">{{ b.label }}</div>
+          <div class="kpi-value">{{ b.count }}</div>
+        </div>
+      }
+      <div class="kpi-card">
+        <div class="kpi-label">TX</div>
+        <div class="kpi-value">{{ summary()!.total_tx_bps | number }} bps</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">RX</div>
+        <div class="kpi-value">{{ summary()!.total_rx_bps | number }} bps</div>
+      </div>
+    </div>
+  }
+
+  <div class="chart-row">
+    @if (countChart()) {
+      <div class="chart-container">
+        <div class="chart-title">Client Count</div>
+        <canvas
+          baseChart
+          [data]="countChart()!.data"
+          [options]="countChart()!.options"
+          type="line"
+        ></canvas>
+      </div>
+    }
+    @if (rssiChart()) {
+      <div class="chart-container">
+        <div class="chart-title">Avg RSSI (dBm)</div>
+        <canvas
+          baseChart
+          [data]="rssiChart()!.data"
+          [options]="rssiChart()!.options"
+          type="line"
+        ></canvas>
+      </div>
+    }
+  </div>
+
+  <div class="filter-row">
+    <div class="chip-row">
+      <button
+        mat-stroked-button
+        [class.active]="activeAuthType() === ''"
+        (click)="toggleAuthType('')"
+      >
+        All ({{ clientsResponse()?.total ?? 0 }})
+      </button>
+      <button
+        mat-stroked-button
+        [class.active]="activeAuthType() === 'psk'"
+        (click)="toggleAuthType('psk')"
+      >
+        PSK ({{ countsByAuth().psk }})
+      </button>
+      <button
+        mat-stroked-button
+        [class.active]="activeAuthType() === 'eap'"
+        (click)="toggleAuthType('eap')"
+      >
+        802.1X ({{ countsByAuth().eap }})
+      </button>
+    </div>
+    <mat-form-field appearance="outline" class="search-field">
+      <mat-label>Search hostname / MAC / AP / manufacturer</mat-label>
+      <input matInput [formControl]="searchCtrl" />
+      <mat-icon matSuffix>search</mat-icon>
+    </mat-form-field>
+  </div>
+
+  <div class="table-card">
+    <table mat-table [dataSource]="filteredClients()">
+      <ng-container matColumnDef="hostname">
+        <th mat-header-cell *matHeaderCellDef>Hostname</th>
+        <td mat-cell *matCellDef="let c">{{ c.hostname || c.mac }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="mac">
+        <th mat-header-cell *matHeaderCellDef>MAC</th>
+        <td mat-cell *matCellDef="let c" class="monospace">{{ c.mac }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="ap_mac">
+        <th mat-header-cell *matHeaderCellDef>AP</th>
+        <td mat-cell *matCellDef="let c" class="monospace">{{ c.ap_mac }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="band">
+        <th mat-header-cell *matHeaderCellDef>Band</th>
+        <td mat-cell *matCellDef="let c">
+          {{ c.band === '24' ? '2.4G' : c.band === '5' ? '5G' : c.band === '6' ? '6G' : c.band }}
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="channel">
+        <th mat-header-cell *matHeaderCellDef>Ch</th>
+        <td mat-cell *matCellDef="let c">{{ c.channel }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="rssi">
+        <th mat-header-cell *matHeaderCellDef>RSSI</th>
+        <td mat-cell *matCellDef="let c">{{ c.rssi }} dBm</td>
+      </ng-container>
+
+      <ng-container matColumnDef="snr">
+        <th mat-header-cell *matHeaderCellDef>SNR</th>
+        <td mat-cell *matCellDef="let c">{{ c.snr }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="tx_bps">
+        <th mat-header-cell *matHeaderCellDef>TX bps</th>
+        <td mat-cell *matCellDef="let c">{{ c.tx_bps | number }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="rx_bps">
+        <th mat-header-cell *matHeaderCellDef>RX bps</th>
+        <td mat-cell *matCellDef="let c">{{ c.rx_bps | number }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="tx_rate">
+        <th mat-header-cell *matHeaderCellDef>TX Rate</th>
+        <td mat-cell *matCellDef="let c">{{ c.tx_rate }} Mbps</td>
+      </ng-container>
+
+      <ng-container matColumnDef="manufacture">
+        <th mat-header-cell *matHeaderCellDef>Manufacturer</th>
+        <td mat-cell *matCellDef="let c">{{ c.manufacture }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="auth_type">
+        <th mat-header-cell *matHeaderCellDef>Auth</th>
+        <td mat-cell *matCellDef="let c">{{ c.auth_type === 'eap' ? '802.1X' : 'PSK' }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="last_seen">
+        <th mat-header-cell *matHeaderCellDef>Last Seen</th>
+        <td mat-cell *matCellDef="let c">
+          @if (c.last_seen) {
+            {{ c.last_seen * 1000 | date: 'HH:mm:ss' }}
+          }
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="clientColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: clientColumns"></tr>
+    </table>
+  </div>
+</div>
