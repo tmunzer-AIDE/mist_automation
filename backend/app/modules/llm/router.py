@@ -1883,6 +1883,9 @@ async def _pull_and_scan(repo_id: str) -> None:
     repo = await SkillGitRepo.get(PydanticObjectId(repo_id))
     if not repo:
         return
+    if not repo.local_path:
+        logger.error("skill_repo_pull_skipped_no_path", repo_id=repo_id)
+        return
 
     token = decrypt_sensitive_data(repo.token) if repo.token else None
 

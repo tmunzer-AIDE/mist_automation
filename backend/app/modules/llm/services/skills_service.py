@@ -237,6 +237,7 @@ async def sync_skills_from_repo(
             existing.description = desc or existing.description
             existing.error = error_msg
             existing.last_synced_at = now if not error_msg else existing.last_synced_at
+            existing.update_timestamp()
             await existing.save()
             updated += 1
         else:
