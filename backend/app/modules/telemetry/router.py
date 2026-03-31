@@ -542,6 +542,42 @@ async def get_scope_clients_summary(
     return ClientSiteSummary(**raw)
 
 
+def _build_client_record(mac: str, stats: dict[str, Any], fresh: bool) -> ClientStatRecord:
+    return ClientStatRecord(
+        mac=mac,
+        site_id=stats.get("site_id") or "",
+        ap_mac=stats.get("ap_mac") or "",
+        ssid=stats.get("ssid") or "",
+        band=str(stats.get("band") or ""),
+        auth_type="eap" if "EAP" in (stats.get("key_mgmt") or "").upper() else "psk",
+        hostname=stats.get("hostname") or "",
+        ip=stats.get("ip") or "",
+        manufacture=stats.get("manufacture") or "",
+        family=stats.get("family") or "",
+        model=stats.get("model") or "",
+        os=stats.get("os") or "",
+        group=stats.get("group") or "",
+        vlan_id=str(stats.get("vlan_id") or ""),
+        proto=stats.get("proto") or "",
+        username=stats.get("username") or "",
+        rssi=stats.get("rssi"),
+        snr=stats.get("snr"),
+        channel=stats.get("channel"),
+        tx_rate=stats.get("tx_rate"),
+        rx_rate=stats.get("rx_rate"),
+        tx_bps=int(stats.get("tx_bps") or 0),
+        rx_bps=int(stats.get("rx_bps") or 0),
+        tx_bytes=int(stats.get("tx_bytes") or 0),
+        rx_bytes=int(stats.get("rx_bytes") or 0),
+        uptime=int(stats.get("uptime") or 0),
+        idle_time=float(stats.get("idle_time") or 0.0),
+        is_guest=bool(stats.get("is_guest")),
+        dual_band=bool(stats.get("dual_band")),
+        last_seen=stats.get("last_seen"),
+        fresh=fresh,
+    )
+
+
 @router.get("/scope/clients", response_model=ClientListResponse)
 async def get_scope_clients(
     site_id: str = Query(..., description="Site UUID"),
@@ -564,44 +600,35 @@ async def get_scope_clients(
         if stats.get("site_id") != site_id:
             continue
         fresh = (now - entry.get("updated_at", 0)) < 120
-        clients.append(
-            ClientStatRecord(
-                mac=mac,
-                site_id=site_id,
-                ap_mac=stats.get("ap_mac") or "",
-                ssid=stats.get("ssid") or "",
-                band=str(stats.get("band") or ""),
-                auth_type="eap" if "EAP" in (stats.get("key_mgmt") or "").upper() else "psk",
-                hostname=stats.get("hostname") or "",
-                ip=stats.get("ip") or "",
-                manufacture=stats.get("manufacture") or "",
-                family=stats.get("family") or "",
-                model=stats.get("model") or "",
-                os=stats.get("os") or "",
-                group=stats.get("group") or "",
-                vlan_id=str(stats.get("vlan_id") or ""),
-                proto=stats.get("proto") or "",
-                username=stats.get("username") or "",
-                rssi=stats.get("rssi"),
-                snr=stats.get("snr"),
-                channel=stats.get("channel"),
-                tx_rate=stats.get("tx_rate"),
-                rx_rate=stats.get("rx_rate"),
-                tx_bps=int(stats.get("tx_bps") or 0),
-                rx_bps=int(stats.get("rx_bps") or 0),
-                tx_bytes=int(stats.get("tx_bytes") or 0),
-                rx_bytes=int(stats.get("rx_bytes") or 0),
-                uptime=int(stats.get("uptime") or 0),
-                idle_time=float(stats.get("idle_time") or 0.0),
-                is_guest=bool(stats.get("is_guest")),
-                dual_band=bool(stats.get("dual_band")),
-                last_seen=stats.get("last_seen"),
-                fresh=fresh,
-            )
-        )
+        clients.append(_build_client_record(mac, stats, fresh))
 
     clients.sort(key=lambda c: c.rssi or 0, reverse=True)
     return ClientListResponse(clients=clients, total=len(clients))
+
+
+@router.get("/scope/clients/{mac}", response_model=ClientStatRecord)
+async def get_scope_client(
+    mac: str,
+    site_id: str = Query(..., description="Site UUID"),
+    _current_user: User = Depends(require_impact_role),
+) -> ClientStatRecord:
+    """Return latest cached stats for a single wireless client."""
+    import app.modules.telemetry as telemetry_mod
+
+    if not _MAC_RE.match(mac):
+        raise HTTPException(status_code=400, detail="Invalid MAC address format")
+    mac_clean = mac.lower().replace(":", "")
+    if not _UUID_RE.match(site_id):
+        raise HTTPException(status_code=400, detail="Invalid site_id format")
+    if telemetry_mod._client_cache is None:
+        raise HTTPException(status_code=503, detail="Client cache not available")
+
+    entry = telemetry_mod._client_cache.get_entry(mac_clean)
+    if entry is None or entry.get("stats", {}).get("site_id") != site_id:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    fresh = (_time.time() - entry.get("updated_at", 0)) < 120
+    return _build_client_record(mac_clean, entry["stats"], fresh)
 
 
 @router.get("/query/clients/range", response_model=RangeQueryResponse)

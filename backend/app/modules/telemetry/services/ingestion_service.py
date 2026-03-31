@@ -182,6 +182,24 @@ def _build_device_ws_event(payload: dict[str, Any], device_type: str) -> dict[st
     return event
 
 
+def _build_client_ws_event(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "timestamp": int(payload.get("last_seen") or time.time()),
+        "rssi": payload.get("rssi"),
+        "snr": payload.get("snr"),
+        "band": str(payload.get("band") or ""),
+        "channel": payload.get("channel"),
+        "tx_bps": int(payload.get("tx_bps") or 0),
+        "rx_bps": int(payload.get("rx_bps") or 0),
+        "tx_rate": payload.get("tx_rate"),
+        "rx_rate": payload.get("rx_rate"),
+        "ap_mac": payload.get("ap_mac") or "",
+        "ssid": payload.get("ssid") or "",
+        "proto": payload.get("proto") or "",
+        "raw": payload,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Per-device-type WS event builders
 # ---------------------------------------------------------------------------
@@ -655,6 +673,10 @@ class IngestionService:
         if filtered_points:
             await self._influxdb.write_points(filtered_points)
             self._points_written += len(filtered_points)
+
+        # Broadcast rich event to per-client subscribers
+        client_event = _build_client_ws_event(payload)
+        await ws_manager.broadcast(f"telemetry:client:{client_mac}", client_event)
 
         # Broadcast lightweight tick to site channel (frontend debounces at 5s)
         tick = {"mac": client_mac, "type": "client"}
