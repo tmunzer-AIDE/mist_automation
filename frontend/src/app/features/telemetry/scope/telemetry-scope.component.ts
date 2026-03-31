@@ -24,6 +24,7 @@ import {
   GatewayScopeSummary,
   BandSummary,
   AggregateResult,
+  type ClientSiteSummary,
 } from '../models';
 
 Chart.register(...registerables);
@@ -54,6 +55,7 @@ export class TelemetryScopeComponent implements OnInit {
   readonly loading = signal(false);
   readonly summary = signal<ScopeSummary | null>(null);
   readonly sites = signal<ScopeSite[]>([]);
+  readonly clientSummary = signal<ClientSiteSummary | null>(null);
 
   readonly siteSearchCtrl = new FormControl('');
   private readonly searchTerm = signal('');
@@ -67,6 +69,14 @@ export class TelemetryScopeComponent implements OnInit {
   readonly hasAP = computed(() => !!this.summary()?.ap);
   readonly hasSwitch = computed(() => !!this.summary()?.switch);
   readonly hasGateway = computed(() => !!this.summary()?.gateway);
+
+  readonly clientBandEntries = computed(() => {
+    const counts = this.clientSummary()?.band_counts ?? {};
+    return Object.entries(counts).map(([band, count]) => ({
+      label: band === '24' ? '2.4G' : band === '5' ? '5G' : band === '6' ? '6G' : band,
+      count,
+    }));
+  });
 
   readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
 
@@ -120,12 +130,14 @@ export class TelemetryScopeComponent implements OnInit {
     forkJoin({
       summary: this.telemetryService.getScopeSummary(),
       sites: this.telemetryService.getScopeSites(),
+      clientSummary: this.telemetryService.getSiteClientsSummary(),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ summary, sites }) => {
+        next: ({ summary, sites, clientSummary }) => {
           this.summary.set(summary);
           this.sites.set(sites.sites);
+          this.clientSummary.set(clientSummary);
           this.loading.set(false);
           this.chartLoad$.next();
         },
@@ -137,12 +149,14 @@ export class TelemetryScopeComponent implements OnInit {
     forkJoin({
       summary: this.telemetryService.getScopeSummary(),
       sites: this.telemetryService.getScopeSites(),
+      clientSummary: this.telemetryService.getSiteClientsSummary(),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ summary, sites }) => {
+        next: ({ summary, sites, clientSummary }) => {
           this.summary.set(summary);
           this.sites.set(sites.sites);
+          this.clientSummary.set(clientSummary);
         },
         error: (err) => console.error('Failed to refresh telemetry scope summary:', err),
       });

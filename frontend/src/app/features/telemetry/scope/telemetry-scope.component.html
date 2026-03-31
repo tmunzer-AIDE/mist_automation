@@ -268,4 +268,31 @@
       </div>
     </section>
   }
+
+  <!-- Wireless Clients section -->
+  @if (clientSummary() && clientSummary()!.total_clients > 0) {
+    <section class="device-section">
+      <h3 class="section-title">Wireless Clients ({{ clientSummary()!.total_clients }} active)</h3>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Avg RSSI</div>
+          <div class="kpi-value">{{ clientSummary()!.avg_rssi | number: '1.0-0' }} dBm</div>
+        </div>
+        @for (entry of clientBandEntries(); track entry.label) {
+          <div class="kpi-card">
+            <div class="kpi-label">{{ entry.label }}</div>
+            <div class="kpi-value">{{ entry.count }}</div>
+          </div>
+        }
+        <div class="kpi-card">
+          <div class="kpi-label">Total TX</div>
+          <div class="kpi-value">{{ clientSummary()!.total_tx_bps | number }} bps</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total RX</div>
+          <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
+        </div>
+      </div>
+    </section>
+  }
 </div>
