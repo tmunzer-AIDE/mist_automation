@@ -12,16 +12,16 @@ app-ai-inline-analysis {
   margin-left: 12px;
   margin-right: 8px;
 
-  &.spinner-disconnected ::ng-deep circle {
-    stroke: var(--app-spinner-disconnected) !important;
+  &.spinner-disconnected {
+    --mdc-circular-progress-active-indicator-color: var(--app-spinner-disconnected);
   }
 
-  &.spinner-paused ::ng-deep circle {
-    stroke: var(--app-spinner-paused) !important;
+  &.spinner-paused {
+    --mdc-circular-progress-active-indicator-color: var(--app-spinner-paused);
   }
 
-  &.spinner-live ::ng-deep circle {
-    stroke: var(--app-spinner-live) !important;
+  &.spinner-live {
+    --mdc-circular-progress-active-indicator-color: var(--app-spinner-live);
   }
 }
 
