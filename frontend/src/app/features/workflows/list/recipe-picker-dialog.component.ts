@@ -221,7 +221,7 @@ const DIFFICULTY_ICONS: Record<string, string> = {
         .recipe-meta { display: flex; gap: 6px; }
 
         .recipe-badge {
-          font-size: 10px;
+          font-size: 11px;
           padding: 1px 6px;
           border-radius: 4px;
           background: var(--mat-sys-surface-variant, #f5f5f5);

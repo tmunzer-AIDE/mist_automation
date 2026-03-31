@@ -283,7 +283,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
 
       .dep-type {
         flex-shrink: 0;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 600;
         padding: 1px 8px;
         border-radius: 8px;
@@ -301,7 +301,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
       }
 
       .dep-field {
-        font-size: 10px;
+        font-size: 11px;
         font-family: var(--app-font-mono);
         color: var(--mat-sys-on-surface-variant);
         margin-left: auto;
@@ -324,7 +324,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
 
       .plan-role {
         flex-shrink: 0;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 600;
         padding: 1px 8px;
         border-radius: 8px;
@@ -349,7 +349,7 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
       }
 
       .id-remap {
-        font-size: 10px;
+        font-size: 11px;
         font-family: var(--app-font-mono);
         color: var(--mat-sys-on-surface-variant);
         margin-left: auto;

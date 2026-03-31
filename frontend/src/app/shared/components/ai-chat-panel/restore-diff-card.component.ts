@@ -353,7 +353,7 @@ interface DiffGroup {
         }
 
         .entry-badge {
-          font-size: 10px;
+          font-size: 11px;
           font-weight: 600;
           padding: 1px 5px;
           border-radius: 4px;

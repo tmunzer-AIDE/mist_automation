@@ -131,7 +131,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
       .empty-hint { color: var(--mat-sys-on-surface-variant); font-size: 13px; padding: 16px; text-align: center; }
       .config-table { width: 100%; background: transparent; }
       .default-badge {
-        font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+        font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
         background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container);
         margin-left: 8px;
       }

@@ -457,7 +457,7 @@ import { DateTimePipe } from '../../../../shared/pipes/date-time.pipe';
       }
 
       .sample-event-type {
-        font-size: 10px;
+        font-size: 11px;
         font-family: var(--app-font-mono);
         padding: 1px 6px;
         border-radius: 4px;

@@ -212,7 +212,7 @@ function renderMarkdown(md: string): string {
         min-width: 0;
       }
       .timestamp {
-        font-size: 10px;
+        font-size: 11px;
         color: var(--app-neutral-500, #888);
         margin-bottom: 3px;
       }

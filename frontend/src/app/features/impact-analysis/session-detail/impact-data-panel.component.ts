@@ -307,7 +307,7 @@ import {
 
     // ── Validation Checks ───────────────────────────────────────────────────
     .status-pill {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 4px;
@@ -430,7 +430,7 @@ import {
 
       &.baseline-only {
         font-style: italic;
-        font-size: 10px;
+        font-size: 11px;
       }
     }
 
@@ -518,7 +518,7 @@ import {
     }
 
     .resolved-badge {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
       padding: 1px 5px;
       border-radius: 3px;

@@ -252,7 +252,7 @@ interface FilterDef {
       }
 
       .var-path {
-        font-size: 10px;
+        font-size: 11px;
         color: var(--mat-sys-on-surface-variant, #999);
         max-width: 120px;
         overflow: hidden;
