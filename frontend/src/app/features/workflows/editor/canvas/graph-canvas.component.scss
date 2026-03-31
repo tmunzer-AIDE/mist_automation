@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  background: var(--mat-sys-surface, #fff);
+  background: var(--mat-sys-surface);
   border-radius: 8px;
   padding: 2px 4px;
   box-shadow: var(--app-shadow-sm);
@@ -181,7 +181,7 @@
 }
 
 .input-port {
-  fill: var(--mat-sys-surface, #fff);
+  fill: var(--mat-sys-surface);
 }
 
 .output-port {
