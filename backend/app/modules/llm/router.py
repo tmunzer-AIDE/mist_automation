@@ -1806,3 +1806,177 @@ async def delete_skill(
 
     remove_dir(Path(skill.local_path))
     await skill.delete()
+
+
+# ── Skill Git Repos ───────────────────────────────────────────────────────────
+
+
+@router.get("/llm/skills/repos", tags=["LLM"])
+async def list_skill_repos(
+    _: User = Depends(require_admin),
+):
+    """List all git repo skills sources. Admin only."""
+    from app.modules.llm.models import SkillGitRepo
+
+    repos = await SkillGitRepo.find_all().to_list()
+    return [_repo_to_response(r) for r in repos]
+
+
+@router.get("/llm/skills/repos/{repo_id}", tags=["LLM"])
+async def get_skill_repo(
+    repo_id: str,
+    _: User = Depends(require_admin),
+):
+    """Get a single git repo record (used for polling status). Admin only."""
+    from app.modules.llm.models import SkillGitRepo
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+    return _repo_to_response(repo)
+
+
+async def _clone_and_scan(repo_id: str) -> None:
+    """Background task: clone a git repo and scan for skills."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from beanie import PydanticObjectId
+
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import SkillGitRepo
+    from app.modules.llm.services.skills_service import clone_repo, sync_skills_from_repo
+
+    repo = await SkillGitRepo.get(PydanticObjectId(repo_id))
+    if not repo:
+        return
+
+    token = decrypt_sensitive_data(repo.token) if repo.token else None
+
+    try:
+        await clone_repo(repo.url, token, repo.branch, Path(repo.local_path))
+        added, updated = await sync_skills_from_repo(repo_id, Path(repo.local_path))
+        repo.last_refreshed_at = datetime.now(timezone.utc)
+        repo.error = None
+        repo.update_timestamp()
+        await repo.save()
+        logger.info("skill_repo_cloned", repo_id=repo_id, added=added, updated=updated)
+    except Exception as exc:
+        repo.error = str(exc)[:500]
+        repo.update_timestamp()
+        await repo.save()
+        logger.error("skill_repo_clone_failed", repo_id=repo_id, error=str(exc))
+
+
+async def _pull_and_scan(repo_id: str) -> None:
+    """Background task: pull a git repo and re-scan for skills."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from beanie import PydanticObjectId
+
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import SkillGitRepo
+    from app.modules.llm.services.skills_service import pull_repo, sync_skills_from_repo
+
+    repo = await SkillGitRepo.get(PydanticObjectId(repo_id))
+    if not repo:
+        return
+
+    token = decrypt_sensitive_data(repo.token) if repo.token else None
+
+    try:
+        await pull_repo(Path(repo.local_path), repo.url, token)
+        added, updated = await sync_skills_from_repo(repo_id, Path(repo.local_path))
+        repo.last_refreshed_at = datetime.now(timezone.utc)
+        repo.error = None
+        repo.update_timestamp()
+        await repo.save()
+        logger.info("skill_repo_pulled", repo_id=repo_id, added=added, updated=updated)
+    except Exception as exc:
+        repo.error = str(exc)[:500]
+        repo.update_timestamp()
+        await repo.save()
+        logger.error("skill_repo_pull_failed", repo_id=repo_id, error=str(exc))
+
+
+@router.post("/llm/skills/repos", status_code=status.HTTP_201_CREATED, tags=["LLM"])
+async def add_skill_repo(
+    request: AddGitRepoRequest,
+    _: User = Depends(require_admin),
+):
+    """Add a git repo as a skills source. Clone + scan runs in the background. Admin only."""
+    from pathlib import Path
+
+    from app.config import settings
+    from app.core.security import encrypt_sensitive_data
+    from app.core.tasks import create_background_task
+    from app.modules.llm.models import SkillGitRepo
+    from app.utils.url_safety import validate_outbound_url
+
+    try:
+        validate_outbound_url(request.url)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid URL: {exc}") from exc
+
+    encrypted_token = encrypt_sensitive_data(request.token) if request.token else None
+
+    repo = SkillGitRepo(
+        url=request.url,
+        branch=request.branch,
+        token=encrypted_token,
+        local_path="",  # set after insert (need the ID for the path)
+    )
+    await repo.insert()
+
+    local_path = str(Path(settings.skills_dir) / "repos" / str(repo.id))
+    repo.local_path = local_path
+    repo.update_timestamp()
+    await repo.save()
+
+    create_background_task(_clone_and_scan(str(repo.id)), name=f"clone_skill_repo_{repo.id}")
+    return _repo_to_response(repo)
+
+
+@router.post("/llm/skills/repos/{repo_id}/refresh", status_code=status.HTTP_202_ACCEPTED, tags=["LLM"])
+async def refresh_skill_repo(
+    repo_id: str,
+    _: User = Depends(require_admin),
+):
+    """Pull latest changes and re-scan for skills. Runs in the background. Admin only."""
+    from app.core.tasks import create_background_task
+    from app.modules.llm.models import SkillGitRepo
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+
+    create_background_task(_pull_and_scan(repo_id), name=f"pull_skill_repo_{repo_id}")
+    return {"status": "refreshing"}
+
+
+@router.delete("/llm/skills/repos/{repo_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["LLM"])
+async def delete_skill_repo(
+    repo_id: str,
+    _: User = Depends(require_admin),
+):
+    """Delete a git repo, all its skills, and the cloned directory. Admin only."""
+    from pathlib import Path
+
+    from app.modules.llm.models import Skill, SkillGitRepo
+    from app.modules.llm.services.skills_service import remove_dir
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+
+    # Delete all skills from this repo
+    await Skill.find(Skill.git_repo_id == oid).delete()
+
+    # Remove cloned directory
+    remove_dir(Path(repo.local_path))
+
+    await repo.delete()
