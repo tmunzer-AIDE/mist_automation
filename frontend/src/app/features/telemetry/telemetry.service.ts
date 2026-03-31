@@ -13,8 +13,8 @@ import {
   SiteUpdateEvent,
   OrgUpdateEvent,
   TimeRange,
-  ClientListResponse,
-  ClientSiteSummary,
+  type ClientListResponse,
+  type ClientSiteSummary,
 } from './models';
 
 export const TIME_RANGE_MAP: Record<TimeRange, string> = { '1h': '-1h', '6h': '-6h', '24h': '-24h' };
