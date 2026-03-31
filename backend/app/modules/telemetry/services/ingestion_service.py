@@ -24,8 +24,8 @@ from app.modules.telemetry.services.latest_value_cache import LatestValueCache
 
 logger = structlog.get_logger(__name__)
 
-# Regex to extract site_id from channel string: /sites/{uuid}/stats/devices
-_CHANNEL_SITE_RE = re.compile(r"/sites/([^/]+)/stats/devices")
+# Regex to extract site_id and stat type from channel: /sites/{uuid}/stats/(devices|clients)
+_CHANNEL_RE = re.compile(r"/sites/([^/]+)/stats/(devices|clients)")
 
 # Measurements that bypass CoV filtering (always written every cycle)
 _ALWAYS_WRITE_MEASUREMENTS = frozenset({"device_summary", "gateway_health"})
@@ -91,6 +91,34 @@ COV_THRESHOLDS: dict[str, dict[str, str | float]] = {
         "num_ips": "exact",
         "num_leased": "exact",
         "utilization_pct": 3.0,
+    },
+    "client_stats": {
+        "rssi": 3.0,
+        "snr": 3.0,
+        "channel": "exact",
+        "tx_rate": "exact",
+        "rx_rate": "exact",
+        "tx_bps": "always",
+        "rx_bps": "always",
+        "tx_pkts": "always",
+        "rx_pkts": "always",
+        "tx_bytes": "always",
+        "rx_bytes": "always",
+        "tx_retries": "always",
+        "rx_retries": "always",
+        "idle_time": 5.0,
+        "uptime": "always",
+        "hostname": "exact",
+        "ip": "exact",
+        "group": "exact",
+        "vlan_id": "exact",
+        "proto": "exact",
+        "username": "exact",
+        "manufacture": "exact",
+        "os": "exact",
+        "os_version": "exact",
+        "key_mgmt": "exact",
+        "type": "exact",
     },
 }
 
@@ -398,12 +426,14 @@ class IngestionService:
         cache: LatestValueCache,
         cov_filter: CoVFilter,
         org_id: str,
+        client_cache: Any | None = None,
         queue_maxsize: int = 10_000,
     ) -> None:
         self._influxdb = influxdb
         self._cache = cache
         self._cov = cov_filter
         self._org_id = org_id
+        self._client_cache = client_cache
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=queue_maxsize)
         self._running = False
         self._task: asyncio.Task | None = None
@@ -460,13 +490,14 @@ class IngestionService:
         if msg.get("event") != "data":
             return
 
-        # 2. Extract site_id from channel
+        # 2. Extract site_id and stat_type from channel
         channel = msg.get("channel", "")
-        match = _CHANNEL_SITE_RE.search(channel)
+        match = _CHANNEL_RE.search(channel)
         if not match:
             logger.debug("ingestion_unknown_channel", channel=channel)
             return
         site_id = match.group(1)
+        stat_type = match.group(2)
 
         # 3. Parse the data JSON string
         raw_data = msg.get("data")
@@ -482,6 +513,11 @@ class IngestionService:
             return
 
         if not isinstance(payload, dict):
+            return
+
+        # Dispatch to client pipeline if channel is /stats/clients
+        if stat_type == "clients":
+            await self._process_client_message(site_id, payload)
             return
 
         # 4. Update LatestValueCache with the full payload.
@@ -577,6 +613,59 @@ class IngestionService:
         # Periodic cache pruning (every 1000 messages)
         if self._messages_processed % 1000 == 0:
             self._cache.prune(max_age_seconds=3600)
+
+    async def _process_client_message(self, site_id: str, payload: dict[str, Any]) -> None:
+        """Process a single client stats message: cache → CoV filter → InfluxDB → WS broadcast."""
+        from app.modules.telemetry.extractors.client_extractor import extract_points as extract_client_points
+
+        client_mac = payload.get("mac", "")
+        if not client_mac:
+            return
+
+        # Inject site_id if missing
+        if not payload.get("site_id"):
+            payload = {**payload, "site_id": site_id}
+
+        # Update client cache
+        if self._client_cache is not None:
+            self._client_cache.update(client_mac, payload)
+
+        # Extract InfluxDB points (one point per client message)
+        points = extract_client_points(payload, self._org_id, site_id)
+        self._points_extracted += len(points)
+
+        if not points:
+            self._messages_processed += 1
+            self._last_message_at = time.time()
+            return
+
+        # Apply CoV filtering
+        filtered_points: list[dict[str, Any]] = []
+        thresholds = COV_THRESHOLDS.get("client_stats", {})
+        for point in points:
+            cov_key = _build_cov_key(point)
+            fields = point.get("fields", {})
+            if self._cov.should_write(cov_key, fields, thresholds):
+                self._cov.record_write(cov_key, fields)
+                filtered_points.append(point)
+            else:
+                self._points_filtered += 1
+
+        # Write to InfluxDB
+        if filtered_points:
+            await self._influxdb.write_points(filtered_points)
+            self._points_written += len(filtered_points)
+
+        # Broadcast lightweight tick to site channel (frontend debounces at 5s)
+        tick = {"mac": client_mac, "type": "client"}
+        await ws_manager.broadcast(f"telemetry:site:{site_id}", tick)
+
+        self._messages_processed += 1
+        self._last_message_at = time.time()
+
+        # Periodic client cache pruning (every 1000 messages; 600s > _ttl=300)
+        if self._messages_processed % 1000 == 0 and self._client_cache is not None:
+            self._client_cache.prune(max_age_seconds=600)
 
     def get_stats(self) -> dict[str, Any]:
         """Return ingestion statistics."""
