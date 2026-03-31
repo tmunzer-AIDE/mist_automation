@@ -125,12 +125,19 @@ def _detect_device_type(payload: dict[str, Any]) -> str | None:
 
 
 def _extract_cpu_util(payload: dict[str, Any]) -> float | None:
-    """Extract CPU utilization from payload (100 - cpu_stat.idle)."""
+    """Extract CPU utilization from payload.
+
+    Switches/gateways use cpu_stat.idle (util = 100 - idle).
+    APs provide cpu_util directly as an integer percentage.
+    """
     cpu_stat = payload.get("cpu_stat")
     if cpu_stat and isinstance(cpu_stat, dict):
         idle = cpu_stat.get("idle")
         if idle is not None:
             return round(100.0 - float(idle), 2)
+    direct = payload.get("cpu_util")
+    if direct is not None:
+        return round(float(direct), 2)
     return None
 
 

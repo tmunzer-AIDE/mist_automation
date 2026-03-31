@@ -498,6 +498,10 @@ def _extract_object_info(event: dict) -> tuple[str | None, str | None, str | Non
         # e.g. 'Add Site "MyCorp Office"', 'Delete PSK "guest"'
         resolved = _extract_type_from_message(event.get("message", ""), ORG_OBJECTS, SITE_OBJECTS)
         if resolved:
+            # Skip site-only types when there's no site_id — e.g. "Add Device into Inventory"
+            # resolves to "devices" (SITE_OBJECTS only) but has no site context.
+            if not site_id and resolved not in ORG_OBJECTS and resolved in SITE_OBJECTS:
+                return None, None, site_id
             return resolved, None, site_id
 
         return None, None, site_id

@@ -484,9 +484,17 @@ class IngestionService:
         if not isinstance(payload, dict):
             return
 
-        # 4. Update LatestValueCache with the full payload
+        # 4. Update LatestValueCache with the full payload.
+        # Skip basic AP messages (no "type" and no "model") — they lack identifying info and
+        # arrive milliseconds before the full stats message, so caching them would overwrite a
+        # rich entry with a stripped-down one until the full stats arrives.
+        # Also inject site_id from the channel into the payload: AP payloads don't include it,
+        # which would break site-level filtering in scope queries.
         mac = payload.get("mac", "")
-        if mac:
+        has_type_info = bool(payload.get("type") or payload.get("model"))
+        if mac and has_type_info:
+            if not payload.get("site_id"):
+                payload = {**payload, "site_id": site_id}
             self._cache.update(mac, payload)
 
         # 5. Extract InfluxDB data points
@@ -506,7 +514,7 @@ class IngestionService:
         )
 
         if not points:
-            # Still count as processed (e.g., basic AP messages update cache but yield no points)
+            # Still count as processed (e.g., basic AP messages are skipped for cache + InfluxDB)
             self._messages_processed += 1
             self._last_message_at = time.time()
             return

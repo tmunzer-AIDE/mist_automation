@@ -917,10 +917,7 @@ async def _finalize_session(session_id: str) -> None:
             if sev == "none":
                 narration = "Monitoring session complete. No impact detected — the configuration change appears safe."
             else:
-                summary = ""
-                if session.ai_assessment and session.ai_assessment.get("summary"):
-                    summary = f" {session.ai_assessment['summary'][:200]}"
-                narration = f"Monitoring session complete. {sev.title()} impact detected.{summary}"
+                narration = f"Monitoring session complete. {sev.title()} impact detected. See the AI analysis above for details."
             await _narrate_phase(session, "session_complete", narration)
 
     # Cleanup coordinator if no more active sessions for this site
