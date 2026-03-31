@@ -8,7 +8,7 @@
   }
 
   @if (topbarService.actionsTemplate$ | async; as actionsTpl) {
-    <ng-container *ngTemplateOutlet="actionsTpl"></ng-container>
+    <div class="toolbar-actions"><ng-container *ngTemplateOutlet="actionsTpl"></ng-container></div>
   }
 
   <span class="spacer"></span>

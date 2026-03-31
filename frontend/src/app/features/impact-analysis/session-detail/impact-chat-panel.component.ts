@@ -252,10 +252,10 @@ function renderMarkdown(md: string): string {
         gap: 8px;
         padding: 4px 0;
 
-        &::before,
-        &::after {
+        &::before {
           content: '';
-          flex: 1;
+          width: 24px;
+          flex-shrink: 0;
           height: 1px;
           background: var(--app-neutral-200, rgba(128, 128, 128, 0.15));
         }

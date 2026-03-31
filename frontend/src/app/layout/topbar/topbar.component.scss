@@ -18,6 +18,12 @@ mat-toolbar {
   flex: 1;
 }
 
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .menu-btn {
   width: 36px;
   height: 36px;
@@ -29,7 +35,7 @@ mat-toolbar {
   font-family: var(--app-font-display);
   font-size: var(--app-text-lg);
   font-weight: 600;
-  margin: 0 0 0 8px;
+  margin: 0 16px 0 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -15,7 +15,7 @@
         (optionSelected)="selectSite($event.option.value)"
       >
         @for (site of filteredSites(); track site.site_id) {
-          <mat-option [value]="site">{{ site.site_name }} ({{ site.total_devices }})</mat-option>
+          <mat-option [value]="site">{{ site.site_name }}</mat-option>
         }
       </mat-autocomplete>
     </mat-form-field>
