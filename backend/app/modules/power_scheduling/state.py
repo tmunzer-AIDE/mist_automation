@@ -11,10 +11,10 @@ _locks: dict[str, asyncio.Lock] = {}
 @dataclass
 class PowerScheduleState:
     status: Literal["IDLE", "TRANSITIONING_OFF", "OFF_HOURS", "TRANSITIONING_ON"] = "IDLE"
-    # {ap_mac: original_profile_id | None}
-    disabled_aps: dict[str, str | None] = field(default_factory=dict)
-    # APs with clients or whose neighbor has clients — not yet disabled
-    pending_disable: set[str] = field(default_factory=set)
+    # APs with an active per-AP "radios on" override (not disabled via profile)
+    protected_aps: set[str] = field(default_factory=set)
+    # Total non-critical APs at window start — used to compute disabled_ap_count
+    total_non_critical_aps: int = 0
     # {ap_mac: {client_mac, ...}} — live from clients WS
     client_map: dict[str, set[str]] = field(default_factory=dict)
     # {ap_mac: asyncio.Task} — grace timer tasks per AP
