@@ -1,5 +1,5 @@
 import { DatePipe, SlicePipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -124,7 +124,7 @@ import { AddRepoDialogComponent } from './add-repo-dialog.component';
               <ng-container matColumnDef="description">
                 <th mat-header-cell *matHeaderCellDef>Description</th>
                 <td mat-cell *matCellDef="let s" [class.disabled-row]="!s.enabled">
-                  {{ s.description | slice: 0 : 100 }}{{ s.description.length > 100 ? '…' : '' }}
+                  {{ s.description | slice: 0 : 100 }}{{ (s.description?.length ?? 0) > 100 ? '…' : '' }}
                 </td>
               </ng-container>
               <ng-container matColumnDef="source">
@@ -187,10 +187,11 @@ import { AddRepoDialogComponent } from './add-repo-dialog.component';
     .inline-actions { display: flex; justify-content: flex-end; }
   `],
 })
-export class SkillsAdminComponent implements OnInit {
+export class SkillsAdminComponent implements OnInit, OnDestroy {
   private readonly llmService = inject(LlmService);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly destroyRef = inject(DestroyRef);
 
   loading = signal(true);
   skills = signal<Skill[]>([]);
@@ -201,6 +202,11 @@ export class SkillsAdminComponent implements OnInit {
   repoColumns = ['url', 'status', 'actions'];
 
   private pollSubs = new Map<string, Subscription>();
+
+  ngOnDestroy(): void {
+    this.pollSubs.forEach((sub) => sub.unsubscribe());
+    this.pollSubs.clear();
+  }
 
   ngOnInit(): void {
     this.load();
