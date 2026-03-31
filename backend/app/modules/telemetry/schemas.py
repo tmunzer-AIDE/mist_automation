@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ── Validation constants ──────────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ ALLOWED_MEASUREMENTS = frozenset(
         "gateway_cluster",
         "gateway_dhcp",
         "switch_dhcp",
+        "client_stats",
     }
 )
 
@@ -37,6 +38,97 @@ _DURATION_RE = re.compile(r"^-?\d+[smhd]$")
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
+
+# ── Request query param models ───────────────────────────────────────────
+
+
+class RangeQueryParams(BaseModel):
+    """Validated query parameters for /telemetry/query/range."""
+
+    mac: str
+    measurement: str = "device_summary"
+    start: str = "-1h"
+    end: str = "now()"
+
+    @field_validator("mac")
+    @classmethod
+    def validate_mac(cls, v: str) -> str:
+        if not _MAC_RE.match(v):
+            raise ValueError("Invalid MAC address format")
+        return v.lower().replace(":", "")
+
+    @field_validator("measurement")
+    @classmethod
+    def validate_measurement(cls, v: str) -> str:
+        if v not in ALLOWED_MEASUREMENTS:
+            raise ValueError(f"Invalid measurement; allowed: {', '.join(sorted(ALLOWED_MEASUREMENTS))}")
+        return v
+
+    @field_validator("start", "end")
+    @classmethod
+    def validate_duration(cls, v: str) -> str:
+        if v == "now()":
+            return v
+        if not _DURATION_RE.match(v):
+            raise ValueError("Invalid duration format; expected e.g. -1h, -30m, -7d")
+        return v
+
+
+class AggregateQueryParams(BaseModel):
+    """Validated query parameters for /telemetry/query/aggregate."""
+
+    site_id: str | None = None
+    org_id: str | None = None
+    measurement: str = "device_summary"
+    field: str = "cpu_util"
+    agg: str = "mean"
+    window: str = "5m"
+    start: str = "-1h"
+    end: str = "now()"
+
+    @field_validator("site_id", "org_id")
+    @classmethod
+    def validate_uuid(cls, v: str | None) -> str | None:
+        if v is not None and not _UUID_RE.match(v):
+            raise ValueError("Invalid UUID format")
+        return v
+
+    @field_validator("measurement")
+    @classmethod
+    def validate_measurement(cls, v: str) -> str:
+        if v not in ALLOWED_MEASUREMENTS:
+            raise ValueError(f"Invalid measurement; allowed: {', '.join(sorted(ALLOWED_MEASUREMENTS))}")
+        return v
+
+    @field_validator("field")
+    @classmethod
+    def validate_field(cls, v: str) -> str:
+        if not _FIELD_RE.match(v):
+            raise ValueError("Invalid field name; must be alphanumeric/underscore, start with letter or underscore")
+        return v
+
+    @field_validator("agg")
+    @classmethod
+    def validate_agg(cls, v: str) -> str:
+        if v not in ALLOWED_AGGREGATIONS:
+            raise ValueError(f"Invalid agg; allowed: {', '.join(sorted(ALLOWED_AGGREGATIONS))}")
+        return v
+
+    @field_validator("window")
+    @classmethod
+    def validate_window(cls, v: str) -> str:
+        if not _WINDOW_RE.match(v):
+            raise ValueError("Invalid window format; expected e.g. 5m, 1h, 30s")
+        return v
+
+    @field_validator("start", "end")
+    @classmethod
+    def validate_duration(cls, v: str) -> str:
+        if v == "now()":
+            return v
+        if not _DURATION_RE.match(v):
+            raise ValueError("Invalid duration format; expected e.g. -1h, -30m, -7d")
+        return v
 
 
 # ── Response models ──────────────────────────────────────────────────────
@@ -188,4 +280,60 @@ class SiteSummaryRecord(BaseModel):
 
 class ScopeSitesResponse(BaseModel):
     sites: list[SiteSummaryRecord]
+    total: int = 0
+
+
+# ── Client telemetry models ──────────────────────────────────────────────
+
+
+class ClientStatRecord(BaseModel):
+    """A single wireless client's latest stats from LatestClientCache."""
+
+    mac: str
+    site_id: str
+    ap_mac: str
+    ssid: str
+    band: str
+    auth_type: str
+    hostname: str = ""
+    ip: str = ""
+    manufacture: str = ""
+    family: str = ""
+    model: str = ""
+    os: str = ""
+    group: str = ""
+    vlan_id: str = ""
+    proto: str = ""
+    username: str = ""
+    rssi: float | None = None
+    snr: float | None = None
+    channel: int | None = None
+    tx_rate: float | None = None
+    rx_rate: float | None = None
+    tx_bps: int = 0
+    rx_bps: int = 0
+    tx_bytes: int = 0
+    rx_bytes: int = 0
+    uptime: int = 0
+    idle_time: float = 0.0
+    is_guest: bool = False
+    dual_band: bool = False
+    last_seen: float | None = None
+    fresh: bool = False
+
+
+class ClientSiteSummary(BaseModel):
+    """Aggregate client stats for a site (from LatestClientCache)."""
+
+    total_clients: int = 0
+    avg_rssi: float = 0.0
+    band_counts: dict[str, int] = Field(default_factory=dict)
+    total_tx_bps: int = 0
+    total_rx_bps: int = 0
+
+
+class ClientListResponse(BaseModel):
+    """Response for GET /telemetry/scope/clients."""
+
+    clients: list[ClientStatRecord] = Field(default_factory=list)
     total: int = 0

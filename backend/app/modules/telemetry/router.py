@@ -24,6 +24,9 @@ from app.modules.telemetry.schemas import (
     AggregateQueryResponse,
     APScopeSummary,
     BandSummary,
+    ClientListResponse,
+    ClientSiteSummary,
+    ClientStatRecord,
     DeviceSummaryRecord,
     GatewayScopeSummary,
     LatestStatsResponse,
@@ -65,6 +68,8 @@ async def get_telemetry_status(
         "cache_size": telemetry_mod._latest_cache.size() if telemetry_mod._latest_cache else 0,
         "websocket": telemetry_mod._ws_manager.get_status() if telemetry_mod._ws_manager else None,
         "ingestion": telemetry_mod._ingestion_service.get_stats() if telemetry_mod._ingestion_service else None,
+        "client_cache_size": telemetry_mod._client_cache.size() if telemetry_mod._client_cache else 0,
+        "client_websocket": telemetry_mod._client_ws_manager.get_status() if telemetry_mod._client_ws_manager else None,
     }
 
 
@@ -493,6 +498,144 @@ async def get_scope_devices(
     devices.sort(key=lambda d: d.last_seen or 0, reverse=True)
 
     return ScopeDevicesResponse(total=len(devices), devices=devices)
+
+
+# ── Client scope endpoints ──────────────────────────────────────────────
+
+
+@router.get("/scope/clients/summary", response_model=ClientSiteSummary)
+async def get_scope_clients_summary(
+    site_id: str | None = Query(None, description="Site UUID to filter by"),
+    _current_user: User = Depends(require_impact_role),
+) -> ClientSiteSummary:
+    """Return aggregate wireless client stats from the in-memory client cache."""
+    import app.modules.telemetry as telemetry_mod
+
+    if site_id is not None and not _UUID_RE.match(site_id):
+        raise HTTPException(status_code=400, detail="Invalid site_id format")
+    if telemetry_mod._client_cache is None:
+        return ClientSiteSummary()
+
+    if site_id:
+        raw = telemetry_mod._client_cache.get_site_summary(site_id)
+    else:
+        # Org-wide: aggregate across all sites
+        all_entries = telemetry_mod._client_cache.get_all_entries()
+        now = _time.time()
+        clients = [e["stats"] for e in all_entries.values() if now - e["updated_at"] < 120]
+        if not clients:
+            return ClientSiteSummary()
+        rssiz = [float(c["rssi"]) for c in clients if c.get("rssi") is not None]
+        band_counts: dict[str, int] = {}
+        for c in clients:
+            band = str(c.get("band") or "")
+            if band:
+                band_counts[band] = band_counts.get(band, 0) + 1
+        raw = {
+            "total_clients": len(clients),
+            "avg_rssi": round(sum(rssiz) / len(rssiz), 1) if rssiz else 0.0,
+            "band_counts": band_counts,
+            "total_tx_bps": sum(int(c.get("tx_bps") or 0) for c in clients),
+            "total_rx_bps": sum(int(c.get("rx_bps") or 0) for c in clients),
+        }
+
+    return ClientSiteSummary(**raw)
+
+
+@router.get("/scope/clients", response_model=ClientListResponse)
+async def get_scope_clients(
+    site_id: str = Query(..., description="Site UUID"),
+    _current_user: User = Depends(require_impact_role),
+) -> ClientListResponse:
+    """Return all cached wireless clients for a site."""
+    import app.modules.telemetry as telemetry_mod
+
+    if not _UUID_RE.match(site_id):
+        raise HTTPException(status_code=400, detail="Invalid site_id format")
+    if telemetry_mod._client_cache is None:
+        return ClientListResponse()
+
+    now = _time.time()
+    raw_entries = telemetry_mod._client_cache.get_all_entries()
+    clients: list[ClientStatRecord] = []
+
+    for mac, entry in raw_entries.items():
+        stats = entry.get("stats", {})
+        if stats.get("site_id") != site_id:
+            continue
+        fresh = (now - entry.get("updated_at", 0)) < 120
+        clients.append(
+            ClientStatRecord(
+                mac=mac,
+                site_id=site_id,
+                ap_mac=stats.get("ap_mac") or "",
+                ssid=stats.get("ssid") or "",
+                band=str(stats.get("band") or ""),
+                auth_type="eap" if "EAP" in (stats.get("key_mgmt") or "").upper() else "psk",
+                hostname=stats.get("hostname") or "",
+                ip=stats.get("ip") or "",
+                manufacture=stats.get("manufacture") or "",
+                family=stats.get("family") or "",
+                model=stats.get("model") or "",
+                os=stats.get("os") or "",
+                group=stats.get("group") or "",
+                vlan_id=str(stats.get("vlan_id") or ""),
+                proto=stats.get("proto") or "",
+                username=stats.get("username") or "",
+                rssi=stats.get("rssi"),
+                snr=stats.get("snr"),
+                channel=stats.get("channel"),
+                tx_rate=stats.get("tx_rate"),
+                rx_rate=stats.get("rx_rate"),
+                tx_bps=int(stats.get("tx_bps") or 0),
+                rx_bps=int(stats.get("rx_bps") or 0),
+                tx_bytes=int(stats.get("tx_bytes") or 0),
+                rx_bytes=int(stats.get("rx_bytes") or 0),
+                uptime=int(stats.get("uptime") or 0),
+                idle_time=float(stats.get("idle_time") or 0.0),
+                is_guest=bool(stats.get("is_guest")),
+                dual_band=bool(stats.get("dual_band")),
+                last_seen=stats.get("last_seen"),
+                fresh=fresh,
+            )
+        )
+
+    clients.sort(key=lambda c: c.rssi or 0, reverse=True)
+    return ClientListResponse(clients=clients, total=len(clients))
+
+
+@router.get("/query/clients/range", response_model=RangeQueryResponse)
+async def query_clients_range(
+    mac: str = Query(..., description="Client MAC address"),
+    site_id: str = Query(..., description="Site UUID"),
+    start: str = Query("-1h", description="Range start (e.g., -1h, -30m)"),
+    end: str = Query("now()", description="Range end"),
+    _current_user: User = Depends(require_impact_role),
+) -> RangeQueryResponse:
+    """Query historical time-range data for a single wireless client from InfluxDB."""
+    import app.modules.telemetry as telemetry_mod
+
+    if not _MAC_RE.match(mac):
+        raise HTTPException(status_code=400, detail="Invalid MAC address format")
+    mac_clean = mac.lower().replace(":", "")
+    if not _UUID_RE.match(site_id):
+        raise HTTPException(status_code=400, detail="Invalid site_id format")
+    if end != "now()" and not _DURATION_RE.match(end):
+        raise HTTPException(status_code=400, detail="Invalid end parameter")
+    if not _DURATION_RE.match(start):
+        raise HTTPException(status_code=400, detail="Invalid start parameter")
+    if not telemetry_mod._influxdb_service:
+        raise HTTPException(status_code=503, detail="Telemetry service not available")
+
+    points = await telemetry_mod._influxdb_service.query_range(mac_clean, "client_stats", start, end)
+    return RangeQueryResponse(
+        mac=mac_clean,
+        measurement="client_stats",
+        start=start,
+        end=end,
+        points=points,
+        count=len(points),
+    )
 
 
 # ── InfluxDB range query ────────────────────────────────────────────────
