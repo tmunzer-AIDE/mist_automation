@@ -445,6 +445,7 @@ async def _grace_timer(site_id: str, ap_mac: str, schedule: PowerSchedule) -> No
         try:
             await _set_ap_override(site_id, ap_mac)
             await _log_event(site_id, "AP_ENABLED", ap_mac=ap_mac, reason="grace_rollback_client_arrived")
+            await _broadcast_status(site_id, "OFF_HOURS")
         except Exception as exc:
             await _log_event(site_id, "ERROR", ap_mac=ap_mac, error=type(exc).__name__, action="grace_rollback")
 

@@ -16,8 +16,7 @@ class TestStateStore:
     def test_get_state_creates_idle(self):
         state = get_state("site-1")
         assert state.status == "IDLE"
-        assert state.disabled_aps == {}
-        assert state.pending_disable == set()
+        assert state.protected_aps == set()
         assert state.client_map == {}
 
     def test_get_state_returns_same_instance(self):

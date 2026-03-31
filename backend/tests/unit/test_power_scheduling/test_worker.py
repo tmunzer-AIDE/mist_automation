@@ -40,7 +40,7 @@ class TestRegisterJobs:
     def test_deregister_removes_jobs(self):
         mock_scheduler = MagicMock()
         mock_scheduler.get_job.return_value = MagicMock()
-        deregister_schedule_jobs("s1", mock_scheduler)
+        deregister_schedule_jobs("s1", mock_scheduler, 3)
         mock_scheduler.remove_job.assert_called()
 
 
