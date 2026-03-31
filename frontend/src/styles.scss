@@ -347,7 +347,12 @@ a,
 input:not([disabled]),
 select:not([disabled]),
 textarea:not([disabled]) {
-  transition: all var(--app-duration-default) ease;
+  transition:
+    background-color var(--app-duration-default) ease,
+    color var(--app-duration-default) ease,
+    border-color var(--app-duration-default) ease,
+    box-shadow var(--app-duration-default) ease,
+    opacity var(--app-duration-default) ease;
 }
 
 // Prevent hover feedback on disabled elements
