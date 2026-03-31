@@ -76,7 +76,7 @@
       <div class="info-row">
         <div class="info-card">
           <div class="info-label">Hostname</div>
-          <div class="info-value">{{ c.hostname || '—' }}</div>
+          <div class="info-value" [title]="c.hostname || ''">{{ c.hostname || '—' }}</div>
         </div>
         <div class="info-card">
           <div class="info-label">IP</div>
@@ -84,11 +84,11 @@
         </div>
         <div class="info-card">
           <div class="info-label">Manufacturer</div>
-          <div class="info-value">{{ c.manufacture || '—' }}</div>
+          <div class="info-value" [title]="c.manufacture || ''">{{ c.manufacture || '—' }}</div>
         </div>
         <div class="info-card">
           <div class="info-label">OS</div>
-          <div class="info-value">{{ c.os || '—' }}</div>
+          <div class="info-value" [title]="c.os || ''">{{ c.os || '—' }}</div>
         </div>
         <div class="info-card">
           <div class="info-label">VLAN</div>
@@ -104,7 +104,7 @@
         </div>
         <div class="info-card">
           <div class="info-label">SSID</div>
-          <div class="info-value">{{ c.ssid || '—' }}</div>
+          <div class="info-value" [title]="c.ssid || ''">{{ c.ssid || '—' }}</div>
         </div>
       </div>
 

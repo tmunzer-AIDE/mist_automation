@@ -200,6 +200,9 @@ export interface ClientSiteSummary {
   total_clients: number;
   avg_rssi: number;
   band_counts: Record<string, number>;
+  proto_counts: Record<string, number>;
+  channel_counts: Record<string, number>;
+  auth_counts: Record<string, number>;
   total_tx_bps: number;
   total_rx_bps: number;
 }

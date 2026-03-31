@@ -15,7 +15,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { BaseChartDirective } from 'ng2-charts';
-import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
@@ -37,7 +36,6 @@ Chart.register(...registerables);
     MatButtonToggleModule,
     MatIconModule,
     BaseChartDirective,
-    SkeletonLoaderComponent,
   ],
   templateUrl: './telemetry-client-detail.component.html',
   styleUrl: './telemetry-client-detail.component.scss',
@@ -158,15 +156,14 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
       .queryClientRange(mac, siteId, start, end)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: RangeResult) => {
-        const rssiPoints = result.points.filter((p) => p['_field'] === 'rssi');
-        const bpsPoints = result.points.filter((p) => p['_field'] === 'tx_bps');
-        this.rssiChart.set(this._buildChart(rssiPoints, 'RSSI (dBm)', getChartColor('duration')));
-        this.bpsChart.set(this._buildChart(bpsPoints, 'TX bps', getChartColor('objects')));
+        this.rssiChart.set(this._buildChart(result.points, 'rssi', 'RSSI (dBm)', getChartColor('duration')));
+        this.bpsChart.set(this._buildChart(result.points, 'tx_bps', 'TX bps', getChartColor('objects')));
       });
   }
 
   private _buildChart(
     points: Record<string, unknown>[],
+    field: string,
     label: string,
     color: string,
   ): ChartConfiguration<'line'> {
@@ -178,7 +175,7 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
             label,
             data: points.map((p) => ({
               x: new Date(p['_time'] as string).getTime(),
-              y: p['_value'] as number,
+              y: p[field] as number,
             })),
             borderColor: color,
             backgroundColor: color + '22',

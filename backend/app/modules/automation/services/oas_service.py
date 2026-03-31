@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import structlog
+import yaml
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +66,7 @@ class OASService:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.get(oas_url)
                 resp.raise_for_status()
-                spec = resp.json()
+                spec = yaml.safe_load(resp.text)
         except Exception as e:
             logger.warning("oas_load_failed", url=oas_url, error=str(e))
             return

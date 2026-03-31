@@ -36,16 +36,15 @@
 }
 
 .kpi-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 
 .kpi-card {
-  flex: 1;
-  min-width: 120px;
   border-radius: var(--app-radius-sm);
-  background: var(--mat-sys-surface);
+  background: var(--mat-sys-surface-container);
+  border: 1px solid var(--mat-sys-outline-variant);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -66,14 +65,12 @@
 }
 
 .info-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px;
 }
 
 .info-card {
-  flex: 1;
-  min-width: 140px;
   border-radius: var(--app-radius-sm);
   background: var(--mat-sys-surface-container);
   border: 1px solid var(--mat-sys-outline-variant);
@@ -93,7 +90,9 @@
 .info-value {
   font-size: var(--app-text-sm);
   font-weight: 500;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .monospace {

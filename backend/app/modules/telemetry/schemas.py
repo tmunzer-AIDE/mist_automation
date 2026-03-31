@@ -328,6 +328,9 @@ class ClientSiteSummary(BaseModel):
     total_clients: int = 0
     avg_rssi: float = 0.0
     band_counts: dict[str, int] = Field(default_factory=dict)
+    proto_counts: dict[str, int] = Field(default_factory=dict)
+    channel_counts: dict[str, int] = Field(default_factory=dict)
+    auth_counts: dict[str, int] = Field(default_factory=dict)
     total_tx_bps: int = 0
     total_rx_bps: int = 0
 

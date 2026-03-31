@@ -95,8 +95,9 @@ class MistWsManager:
                 mist_session=self._api_session,
                 site_ids=chunk,
                 auto_reconnect=True,
-                max_reconnect_attempts=5,
+                max_reconnect_attempts=0,
                 reconnect_backoff=2.0,
+                max_reconnect_backoff=30.0,
             )
             ws.on_message(self._on_ws_message)
             ws.connect(run_in_background=True)

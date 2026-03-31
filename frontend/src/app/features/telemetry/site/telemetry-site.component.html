@@ -127,6 +127,32 @@
             <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
           </div>
         </div>
+        <div class="dist-chart-row">
+          @if (clientBandChart()) {
+            <div class="dist-chart-container">
+              <div class="chart-title">Band</div>
+              <canvas baseChart [data]="clientBandChart()!.data" [options]="clientBandChart()!.options" type="doughnut"></canvas>
+            </div>
+          }
+          @if (clientProtoChart()) {
+            <div class="dist-chart-container">
+              <div class="chart-title">Protocol</div>
+              <canvas baseChart [data]="clientProtoChart()!.data" [options]="clientProtoChart()!.options" type="doughnut"></canvas>
+            </div>
+          }
+          @if (clientChannelChart()) {
+            <div class="dist-chart-container">
+              <div class="chart-title">Channel</div>
+              <canvas baseChart [data]="clientChannelChart()!.data" [options]="clientChannelChart()!.options" type="doughnut"></canvas>
+            </div>
+          }
+          @if (clientAuthChart()) {
+            <div class="dist-chart-container">
+              <div class="chart-title">Auth</div>
+              <canvas baseChart [data]="clientAuthChart()!.data" [options]="clientAuthChart()!.options" type="doughnut"></canvas>
+            </div>
+          }
+        </div>
       </section>
     }
     <!-- AP section -->

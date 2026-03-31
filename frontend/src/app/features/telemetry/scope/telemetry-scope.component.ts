@@ -15,6 +15,7 @@ import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { getTopicColors } from '../../../shared/utils/chart-defaults';
 import {
   TimeRange,
   ScopeSummary,
@@ -81,6 +82,45 @@ export class TelemetryScopeComponent implements OnInit {
   });
 
   readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
+
+  // Client distribution charts (computed from clientSummary)
+  readonly clientBandChart = computed((): ChartConfiguration<'doughnut'> | null => {
+    const s = this.clientSummary();
+    if (!s) return null;
+    const order = ['24', '5', '6'];
+    const labels: Record<string, string> = { '24': '2.4G', '5': '5G', '6': '6G' };
+    const entries = order.filter((k) => k in s.band_counts);
+    if (!entries.length) return null;
+    return this._buildDoughnutConfig(entries.map((k) => labels[k]), entries.map((k) => s.band_counts[k]));
+  });
+
+  readonly clientProtoChart = computed((): ChartConfiguration<'doughnut'> | null => {
+    const s = this.clientSummary();
+    if (!s) return null;
+    const entries = Object.entries(s.proto_counts ?? {}).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) return null;
+    return this._buildDoughnutConfig(entries.map((e) => e[0].toUpperCase()), entries.map((e) => e[1]));
+  });
+
+  readonly clientChannelChart = computed((): ChartConfiguration<'doughnut'> | null => {
+    const s = this.clientSummary();
+    if (!s) return null;
+    const entries = Object.entries(s.channel_counts ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+    if (!entries.length) return null;
+    return this._buildDoughnutConfig(entries.map((e) => `Ch ${e[0]}`), entries.map((e) => e[1]));
+  });
+
+  readonly clientAuthChart = computed((): ChartConfiguration<'doughnut'> | null => {
+    const s = this.clientSummary();
+    if (!s) return null;
+    const authLabels: Record<string, string> = { psk: 'PSK', eap: '802.1X' };
+    const entries = Object.entries(s.auth_counts ?? {});
+    if (!entries.length) return null;
+    return this._buildDoughnutConfig(
+      entries.map((e) => authLabels[e[0]] ?? e[0]),
+      entries.map((e) => e[1]),
+    );
+  });
 
   // Chart signals: AP
   readonly apCpuChart = signal<ChartConfiguration<'line'> | null>(null);
@@ -433,6 +473,25 @@ export class TelemetryScopeComponent implements OnInit {
           y: { beginAtZero: true },
         },
         plugins: { legend: { position: 'bottom' } },
+      },
+    };
+  }
+
+  private _buildDoughnutConfig(labels: string[], data: number[]): ChartConfiguration<'doughnut'> {
+    const colors = getTopicColors();
+    return {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data, backgroundColor: colors.slice(0, data.length), borderWidth: 0 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+        },
       },
     };
   }

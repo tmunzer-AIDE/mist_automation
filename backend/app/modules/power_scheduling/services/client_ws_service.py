@@ -67,8 +67,9 @@ class ClientStatsWsManager:
                 mist_session=self._api_session,
                 site_ids=[site_id],
                 auto_reconnect=True,
-                max_reconnect_attempts=5,
+                max_reconnect_attempts=0,
                 reconnect_backoff=2.0,
+                max_reconnect_backoff=30.0,
             )
             ws.on_message(lambda msg: self._bridge(site_id, msg))
             ws.connect(run_in_background=True)

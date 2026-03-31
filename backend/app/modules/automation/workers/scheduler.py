@@ -156,7 +156,7 @@ class WorkflowScheduler:
 
             # Get next run time
             job = self.scheduler.get_job(job_id)
-            next_run = job.next_run_time if job else None
+            next_run = getattr(job, "next_run_time", None) if job else None
 
             logger.info(
                 "workflow_scheduled",
@@ -322,7 +322,7 @@ class WorkflowScheduler:
         )
 
         job = self.scheduler.get_job(job_id)
-        next_run = job.next_run_time if job else None
+        next_run = getattr(job, "next_run_time", None) if job else None
 
         logger.info(
             "backup_scheduled",
@@ -413,7 +413,7 @@ class WorkflowScheduler:
             jobs.append({
                 'job_id': job.id,
                 'name': job.name,
-                'next_run_time': job.next_run_time.isoformat() if job.next_run_time else None,
+                'next_run_time': job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
                 'trigger': str(job.trigger),
             })
 
