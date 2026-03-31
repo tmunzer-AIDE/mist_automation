@@ -9,14 +9,12 @@ from contextlib import asynccontextmanager
 
 import structlog
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_current_user_from_token, require_admin, require_automation_role, require_backup_role
 from app.models.user import User
-from app.modules.llm.services.llm_service_factory import _LOCAL_PROVIDERS
-from fastapi import Query
-
 from app.modules.llm.schemas import (
+    AddDirectSkillRequest,
     AuditLogSummaryRequest,
     BackupListSummaryRequest,
     CategorySelectionRequest,
@@ -47,6 +45,8 @@ from app.modules.llm.schemas import (
     MCPConfigUpdate,
     MCPConnectionTestRequest,
     McpToolCallRequest,
+    SkillGitRepoResponse,
+    SkillResponse,
     SummarizeDiffRequest,
     SummaryResponse,
     SystemLogSummaryRequest,
@@ -55,6 +55,7 @@ from app.modules.llm.schemas import (
     WorkflowAssistRequest,
     WorkflowAssistResponse,
 )
+from app.modules.llm.services.llm_service_factory import _LOCAL_PROVIDERS
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -1658,4 +1659,149 @@ async def delete_thread(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     await thread.delete()
+
+
+# ── Skills (Agent Skills support) ────────────────────────────────────────────
+
+
+def _skill_to_response(skill, git_repo_url: str | None = None) -> SkillResponse:
+    return SkillResponse(
+        id=str(skill.id),
+        name=skill.name,
+        description=skill.description,
+        source=skill.source,
+        enabled=skill.enabled,
+        git_repo_id=str(skill.git_repo_id) if skill.git_repo_id else None,
+        git_repo_url=git_repo_url,
+        error=skill.error,
+        last_synced_at=skill.last_synced_at,
+    )
+
+
+def _repo_to_response(repo) -> SkillGitRepoResponse:
+    return SkillGitRepoResponse(
+        id=str(repo.id),
+        url=repo.url,
+        branch=repo.branch,
+        token_set=repo.token_set,
+        local_path=repo.local_path,
+        last_refreshed_at=repo.last_refreshed_at,
+        error=repo.error,
+    )
+
+
+@router.get("/llm/skills", tags=["LLM"])
+async def list_skills(
+    _: User = Depends(require_admin),
+):
+    """List all skills. Admin only."""
+    from app.modules.llm.models import Skill, SkillGitRepo
+
+    skills = await Skill.find_all().to_list()
+    # Build a repo URL lookup map to avoid N+1 queries
+    repo_ids = {str(s.git_repo_id) for s in skills if s.git_repo_id}
+    repos_by_id: dict[str, str] = {}
+    if repo_ids:
+        repos = await SkillGitRepo.find({"_id": {"$in": [PydanticObjectId(r) for r in repo_ids]}}).to_list()
+        repos_by_id = {str(r.id): r.url for r in repos}
+
+    return [_skill_to_response(s, repos_by_id.get(str(s.git_repo_id))) for s in skills]
+
+
+@router.post("/llm/skills/direct", status_code=status.HTTP_201_CREATED, tags=["LLM"])
+async def add_direct_skill(
+    request: AddDirectSkillRequest,
+    _: User = Depends(require_admin),
+):
+    """Add a skill by pasting its SKILL.md content. Admin only."""
+    import os
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from app.config import settings
+    from app.modules.llm.models import Skill
+    from app.modules.llm.services.skills_service import parse_skill_md
+
+    # Parse frontmatter from the submitted content
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as tmp:
+        tmp.write(request.content)
+        tmp_path = tmp.name
+
+    try:
+        try:
+            name, description, _ = parse_skill_md(Path(tmp_path))
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    finally:
+        os.unlink(tmp_path)
+
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKILL.md 'name' field is required")
+
+    # Check for name collision
+    existing = await Skill.find_one(Skill.name == name)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"A skill named '{name}' already exists")
+
+    # Write to filesystem
+    skill_dir = Path(settings.skills_dir) / "direct" / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(request.content, encoding="utf-8")
+
+    now = datetime.now(timezone.utc)
+    skill = Skill(
+        name=name,
+        description=description,
+        source="direct",
+        local_path=str(skill_dir),
+        enabled=True,
+        error=None,
+        last_synced_at=now,
+    )
+    await skill.insert()
+    return _skill_to_response(skill)
+
+
+@router.patch("/llm/skills/{skill_id}/toggle", tags=["LLM"])
+async def toggle_skill(
+    skill_id: str,
+    _: User = Depends(require_admin),
+):
+    """Enable or disable a skill. Admin only."""
+    from app.modules.llm.models import Skill
+
+    oid = _parse_oid(skill_id, "skill ID")
+    skill = await Skill.get(oid)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
+
+    skill.enabled = not skill.enabled
+    await skill.save()
+    return _skill_to_response(skill)
+
+
+@router.delete("/llm/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["LLM"])
+async def delete_skill(
+    skill_id: str,
+    _: User = Depends(require_admin),
+):
+    """Delete a direct-source skill (and its directory). Git-sourced skills cannot be deleted individually. Admin only."""
+    from pathlib import Path
+
+    from app.modules.llm.models import Skill
+    from app.modules.llm.services.skills_service import remove_dir
+
+    oid = _parse_oid(skill_id, "skill ID")
+    skill = await Skill.get(oid)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
+    if skill.source == "git":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Git-sourced skills cannot be deleted individually. Disable the skill or delete the repo.",
+        )
+
+    remove_dir(Path(skill.local_path))
+    await skill.delete()
     return {"status": "deleted"}

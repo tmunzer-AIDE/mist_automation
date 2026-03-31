@@ -371,3 +371,46 @@ class ConversationThreadListResponse(BaseModel):
 
     threads: list[ConversationThreadSummary]
     total: int
+
+
+# ── Skills ───────────────────────────────────────────────────────────────────
+
+
+class AddDirectSkillRequest(BaseModel):
+    """Add a skill from raw SKILL.md content."""
+
+    content: str = Field(..., min_length=10, description="Raw SKILL.md text including YAML frontmatter")
+
+
+class SkillResponse(BaseModel):
+    """A single skill record."""
+
+    id: str
+    name: str
+    description: str
+    source: str
+    enabled: bool
+    git_repo_id: str | None
+    git_repo_url: str | None  # populated from joined repo document
+    error: str | None
+    last_synced_at: datetime | None
+
+
+class AddGitRepoRequest(BaseModel):
+    """Add a git repository as a skills source."""
+
+    url: str = Field(..., min_length=5, description="Git repo URL (HTTPS)")
+    branch: str = Field(default="main", min_length=1)
+    token: str | None = Field(default=None, description="Deploy token / PAT for private repos")
+
+
+class SkillGitRepoResponse(BaseModel):
+    """A git repo skills source."""
+
+    id: str
+    url: str
+    branch: str
+    token_set: bool
+    local_path: str
+    last_refreshed_at: datetime | None
+    error: str | None
