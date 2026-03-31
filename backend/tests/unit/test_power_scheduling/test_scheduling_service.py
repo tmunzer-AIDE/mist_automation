@@ -195,3 +195,115 @@ class TestEndOffHours:
 
         mock_query.update.assert_awaited_once()
         assert mock_query.update.call_args[0][0]["$set"]["current_status"] == "IDLE"
+
+
+class TestGraceTimer:
+    """Tests for _grace_timer TOCTOU fix.
+
+    Strategy: mock asyncio.sleep to skip the wait, mock _clear_ap_override
+    to optionally inject a client arrival during the API window, then assert
+    the resulting state is correct.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def cleanup(self):
+        yield
+        await clear_state("s1")
+
+    async def test_grace_timer_disables_empty_ap(self):
+        """Normal path: AP empties, grace expires, override is cleared."""
+        from app.modules.power_scheduling.services.scheduling_service import _grace_timer
+
+        schedule = _make_schedule()
+        state = get_state("s1")
+        state.status = "OFF_HOURS"
+        state.protected_aps = {"ap1"}
+        state.client_map = {}  # AP already empty
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_MODULE}._clear_ap_override", new_callable=AsyncMock) as mock_clear,
+            patch(f"{_MODULE}._set_ap_override", new_callable=AsyncMock) as mock_set,
+            patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
+            patch(f"{_MODULE}._broadcast_status", new_callable=AsyncMock),
+        ):
+            await _grace_timer("s1", "ap1", schedule)
+
+        mock_clear.assert_awaited_once_with("s1", "ap1")
+        mock_set.assert_not_awaited()  # no rollback needed
+        assert "ap1" not in state.protected_aps
+
+    async def test_grace_timer_rollback_when_client_arrives_during_api_call(self):
+        """Race condition: client joins AP during _clear_ap_override API call.
+
+        The mock simulates a client arriving while the Mist API is in-flight
+        by adding the client to client_map inside the mock side-effect.
+        After _grace_timer completes:
+        - ap1 must still be in protected_aps (override restored)
+        - _set_ap_override must have been called to restore the override
+        """
+        from app.modules.power_scheduling.services.scheduling_service import _grace_timer
+
+        schedule = _make_schedule()
+        state = get_state("s1")
+        state.status = "OFF_HOURS"
+        state.protected_aps = {"ap1"}
+        state.client_map = {}  # empty when grace fires
+
+        async def client_joins_during_api_call(site_id, ap_mac):
+            # Simulate a client joining while the API call is in-flight
+            state.client_map["ap1"] = {"client-x"}
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_MODULE}._clear_ap_override", side_effect=client_joins_during_api_call),
+            patch(f"{_MODULE}._set_ap_override", new_callable=AsyncMock) as mock_set,
+            patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
+            patch(f"{_MODULE}._broadcast_status", new_callable=AsyncMock),
+        ):
+            await _grace_timer("s1", "ap1", schedule)
+
+        # AP must still be protected — override was restored
+        assert "ap1" in state.protected_aps
+        mock_set.assert_awaited_once_with("s1", "ap1")
+
+    async def test_grace_timer_no_op_if_ap_already_removed_from_protected(self):
+        """If AP is removed from protected_aps before timer fires (e.g. end_off_hours),
+        the timer exits early without calling the Mist API."""
+        from app.modules.power_scheduling.services.scheduling_service import _grace_timer
+
+        schedule = _make_schedule()
+        state = get_state("s1")
+        state.status = "OFF_HOURS"
+        state.protected_aps = set()  # already removed
+        state.client_map = {}
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_MODULE}._clear_ap_override", new_callable=AsyncMock) as mock_clear,
+            patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
+        ):
+            await _grace_timer("s1", "ap1", schedule)
+
+        mock_clear.assert_not_awaited()  # early exit, no API call
+
+    async def test_grace_timer_no_op_if_not_eligible_on_wakeup(self):
+        """If can_disable returns False when the timer fires (client re-joined before
+        grace expired), no API call is made."""
+        from app.modules.power_scheduling.services.scheduling_service import _grace_timer
+
+        schedule = _make_schedule()
+        state = get_state("s1")
+        state.status = "OFF_HOURS"
+        state.protected_aps = {"ap1"}
+        state.client_map = {"ap1": {"returning-client"}}  # client back before grace expired
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_MODULE}._clear_ap_override", new_callable=AsyncMock) as mock_clear,
+            patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
+        ):
+            await _grace_timer("s1", "ap1", schedule)
+
+        mock_clear.assert_not_awaited()
+        assert "ap1" in state.protected_aps  # unchanged
