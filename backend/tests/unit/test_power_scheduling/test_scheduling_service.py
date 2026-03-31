@@ -250,7 +250,7 @@ class TestGraceTimer:
         state.protected_aps = {"ap1"}
         state.client_map = {}  # empty when grace fires
 
-        async def client_joins_during_api_call(site_id, ap_mac):
+        async def client_joins_during_api_call(_site_id: str, _ap_mac: str) -> None:
             # Simulate a client joining while the API call is in-flight
             state.client_map["ap1"] = {"client-x"}
 
