@@ -1,8 +1,4 @@
 <div class="telemetry-site-page">
-  @if (loading()) {
-    <mat-progress-bar mode="indeterminate" />
-  }
-
   <!-- Breadcrumb -->
   <div class="page-header">
     <div class="breadcrumb">
@@ -12,7 +8,7 @@
     </div>
   </div>
 
-  <!-- Filter row: device type chips + device search -->
+  <!-- Filter row: device type chips + device search (always shown) -->
   <div class="filter-row">
     <div class="chip-row">
       <button
@@ -76,276 +72,298 @@
     }
   </div>
 
-  <!-- Wireless Clients summary -->
-  @if (clientSummary()) {
-    <section class="device-section">
-      <h3 class="section-title">
-        Wireless Clients
-        <a mat-stroked-button [routerLink]="['/telemetry/site', siteId(), 'clients']" class="view-clients-btn">
-          <mat-icon>people</mat-icon>
-          View Clients
-        </a>
-      </h3>
-      <div class="kpi-row">
+  @if (loading()) {
+    <div class="kpi-row">
+      @for (_ of [1,2,3,4]; track $index) {
         <div class="kpi-card">
-          <div class="kpi-label">Total</div>
-          <div class="kpi-value">{{ clientSummary()!.total_clients | number }}</div>
+          <div class="shimmer-block" style="width: 60%; height: 11px;"></div>
+          <div class="shimmer-block" style="width: 80%; height: 22px; margin-top: 8px;"></div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Avg RSSI</div>
-          <div class="kpi-value">{{ clientSummary()!.avg_rssi | number: '1.0-0' }} dBm</div>
+      }
+    </div>
+    <div class="chart-row">
+      @for (_ of [1,2]; track $index) {
+        <div class="chart-container">
+          <div class="shimmer-block" style="width: 120px; height: 12px; margin-bottom: 8px;"></div>
+          <div class="shimmer-block" style="height: 180px;"></div>
         </div>
-        @for (entry of clientBandEntries(); track entry.label) {
+      }
+    </div>
+    <div class="table-card">
+      <app-skeleton-loader [rows]="10" [columns]="6"></app-skeleton-loader>
+    </div>
+  } @else {
+    <!-- Wireless Clients summary -->
+    @if (clientSummary()) {
+      <section class="device-section">
+        <h3 class="section-title">
+          Wireless Clients
+          <a mat-stroked-button [routerLink]="['/telemetry/site', siteId(), 'clients']" class="view-clients-btn">
+            <mat-icon>people</mat-icon>
+            View Clients
+          </a>
+        </h3>
+        <div class="kpi-row">
           <div class="kpi-card">
-            <div class="kpi-label">{{ entry.label }}</div>
-            <div class="kpi-value">{{ entry.count }}</div>
+            <div class="kpi-label">Total</div>
+            <div class="kpi-value">{{ clientSummary()!.total_clients | number }}</div>
           </div>
-        }
-        <div class="kpi-card">
-          <div class="kpi-label">Total TX</div>
-          <div class="kpi-value">{{ clientSummary()!.total_tx_bps | number }} bps</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Total RX</div>
-          <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
-        </div>
-      </div>
-    </section>
-  }
-  <!-- AP section -->
-  @if (hasAP() && (activeDeviceType() === '' || activeDeviceType() === 'ap')) {
-    <section class="device-section">
-      <h3 class="section-title">
-        Access Points ({{ ap!.reporting_active }}/{{ ap!.reporting_total }} reporting)
-      </h3>
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Avg CPU</div>
-          <div class="kpi-value">{{ ap!.avg_cpu_util | number: '1.0-1' }}%</div>
-          <div class="kpi-sub">max {{ ap!.max_cpu_util | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">Avg Memory</div>
-          <div class="kpi-value">{{ ap!.avg_mem_usage | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">Total Clients</div>
-          <div class="kpi-value">{{ ap!.total_clients | number }}</div>
-        </div>
-
-        @for (b of bandEntries(ap!.bands); track b.band) {
           <div class="kpi-card">
-            <div class="kpi-label">{{ b.label }} Radio Util</div>
-            <div class="kpi-value">{{ b.avg_util_all | number: '1.0-1' }}%</div>
+            <div class="kpi-label">Avg RSSI</div>
+            <div class="kpi-value">{{ clientSummary()!.avg_rssi | number: '1.0-0' }} dBm</div>
           </div>
-        }
-
-        <div
-          class="kpi-card"
-          [class.reporting-ok]="reportingOk(ap!.reporting_active, ap!.reporting_total)"
-        >
-          <div class="kpi-label">Reporting</div>
-          <div class="kpi-value">{{ ap!.reporting_active }}/{{ ap!.reporting_total }}</div>
-        </div>
-      </div>
-    </section>
-  }
-
-  <!-- Switch section -->
-  @if (hasSwitch() && (activeDeviceType() === '' || activeDeviceType() === 'switch')) {
-    <section class="device-section">
-      <h3 class="section-title">
-        Switches ({{ sw!.reporting_active }}/{{ sw!.reporting_total }} reporting)
-      </h3>
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Avg CPU</div>
-          <div class="kpi-value">{{ sw!.avg_cpu_util | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">Avg Memory</div>
-          <div class="kpi-value">{{ sw!.avg_mem_usage | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">Total Clients</div>
-          <div class="kpi-value">{{ sw!.total_clients | number }}</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">Ports</div>
-          <div class="kpi-value">{{ sw!.ports_up }}/{{ sw!.ports_total }}</div>
-          <div class="kpi-sub">up</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">PoE Draw</div>
-          <div class="kpi-value">{{ sw!.poe_draw_total | number: '1.0-0' }}W</div>
-          <div class="kpi-sub">of {{ sw!.poe_max_total | number: '1.0-0' }}W</div>
-        </div>
-
-        <div
-          class="kpi-card"
-          [class.reporting-ok]="reportingOk(sw!.reporting_active, sw!.reporting_total)"
-        >
-          <div class="kpi-label">Reporting</div>
-          <div class="kpi-value">{{ sw!.reporting_active }}/{{ sw!.reporting_total }}</div>
-        </div>
-      </div>
-    </section>
-  }
-
-  <!-- Gateway section -->
-  @if (hasGateway() && (activeDeviceType() === '' || activeDeviceType() === 'gateway')) {
-    <section class="device-section">
-      <h3 class="section-title">
-        Gateways ({{ gw!.reporting_active }}/{{ gw!.reporting_total }} reporting)
-      </h3>
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Avg CPU</div>
-          <div class="kpi-value">{{ gw!.avg_cpu_util | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">Avg Memory</div>
-          <div class="kpi-value">{{ gw!.avg_mem_usage | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">WAN Links</div>
-          <div class="kpi-value">{{ gw!.wan_links_up }}/{{ gw!.wan_links_total }}</div>
-          <div class="kpi-sub">up</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">SPU CPU</div>
-          <div class="kpi-value">{{ gw!.avg_spu_cpu | number: '1.0-1' }}%</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-label">SPU Sessions</div>
-          <div class="kpi-value">{{ gw!.total_spu_sessions | number }}</div>
-        </div>
-
-        <div
-          class="kpi-card"
-          [class.reporting-ok]="reportingOk(gw!.reporting_active, gw!.reporting_total)"
-        >
-          <div class="kpi-label">Reporting</div>
-          <div class="kpi-value">{{ gw!.reporting_active }}/{{ gw!.reporting_total }}</div>
-        </div>
-      </div>
-    </section>
-  }
-
-  <!-- Chart row -->
-  <div class="chart-row">
-    @if (cpuChart()) {
-      <div class="chart-container">
-        <div class="chart-title">CPU &amp; Memory</div>
-        <canvas
-          baseChart
-          [data]="cpuChart()!.data"
-          [options]="cpuChart()!.options"
-          type="line"
-        ></canvas>
-      </div>
-    }
-    @if (chart2()) {
-      <div class="chart-container">
-        <div class="chart-title">
-          @switch (activeDeviceType() || (hasAP() ? 'ap' : hasSwitch() ? 'switch' : 'gateway')) {
-            @case ('ap') { Total Clients }
-            @case ('switch') { PoE Draw }
-            @case ('gateway') { SPU Sessions &amp; CPU }
+          @for (entry of clientBandEntries(); track entry.label) {
+            <div class="kpi-card">
+              <div class="kpi-label">{{ entry.label }}</div>
+              <div class="kpi-value">{{ entry.count }}</div>
+            </div>
           }
+          <div class="kpi-card">
+            <div class="kpi-label">Total TX</div>
+            <div class="kpi-value">{{ clientSummary()!.total_tx_bps | number }} bps</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Total RX</div>
+            <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
+          </div>
         </div>
-        <canvas
-          baseChart
-          [data]="chart2()!.data"
-          [options]="chart2()!.options"
-          type="line"
-        ></canvas>
-      </div>
+      </section>
     }
-    @if (chart3()) {
-      <div class="chart-container">
-        <div class="chart-title">
-          @switch (activeDeviceType() || (hasAP() ? 'ap' : hasSwitch() ? 'switch' : 'gateway')) {
-            @case ('ap') { Band Utilization }
-            @case ('switch') { Wired Clients }
-            @case ('gateway') { WAN Traffic }
+    <!-- AP section -->
+    @if (hasAP() && (activeDeviceType() === '' || activeDeviceType() === 'ap')) {
+      <section class="device-section">
+        <h3 class="section-title">
+          Access Points ({{ ap!.reporting_active }}/{{ ap!.reporting_total }} reporting)
+        </h3>
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">Avg CPU</div>
+            <div class="kpi-value">{{ ap!.avg_cpu_util | number: '1.0-1' }}%</div>
+            <div class="kpi-sub">max {{ ap!.max_cpu_util | number: '1.0-1' }}%</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-label">Avg Memory</div>
+            <div class="kpi-value">{{ ap!.avg_mem_usage | number: '1.0-1' }}%</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-label">Total Clients</div>
+            <div class="kpi-value">{{ ap!.total_clients | number }}</div>
+          </div>
+
+          @for (b of bandEntries(ap!.bands); track b.band) {
+            <div class="kpi-card">
+              <div class="kpi-label">{{ b.label }} Radio Util</div>
+              <div class="kpi-value">{{ b.avg_util_all | number: '1.0-1' }}%</div>
+            </div>
           }
+
+          <div
+            class="kpi-card"
+            [class.reporting-ok]="reportingOk(ap!.reporting_active, ap!.reporting_total)"
+          >
+            <div class="kpi-label">Reporting</div>
+            <div class="kpi-value">{{ ap!.reporting_active }}/{{ ap!.reporting_total }}</div>
+          </div>
         </div>
-        <canvas
-          baseChart
-          [data]="chart3()!.data"
-          [options]="chart3()!.options"
-          type="line"
-        ></canvas>
-      </div>
+      </section>
     }
-  </div>
 
-  <!-- Device table -->
-  @if (displayedDevices().length > 0) {
-    <section class="table-section">
-      <h3 class="section-title">Devices ({{ displayedDevices().length }})</h3>
-      <div class="table-card">
-        <table mat-table [dataSource]="displayedDevices()">
-          <ng-container matColumnDef="name">
-            <th mat-header-cell *matHeaderCellDef>Name</th>
-            <td mat-cell *matCellDef="let row">{{ row.name || row.mac }}</td>
-          </ng-container>
+    <!-- Switch section -->
+    @if (hasSwitch() && (activeDeviceType() === '' || activeDeviceType() === 'switch')) {
+      <section class="device-section">
+        <h3 class="section-title">
+          Switches ({{ sw!.reporting_active }}/{{ sw!.reporting_total }} reporting)
+        </h3>
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">Avg CPU</div>
+            <div class="kpi-value">{{ sw!.avg_cpu_util | number: '1.0-1' }}%</div>
+          </div>
 
-          <ng-container matColumnDef="device_type">
-            <th mat-header-cell *matHeaderCellDef>Type</th>
-            <td mat-cell *matCellDef="let row">{{ row.device_type | titlecase }}</td>
-          </ng-container>
+          <div class="kpi-card">
+            <div class="kpi-label">Avg Memory</div>
+            <div class="kpi-value">{{ sw!.avg_mem_usage | number: '1.0-1' }}%</div>
+          </div>
 
-          <ng-container matColumnDef="model">
-            <th mat-header-cell *matHeaderCellDef>Model</th>
-            <td mat-cell *matCellDef="let row">{{ row.model }}</td>
-          </ng-container>
+          <div class="kpi-card">
+            <div class="kpi-label">Total Clients</div>
+            <div class="kpi-value">{{ sw!.total_clients | number }}</div>
+          </div>
 
-          <ng-container matColumnDef="cpu_util">
-            <th mat-header-cell *matHeaderCellDef>CPU</th>
-            <td mat-cell *matCellDef="let row">
-              @if (row.cpu_util !== null) {
-                {{ row.cpu_util | number: '1.0-0' }}%
-              }
-            </td>
-          </ng-container>
+          <div class="kpi-card">
+            <div class="kpi-label">Ports</div>
+            <div class="kpi-value">{{ sw!.ports_up }}/{{ sw!.ports_total }}</div>
+            <div class="kpi-sub">up</div>
+          </div>
 
-          <ng-container matColumnDef="num_clients">
-            <th mat-header-cell *matHeaderCellDef>Clients</th>
-            <td mat-cell *matCellDef="let row">{{ row.num_clients ?? '\u2014' }}</td>
-          </ng-container>
+          <div class="kpi-card">
+            <div class="kpi-label">PoE Draw</div>
+            <div class="kpi-value">{{ sw!.poe_draw_total | number: '1.0-0' }}W</div>
+            <div class="kpi-sub">of {{ sw!.poe_max_total | number: '1.0-0' }}W</div>
+          </div>
 
-          <ng-container matColumnDef="last_seen">
-            <th mat-header-cell *matHeaderCellDef>Last seen</th>
-            <td mat-cell *matCellDef="let row">
-              @if (row.last_seen) {
-                {{ row.last_seen * 1000 | date: 'HH:mm:ss' }}
-              }
-            </td>
-          </ng-container>
+          <div
+            class="kpi-card"
+            [class.reporting-ok]="reportingOk(sw!.reporting_active, sw!.reporting_total)"
+          >
+            <div class="kpi-label">Reporting</div>
+            <div class="kpi-value">{{ sw!.reporting_active }}/{{ sw!.reporting_total }}</div>
+          </div>
+        </div>
+      </section>
+    }
 
-          <tr mat-header-row *matHeaderRowDef="deviceColumns"></tr>
-          <tr
-            mat-row
-            *matRowDef="let row; columns: deviceColumns"
-            class="clickable-row"
-            [class.stale]="!row.fresh"
-            (click)="navigateToDevice(row.mac)"
-          ></tr>
-        </table>
-      </div>
-    </section>
+    <!-- Gateway section -->
+    @if (hasGateway() && (activeDeviceType() === '' || activeDeviceType() === 'gateway')) {
+      <section class="device-section">
+        <h3 class="section-title">
+          Gateways ({{ gw!.reporting_active }}/{{ gw!.reporting_total }} reporting)
+        </h3>
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">Avg CPU</div>
+            <div class="kpi-value">{{ gw!.avg_cpu_util | number: '1.0-1' }}%</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-label">Avg Memory</div>
+            <div class="kpi-value">{{ gw!.avg_mem_usage | number: '1.0-1' }}%</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-label">WAN Links</div>
+            <div class="kpi-value">{{ gw!.wan_links_up }}/{{ gw!.wan_links_total }}</div>
+            <div class="kpi-sub">up</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-label">SPU CPU</div>
+            <div class="kpi-value">{{ gw!.avg_spu_cpu | number: '1.0-1' }}%</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-label">SPU Sessions</div>
+            <div class="kpi-value">{{ gw!.total_spu_sessions | number }}</div>
+          </div>
+
+          <div
+            class="kpi-card"
+            [class.reporting-ok]="reportingOk(gw!.reporting_active, gw!.reporting_total)"
+          >
+            <div class="kpi-label">Reporting</div>
+            <div class="kpi-value">{{ gw!.reporting_active }}/{{ gw!.reporting_total }}</div>
+          </div>
+        </div>
+      </section>
+    }
+
+    <!-- Chart row -->
+    <div class="chart-row">
+      @if (cpuChart()) {
+        <div class="chart-container">
+          <div class="chart-title">CPU &amp; Memory</div>
+          <canvas
+            baseChart
+            [data]="cpuChart()!.data"
+            [options]="cpuChart()!.options"
+            type="line"
+          ></canvas>
+        </div>
+      }
+      @if (chart2()) {
+        <div class="chart-container">
+          <div class="chart-title">
+            @switch (activeDeviceType() || (hasAP() ? 'ap' : hasSwitch() ? 'switch' : 'gateway')) {
+              @case ('ap') { Total Clients }
+              @case ('switch') { PoE Draw }
+              @case ('gateway') { SPU Sessions &amp; CPU }
+            }
+          </div>
+          <canvas
+            baseChart
+            [data]="chart2()!.data"
+            [options]="chart2()!.options"
+            type="line"
+          ></canvas>
+        </div>
+      }
+      @if (chart3()) {
+        <div class="chart-container">
+          <div class="chart-title">
+            @switch (activeDeviceType() || (hasAP() ? 'ap' : hasSwitch() ? 'switch' : 'gateway')) {
+              @case ('ap') { Band Utilization }
+              @case ('switch') { Wired Clients }
+              @case ('gateway') { WAN Traffic }
+            }
+          </div>
+          <canvas
+            baseChart
+            [data]="chart3()!.data"
+            [options]="chart3()!.options"
+            type="line"
+          ></canvas>
+        </div>
+      }
+    </div>
+
+    <!-- Device table -->
+    @if (displayedDevices().length > 0) {
+      <section class="table-section">
+        <h3 class="section-title">Devices ({{ displayedDevices().length }})</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="displayedDevices()">
+            <ng-container matColumnDef="name">
+              <th mat-header-cell *matHeaderCellDef>Name</th>
+              <td mat-cell *matCellDef="let row">{{ row.name || row.mac }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="device_type">
+              <th mat-header-cell *matHeaderCellDef>Type</th>
+              <td mat-cell *matCellDef="let row">{{ row.device_type | titlecase }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="model">
+              <th mat-header-cell *matHeaderCellDef>Model</th>
+              <td mat-cell *matCellDef="let row">{{ row.model }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="cpu_util">
+              <th mat-header-cell *matHeaderCellDef>CPU</th>
+              <td mat-cell *matCellDef="let row">
+                @if (row.cpu_util !== null) {
+                  {{ row.cpu_util | number: '1.0-0' }}%
+                }
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="num_clients">
+              <th mat-header-cell *matHeaderCellDef>Clients</th>
+              <td mat-cell *matCellDef="let row">{{ row.num_clients ?? '\u2014' }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="last_seen">
+              <th mat-header-cell *matHeaderCellDef>Last seen</th>
+              <td mat-cell *matCellDef="let row">
+                @if (row.last_seen) {
+                  {{ row.last_seen * 1000 | date: 'HH:mm:ss' }}
+                }
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="deviceColumns"></tr>
+            <tr
+              mat-row
+              *matRowDef="let row; columns: deviceColumns"
+              class="clickable-row"
+              [class.stale]="!row.fresh"
+              (click)="navigateToDevice(row.mac)"
+            ></tr>
+          </table>
+        </div>
+      </section>
+    }
   }
 
 </div>

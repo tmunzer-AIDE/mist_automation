@@ -4,7 +4,6 @@ import { ActivatedRoute, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTableModule } from '@angular/material/table';
 import { BaseChartDirective } from 'ng2-charts';
 import { Chart, registerables } from 'chart.js';
@@ -25,7 +24,6 @@ Chart.register(...registerables);
     RouterModule,
     MatButtonModule,
     MatIconModule,
-    MatProgressBarModule,
     MatTableModule,
     BaseChartDirective,
     DeviceLiveLogComponent,

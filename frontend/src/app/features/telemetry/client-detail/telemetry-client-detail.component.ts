@@ -14,8 +14,8 @@ import { Subscription, forkJoin } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { BaseChartDirective } from 'ng2-charts';
+import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
@@ -36,8 +36,8 @@ Chart.register(...registerables);
     MatButtonModule,
     MatButtonToggleModule,
     MatIconModule,
-    MatProgressBarModule,
     BaseChartDirective,
+    SkeletonLoaderComponent,
   ],
   templateUrl: './telemetry-client-detail.component.html',
   styleUrl: './telemetry-client-detail.component.scss',
