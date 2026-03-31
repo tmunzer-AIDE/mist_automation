@@ -193,3 +193,52 @@ export interface OrgUpdateEvent {
   mac: string;
   device_type: string;
 }
+
+// ── Client telemetry ────────────────────────────────────────────────────
+
+export interface ClientSiteSummary {
+  total_clients: number;
+  avg_rssi: number;
+  band_counts: Record<string, number>;
+  total_tx_bps: number;
+  total_rx_bps: number;
+}
+
+export interface ClientStatRecord {
+  mac: string;
+  site_id: string;
+  ap_mac: string;
+  ssid: string;
+  band: string;
+  auth_type: 'psk' | 'eap' | string;
+  hostname: string;
+  ip: string;
+  manufacture: string;
+  family: string;
+  model: string;
+  os: string;
+  group: string;
+  vlan_id: string;
+  proto: string;
+  username: string;
+  rssi: number | null;
+  snr: number | null;
+  channel: number | null;
+  tx_rate: number | null;
+  rx_rate: number | null;
+  tx_bps: number;
+  rx_bps: number;
+  tx_bytes: number;
+  rx_bytes: number;
+  uptime: number;
+  idle_time: number;
+  is_guest: boolean;
+  dual_band: boolean;
+  last_seen: number | null;
+  fresh: boolean;
+}
+
+export interface ClientListResponse {
+  clients: ClientStatRecord[];
+  total: number;
+}

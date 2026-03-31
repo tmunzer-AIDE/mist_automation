@@ -13,6 +13,8 @@ import {
   SiteUpdateEvent,
   OrgUpdateEvent,
   TimeRange,
+  ClientListResponse,
+  ClientSiteSummary,
 } from './models';
 
 export const TIME_RANGE_MAP: Record<TimeRange, string> = { '1h': '-1h', '6h': '-6h', '24h': '-24h' };
@@ -38,6 +40,32 @@ export class TelemetryService {
     if (siteId) params['site_id'] = siteId;
     if (deviceType) params['device_type'] = deviceType;
     return this.api.get<ScopeDevices>('/telemetry/scope/devices', params);
+  }
+
+  getSiteClients(siteId: string): Observable<ClientListResponse> {
+    return this.api.get<ClientListResponse>('/telemetry/scope/clients', {
+      site_id: siteId,
+    });
+  }
+
+  getSiteClientsSummary(siteId?: string): Observable<ClientSiteSummary> {
+    const params: Record<string, string> = {};
+    if (siteId) params['site_id'] = siteId;
+    return this.api.get<ClientSiteSummary>('/telemetry/scope/clients/summary', params);
+  }
+
+  queryClientRange(
+    clientMac: string,
+    siteId: string,
+    start: string,
+    end: string,
+  ): Observable<RangeResult> {
+    return this.api.get<RangeResult>('/telemetry/query/clients/range', {
+      mac: clientMac,
+      site_id: siteId,
+      start,
+      end,
+    });
   }
 
   getLatestStats(mac: string): Observable<LatestStats> {
