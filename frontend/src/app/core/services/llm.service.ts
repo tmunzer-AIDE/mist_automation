@@ -14,6 +14,8 @@ import {
   McpConfigAvailable,
   McpTestResult,
   McpTool,
+  Skill,
+  SkillGitRepo,
 } from '../models/llm.model';
 
 interface SummaryResponse {
@@ -313,5 +315,43 @@ export class LlmService {
 
   callLocalMcpTool(toolName: string, args: Record<string, unknown>): Observable<{ result: string }> {
     return this.api.post<{ result: string }>(`/mcp/local/tools/${toolName}/call`, { arguments: args });
+  }
+
+  // ── Skills ──────────────────────────────────────────────────────────────────
+
+  listSkills(): Observable<Skill[]> {
+    return this.api.get<Skill[]>('/llm/skills');
+  }
+
+  addDirectSkill(content: string): Observable<Skill> {
+    return this.api.post<Skill>('/llm/skills/direct', { content });
+  }
+
+  toggleSkill(id: string): Observable<Skill> {
+    return this.api.patch<Skill>(`/llm/skills/${id}/toggle`, {});
+  }
+
+  deleteSkill(id: string): Observable<void> {
+    return this.api.delete<void>(`/llm/skills/${id}`);
+  }
+
+  listSkillRepos(): Observable<SkillGitRepo[]> {
+    return this.api.get<SkillGitRepo[]>('/llm/skills/repos');
+  }
+
+  getSkillRepo(id: string): Observable<SkillGitRepo> {
+    return this.api.get<SkillGitRepo>(`/llm/skills/repos/${id}`);
+  }
+
+  addSkillRepo(url: string, branch: string, token: string | null): Observable<SkillGitRepo> {
+    return this.api.post<SkillGitRepo>('/llm/skills/repos', { url, branch, token });
+  }
+
+  refreshSkillRepo(id: string): Observable<{ status: string }> {
+    return this.api.post<{ status: string }>(`/llm/skills/repos/${id}/refresh`, {});
+  }
+
+  deleteSkillRepo(id: string): Observable<void> {
+    return this.api.delete<void>(`/llm/skills/repos/${id}`);
   }
 }

@@ -109,3 +109,25 @@ export interface ConversationThreadListResponse {
   threads: ConversationThreadSummary[];
   total: number;
 }
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  source: 'direct' | 'git';
+  enabled: boolean;
+  git_repo_id: string | null;
+  git_repo_url: string | null;
+  error: string | null;
+  last_synced_at: string | null;
+}
+
+export interface SkillGitRepo {
+  id: string;
+  url: string;
+  branch: string;
+  token_set: boolean;
+  local_path: string;
+  last_refreshed_at: string | null;
+  error: string | null;
+}
