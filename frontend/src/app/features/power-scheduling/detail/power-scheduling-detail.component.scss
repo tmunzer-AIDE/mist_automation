@@ -1,23 +1,255 @@
-.page-header {
+/* ── Info grid (config + windows) ───────────────── */
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Info panel ─────────────────────────────────── */
+
+.info-panel {
+  background: var(--mat-sys-surface-container);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.panel-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mat-sys-on-surface-variant);
+  margin: 0;
+}
+
+.enabled-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.enabled-pill.pill-on {
+  background: color-mix(in srgb, var(--app-success) 14%, transparent);
+  color: var(--app-success);
+  border-color: color-mix(in srgb, var(--app-success) 35%, transparent);
+}
+
+.enabled-pill.pill-off {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+  border-color: var(--mat-sys-outline-variant);
+}
+
+.window-count-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ── Info table (config rows) ───────────────────── */
+
+.info-table {
+  padding: 4px 0;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.info-label {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 13px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.info-value.mono {
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+}
+
+.info-value.small {
+  font-size: 11px;
+}
+
+/* ── Windows list ───────────────────────────────── */
+
+.windows-list {
+  padding: 8px 0;
+}
+
+.window-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.entry-days {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.day-pip {
+  width: 22px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--mat-sys-outline-variant);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.day-pip.pip-active {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  opacity: 1;
+}
+
+.entry-time {
+  font-family: var(--app-font-mono);
+  font-size: 13px;
+  color: var(--mat-sys-on-surface);
+  flex-shrink: 0;
+}
+
+/* ── Stat tiles ─────────────────────────────────── */
+
+.stats-row {
+  display: flex;
+  gap: 10px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
-.action-bar {
+.stat-tile {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--mat-sys-surface-container);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  padding: 14px 28px 12px;
+  min-width: 130px;
+  transition: border-color 0.2s;
+  gap: 2px;
+}
+
+.stat-tile.tile-alert {
+  border-color: color-mix(in srgb, var(--app-error) 40%, transparent);
+  background: color-mix(in srgb, var(--app-error) 6%, var(--mat-sys-surface-container));
+}
+
+.stat-tile.tile-caution {
+  border-color: color-mix(in srgb, var(--app-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--app-warning) 6%, var(--mat-sys-surface-container));
+}
+
+.tile-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--mat-sys-on-surface-variant);
+  margin-bottom: 4px;
+}
+
+.tile-alert .tile-icon {
+  color: var(--app-error);
+}
+
+.tile-caution .tile-icon {
+  color: var(--app-warning);
+}
+
+.tile-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tile-label {
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* ── Event log table ────────────────────────────── */
+
+code {
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+}
+
+/* ── Log section ────────────────────────────────── */
+
+.log-section {
+  margin-top: 4px;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 8px;
 }
 
-.table-card {
-  background: var(--app-surface);
-  border-radius: 8px;
-  overflow: hidden;
+.log-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mat-sys-on-surface-variant);
+  margin: 0;
 }
 
-.status-off_hours {
-  background-color: var(--app-warning-color) !important;
+.log-count {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0.6;
 }

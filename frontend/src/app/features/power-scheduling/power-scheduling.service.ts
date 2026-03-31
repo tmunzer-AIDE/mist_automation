@@ -2,6 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
 
+export const DAY_SHORTS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 export interface ScheduleWindow {
   days: number[];
   start: string;
@@ -56,6 +59,10 @@ export class PowerSchedulingService {
 
   listSchedules(): Observable<PowerSchedule[]> {
     return this.api.get<PowerSchedule[]>('/power-scheduling/sites');
+  }
+
+  getSchedule(siteId: string): Observable<PowerSchedule> {
+    return this.api.get<PowerSchedule>(`/power-scheduling/sites/${siteId}`);
   }
 
   createSchedule(siteId: string, body: CreateScheduleRequest): Observable<PowerSchedule> {

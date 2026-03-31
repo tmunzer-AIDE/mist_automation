@@ -1,44 +1,149 @@
-<div class="page-header">
-  <h1>{{ siteId() }}</h1>
-  @if (status(); as s) {
-    <mat-chip [class]="'status-' + s.status.toLowerCase()">{{ s.status }}</mat-chip>
-    <span class="subtitle"
-      >{{ s.disabled_ap_count }} APs off · {{ s.pending_disable_count }} pending ·
-      {{ s.client_ap_count }} APs with clients</span
+<ng-template #topbarActions>
+  @if (schedule(); as s) {
+    <button
+      mat-stroked-button
+      (click)="trigger('start')"
+      matTooltip="Manually start off-hours now"
+      [disabled]="s.current_status === 'OFF_HOURS'"
     >
+      <mat-icon>power_off</mat-icon> Start Off-Hours
+    </button>
+    <button
+      mat-stroked-button
+      (click)="trigger('end')"
+      matTooltip="Manually end off-hours now"
+      [disabled]="s.current_status === 'IDLE'"
+    >
+      <mat-icon>power</mat-icon> End Off-Hours
+    </button>
+    <button mat-icon-button (click)="openEdit()" matTooltip="Edit schedule">
+      <mat-icon>edit</mat-icon>
+    </button>
+    <button mat-icon-button color="warn" (click)="deleteSchedule()" matTooltip="Delete schedule">
+      <mat-icon>delete</mat-icon>
+    </button>
   }
-</div>
+</ng-template>
 
-<div class="action-bar">
-  <button mat-stroked-button (click)="trigger('start')">
-    <mat-icon>power_off</mat-icon> Start Off-Hours
-  </button>
-  <button mat-stroked-button (click)="trigger('end')">
-    <mat-icon>power</mat-icon> End Off-Hours
-  </button>
-</div>
+@if (schedule(); as s) {
+  <div class="info-grid">
 
-@if (!loading()) {
-  <div class="table-card">
-    <table mat-table [dataSource]="logs()">
-      <ng-container matColumnDef="timestamp">
-        <th mat-header-cell *matHeaderCellDef>Time</th>
-        <td mat-cell *matCellDef="let row">{{ row.timestamp | date: 'short' }}</td>
-      </ng-container>
-      <ng-container matColumnDef="event_type">
-        <th mat-header-cell *matHeaderCellDef>Event</th>
-        <td mat-cell *matCellDef="let row"><code>{{ row.event_type }}</code></td>
-      </ng-container>
-      <ng-container matColumnDef="ap_mac">
-        <th mat-header-cell *matHeaderCellDef>AP</th>
-        <td mat-cell *matCellDef="let row">{{ row.ap_mac ?? '—' }}</td>
-      </ng-container>
-      <ng-container matColumnDef="details">
-        <th mat-header-cell *matHeaderCellDef>Details</th>
-        <td mat-cell *matCellDef="let row">{{ row.details | json }}</td>
-      </ng-container>
-      <tr mat-header-row *matHeaderRowDef="logColumns"></tr>
-      <tr mat-row *matRowDef="let row; columns: logColumns"></tr>
-    </table>
+    <!-- Configuration panel -->
+    <div class="info-panel">
+      <div class="panel-header">
+        <h3 class="panel-title">Configuration</h3>
+        <span class="enabled-pill" [class.pill-on]="s.enabled" [class.pill-off]="!s.enabled">
+          {{ s.enabled ? 'Enabled' : 'Disabled' }}
+        </span>
+      </div>
+      <div class="info-table">
+        <div class="info-row">
+          <span class="info-label">Timezone</span>
+          <span class="info-value">{{ s.timezone }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Grace Period</span>
+          <span class="info-value mono">{{ s.grace_period_minutes }} min</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Neighbor RSSI</span>
+          <span class="info-value mono">{{ s.neighbor_rssi_threshold_dbm }} dBm</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Roam RSSI</span>
+          <span class="info-value mono">{{ s.roam_rssi_threshold_dbm }} dBm</span>
+        </div>
+        @if (s.critical_ap_macs.length > 0) {
+          <div class="info-row">
+            <span class="info-label">Critical APs</span>
+            <span class="info-value mono small">{{ s.critical_ap_macs.join(', ') }}</span>
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Off-hours windows panel -->
+    <div class="info-panel">
+      <div class="panel-header">
+        <h3 class="panel-title">Off-Hours Windows</h3>
+        <span class="window-count-badge">
+          {{ s.windows.length }} window{{ s.windows.length !== 1 ? 's' : '' }}
+        </span>
+      </div>
+      <div class="windows-list">
+        @for (w of s.windows; track $index) {
+          <div class="window-entry">
+            <div class="entry-days">
+              @for (di of dayIndices; track di) {
+                <span class="day-pip" [class.pip-active]="w.days.includes(di)">
+                  {{ dayShorts[di] }}
+                </span>
+              }
+            </div>
+            <span class="entry-time">{{ w.start }}&thinsp;→&thinsp;{{ w.end }}</span>
+          </div>
+        }
+      </div>
+    </div>
+
+  </div>
+}
+
+<!-- Live status tiles -->
+@if (status(); as st) {
+  <div class="stats-row">
+    <div class="stat-tile" [class.tile-alert]="st.disabled_ap_count > 0">
+      <mat-icon class="tile-icon">wifi_off</mat-icon>
+      <span class="tile-value">{{ st.disabled_ap_count }}</span>
+      <span class="tile-label">Disabled APs</span>
+    </div>
+    <div class="stat-tile" [class.tile-caution]="st.pending_disable_count > 0">
+      <mat-icon class="tile-icon">pending_actions</mat-icon>
+      <span class="tile-value">{{ st.pending_disable_count }}</span>
+      <span class="tile-label">Pending Disable</span>
+    </div>
+    <div class="stat-tile">
+      <mat-icon class="tile-icon">devices</mat-icon>
+      <span class="tile-value">{{ st.client_ap_count }}</span>
+      <span class="tile-label">APs with Clients</span>
+    </div>
+  </div>
+}
+
+<!-- Event log -->
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+} @else if (logs().length > 0) {
+  <div class="log-section">
+    <div class="log-header">
+      <h3 class="log-title">Event Log</h3>
+      <span class="log-count">{{ logs().length }} events</span>
+    </div>
+    <div class="table-card">
+      <table mat-table [dataSource]="logs()">
+        <ng-container matColumnDef="timestamp">
+          <th mat-header-cell *matHeaderCellDef>Time</th>
+          <td mat-cell *matCellDef="let row">{{ row.timestamp | date: 'MMM d, HH:mm:ss' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="event_type">
+          <th mat-header-cell *matHeaderCellDef>Event</th>
+          <td mat-cell *matCellDef="let row"><code>{{ row.event_type }}</code></td>
+        </ng-container>
+        <ng-container matColumnDef="ap_mac">
+          <th mat-header-cell *matHeaderCellDef>AP</th>
+          <td mat-cell *matCellDef="let row">{{ row.ap_mac ?? '—' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="details">
+          <th mat-header-cell *matHeaderCellDef>Details</th>
+          <td mat-cell *matCellDef="let row">
+            <span [matTooltip]="row.details | json" matTooltipClass="pre-tooltip">
+              {{ detailSummary(row.details) }}
+            </span>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="logColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: logColumns"></tr>
+      </table>
+    </div>
   </div>
 }

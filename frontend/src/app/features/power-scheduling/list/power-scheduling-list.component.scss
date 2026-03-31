@@ -1,28 +1,245 @@
-.page-header {
-  margin-bottom: 24px;
+.summary {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+  margin-bottom: 20px;
 }
+
+.summary-active {
+  color: var(--app-warning-text);
+  font-weight: 500;
+}
+
+/* ── Grid ──────────────────────────────────────── */
 
 .schedule-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
 }
 
-.schedule-card {
+/* ── Card ──────────────────────────────────────── */
+
+.site-card {
+  display: flex;
+  background: var(--mat-sys-surface-container);
+  border-radius: 12px;
+  overflow: hidden;
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  border: 1px solid var(--mat-sys-outline-variant);
+  transition:
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    opacity 0.2s ease;
 }
 
-.schedule-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.site-card:hover {
+  box-shadow: var(--app-shadow-lg);
+  border-color: var(--mat-sys-outline);
+  transform: translateY(-1px);
 }
 
-.status-off_hours {
-  background-color: var(--app-warning-color) !important;
+@media (prefers-reduced-motion: reduce) {
+  .site-card {
+    transition: border-color 0.15s ease, opacity 0.2s ease;
+  }
+
+  .site-card:hover {
+    transform: none;
+  }
 }
 
-.empty-state {
-  text-align: center;
-  padding: 48px;
-  color: var(--app-text-muted);
+.site-card.card-disabled {
+  opacity: 0.6;
+}
+
+/* Left status accent bar */
+.card-accent {
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--mat-sys-outline-variant);
+  transition: background 0.2s;
+}
+
+.card-accent.accent-active {
+  background: var(--app-success);
+}
+
+.card-accent.accent-off-hours {
+  background: var(--app-warning);
+}
+
+/* Card content */
+.card-body {
+  flex: 1;
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.site-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* Controls: badge + toggle icon button */
+.card-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  padding: 0;
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.toggle-btn.toggle-on {
+  color: var(--app-success);
+}
+
+/* Timezone row */
+.card-tz-row {
+  display: flex;
+  align-items: center;
+}
+
+.card-tz {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Status badge ──────────────────────────────── */
+
+.status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 2px 9px;
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+  border-color: var(--mat-sys-outline-variant);
+}
+
+.status-badge.badge-active {
+  background: color-mix(in srgb, var(--app-success) 14%, transparent);
+  color: var(--app-success);
+  border-color: color-mix(in srgb, var(--app-success) 35%, transparent);
+}
+
+.status-badge.badge-off-hours {
+  background: color-mix(in srgb, var(--app-warning) 14%, transparent);
+  color: var(--app-warning);
+  border-color: color-mix(in srgb, var(--app-warning) 35%, transparent);
+}
+
+.status-badge.badge-disabled {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0.6;
+}
+
+/* ── Window preview ────────────────────────────── */
+
+.window-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.day-pips {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.day-pip {
+  width: 22px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--mat-sys-outline-variant);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.day-pip.pip-active {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  opacity: 1;
+}
+
+.time-range {
+  font-size: 12px;
+  font-family: var(--app-font-mono);
+  color: var(--mat-sys-on-surface);
+  flex-shrink: 0;
+}
+
+.extra-windows {
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: -4px;
+}
+
+/* ── Card footer ───────────────────────────────── */
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.footer-icon {
+  font-size: 13px;
+  width: 13px;
+  height: 13px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.footer-text {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.ml {
+  margin-left: 8px;
 }

@@ -1,32 +1,94 @@
-<div class="page-header">
-  <h1>AP Power Scheduling</h1>
-  <span class="subtitle"
-    >{{ schedules().length }} sites configured · {{ activeCount() }} currently in off-hours</span
-  >
-</div>
+<ng-template #topbarActions>
+  <button mat-flat-button (click)="openAddDialog()">
+    <mat-icon>add</mat-icon> Add Site
+  </button>
+</ng-template>
 
 @if (loading()) {
-  <mat-spinner diameter="40"></mat-spinner>
+  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 } @else if (schedules().length === 0) {
-  <div class="empty-state">
-    <mat-icon>power_settings_new</mat-icon>
-    <p>No sites configured. Add a site to get started.</p>
-  </div>
+  <app-empty-state
+    icon="power_settings_new"
+    title="No sites configured"
+    message="Add a site to start scheduling AP power off-hours."
+  >
+    <button mat-flat-button (click)="openAddDialog()">
+      <mat-icon>add</mat-icon> Add Site
+    </button>
+  </app-empty-state>
 } @else {
+  <p class="summary">
+    {{ schedules().length }} site{{ schedules().length !== 1 ? 's' : '' }} configured
+    @if (activeCount() > 0) {
+      · <span class="summary-active">{{ activeCount() }} in off-hours</span>
+    }
+  </p>
+
   <div class="schedule-grid">
     @for (s of schedules(); track s.site_id) {
-      <mat-card class="schedule-card" (click)="openDetail(s.site_id)">
-        <mat-card-header>
-          <mat-card-title>{{ s.site_name }}</mat-card-title>
-          <mat-card-subtitle>{{ s.timezone }}</mat-card-subtitle>
-          <mat-chip [class]="'status-' + s.current_status.toLowerCase()">
-            {{ s.current_status === 'OFF_HOURS' ? 'Off-Hours' : 'Active' }}
-          </mat-chip>
-        </mat-card-header>
-        <mat-card-content>
-          <p>{{ s.windows.length }} window(s) · Grace: {{ s.grace_period_minutes }}m</p>
-        </mat-card-content>
-      </mat-card>
+      <div class="site-card" [class.card-disabled]="!s.enabled" (click)="openDetail(s.site_id)">
+        <div
+          class="card-accent"
+          [class.accent-off-hours]="s.current_status === 'OFF_HOURS'"
+          [class.accent-active]="s.enabled && s.current_status !== 'OFF_HOURS'"
+        ></div>
+        <div class="card-body">
+
+          <div class="card-header">
+            <span class="site-name">{{ s.site_name }}</span>
+            <div class="card-controls" (click)="$event.stopPropagation()">
+              <span
+                class="status-badge"
+                [class.badge-active]="s.enabled && s.current_status !== 'OFF_HOURS'"
+                [class.badge-off-hours]="s.current_status === 'OFF_HOURS'"
+                [class.badge-disabled]="!s.enabled"
+              >
+                @if (!s.enabled) { Disabled }
+                @else if (s.current_status === 'OFF_HOURS') { Off-Hours }
+                @else { Active }
+              </span>
+              <button
+                mat-icon-button
+                class="toggle-btn"
+                [class.toggle-on]="s.enabled"
+                [disabled]="togglingIds().has(s.site_id)"
+                (click)="onToggleChange(s, !s.enabled)"
+                [matTooltip]="s.enabled ? 'Disable' : 'Enable'"
+              >
+                <mat-icon>{{ s.enabled ? 'toggle_on' : 'toggle_off' }}</mat-icon>
+              </button>
+            </div>
+          </div>
+
+          <div class="card-tz-row">
+            <span class="card-tz">{{ s.timezone }}</span>
+          </div>
+
+          @if (s.windows.length > 0) {
+            <div class="window-preview">
+              <div class="day-pips">
+                @for (di of dayIndices; track di) {
+                  <span class="day-pip" [class.pip-active]="s.windows[0].days.includes(di)">
+                    {{ dayShorts[di] }}
+                  </span>
+                }
+              </div>
+              <span class="time-range">{{ s.windows[0].start }}&thinsp;–&thinsp;{{ s.windows[0].end }}</span>
+            </div>
+            @if (s.windows.length > 1) {
+              <span class="extra-windows">+{{ s.windows.length - 1 }} more window{{ s.windows.length > 2 ? 's' : '' }}</span>
+            }
+          }
+
+          <div class="card-footer">
+            <mat-icon class="footer-icon">schedule</mat-icon>
+            <span class="footer-text">Grace {{ s.grace_period_minutes }}m</span>
+            <mat-icon class="footer-icon ml">wifi</mat-icon>
+            <span class="footer-text">{{ s.neighbor_rssi_threshold_dbm }} dBm</span>
+          </div>
+
+        </div>
+      </div>
     }
   </div>
 }
