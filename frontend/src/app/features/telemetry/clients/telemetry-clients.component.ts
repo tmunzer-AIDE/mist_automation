@@ -23,6 +23,7 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
+import { getChartColor } from '../../../shared/utils/chart-defaults';
 import type {
   TimeRange,
   ClientListResponse,
@@ -197,8 +198,8 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(({ count, rssi }) => {
-        this.countChart.set(this._buildLineChart(count, 'Clients', '#4caf50'));
-        this.rssiChart.set(this._buildLineChart(rssi, 'Avg RSSI (dBm)', '#2196f3'));
+        this.countChart.set(this._buildLineChart(count, 'Clients', getChartColor('objects')));
+        this.rssiChart.set(this._buildLineChart(rssi, 'Avg RSSI (dBm)', getChartColor('completed')));
       });
   }
 
@@ -241,8 +242,14 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
       .subscribeToSite(siteId)
       .pipe(debounceTime(5000))
       .subscribe(() => {
-        this.telemetryService.getSiteClientsSummary(siteId).subscribe((s) => this.summary.set(s));
-        this.telemetryService.getSiteClients(siteId).subscribe((c) => this.clientsResponse.set(c));
+        this.telemetryService
+          .getSiteClientsSummary(siteId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe((s) => this.summary.set(s));
+        this.telemetryService
+          .getSiteClients(siteId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe((c) => this.clientsResponse.set(c));
       });
   }
 }
