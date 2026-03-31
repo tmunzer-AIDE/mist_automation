@@ -22,9 +22,11 @@ async def start_telemetry_pipeline() -> dict:
     import app.modules.telemetry as telemetry_mod
     from app.core.security import decrypt_sensitive_data
     from app.models.system import SystemConfig
+    from app.modules.telemetry.services.client_ws_manager import ClientWsManager
     from app.modules.telemetry.services.cov_filter import CoVFilter
     from app.modules.telemetry.services.influxdb_service import InfluxDBService
     from app.modules.telemetry.services.ingestion_service import IngestionService
+    from app.modules.telemetry.services.latest_client_cache import LatestClientCache
     from app.modules.telemetry.services.latest_value_cache import LatestValueCache
     from app.modules.telemetry.services.mist_ws_manager import MistWsManager
     from app.services.mist_service_factory import create_mist_service
@@ -40,6 +42,7 @@ async def start_telemetry_pipeline() -> dict:
 
     # 1. Core services
     telemetry_mod._latest_cache = LatestValueCache()
+    telemetry_mod._client_cache = LatestClientCache()
     telemetry_mod._cov_filter = CoVFilter()
     telemetry_mod._influxdb_service = InfluxDBService(
         url=config.influxdb_url,
@@ -49,17 +52,18 @@ async def start_telemetry_pipeline() -> dict:
     )
     await telemetry_mod._influxdb_service.start()
 
-    # 2. Ingestion service
+    # 2. Ingestion service (shared queue for both device + client WS managers)
     org_id = config.mist_org_id or ""
     telemetry_mod._ingestion_service = IngestionService(
         influxdb=telemetry_mod._influxdb_service,
         cache=telemetry_mod._latest_cache,
         cov_filter=telemetry_mod._cov_filter,
         org_id=org_id,
+        client_cache=telemetry_mod._client_cache,
     )
     await telemetry_mod._ingestion_service.start()
 
-    # 3. WebSocket manager — get sites from Mist
+    # 3. WebSocket managers — both share the same queue
     site_ids: list[str] = []
     if org_id:
         mist = await create_mist_service()
@@ -69,16 +73,25 @@ async def start_telemetry_pipeline() -> dict:
         )
         site_ids = [s["id"] for s in (resp.data or [])]
         if site_ids:
+            shared_queue = telemetry_mod._ingestion_service.get_queue()
+
             telemetry_mod._ws_manager = MistWsManager(
                 api_session=api_session,
-                message_queue=telemetry_mod._ingestion_service.get_queue(),
+                message_queue=shared_queue,
             )
             await telemetry_mod._ws_manager.start(site_ids)
+
+            telemetry_mod._client_ws_manager = ClientWsManager(
+                api_session=api_session,
+                message_queue=shared_queue,
+            )
+            await telemetry_mod._client_ws_manager.start(site_ids)
 
     logger.info(
         "telemetry_started",
         sites=len(site_ids),
         ws_connections=telemetry_mod._ws_manager.get_status()["connections"] if telemetry_mod._ws_manager else 0,
+        client_ws_connections=telemetry_mod._client_ws_manager.get_status()["connections"] if telemetry_mod._client_ws_manager else 0,
     )
 
     return {
@@ -91,6 +104,9 @@ async def stop_telemetry_pipeline() -> None:
     """Stop the full telemetry pipeline and clear all singletons."""
     import app.modules.telemetry as telemetry_mod
 
+    if telemetry_mod._client_ws_manager:
+        await telemetry_mod._client_ws_manager.stop()
+        telemetry_mod._client_ws_manager = None
     if telemetry_mod._ws_manager:
         await telemetry_mod._ws_manager.stop()
         telemetry_mod._ws_manager = None
@@ -101,5 +117,6 @@ async def stop_telemetry_pipeline() -> None:
         await telemetry_mod._influxdb_service.stop()
         telemetry_mod._influxdb_service = None
     telemetry_mod._latest_cache = None
+    telemetry_mod._client_cache = None
     telemetry_mod._cov_filter = None
     logger.info("telemetry_stopped")
