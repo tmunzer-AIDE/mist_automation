@@ -3,6 +3,7 @@ LLM module models: provider configs, usage tracking, and conversation threads.
 """
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from beanie import Document, Indexed, PydanticObjectId
 from pydantic import BaseModel, Field
@@ -118,3 +119,43 @@ class ConversationThread(Document):
         from app.modules.llm.services.llm_service import LLMMessage
 
         return [LLMMessage(role=m["role"], content=m["content"]) for m in self.get_messages_for_llm(max_turns)]
+
+
+class SkillGitRepo(TimestampMixin, Document):
+    """A git repository containing Agent Skills."""
+
+    url: str = Field(..., description="Git repo URL (SSRF-validated on save)")
+    branch: str = Field(default="main", description="Branch to clone/pull")
+    token: str | None = Field(default=None, description="Encrypted deploy token")
+    local_path: str = Field(default="", description="Absolute path to clone destination (set after first insert)")
+    last_refreshed_at: datetime | None = Field(default=None, description="Last successful pull")
+    error: str | None = Field(default=None, description="Last clone/pull error")
+
+    class Settings:
+        name = "skill_git_repos"
+        indexes = ["url"]
+
+    @property
+    def token_set(self) -> bool:
+        return self.token is not None
+
+
+class Skill(TimestampMixin, Document):
+    """An Agent Skill loaded from SKILL.md."""
+
+    name: str = Field(..., description="From SKILL.md frontmatter; unique")
+    description: str = Field(..., description="From SKILL.md frontmatter")
+    source: Literal["direct", "git"] = Field(..., description="Skill source: 'direct' (pasted SKILL.md) or 'git' (from a repo)")
+    local_path: str = Field(..., description="Absolute path to skill directory")
+    enabled: bool = Field(default=True, description="Admin toggle")
+    git_repo_id: PydanticObjectId | None = Field(default=None, description="FK to SkillGitRepo if source='git'")
+    error: str | None = Field(default=None, description="Last parse/sync error")
+    last_synced_at: datetime | None = Field(default=None, description="Last successful SKILL.md parse")
+
+    class Settings:
+        name = "skills"
+        indexes = [
+            IndexModel([("name", 1)], unique=True),
+            "source",
+            "enabled",
+        ]

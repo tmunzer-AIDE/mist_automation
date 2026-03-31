@@ -127,6 +127,8 @@ MODULES: list[AppModule] = [
             ("app.modules.llm.models", "MCPConfig"),
             ("app.modules.llm.models", "LLMUsageLog"),
             ("app.modules.llm.models", "ConversationThread"),
+            ("app.modules.llm.models", "Skill"),
+            ("app.modules.llm.models", "SkillGitRepo"),
         ],
         tags=["LLM"],
     ),
