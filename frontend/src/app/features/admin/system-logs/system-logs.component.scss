@@ -71,7 +71,7 @@ app-ai-inline-analysis {
   font-family: var(--app-font-mono);
   font-size: 12px;
   line-height: 1.5;
-  border: 1px solid var(--app-neutral-border, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--app-neutral-border);
   border-radius: 6px;
   margin-bottom: 16px;
 }
@@ -79,7 +79,7 @@ app-ai-inline-analysis {
 // ── Log row ──────────────────────────────────────────────────────────────────
 
 .log-row {
-  border-bottom: 1px solid var(--app-neutral-border, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--app-neutral-border);
 
   &.has-extra {
     cursor: pointer;
