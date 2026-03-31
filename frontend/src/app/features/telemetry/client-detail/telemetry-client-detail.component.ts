@@ -157,7 +157,7 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
       .subscribe((result: RangeResult) => {
         const rssiPoints = result.points.filter((p) => p['_field'] === 'rssi');
         const bpsPoints = result.points.filter((p) => p['_field'] === 'tx_bps');
-        this.rssiChart.set(this._buildChart(rssiPoints, 'RSSI (dBm)', getChartColor('warning')));
+        this.rssiChart.set(this._buildChart(rssiPoints, 'RSSI (dBm)', getChartColor('duration')));
         this.bpsChart.set(this._buildChart(bpsPoints, 'TX bps', getChartColor('objects')));
       });
   }

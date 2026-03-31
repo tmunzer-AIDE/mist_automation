@@ -177,7 +177,7 @@
       </ng-container>
 
       <tr mat-header-row *matHeaderRowDef="clientColumns"></tr>
-      <tr mat-row *matRowDef="let row; columns: clientColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: clientColumns" class="clickable-row" (click)="navigateToClient(row.mac)"></tr>
     </table>
   </div>
 </div>

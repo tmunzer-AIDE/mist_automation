@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { DecimalPipe, DatePipe } from '@angular/common';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription, debounceTime, forkJoin } from 'rxjs';
@@ -56,6 +56,7 @@ Chart.register(...registerables);
 })
 export class TelemetryClientsComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
 
@@ -106,10 +107,12 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
 
   readonly bandEntries = computed(() => {
     const counts = this.summary()?.band_counts ?? {};
-    return Object.entries(counts).map(([band, count]) => ({
-      label: band === '24' ? '2.4G' : band === '5' ? '5G' : band === '6' ? '6G' : band,
-      count,
-    }));
+    return ['24', '5', '6']
+      .filter((b) => b in counts)
+      .map((band) => ({
+        label: band === '24' ? '2.4G' : band === '5' ? '5G' : '6G',
+        count: counts[band],
+      }));
   });
 
   readonly countsByAuth = computed(() => {
@@ -149,6 +152,10 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
 
   toggleAuthType(auth: string): void {
     this.activeAuthType.set(this.activeAuthType() === auth ? '' : auth);
+  }
+
+  navigateToClient(mac: string): void {
+    this.router.navigate(['/telemetry/site', this.siteId(), 'client', mac]);
   }
 
   private _loadAll(): void {
