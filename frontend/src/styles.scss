@@ -143,6 +143,9 @@ a {
   // Neutral / disabled
   --app-neutral-bg: #fafafa;
   --app-neutral: #757575;
+  --app-neutral-text: #757575;
+  --app-neutral-border: rgba(0, 0, 0, 0.12);
+  --app-purple-chip: #7c3aed;
 
   // Diff backgrounds
   --app-diff-old-bg: rgba(220, 38, 38, 0.03);
@@ -272,6 +275,9 @@ a {
   // Neutral / disabled
   --app-neutral-bg: rgba(255, 255, 255, 0.05);
   --app-neutral: #a3a3a3;
+  --app-neutral-text: #9e9e9e;
+  --app-neutral-border: rgba(255, 255, 255, 0.12);
+  --app-purple-chip: #c4b5fd;
 
   // Diff backgrounds
   --app-diff-old-bg: rgba(220, 38, 38, 0.08);
