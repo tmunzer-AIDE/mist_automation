@@ -88,6 +88,7 @@ class TestStartOffHours:
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=[]),
             patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
+            patch(f"{_MODULE}._broadcast_status", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
             await start_off_hours(schedule)
@@ -126,6 +127,7 @@ class TestStartOffHours:
             patch(f"{_MODULE}._get_ap_inventory", new_callable=AsyncMock, return_value=[]),
             patch(f"{_MODULE}._update_profile_radio", new_callable=AsyncMock),
             patch(f"{_MODULE}._log_event", new_callable=AsyncMock),
+            patch(f"{_MODULE}._broadcast_status", new_callable=AsyncMock),
             patch(f"{_MODULE}.PowerSchedule", mock_cls),
         ):
             await start_off_hours(schedule)

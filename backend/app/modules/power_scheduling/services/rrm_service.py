@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 
 from app.services.mist_service_factory import create_mist_service
@@ -24,11 +26,15 @@ def merge_rrm_responses(responses: list[dict]) -> dict[str, list[tuple[str, int]
 async def fetch_rf_neighbor_map(site_id: str) -> dict[str, list[tuple[str, int]]]:
     """Fetch RF neighbor map from Mist RRM API, merged across 2.4/5/6 GHz bands."""
     mist = await create_mist_service()
+    bands = ("24", "5", "6")
+    results = await asyncio.gather(
+        *[mist.api_get(f"/api/v1/sites/{site_id}/rrm/neighbors/band/{band}") for band in bands],
+        return_exceptions=True,
+    )
     responses = []
-    for band in ("24", "5", "6"):
-        try:
-            data = await mist.api_get(f"/api/v1/sites/{site_id}/rrm/neighbors/band/{band}")
-            responses.append(data)
-        except Exception as exc:
-            log.warning("rrm_band_fetch_failed", site_id=site_id, band=band, error=str(exc))
+    for band, result in zip(bands, results, strict=True):
+        if isinstance(result, Exception):
+            log.warning("rrm_band_fetch_failed", site_id=site_id, band=band, error=str(result))
+        else:
+            responses.append(result)
     return merge_rrm_responses(responses)

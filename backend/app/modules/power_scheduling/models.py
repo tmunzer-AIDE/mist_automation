@@ -47,6 +47,9 @@ class PowerSchedule(TimestampMixin, Document):
     critical_ap_macs: list[str] = Field(default_factory=list, description="APs never disabled (v1; v2 uses wxtags)")
     enabled: bool = Field(default=True)
     current_status: Literal["IDLE", "OFF_HOURS"] = Field(default="IDLE", description="Persisted for startup recovery")
+    protected_ap_macs: list[str] = Field(
+        default_factory=list, description="APs with active per-AP radio override (persisted for startup recovery)"
+    )
     last_transition_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

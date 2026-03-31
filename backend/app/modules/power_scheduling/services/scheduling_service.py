@@ -62,7 +62,7 @@ async def _clear_ap_override(site_id: str, ap_mac: str) -> None:
 async def _batch_set_ap_overrides(site_id: str, macs: list[str]) -> None:
     """Set radio override on multiple APs in parallel."""
     results = await asyncio.gather(*[_set_ap_override(site_id, m) for m in macs], return_exceptions=True)
-    for mac, result in zip(macs, results):
+    for mac, result in zip(macs, results, strict=True):
         if isinstance(result, Exception):
             log.warning("batch_set_override_failed", site_id=site_id, mac=mac, error=str(result))
 
@@ -70,7 +70,7 @@ async def _batch_set_ap_overrides(site_id: str, macs: list[str]) -> None:
 async def _batch_clear_ap_overrides(site_id: str, macs: list[str]) -> None:
     """Clear radio override on multiple APs in parallel."""
     results = await asyncio.gather(*[_clear_ap_override(site_id, m) for m in macs], return_exceptions=True)
-    for mac, result in zip(macs, results):
+    for mac, result in zip(macs, results, strict=True):
         if isinstance(result, Exception):
             log.warning("batch_clear_override_failed", site_id=site_id, mac=mac, error=str(result))
 
@@ -268,7 +268,9 @@ async def end_off_hours_catchup(schedule: PowerSchedule) -> None:
                 await _log_event(site_id, "AP_ENABLED", ap_mac=mac, reason="catchup")
         except Exception as exc:
             for mac in schedule.protected_ap_macs:
-                await _log_event(site_id, "ERROR", ap_mac=mac, error=type(exc).__name__, action="catchup_clear_override")
+                await _log_event(
+                    site_id, "ERROR", ap_mac=mac, error=type(exc).__name__, action="catchup_clear_override"
+                )
 
     try:
         await _update_profile_radio(schedule.off_profile_id, {})
@@ -365,7 +367,9 @@ async def _handle_client_join(
             await _broadcast_status(site_id, "OFF_HOURS")
         except Exception as exc:
             for nbr_mac in to_enable:
-                await _log_event(site_id, "ERROR", ap_mac=nbr_mac, error=type(exc).__name__, action="re-enable_neighbor")
+                await _log_event(
+                    site_id, "ERROR", ap_mac=nbr_mac, error=type(exc).__name__, action="re-enable_neighbor"
+                )
 
     await _reevaluate_pending(site_id, state, schedule)
 
@@ -495,9 +499,7 @@ async def _reevaluate_pending(site_id: str, state: PowerScheduleState, schedule:
     """Check if any protected AP is now eligible to lose its override (start grace timer)."""
     async with get_lock(site_id):
         now_eligible = [
-            ap
-            for ap in state.protected_aps
-            if can_disable(ap, state, schedule) and ap not in state.grace_tasks
+            ap for ap in state.protected_aps if can_disable(ap, state, schedule) and ap not in state.grace_tasks
         ]
 
     for ap_mac in now_eligible:
