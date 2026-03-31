@@ -1778,6 +1778,7 @@ async def toggle_skill(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
 
     skill.enabled = not skill.enabled
+    skill.update_timestamp()
     await skill.save()
     return _skill_to_response(skill)
 
