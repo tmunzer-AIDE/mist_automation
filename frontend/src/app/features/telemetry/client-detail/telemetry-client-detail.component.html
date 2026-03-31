@@ -1,0 +1,175 @@
+<div class="client-detail-page">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  <div class="page-header">
+    <nav class="breadcrumb">
+      <a routerLink="/telemetry">Telemetry</a>
+      <span class="sep">&rsaquo;</span>
+      <a [routerLink]="['/telemetry/site', siteId()]">{{ siteName() || 'Site' }}</a>
+      <span class="sep">&rsaquo;</span>
+      <a [routerLink]="['/telemetry/site', siteId(), 'clients']">Clients</a>
+      <span class="sep">&rsaquo;</span>
+      <span>{{ displayName() }}</span>
+    </nav>
+  </div>
+
+  @if (client(); as c) {
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">RSSI</div>
+        <div class="kpi-value">{{ c.rssi | number: '1.0-0' }} dBm</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">SNR</div>
+        <div class="kpi-value">{{ c.snr | number: '1.0-0' }} dB</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">TX</div>
+        <div class="kpi-value">{{ c.tx_bps | number }} bps</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">RX</div>
+        <div class="kpi-value">{{ c.rx_bps | number }} bps</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Band</div>
+        <div class="kpi-value">{{ bandLabel() }}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Channel</div>
+        <div class="kpi-value">{{ c.channel ?? '—' }}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Protocol</div>
+        <div class="kpi-value">{{ c.proto || '—' }}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Uptime</div>
+        <div class="kpi-value">{{ uptimeFormatted() }}</div>
+      </div>
+    </div>
+
+    <div class="info-row">
+      <div class="info-card">
+        <div class="info-label">Hostname</div>
+        <div class="info-value">{{ c.hostname || '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">IP</div>
+        <div class="info-value monospace">{{ c.ip || '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Manufacturer</div>
+        <div class="info-value">{{ c.manufacture || '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">OS</div>
+        <div class="info-value">{{ c.os || '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">VLAN</div>
+        <div class="info-value">{{ c.vlan_id || '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Auth</div>
+        <div class="info-value">{{ c.auth_type === 'eap' ? '802.1X' : 'PSK' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Guest</div>
+        <div class="info-value">{{ c.is_guest ? 'Yes' : 'No' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">SSID</div>
+        <div class="info-value">{{ c.ssid || '—' }}</div>
+      </div>
+    </div>
+
+    <div class="time-range-picker">
+      @for (tr of timeRanges; track tr) {
+        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
+          {{ tr }}
+        </button>
+      }
+    </div>
+
+    <div class="chart-row">
+      @if (rssiChart()) {
+        <div class="chart-container">
+          <div class="chart-title">RSSI (dBm)</div>
+          <canvas
+            baseChart
+            [data]="rssiChart()!.data"
+            [options]="rssiChart()!.options"
+            type="line"
+          ></canvas>
+        </div>
+      }
+      @if (bpsChart()) {
+        <div class="chart-container">
+          <div class="chart-title">TX bps</div>
+          <canvas
+            baseChart
+            [data]="bpsChart()!.data"
+            [options]="bpsChart()!.options"
+            type="line"
+          ></canvas>
+        </div>
+      }
+    </div>
+  }
+
+  @if (mac()) {
+    <div class="device-section">
+      <div class="section-header">
+        <h3 class="section-title">Live Event Log</h3>
+        <mat-button-toggle-group
+          [value]="viewMode()"
+          (change)="setViewMode($event.value)"
+          hideSingleSelectionIndicator
+        >
+          <mat-button-toggle value="formatted">Formatted</mat-button-toggle>
+          <mat-button-toggle value="raw">Raw JSON</mat-button-toggle>
+        </mat-button-toggle-group>
+      </div>
+      <div class="live-log">
+        @if (liveEvents().length === 0) {
+          <div class="log-empty">Waiting for live events...</div>
+        }
+        @if (viewMode() === 'formatted') {
+          @for (event of liveEvents(); track event.timestamp) {
+            <div class="log-row">
+              <span class="ts">{{ event.timestamp * 1000 | date: 'HH:mm:ss' }}</span>
+              <span class="field">RSSI: {{ event.rssi | number: '1.0-0' }} dBm</span>
+              <span class="field">SNR: {{ event.snr | number: '1.0-0' }} dB</span>
+              <span class="field">TX: {{ (event.tx_rate ?? 0) | number: '1.0-0' }} Mbps</span>
+              <span class="field">RX: {{ (event.rx_rate ?? 0) | number: '1.0-0' }} Mbps</span>
+              <span class="field">AP: {{ event.ap_mac }}</span>
+              <span class="field">Band: {{
+                event.band === '24'
+                  ? '2.4G'
+                  : event.band === '5'
+                    ? '5G'
+                    : event.band === '6'
+                      ? '6G'
+                      : event.band
+              }}</span>
+            </div>
+          }
+        }
+        @if (viewMode() === 'raw') {
+          @for (event of liveEvents(); track event.timestamp; let i = $index) {
+            <div class="log-row raw-row" (click)="toggleExpand(i)">
+              <span class="ts">{{ event.timestamp * 1000 | date: 'HH:mm:ss' }}</span>
+              <span class="expand-hint">{{ isExpanded(i) ? '▼ collapse' : '▶ expand' }}</span>
+            </div>
+            @if (isExpanded(i)) {
+              <pre class="raw-json">{{ formatJson(event.raw) }}</pre>
+            }
+          }
+        }
+      </div>
+    </div>
+  }
+</div>

@@ -19,6 +19,13 @@ const routes: Routes = [
       ),
   },
   {
+    path: 'site/:id/client/:mac',
+    loadComponent: () =>
+      import('./client-detail/telemetry-client-detail.component').then(
+        (m) => m.TelemetryClientDetailComponent,
+      ),
+  },
+  {
     path: 'device/:mac',
     loadComponent: () =>
       import('./device/telemetry-device.component').then((m) => m.TelemetryDeviceComponent),
