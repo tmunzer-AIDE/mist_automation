@@ -26,6 +26,7 @@ import {
   GatewayScopeSummary,
   BandSummary,
   AggregateResult,
+  type ClientSiteSummary,
 } from '../models';
 
 Chart.register(...registerables);
@@ -64,6 +65,7 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   readonly summary = signal<ScopeSummary | null>(null);
   readonly devices = signal<ScopeDevices | null>(null);
   readonly activeDeviceType = signal('');
+  readonly clientSummary = signal<ClientSiteSummary | null>(null);
 
   private wsSub?: Subscription;
 
@@ -111,6 +113,14 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     const devs = this.filteredDevices();
     if (!type) return devs;
     return devs.filter((d) => d.device_type === type);
+  });
+
+  readonly clientBandEntries = computed(() => {
+    const counts = this.clientSummary()?.band_counts ?? {};
+    return Object.entries(counts).map(([band, count]) => ({
+      label: band === '24' ? '2.4G' : band === '5' ? '5G' : band === '6' ? '6G' : band,
+      count,
+    }));
   });
 
   get ap(): APScopeSummary | null {
@@ -168,10 +178,12 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
       summary: this.telemetryService.getScopeSummary(siteId),
       devices: this.telemetryService.getScopeDevices(siteId),
       sites: this.telemetryService.getScopeSites(),
+      clientSummary: this.telemetryService.getSiteClientsSummary(siteId),
     }).subscribe({
-      next: ({ summary, devices, sites }) => {
+      next: ({ summary, devices, sites, clientSummary }) => {
         this.summary.set(summary);
         this.devices.set(devices);
+        this.clientSummary.set(clientSummary);
         const site = sites.sites.find((s) => s.site_id === siteId);
         this.siteName.set(site?.site_name ?? siteId);
         this.loading.set(false);
