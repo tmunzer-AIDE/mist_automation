@@ -327,7 +327,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
           </head><body style="margin:0;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:${chartBg};color:${fg};font-size:14px;">
-          <div style="position:relative; max-height:400px; margin:0 auto;">
+          <div style="position:relative; width:100%;">
             <canvas id="chart"></canvas>
           </div>
           <script>
