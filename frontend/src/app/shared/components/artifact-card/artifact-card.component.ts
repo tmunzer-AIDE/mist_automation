@@ -324,14 +324,9 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
         const gridColor = theme.outlineVariant;
         const tickColor = theme.onSurfaceVariant;
         return `<!DOCTYPE html><html><head>
-          <style>
-            * { box-sizing: border-box; }
-            body { margin: 0; padding: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                   background: ${chartBg}; color: ${fg}; font-size: 14px; }
-          </style>
           <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
-          </head><body>
+          </head><body style="margin:0;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:${chartBg};color:${fg};font-size:14px;">
           <div style="position:fixed;top:0;right:0;background:red;color:white;font-size:10px;padding:2px 6px;z-index:9999;font-family:monospace">
             isDark:${isDark} bg:${chartBg} fg:${fg} legend:${legendColor}
           </div>
@@ -340,6 +335,10 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           </div>
           <script>
             try {
+              // Set Chart.js global defaults for this iframe
+              Chart.defaults.color = '${legendColor}';
+              Chart.defaults.backgroundColor = '${chartBg}';
+
               var spec = ${JSON.stringify(artifact.content)};
               var parsed = JSON.parse(spec);
               var palette = ${palette};
