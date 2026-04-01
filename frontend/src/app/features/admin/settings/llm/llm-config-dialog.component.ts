@@ -8,6 +8,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -38,6 +39,7 @@ const PROVIDER_OPTIONS = [
     MatIconModule,
     MatInputModule,
     MatProgressBarModule,
+    MatSelectModule,
     MatSlideToggleModule,
     MatSliderModule,
     MatSnackBarModule,
@@ -143,6 +145,17 @@ const PROVIDER_OPTIONS = [
           <mat-slide-toggle formControlName="is_default">Set as Default</mat-slide-toggle>
           <mat-slide-toggle formControlName="enabled">Enabled</mat-slide-toggle>
         </div>
+
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Canvas Prompt Tier</mat-label>
+          <mat-select formControlName="canvas_prompt_tier">
+            <mat-option [value]="null">Auto-detect</mat-option>
+            <mat-option value="full">Full (large models)</mat-option>
+            <mat-option value="explicit">Explicit (small models)</mat-option>
+            <mat-option value="none">Disabled</mat-option>
+          </mat-select>
+          <mat-hint>Controls canvas artifact instructions in system prompts</mat-hint>
+        </mat-form-field>
       </form>
 
       @if (saving()) {
@@ -216,6 +229,7 @@ export class LlmConfigDialogComponent implements OnInit {
     max_tokens_per_request: [4096, [Validators.min(100), Validators.max(32000)]],
     is_default: [false],
     enabled: [true],
+    canvas_prompt_tier: [null as string | null],
   });
 
   ngOnInit(): void {
@@ -230,6 +244,7 @@ export class LlmConfigDialogComponent implements OnInit {
         max_tokens_per_request: c.max_tokens_per_request,
         is_default: c.is_default,
         enabled: c.enabled,
+        canvas_prompt_tier: c.canvas_prompt_tier ?? null,
       });
     }
   }
