@@ -327,9 +327,6 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
           </head><body style="margin:0;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:${chartBg};color:${fg};font-size:14px;">
-          <div style="position:fixed;top:0;right:0;background:red;color:white;font-size:10px;padding:2px 6px;z-index:9999;font-family:monospace">
-            isDark:${isDark} bg:${chartBg} fg:${fg} legend:${legendColor}
-          </div>
           <div style="position:relative; max-height:400px; margin:0 auto;">
             <canvas id="chart"></canvas>
           </div>
@@ -370,6 +367,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
                     var value = ds.data[i];
                     return {
                       text: label + ' \\u2014 ' + value,
+                      fontColor: '${legendColor}',
                       fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
                       strokeStyle: Array.isArray(ds.borderColor) ? ds.borderColor[i] : ds.borderColor,
                       lineWidth: 1,
