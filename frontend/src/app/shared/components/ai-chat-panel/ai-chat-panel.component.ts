@@ -972,7 +972,7 @@ export class AiChatPanelComponent {
     const parts = parsed.prose.split(/\[artifact:[^\]]+\]/);
     const placeholders = [...parsed.prose.matchAll(/\[artifact:([^\]]+)\]/g)];
     for (let i = 0; i < parts.length; i++) {
-      const text = parts[i].trim();
+      const text = parts[i].replace(/^\n+|\n+$/g, '');
       if (text) {
         sections.push({ type: 'prose', html: renderMarkdown(text) });
       }
@@ -1064,9 +1064,10 @@ export class AiChatPanelComponent {
           } else {
             const tagMeta = this.artifactParser.detectOpeningTag(streamedContent);
             if (tagMeta && !this.artifactParser.hasClosingTag(streamedContent)) {
-              // Opening tag detected -- start buffering, show loading artifact in message
+              // Opening tag detected -- start buffering, capture any content already after the tag
               this._artifactMeta = tagMeta;
-              this._artifactBuffer = '';
+              const tagEnd = streamedContent.indexOf('>', streamedContent.indexOf('<artifact'));
+              this._artifactBuffer = tagEnd >= 0 ? streamedContent.slice(tagEnd + 1) : '';
               const proseBeforeTag = streamedContent.split(/<artifact/)[0].trim();
               const loadingArtifact: Artifact = {
                 id: crypto.randomUUID(),

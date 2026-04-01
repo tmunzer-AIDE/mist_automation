@@ -508,7 +508,8 @@ def _mcp_config_to_response(cfg) -> MCPConfigResponse:
     headers = None
     if cfg.headers:
         try:
-            headers = json_mod.loads(decrypt_sensitive_data(cfg.headers))
+            parsed = json_mod.loads(decrypt_sensitive_data(cfg.headers))
+            headers = {k: "••••••••" for k in parsed}  # Mask values, show keys only
         except Exception:
             pass  # Decryption failure — return None, headers_set still shows True
     return MCPConfigResponse(
