@@ -42,7 +42,7 @@ export class ThemeService {
         } else {
           html.classList.remove('dark-theme');
         }
-        document.body.style.colorScheme = dark ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       } catch {
         // Not in a browser environment
       }

@@ -2,6 +2,7 @@
 
 html {
   height: 100%;
+  color-scheme: light;
   @include mat.theme(
     (
       color: (
@@ -14,6 +15,7 @@ html {
   );
 
   &.dark-theme {
+    color-scheme: dark;
     @include mat.theme(
       (
         color: (
