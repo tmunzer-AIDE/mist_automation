@@ -101,3 +101,47 @@ def _default_model(provider: str) -> str:
         "vertex": "gemini-2.0-flash",
     }
     return defaults.get(provider, "gpt-4o")
+
+
+def _default_canvas_tier(provider: str, model: str | None) -> str:
+    """Auto-detect canvas prompt tier from provider and model name.
+
+    Returns "full" for large models that follow instructions well,
+    "explicit" for smaller models that need verbose examples.
+    """
+    model_lower = (model or "").lower()
+
+    # Providers where all models are capable
+    if provider == "anthropic":
+        return "full"
+    if provider == "bedrock":
+        return "full"
+
+    # OpenAI: GPT-4+ is full, others explicit
+    if provider in ("openai", "azure_openai"):
+        if "gpt-4" in model_lower:
+            return "full"
+        return "explicit"
+
+    # Vertex: Gemini 2+ is full
+    if provider == "vertex":
+        if "gemini-2" in model_lower:
+            return "full"
+        return "explicit"
+
+    # Local providers default to explicit
+    if provider in ("ollama", "lm_studio"):
+        return "explicit"
+
+    return "explicit"
+
+
+def get_effective_canvas_tier(config) -> str:
+    """Resolve the effective canvas tier for a config.
+
+    If config.canvas_prompt_tier is set, use it.
+    Otherwise, auto-detect from provider and model.
+    """
+    if config.canvas_prompt_tier:
+        return config.canvas_prompt_tier
+    return _default_canvas_tier(config.provider, config.model)
