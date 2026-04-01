@@ -17,6 +17,9 @@ import { DomSanitizer } from '@angular/platform-browser';
 import { Artifact } from '../../../core/models/llm.model';
 import { ThemeService } from '../../../core/services/theme.service';
 
+/** CDN base URL for iframe-loaded libraries. Change for air-gapped/self-hosted deployments. */
+const CDN = 'https://cdn.jsdelivr.net/npm';
+
 const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   code: { label: 'Code', color: '#60a5fa' },
   markdown: { label: 'Document', color: '#a78bfa' },
@@ -278,8 +281,8 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     switch (artifact.type) {
       case 'code':
         return `<!DOCTYPE html><html><head>${baseStyle}
-          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/${isDark ? 'github-dark' : 'github'}.min.css">
-          <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"><\/script>
+          <link rel="stylesheet" href="${CDN}/@highlightjs/cdn-assets@11.9.0/styles/${isDark ? 'github-dark' : 'github'}.min.css">
+          <script src="${CDN}/@highlightjs/cdn-assets@11.9.0/highlight.min.js"><\/script>
           ${heightScript}
           </head><body>
           <pre><code class="language-${artifact.language || 'plaintext'}">${this._escapeHtml(artifact.content)}</code></pre>
@@ -288,8 +291,8 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
 
       case 'markdown':
         return `<!DOCTYPE html><html><head>${baseStyle}
-          <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"><\/script>
-          <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"><\/script>
+          <script src="${CDN}/marked@12.0.0/marked.min.js"><\/script>
+          <script src="${CDN}/dompurify@3.0.9/dist/purify.min.js"><\/script>
           ${heightScript}
           </head><body>
           <div id="content"></div>
@@ -303,7 +306,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
 
       case 'mermaid':
         return `<!DOCTYPE html><html><head>${baseStyle}
-          <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"><\/script>
+          <script src="${CDN}/mermaid@10.9.0/dist/mermaid.min.js"><\/script>
           ${heightScript}
           </head><body>
           <pre class="mermaid">${this._escapeHtml(artifact.content)}</pre>
@@ -323,7 +326,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
         const gridColor = theme.outlineVariant;
         const tickColor = theme.onSurfaceVariant;
         return `<!DOCTYPE html><html><head>
-          <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
+          <script src="${CDN}/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
           </head><body style="margin:0;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:${chartBg};color:${fg};font-size:14px;">
           <div style="position:relative; width:100%;">

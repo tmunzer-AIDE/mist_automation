@@ -44,13 +44,13 @@ async def activate_skill(name: str) -> str:
     resources = list_skill_resources(skill_dir)
     resources_block = ""
     if resources:
-        resource_lines = "\n".join(f"  <file>{r}</file>" for r in resources)
+        resource_lines = "\n".join(f"  <file>{escape(str(r))}</file>" for r in resources)
         resources_block = f"\n<skill_resources>\n{resource_lines}\n</skill_resources>"
 
     return (
         f'<skill_content name="{escape(name)}">\n'
-        f"{body}\n\n"
-        f"Skill directory: {skill.local_path}"
+        f"{escape(body)}\n\n"
+        f"Skill directory: {escape(str(skill.local_path))}"
         f"{resources_block}\n"
         f"</skill_content>"
     )
