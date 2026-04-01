@@ -2,6 +2,7 @@ import {
   Component,
   ElementRef,
   OnDestroy,
+  OnInit,
   computed,
   inject,
   input,
@@ -174,16 +175,23 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
     }
   `,
 })
-export class ArtifactCardComponent implements OnDestroy {
+export class ArtifactCardComponent implements OnInit, OnDestroy {
   artifact = input.required<Artifact>();
   state = input<'loading' | 'ready'>('ready');
 
   expanded = signal(false);
+  private readonly visualTypes = new Set(['chart', 'mermaid', 'svg']);
 
   private readonly snackBar = inject(MatSnackBar);
   private readonly themeService = inject(ThemeService);
   private readonly iframeEl = viewChild<ElementRef<HTMLIFrameElement>>('iframeEl');
   private messageListener: ((e: MessageEvent) => void) | null = null;
+
+  ngOnInit(): void {
+    if (this.visualTypes.has(this.artifact().type)) {
+      this.expanded.set(true);
+    }
+  }
 
   badgeLabel = computed(() => TYPE_LABELS[this.artifact().type]?.label ?? this.artifact().type);
   badgeColor = computed(() => TYPE_LABELS[this.artifact().type]?.color ?? '#888');
