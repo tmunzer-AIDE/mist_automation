@@ -107,6 +107,18 @@ def _check_llm_rate_limit(user_id: str) -> None:
     _llm_requests[user_id].append(now)
 
 
+async def _get_canvas_instructions() -> str:
+    """Load the effective canvas tier from the default LLM config and return instructions."""
+    from app.modules.llm.models import LLMConfig as LLMConfigModel
+    from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
+    from app.modules.llm.services.prompt_builders import build_canvas_instructions
+
+    default_config = await LLMConfigModel.find_one(LLMConfigModel.is_default == True, LLMConfigModel.enabled == True)  # noqa: E712
+    if not default_config:
+        return ""
+    return build_canvas_instructions(get_effective_canvas_tier(default_config))
+
+
 async def _load_external_mcp_clients(config_ids: list[str]) -> list:
     """Load external MCP clients, wrapping SSRF errors as HTTP 400."""
     from app.modules.llm.services.mcp_client import load_external_mcp_clients
@@ -205,6 +217,8 @@ async def test_llm_connection(_current_user: User = Depends(get_current_user_fro
 
 
 def _config_to_response(cfg) -> LLMConfigResponse:
+    from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
+
     return LLMConfigResponse(
         id=str(cfg.id),
         name=cfg.name,
@@ -216,6 +230,8 @@ def _config_to_response(cfg) -> LLMConfigResponse:
         max_tokens_per_request=cfg.max_tokens_per_request,
         is_default=cfg.is_default,
         enabled=cfg.enabled,
+        canvas_prompt_tier=cfg.canvas_prompt_tier,
+        canvas_prompt_tier_effective=get_effective_canvas_tier(cfg),
     )
 
 
@@ -1258,6 +1274,9 @@ async def summarize_webhook_events(
     events_summary, event_count = await get_webhook_summary_context(hours=request.hours)
 
     prompt_messages = build_webhook_summary_prompt(events_summary, request.hours)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
     thread = await _load_or_create_thread(None, current_user.id, "webhook_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1294,6 +1313,9 @@ async def summarize_dashboard(
     context = await get_dashboard_summary_context()
 
     prompt_messages = build_dashboard_summary_prompt(context)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
     catalog = await build_skills_catalog()
@@ -1345,6 +1367,9 @@ async def summarize_audit_logs(
         "end_date": request.end_date,
     }
     prompt_messages = build_audit_log_summary_prompt(context, filters)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
     catalog = await build_skills_catalog()
@@ -1389,6 +1414,9 @@ async def summarize_system_logs(
 
     filters = {"level": request.level, "logger": request.logger}
     prompt_messages = build_system_log_summary_prompt(context, filters)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
     catalog = await build_skills_catalog()
@@ -1434,6 +1462,9 @@ async def summarize_backups(
 
     filters = {"object_type": request.object_type, "site_id": request.site_id, "scope": request.scope}
     prompt_messages = build_backup_list_summary_prompt(context, filters)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
     catalog = await build_skills_catalog()
@@ -1478,6 +1509,9 @@ async def global_chat(
     llm = await create_llm_service()
     skills_catalog = await build_skills_catalog()
     system_prompt = build_global_chat_system_prompt(current_user.roles)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr:
+        system_prompt += "\n\n" + canvas_instr
     if skills_catalog:
         system_prompt += "\n\n" + skills_catalog
     safe_ctx = _sanitize_for_prompt(request.page_context, max_len=2000) if request.page_context else None
