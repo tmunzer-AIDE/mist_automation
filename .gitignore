@@ -51,6 +51,15 @@ Thumbs.db
 *.tmp
 *.swp
 
+# Linting / Formatting
+.ruff_cache/
+
+# Node
+node_modules/
+
 # Project specific
 /backend/mist_automation_backend.egg-info/
 node_modules/.worktrees/
+
+# Runtime data (skills loaded from git repos / direct uploads)
+/skills/

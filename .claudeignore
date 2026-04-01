@@ -4,10 +4,12 @@ dist/
 __pycache__/
 *.pyc
 *.log
-docs/
 .venv/
 venv/
 .mypy_cache/
 .pytest_cache/
 *.egg-info/
 .coverage
+htmlcov/
+.ruff_cache/
+skills/repos/
