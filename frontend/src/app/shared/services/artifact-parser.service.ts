@@ -75,7 +75,9 @@ export class ArtifactParserService {
    * Detect if text contains an opening <artifact tag (for streaming).
    * Returns the parsed attributes if found, null otherwise.
    */
-  detectOpeningTag(text: string): { type: ArtifactType; title: string; language?: string } | null {
+  detectOpeningTag(
+    text: string,
+  ): { type: ArtifactType; title: string; language?: string; startIndex: number; endIndex: number } | null {
     // Require type= attribute to avoid false positives when LLM mentions <artifact in prose/code
     const openPattern = /<artifact\s+((?=[^>]*type=)[^>]*)>/;
     const openMatch = openPattern.exec(text);
@@ -84,7 +86,13 @@ export class ArtifactParserService {
     const type = (this._extractAttr(attrs, 'type') as ArtifactType) || 'markdown';
     const title = this._extractAttr(attrs, 'title') || DEFAULT_TITLES[type] || 'Artifact';
     const language = this._extractAttr(attrs, 'language') || undefined;
-    return { type: VALID_TYPES.has(type) ? type : 'markdown', title, language };
+    return {
+      type: VALID_TYPES.has(type) ? type : 'markdown',
+      title,
+      language,
+      startIndex: openMatch.index,
+      endIndex: openMatch.index + openMatch[0].length,
+    };
   }
 
   /** Check if text contains a closing </artifact> tag. */

@@ -1066,9 +1066,8 @@ export class AiChatPanelComponent {
             if (tagMeta && !this.artifactParser.hasClosingTag(streamedContent)) {
               // Opening tag detected -- start buffering, capture any content already after the tag
               this._artifactMeta = tagMeta;
-              const tagEnd = streamedContent.indexOf('>', streamedContent.indexOf('<artifact'));
-              this._artifactBuffer = tagEnd >= 0 ? streamedContent.slice(tagEnd + 1) : '';
-              const proseBeforeTag = streamedContent.split(/<artifact/)[0].trim();
+              this._artifactBuffer = streamedContent.slice(tagMeta.endIndex);
+              const proseBeforeTag = streamedContent.slice(0, tagMeta.startIndex).replace(/^\n+|\n+$/g, '');
               const loadingArtifact: Artifact = {
                 id: crypto.randomUUID(),
                 type: tagMeta.type as Artifact['type'],

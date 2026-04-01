@@ -1822,6 +1822,14 @@ async def add_direct_skill(
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKILL.md 'name' field is required")
 
+    import re
+
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Skill name must be 1-64 chars, lowercase alphanumeric/hyphens/underscores, no path separators",
+        )
+
     # Check for name collision
     existing = await Skill.find_one(Skill.name == name)
     if existing:

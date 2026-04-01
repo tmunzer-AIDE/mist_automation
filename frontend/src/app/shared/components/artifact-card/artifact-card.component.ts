@@ -228,8 +228,9 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     if (this.messageListener) window.removeEventListener('message', this.messageListener);
     this.messageListener = (e: MessageEvent) => {
       const iframe = this.iframeEl()?.nativeElement;
-      if (e.data?.type === 'artifact-height' && iframe && e.source === iframe.contentWindow) {
-        iframe.style.height = Math.min(e.data.height + 16, 600) + 'px';
+      const h = e.data?.height;
+      if (e.data?.type === 'artifact-height' && iframe && e.source === iframe.contentWindow && typeof h === 'number' && Number.isFinite(h)) {
+        iframe.style.height = Math.min(h + 16, 600) + 'px';
       }
     };
     window.addEventListener('message', this.messageListener);

@@ -306,6 +306,8 @@ export class LlmConfigDialogComponent implements OnInit {
 
     for (const [k, v] of Object.entries(values)) {
       if (k === 'api_key' && !v) continue;
+      // canvas_prompt_tier: null means "auto-detect" and must be sent explicitly
+      if (k === 'canvas_prompt_tier') { payload[k] = v; continue; }
       if (v !== null && v !== undefined) payload[k] = v;
     }
 
