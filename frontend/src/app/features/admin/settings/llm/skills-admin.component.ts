@@ -331,6 +331,10 @@ export class SkillsAdminComponent implements OnInit, OnDestroy {
               }
             }
           },
+          error: () => {
+            this._stopPolling(repoId);
+            this.snackBar.open('Failed to check sync status', 'OK', { duration: 5000 });
+          },
         });
       });
 

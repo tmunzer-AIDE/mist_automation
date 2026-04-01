@@ -1727,7 +1727,7 @@ async def get_thread(
     )
 
 
-@router.delete("/llm/threads/{thread_id}", tags=["LLM"])
+@router.delete("/llm/threads/{thread_id}", tags=["LLM"], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thread(
     thread_id: str,
     current_user: User = Depends(get_current_user_from_token),

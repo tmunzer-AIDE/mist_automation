@@ -235,8 +235,10 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
 
   copy(event: Event): void {
     event.stopPropagation();
-    navigator.clipboard.writeText(this.artifact().content);
-    this.snackBar.open('Copied to clipboard', '', { duration: 2000 });
+    navigator.clipboard.writeText(this.artifact().content).then(
+      () => this.snackBar.open('Copied to clipboard', '', { duration: 2000 }),
+      () => this.snackBar.open('Copy failed', '', { duration: 2000 }),
+    );
   }
 
   onIframeLoad(): void {

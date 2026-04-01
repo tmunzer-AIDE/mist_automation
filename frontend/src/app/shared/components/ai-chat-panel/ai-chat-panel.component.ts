@@ -936,14 +936,14 @@ export class AiChatPanelComponent {
     // Send API request with stream_id
     this.llmService.followUp(thread, text, streamId, this.mcpConfigIds()).subscribe({
       next: (res) => {
-        // Replace the last streamed assistant bubble with the final polished response
+        // Replace the last streamed assistant bubble with the final artifact-aware response
         this.timeline.update((tl) => {
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: res.reply, html: renderMarkdown(res.reply) };
+          const items = this._buildArtifactTimeline(res.reply, 'assistant');
           const last = tl[tl.length - 1];
           if (last?.kind === 'message' && last.role === 'assistant') {
-            return [...tl.slice(0, -1), entry];
+            return [...tl.slice(0, -1), ...items];
           }
-          return [...tl, entry];
+          return [...tl, ...items];
         });
         this.loading.set(false);
         this.followUpSent.emit();
