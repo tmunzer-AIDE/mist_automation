@@ -500,10 +500,21 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
 
 
 def _mcp_config_to_response(cfg) -> MCPConfigResponse:
+    import json as json_mod
+
+    from app.core.security import decrypt_sensitive_data
+
+    headers = None
+    if cfg.headers:
+        try:
+            headers = json_mod.loads(decrypt_sensitive_data(cfg.headers))
+        except Exception:
+            pass  # Decryption failure — return None, headers_set still shows True
     return MCPConfigResponse(
         id=str(cfg.id),
         name=cfg.name,
         url=cfg.url,
+        headers=headers,
         headers_set=bool(cfg.headers),
         ssl_verify=cfg.ssl_verify,
         enabled=cfg.enabled,

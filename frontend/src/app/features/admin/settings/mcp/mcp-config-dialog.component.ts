@@ -113,6 +113,7 @@ export class McpConfigDialogComponent implements OnInit {
       this.form.patchValue({
         name: c.name,
         url: c.url,
+        headers: c.headers ? JSON.stringify(c.headers, null, 2) : '',
         ssl_verify: c.ssl_verify,
         enabled: c.enabled,
       });

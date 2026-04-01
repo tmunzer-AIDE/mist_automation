@@ -50,6 +50,7 @@ export interface McpConfig {
   id: string;
   name: string;
   url: string;
+  headers: Record<string, string> | null;
   headers_set: boolean;
   ssl_verify: boolean;
   enabled: boolean;

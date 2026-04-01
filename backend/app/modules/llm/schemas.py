@@ -108,11 +108,12 @@ class MCPConfigUpdate(BaseModel):
 
 
 class MCPConfigResponse(BaseModel):
-    """MCP server configuration response (headers masked)."""
+    """MCP server configuration response."""
 
     id: str
     name: str
     url: str
+    headers: dict[str, str] | None
     headers_set: bool
     ssl_verify: bool
     enabled: bool
