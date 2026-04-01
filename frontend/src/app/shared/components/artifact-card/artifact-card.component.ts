@@ -241,27 +241,16 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     if (this.messageListener) window.removeEventListener('message', this.messageListener);
   }
 
-  /**
-   * Resolve a CSS variable to an actual color by probing the live DOM.
-   * Sets color-scheme on the probe element so light-dark() values
-   * (used by Angular Material 3's mat.theme()) resolve correctly.
-   */
-  private _resolveVar(varExpr: string, isDark: boolean, fallback: string): string {
-    const el = document.createElement('div');
-    el.style.color = varExpr;
-    el.style.colorScheme = isDark ? 'dark' : 'light';
-    el.style.position = 'absolute';
-    el.style.visibility = 'hidden';
-    document.body.appendChild(el);
-    const resolved = getComputedStyle(el).color;
-    el.remove();
-    return resolved || fallback;
-  }
+  // Known Azure palette values from Angular Material 3 compiled CSS
+  private static readonly THEME_COLORS = {
+    light: { surface: '#efedf0', onSurface: '#1a1b1f', outlineVariant: '#c4c6d0', onSurfaceVariant: '#44474e' },
+    dark: { surface: '#1f2022', onSurface: '#e3e2e6', outlineVariant: '#44474e', onSurfaceVariant: '#e0e2ec' },
+  };
 
   private _buildSrcdoc(artifact: Artifact, isDark: boolean): string {
-    // Resolve Material theme CSS variables by probing the live DOM
-    const bg = this._resolveVar('var(--mat-sys-surface-container)', isDark, '#1f2022');
-    const fg = this._resolveVar('var(--mat-sys-on-surface)', isDark, '#e3e2e6');
+    const theme = isDark ? ArtifactCardComponent.THEME_COLORS.dark : ArtifactCardComponent.THEME_COLORS.light;
+    const bg = theme.surface;
+    const fg = theme.onSurface;
     const codeBg = isDark ? '#14141e' : '#f5f5f5';
 
     const baseStyle = `
@@ -332,8 +321,8 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           : "['#60a5fa','#a78bfa','#34d399','#fbbf24','#f87171','#f9a8d4','#22d3ee','#a3e635','#fb923c','#a5b4fc']";
         const chartBg = bg;
         const legendColor = fg;
-        const gridColor = this._resolveVar('var(--mat-sys-outline-variant)', isDark, '#44474e');
-        const tickColor = this._resolveVar('var(--mat-sys-on-surface-variant)', isDark, '#e0e2ec');
+        const gridColor = theme.outlineVariant;
+        const tickColor = theme.onSurfaceVariant;
         return `<!DOCTYPE html><html><head>
           <style>
             * { box-sizing: border-box; }
