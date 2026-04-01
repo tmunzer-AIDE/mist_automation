@@ -26,9 +26,11 @@ import { RestoreDiffCardComponent, RestoreDiffData } from './restore-diff-card.c
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { Subscription } from 'rxjs';
-import { McpConfigAvailable } from '../../../core/models/llm.model';
+import { Artifact, McpConfigAvailable } from '../../../core/models/llm.model';
 import { LlmService } from '../../../core/services/llm.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { ArtifactCardComponent } from '../artifact-card/artifact-card.component';
+import { ArtifactParserService } from '../../services/artifact-parser.service';
 import { extractErrorMessage } from '../../utils/error.utils';
 
 export interface ChatMessage {
@@ -40,7 +42,8 @@ export interface ChatMessage {
 
 export type TimelineItem =
   | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string }
-  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; resultPreview?: string; expanded: boolean };
+  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; resultPreview?: string; expanded: boolean }
+  | { kind: 'artifact'; artifact: Artifact; state: 'loading' | 'ready'; expanded: boolean };
 
 function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
@@ -50,7 +53,7 @@ function renderMarkdown(md: string): string {
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
-  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, AiIconComponent, RestoreDiffCardComponent],
+  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, AiIconComponent, RestoreDiffCardComponent, ArtifactCardComponent],
   template: `
     <div class="ai-chat-panel">
       <div class="chat-messages" #chatMessages aria-live="polite" aria-relevant="additions">
@@ -90,6 +93,18 @@ function renderMarkdown(md: string): string {
               }
             </div>
           }
+          } @else if (item.kind === 'artifact') {
+            <div class="chat-message assistant">
+              <div class="avatar assistant-avatar">
+                <app-ai-icon [size]="16"></app-ai-icon>
+              </div>
+              <div class="message-bubble artifact-bubble">
+                <app-artifact-card
+                  [artifact]="item.artifact"
+                  [state]="item.state"
+                />
+              </div>
+            </div>
           } @else {
             <div class="tool-call-inline" [class.running]="item.status === 'running'" [class.success]="item.status === 'success'" [class.error]="item.status === 'error'">
               <div class="tool-call-header" (click)="toggleToolExpand($index)">
@@ -461,6 +476,13 @@ function renderMarkdown(md: string): string {
         border-top: 1px solid var(--mat-sys-outline-variant);
       }
 
+      .artifact-bubble {
+        padding: 0 !important;
+        overflow: hidden;
+        background: transparent !important;
+        border: none !important;
+      }
+
       :host ::ng-deep .markdown-body {
         p {
           margin: 0 0 8px;
@@ -743,9 +765,12 @@ export class AiChatPanelComponent {
   private readonly wsService = inject(WebSocketService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly artifactParser = inject(ArtifactParserService);
   private readonly chatMessagesEl = viewChild<ElementRef<HTMLDivElement>>('chatMessages');
   private readonly chatInputEl = viewChild<ElementRef<HTMLTextAreaElement>>('chatInput');
   private streamSub: Subscription | null = null;
+  private _artifactBuffer: string | null = null;
+  private _artifactMeta: { type: string; title: string; language?: string } | null = null;
 
   /** Unified chronological timeline of messages and tool calls */
   timeline = signal<TimelineItem[]>([]);
@@ -809,17 +834,20 @@ export class AiChatPanelComponent {
       const summary = this.initialSummary();
       if (!summary) return;
       untracked(() => {
+        const items = this._buildArtifactTimeline(summary, 'assistant');
         this.timeline.update((tl) => {
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: summary, html: renderMarkdown(summary) };
-          const last = tl[tl.length - 1];
-          if (last?.kind === 'message' && last.role === 'assistant') {
-            return [...tl.slice(0, -1), entry];
+          let trimIdx = tl.length;
+          while (trimIdx > 0 && tl[trimIdx - 1].kind === 'message' && (tl[trimIdx - 1] as { role: string }).role === 'assistant') {
+            trimIdx--;
           }
-          return [...tl, entry];
+          const base = tl.slice(0, trimIdx).filter((item) => !(item.kind === 'artifact' && item.state === 'loading'));
+          return [...base, ...items];
         });
       });
       this.streamSub?.unsubscribe();
       this.streamSub = null;
+      this._artifactBuffer = null;
+      this._artifactMeta = null;
       this.scrollToBottom();
     });
     // Load pre-existing messages (thread history) or clear on reset
@@ -851,7 +879,10 @@ export class AiChatPanelComponent {
           }
         }
         // Skip empty assistant messages (tool-call-only responses have no text content)
-        if (m.role === 'user' || m.content?.trim()) {
+        if (m.role === 'assistant' && m.content?.trim()) {
+          const parsed = this._buildArtifactTimeline(m.content, 'assistant');
+          tl.push(...parsed);
+        } else if (m.role === 'user' || m.content?.trim()) {
           tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '' });
         }
       }
@@ -925,6 +956,34 @@ export class AiChatPanelComponent {
     });
   }
 
+  /** Parse content through artifact parser and return timeline items. */
+  private _buildArtifactTimeline(content: string, role: 'user' | 'assistant'): TimelineItem[] {
+    if (role === 'user') {
+      return [{ kind: 'message', role, content, html: '' }];
+    }
+    const parsed = this.artifactParser.parse(content);
+    if (parsed.artifacts.length === 0) {
+      return [{ kind: 'message', role, content, html: renderMarkdown(content) }];
+    }
+    const items: TimelineItem[] = [];
+    const parts = parsed.prose.split(/\[artifact:[^\]]+\]/);
+    const placeholders = [...parsed.prose.matchAll(/\[artifact:([^\]]+)\]/g)];
+    for (let i = 0; i < parts.length; i++) {
+      const text = parts[i].trim();
+      if (text) {
+        items.push({ kind: 'message', role, content: text, html: renderMarkdown(text) });
+      }
+      if (i < placeholders.length) {
+        const artifactId = placeholders[i][1];
+        const artifact = parsed.artifacts.find((a) => a.id === artifactId);
+        if (artifact) {
+          items.push({ kind: 'artifact', artifact, state: 'ready', expanded: false });
+        }
+      }
+    }
+    return items;
+  }
+
   /** Subscribe to a WS stream channel and handle all event types. */
   private _subscribeToStream(channel: string): void {
     let streamedContent = '';
@@ -982,14 +1041,73 @@ export class AiChatPanelComponent {
           }
           this.waitingAfterTool.set(false);
           streamedContent += msg.content ?? '';
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) };
-          this.timeline.update((tl) => {
-            const last = tl[tl.length - 1];
-            if (last?.kind === 'message' && last.role === 'assistant') {
-              return [...tl.slice(0, -1), entry];
+
+          if (this._artifactBuffer !== null) {
+            // Buffering artifact content
+            this._artifactBuffer += msg.content ?? '';
+            if (this.artifactParser.hasClosingTag(this._artifactBuffer)) {
+              // Artifact complete -- parse and render
+              const items = this._buildArtifactTimeline(streamedContent, 'assistant');
+              this.timeline.update((tl) => {
+                const trimmed = tl.filter(
+                  (item, idx) =>
+                    !(item.kind === 'artifact' && item.state === 'loading') &&
+                    !(idx === tl.length - 1 && item.kind === 'message' && item.role === 'assistant'),
+                );
+                return [...trimmed, ...items];
+              });
+              this._artifactBuffer = null;
+              this._artifactMeta = null;
             }
-            return [...tl, entry];
-          });
+          } else {
+            const tagMeta = this.artifactParser.detectOpeningTag(streamedContent);
+            if (tagMeta && !this.artifactParser.hasClosingTag(streamedContent)) {
+              // Opening tag detected -- start buffering
+              this._artifactMeta = tagMeta;
+              this._artifactBuffer = '';
+              const proseBeforeTag = streamedContent.split(/<artifact/)[0].trim();
+              this.timeline.update((tl) => {
+                const newTl = [...tl];
+                const last = newTl[newTl.length - 1];
+                if (last?.kind === 'message' && last.role === 'assistant') {
+                  if (proseBeforeTag) {
+                    newTl[newTl.length - 1] = { kind: 'message', role: 'assistant', content: proseBeforeTag, html: renderMarkdown(proseBeforeTag) };
+                  } else {
+                    newTl.pop();
+                  }
+                }
+                const loadingArtifact: Artifact = {
+                  id: crypto.randomUUID(),
+                  type: tagMeta.type as Artifact['type'],
+                  title: tagMeta.title,
+                  language: tagMeta.language,
+                  content: '',
+                };
+                newTl.push({ kind: 'artifact', artifact: loadingArtifact, state: 'loading', expanded: false });
+                return newTl;
+              });
+            } else if (tagMeta && this.artifactParser.hasClosingTag(streamedContent)) {
+              // Complete artifact in one chunk
+              const items = this._buildArtifactTimeline(streamedContent, 'assistant');
+              this.timeline.update((tl) => {
+                const last = tl[tl.length - 1];
+                if (last?.kind === 'message' && last.role === 'assistant') {
+                  return [...tl.slice(0, -1), ...items];
+                }
+                return [...tl, ...items];
+              });
+            } else {
+              // Normal text
+              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) };
+              this.timeline.update((tl) => {
+                const last = tl[tl.length - 1];
+                if (last?.kind === 'message' && last.role === 'assistant') {
+                  return [...tl.slice(0, -1), entry];
+                }
+                return [...tl, entry];
+              });
+            }
+          }
           this.scrollToBottom();
         } else if (msg.type === 'elicitation' && msg.request_id && msg.description) {
           this.pendingElicitation.set({
@@ -1000,6 +1118,21 @@ export class AiChatPanelComponent {
           });
           this.scrollToBottom();
         } else if (msg.type === 'done') {
+          if (this._artifactBuffer !== null && this._artifactMeta) {
+            const truncatedArtifact: Artifact = {
+              id: crypto.randomUUID(),
+              type: (this._artifactMeta.type as Artifact['type']) || 'code',
+              title: this._artifactMeta.title + ' (Truncated)',
+              language: this._artifactMeta.language,
+              content: this._artifactBuffer,
+            };
+            this.timeline.update((tl) => {
+              const filtered = tl.filter((item) => !(item.kind === 'artifact' && item.state === 'loading'));
+              return [...filtered, { kind: 'artifact' as const, artifact: truncatedArtifact, state: 'ready' as const, expanded: false }];
+            });
+            this._artifactBuffer = null;
+            this._artifactMeta = null;
+          }
           this.streamSub?.unsubscribe();
           this.streamSub = null;
         }
@@ -1010,6 +1143,8 @@ export class AiChatPanelComponent {
   startStream(streamId: string, userMessage: string): void {
     this.timeline.set([{ kind: 'message' as const, role: 'user' as const, content: userMessage, html: '' }]);
     this.waitingAfterTool.set(false);
+    this._artifactBuffer = null;
+    this._artifactMeta = null;
     this._subscribeToStream(`llm:${streamId}`);
   }
 
@@ -1023,6 +1158,8 @@ export class AiChatPanelComponent {
     this.pendingElicitation.set(null);
     this.waitingAfterTool.set(false);
     this.followUpText.reset();
+    this._artifactBuffer = null;
+    this._artifactMeta = null;
   }
 
   toggleToolExpand(index: number): void {
