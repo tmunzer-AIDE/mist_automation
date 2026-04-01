@@ -13,6 +13,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { DomSanitizer } from '@angular/platform-browser';
 import { Artifact } from '../../../core/models/llm.model';
 import { ThemeService } from '../../../core/services/theme.service';
 
@@ -51,7 +52,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
           <iframe
             #iframeEl
             [srcdoc]="srcdoc()"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
             (load)="onIframeLoad()"
           ></iframe>
         </div>
@@ -183,6 +184,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
   private readonly visualTypes = new Set(['chart', 'mermaid', 'svg']);
 
   private readonly snackBar = inject(MatSnackBar);
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly themeService = inject(ThemeService);
   private readonly iframeEl = viewChild<ElementRef<HTMLIFrameElement>>('iframeEl');
   private messageListener: ((e: MessageEvent) => void) | null = null;
@@ -203,7 +205,9 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     return text.length > 200 ? text.slice(0, 200) + '...' : text;
   });
 
-  srcdoc = computed(() => this._buildSrcdoc(this.artifact(), this.themeService.isDark()));
+  srcdoc = computed(() =>
+    this.sanitizer.bypassSecurityTrustHtml(this._buildSrcdoc(this.artifact(), this.themeService.isDark())),
+  );
 
   toggle(): void {
     this.expanded.update((v) => !v);
