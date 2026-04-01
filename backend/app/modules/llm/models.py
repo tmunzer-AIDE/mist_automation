@@ -24,6 +24,10 @@ class LLMConfig(TimestampMixin, Document):
     max_tokens_per_request: int = Field(default=4096, description="Max output tokens")
     is_default: bool = Field(default=False, description="Default config for UI features")
     enabled: bool = Field(default=True, description="Whether this config is active")
+    canvas_prompt_tier: str | None = Field(
+        default=None,
+        description="Canvas prompt tier override: full, explicit, none, or None for auto-detect",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -21,6 +21,7 @@ class LLMConfigCreate(BaseModel):
     max_tokens_per_request: int = Field(4096, ge=100, le=32000)
     is_default: bool = False
     enabled: bool = True
+    canvas_prompt_tier: str | None = Field(None, pattern=r"^(full|explicit|none)$")
 
 
 class LLMConfigUpdate(BaseModel):
@@ -35,6 +36,7 @@ class LLMConfigUpdate(BaseModel):
     max_tokens_per_request: int | None = Field(None, ge=100, le=32000)
     is_default: bool | None = None
     enabled: bool | None = None
+    canvas_prompt_tier: str | None = Field(None, pattern=r"^(full|explicit|none)$")
 
 
 class LLMConfigResponse(BaseModel):
@@ -50,6 +52,8 @@ class LLMConfigResponse(BaseModel):
     max_tokens_per_request: int
     is_default: bool
     enabled: bool
+    canvas_prompt_tier: str | None
+    canvas_prompt_tier_effective: str
 
 
 class LLMConfigAvailable(BaseModel):
