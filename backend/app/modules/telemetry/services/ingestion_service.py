@@ -135,7 +135,7 @@ def _build_cov_key(point: dict[str, Any]) -> str:
     measurement = point.get("measurement", "")
 
     # Collect distinguishing sub-tags (order-stable because dicts are ordered in 3.7+)
-    skip_tags = {"org_id", "site_id", "mac", "name", "device_type", "model", "router_name", "node_name"}
+    skip_tags = {"org_id", "site_id", "mac", "name", "device_type", "model", "router_name", "node_name", "mist_node0_mac"}
     sub_parts = []
     for k, v in sorted(tags.items()):
         if k not in skip_tags and v != "":
@@ -354,6 +354,9 @@ def _build_gateway_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "uptime": int(payload.get("uptime", 0)),
         "ha_state": payload.get("ha_state", ""),
         "config_status": payload.get("config_status", ""),
+        "node_name": payload.get("node_name", ""),
+        "router_name": payload.get("router_name", ""),
+        "mist_node0_mac": payload.get("mist_node0_mac", ""),
     }
 
 
