@@ -382,6 +382,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
               var opts = {
                 responsive: true,
                 maintainAspectRatio: true,
+                aspectRatio: isCircular ? 1.6 : 2,
                 cutout: isCircular ? '60%' : undefined,
                 layout: { padding: { top: 4, bottom: 4 } },
                 plugins: {
