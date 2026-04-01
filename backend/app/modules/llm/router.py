@@ -267,6 +267,7 @@ async def create_llm_config(
         max_tokens_per_request=request.max_tokens_per_request,
         is_default=request.is_default,
         enabled=request.enabled,
+        canvas_prompt_tier=request.canvas_prompt_tier,
     )
     await cfg.insert()
     return _config_to_response(cfg)
@@ -805,6 +806,9 @@ async def summarize_backup_change(
         version_id_2=request.version_id_2,
         object_id=ctx.get("object_id", ""),
     )
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
     catalog = await build_skills_catalog()
@@ -1288,6 +1292,10 @@ async def summarize_webhook_events(
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "webhook_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1540,6 +1548,8 @@ async def global_chat(
         # Update system prompt with latest page context for existing threads
         if thread.messages and thread.messages[0].role == "system":
             base_prompt = build_global_chat_system_prompt(current_user.roles)
+            if canvas_instr:
+                base_prompt += "\n\n" + canvas_instr
             if skills_catalog:
                 base_prompt += "\n\n" + skills_catalog
             thread.messages[0].content = base_prompt + f"\n\nCurrent UI context:\n{safe_ctx}"

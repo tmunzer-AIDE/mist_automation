@@ -227,11 +227,9 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
   onIframeLoad(): void {
     if (this.messageListener) window.removeEventListener('message', this.messageListener);
     this.messageListener = (e: MessageEvent) => {
-      if (e.data?.type === 'artifact-height') {
-        const iframe = this.iframeEl()?.nativeElement;
-        if (iframe) {
-          iframe.style.height = Math.min(e.data.height + 16, 600) + 'px';
-        }
+      const iframe = this.iframeEl()?.nativeElement;
+      if (e.data?.type === 'artifact-height' && iframe && e.source === iframe.contentWindow) {
+        iframe.style.height = Math.min(e.data.height + 16, 600) + 'px';
       }
     };
     window.addEventListener('message', this.messageListener);
@@ -279,8 +277,8 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     switch (artifact.type) {
       case 'code':
         return `<!DOCTYPE html><html><head>${baseStyle}
-          <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/${isDark ? 'github-dark' : 'github'}.min.css">
-          <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"><\/script>
+          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/${isDark ? 'github-dark' : 'github'}.min.css">
+          <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"><\/script>
           ${heightScript}
           </head><body>
           <pre><code class="language-${artifact.language || 'plaintext'}">${this._escapeHtml(artifact.content)}</code></pre>
@@ -336,6 +334,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
               Chart.defaults.color = '${legendColor}';
               Chart.defaults.backgroundColor = '${chartBg}';
 
+              // JSON.stringify escapes the string for safe injection into <script>; JSON.parse recovers the object
               var spec = ${JSON.stringify(artifact.content)};
               var parsed = JSON.parse(spec);
               var palette = ${palette};
