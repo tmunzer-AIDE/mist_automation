@@ -146,6 +146,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
       min-height: 200px;
       max-height: 600px;
       overflow: auto;
+      background: transparent;
     }
 
     .artifact-loading {
@@ -303,14 +304,24 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
         return `<!DOCTYPE html><html><head>${baseStyle}${heightScript}</head><body>${artifact.content}</body></html>`;
 
       case 'chart': {
+        // Use the app's actual --app-chart-topic-* palette
         const palette = isDark
-          ? "['#7c9aff','#5de4b8','#ffd666','#ff85a8','#b89aff','#ffb366','#67e8f9','#a3e635']"
-          : "['#4f72e8','#10b981','#f59e0b','#e0457b','#8b5cf6','#f97316','#06b6d4','#84cc16']";
-        return `<!DOCTYPE html><html><head>${baseStyle}
+          ? "['#93c5fd','#c4b5fd','#6ee7b7','#fde68a','#fca5a5','#f9a8d4','#67e8f9','#bef264','#fdba74','#c7d2fe']"
+          : "['#60a5fa','#a78bfa','#34d399','#fbbf24','#f87171','#f9a8d4','#22d3ee','#a3e635','#fb923c','#a5b4fc']";
+        const chartBg = 'transparent';
+        const legendColor = isDark ? '#cbd5e1' : '#475569';
+        const gridColor = isDark ? '#334155' : '#e2e8f0';
+        const tickColor = isDark ? '#94a3b8' : '#64748b';
+        return `<!DOCTYPE html><html><head>
+          <style>
+            * { box-sizing: border-box; }
+            body { margin: 0; padding: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                   background: ${chartBg}; color: ${fg}; font-size: 14px; }
+          </style>
           <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
           </head><body>
-          <div style="position:relative; max-height:360px; margin:0 auto;">
+          <div style="position:relative; max-height:400px; margin:0 auto;">
             <canvas id="chart"></canvas>
           </div>
           <script>
@@ -320,58 +331,92 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
               var palette = ${palette};
               var isDark = ${isDark};
               var chartType = parsed.chartType || 'bar';
-              var isCircular = chartType === 'pie' || chartType === 'doughnut';
+
+              // Auto-upgrade pie to doughnut for modern look
+              if (chartType === 'pie') chartType = 'doughnut';
+              var isCircular = chartType === 'doughnut' || chartType === 'polarArea';
 
               parsed.data.datasets.forEach(function(ds, i) {
-                if (!ds.backgroundColor) ds.backgroundColor = isCircular ? palette : palette[i % palette.length] + 'cc';
+                if (!ds.backgroundColor) ds.backgroundColor = isCircular ? palette : palette[i % palette.length];
                 if (!ds.borderColor) {
-                  if (isCircular) { ds.borderColor = isDark ? '#1e1e2e' : '#ffffff'; ds.borderWidth = 2; }
-                  else { ds.borderColor = palette[i % palette.length]; ds.borderWidth = 2; }
+                  ds.borderColor = isCircular ? '${isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.8)'}' : palette[i % palette.length];
+                  ds.borderWidth = isCircular ? 2 : 2;
                 }
-                if (!isCircular && !ds.borderRadius) ds.borderRadius = 4;
-                if (isCircular && !ds.hoverOffset) ds.hoverOffset = 8;
+                if (!isCircular && !ds.borderRadius) ds.borderRadius = 6;
+                if (isCircular && !ds.hoverOffset) ds.hoverOffset = 6;
               });
+
+              // Build legend label callback to show "Label -- Value"
+              var labelCallback = isCircular ? {
+                generateLabels: function(chart) {
+                  var data = chart.data;
+                  return data.labels.map(function(label, i) {
+                    var ds = data.datasets[0];
+                    var value = ds.data[i];
+                    return {
+                      text: label + ' \\u2014 ' + value,
+                      fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
+                      strokeStyle: Array.isArray(ds.borderColor) ? ds.borderColor[i] : ds.borderColor,
+                      lineWidth: 1,
+                      index: i,
+                      hidden: false,
+                      pointStyle: 'circle',
+                    };
+                  });
+                },
+              } : {};
 
               var opts = {
                 responsive: true,
                 maintainAspectRatio: true,
+                cutout: isCircular ? '60%' : undefined,
+                layout: { padding: { top: 4, bottom: 4 } },
                 plugins: {
                   legend: {
-                    position: isCircular ? 'bottom' : 'top',
-                    labels: {
-                      color: isDark ? '#cdd6f4' : '#374151',
+                    position: isCircular ? 'top' : 'top',
+                    align: 'start',
+                    labels: Object.assign({
+                      color: '${legendColor}',
                       padding: 16,
                       usePointStyle: true,
-                      pointStyleWidth: 10,
-                      font: { size: 12, family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
-                    },
+                      pointStyle: 'circle',
+                      font: { size: 12, weight: '500', family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+                    }, labelCallback),
                   },
                   tooltip: {
-                    backgroundColor: isDark ? '#313244' : '#1f2937',
-                    titleColor: '#fff',
-                    bodyColor: '#e5e7eb',
-                    borderColor: isDark ? '#45475a' : '#374151',
+                    backgroundColor: isDark ? 'rgba(30,41,59,0.95)' : 'rgba(15,23,42,0.9)',
+                    titleColor: '#f1f5f9',
+                    bodyColor: '#e2e8f0',
+                    borderColor: isDark ? '#475569' : '#334155',
                     borderWidth: 1,
                     cornerRadius: 8,
-                    padding: 10,
+                    padding: 12,
+                    titleFont: { size: 13, weight: '600' },
                     bodyFont: { size: 13 },
+                    displayColors: true,
+                    boxPadding: 4,
                   },
                 },
                 scales: isCircular ? {} : {
                   x: {
-                    ticks: { color: isDark ? '#a6adc8' : '#6b7280', font: { size: 11 } },
-                    grid: { color: isDark ? '#31324422' : '#f3f4f622' },
+                    ticks: { color: '${tickColor}', font: { size: 11 } },
+                    grid: { color: '${gridColor}', lineWidth: 0.5 },
+                    border: { display: false },
                   },
                   y: {
-                    ticks: { color: isDark ? '#a6adc8' : '#6b7280', font: { size: 11 } },
-                    grid: { color: isDark ? '#313244' : '#f3f4f6' },
+                    ticks: { color: '${tickColor}', font: { size: 11 } },
+                    grid: { color: '${gridColor}', lineWidth: 0.5 },
+                    border: { display: false },
                   },
                 },
               };
 
+              // Merge user-provided options (but don't override our styling)
               if (parsed.options) {
-                if (parsed.options.plugins) Object.assign(opts.plugins, parsed.options.plugins);
-                if (parsed.options.scales) Object.assign(opts.scales, parsed.options.scales);
+                if (parsed.options.indexAxis) opts.indexAxis = parsed.options.indexAxis;
+                if (parsed.options.plugins && parsed.options.plugins.title) {
+                  opts.plugins.title = Object.assign({ color: '${legendColor}' }, parsed.options.plugins.title);
+                }
               }
 
               new Chart(document.getElementById('chart'), {
