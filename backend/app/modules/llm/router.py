@@ -15,7 +15,7 @@ from app.dependencies import get_current_user_from_token, require_admin, require
 from app.models.user import User
 from app.modules.llm.schemas import (
     AddDirectSkillRequest,
-    AddGitRepoRequest,  # noqa: F401
+    AddGitRepoRequest,
     AuditLogSummaryRequest,
     BackupListSummaryRequest,
     CategorySelectionRequest,

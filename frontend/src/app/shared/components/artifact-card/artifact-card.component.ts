@@ -12,7 +12,7 @@ import {
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer } from '@angular/platform-browser';
 import { Artifact } from '../../../core/models/llm.model';
 import { ThemeService } from '../../../core/services/theme.service';
@@ -32,7 +32,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
 @Component({
   selector: 'app-artifact-card',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatTooltipModule],
+  imports: [MatButtonModule, MatIconModule, MatTooltipModule, MatSnackBarModule],
   template: `
     <div class="artifact-card" [class.expanded]="expanded()">
       <div class="artifact-header" (click)="toggle()">
@@ -55,7 +55,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
           <iframe
             #iframeEl
             [srcdoc]="srcdoc()"
-            sandbox="allow-scripts"
+            [attr.sandbox]="iframeSandbox()"
             (load)="onIframeLoad()"
           ></iframe>
         </div>
@@ -217,8 +217,20 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     this.sanitizer.bypassSecurityTrustHtml(this._buildSrcdoc(this.artifact(), this.themeService.isDark())),
   );
 
+  /** HTML/SVG don't need scripts — use a stricter sandbox to block JS execution in LLM output. */
+  iframeSandbox = computed(() => {
+    const t = this.artifact().type;
+    return t === 'html' || t === 'svg' ? '' : 'allow-scripts';
+  });
+
   toggle(): void {
+    const wasExpanded = this.expanded();
     this.expanded.update((v) => !v);
+    // Clean up listener when collapsing (iframe removed from DOM)
+    if (wasExpanded && this.messageListener) {
+      window.removeEventListener('message', this.messageListener);
+      this.messageListener = null;
+    }
   }
 
   copy(event: Event): void {
@@ -302,7 +314,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           </body></html>`;
 
       case 'html':
-        return `<!DOCTYPE html><html><head>${baseStyle}${heightScript}</head><body>${artifact.content}</body></html>`;
+        return `<!DOCTYPE html><html><head>${baseStyle}</head><body>${artifact.content}</body></html>`;
 
       case 'mermaid':
         return `<!DOCTYPE html><html><head>${baseStyle}
@@ -314,7 +326,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           </body></html>`;
 
       case 'svg':
-        return `<!DOCTYPE html><html><head>${baseStyle}${heightScript}</head><body>${artifact.content}</body></html>`;
+        return `<!DOCTYPE html><html><head>${baseStyle}</head><body>${artifact.content}</body></html>`;
 
       case 'chart': {
         // Use the app's actual --app-chart-topic-* palette
