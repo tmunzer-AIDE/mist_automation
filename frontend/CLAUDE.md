@@ -34,6 +34,7 @@ Angular 21 frontend for the Mist Automation platform. Uses standalone components
 - **Signals for state**: Use `signal()` for component state, `computed()` for derived values. Never use `ChangeDetectorRef` — signals auto-trigger change detection in zoneless mode.
 - **Template reads**: Access signals with `()` syntax: `@if (loading())`, `{{ data().name }}`
 - **Subscription cleanup**: Use `takeUntilDestroyed(destroyRef)` for `ngOnInit` subscriptions; use a `rebuild$` subject with `takeUntil` for subscriptions that reset on input changes (see block-config-panel)
+- **Artifact rendering**: `ArtifactCardComponent` (`shared/components/artifact-card/`) renders LLM artifacts in sandboxed iframes. `ArtifactParserService` (`shared/services/`) parses `<artifact>` tags. Both integrated into `AiChatPanelComponent` timeline -- no per-page changes needed for summarization features.
 
 ### Workflow Editor (Graph-based)
 
