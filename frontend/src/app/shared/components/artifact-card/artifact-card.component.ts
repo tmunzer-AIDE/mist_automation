@@ -140,7 +140,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
     }
 
     .artifact-body {
-      background: var(--mat-sys-surface-container-low);
+      background: var(--mat-sys-surface-container);
     }
 
     .artifact-body iframe {
@@ -242,10 +242,12 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
   }
 
   private _buildSrcdoc(artifact: Artifact, isDark: boolean): string {
-    // Read actual Material theme colors from the DOM so iframe matches the app
-    const style = getComputedStyle(document.documentElement);
-    const bg = style.getPropertyValue('--mat-sys-surface-container-low').trim() || (isDark ? '#1e1e2e' : '#ffffff');
-    const fg = style.getPropertyValue('--mat-sys-on-surface').trim() || (isDark ? '#cdd6f4' : '#1e1e2e');
+    // Read actual computed colors from the DOM so iframe matches the app theme.
+    // body has color: var(--mat-sys-on-surface), so getComputedStyle resolves it.
+    const bodyStyle = getComputedStyle(document.body);
+    const fg = bodyStyle.color || (isDark ? '#cdd6f4' : '#1e1e2e');
+    // For bg, read the CSS variable directly (body uses --mat-sys-surface, we want --mat-sys-surface-container)
+    const bg = bodyStyle.getPropertyValue('--mat-sys-surface-container').trim() || (isDark ? '#1e1e2e' : '#f5f5f5');
     const codeBg = isDark ? '#14141e' : '#f5f5f5';
 
     const baseStyle = `
@@ -316,8 +318,8 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           : "['#60a5fa','#a78bfa','#34d399','#fbbf24','#f87171','#f9a8d4','#22d3ee','#a3e635','#fb923c','#a5b4fc']";
         const chartBg = bg;
         const legendColor = fg;
-        const gridColor = style.getPropertyValue('--mat-sys-outline-variant').trim() || (isDark ? '#334155' : '#e2e8f0');
-        const tickColor = style.getPropertyValue('--mat-sys-on-surface-variant').trim() || (isDark ? '#94a3b8' : '#64748b');
+        const gridColor = bodyStyle.getPropertyValue('--mat-sys-outline-variant').trim() || (isDark ? '#334155' : '#e2e8f0');
+        const tickColor = bodyStyle.getPropertyValue('--mat-sys-on-surface-variant').trim() || (isDark ? '#94a3b8' : '#64748b');
         return `<!DOCTYPE html><html><head>
           <style>
             * { box-sizing: border-box; }
