@@ -73,6 +73,10 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
       max-width: 100%;
     }
 
+    .artifact-card.expanded {
+      border-color: transparent;
+    }
+
     .artifact-header {
       display: flex;
       align-items: center;
@@ -308,7 +312,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
         const palette = isDark
           ? "['#93c5fd','#c4b5fd','#6ee7b7','#fde68a','#fca5a5','#f9a8d4','#67e8f9','#bef264','#fdba74','#c7d2fe']"
           : "['#60a5fa','#a78bfa','#34d399','#fbbf24','#f87171','#f9a8d4','#22d3ee','#a3e635','#fb923c','#a5b4fc']";
-        const chartBg = 'transparent';
+        const chartBg = bg;
         const legendColor = isDark ? '#cbd5e1' : '#475569';
         const gridColor = isDark ? '#334155' : '#e2e8f0';
         const tickColor = isDark ? '#94a3b8' : '#64748b';
@@ -338,11 +342,13 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
 
               parsed.data.datasets.forEach(function(ds, i) {
                 if (!ds.backgroundColor) ds.backgroundColor = isCircular ? palette : palette[i % palette.length];
-                if (!ds.borderColor) {
-                  ds.borderColor = isCircular ? '${isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.8)'}' : palette[i % palette.length];
-                  ds.borderWidth = isCircular ? 2 : 2;
+                if (isCircular) {
+                  ds.borderWidth = 0;
+                } else {
+                  if (!ds.borderColor) ds.borderColor = palette[i % palette.length];
+                  if (!ds.borderWidth) ds.borderWidth = 2;
+                  if (!ds.borderRadius) ds.borderRadius = 6;
                 }
-                if (!isCircular && !ds.borderRadius) ds.borderRadius = 6;
                 if (isCircular && !ds.hoverOffset) ds.hoverOffset = 6;
               });
 
