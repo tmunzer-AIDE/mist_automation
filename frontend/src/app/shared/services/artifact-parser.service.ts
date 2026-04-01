@@ -24,7 +24,7 @@ export class ArtifactParserService {
     let prose = cleaned;
 
     // Step 2: Extract <artifact> tags
-    const attrPattern = /<artifact\s+([^>]*)>([\s\S]*?)<\/artifact>/g;
+    const attrPattern = /<artifact\s*([^>]*)>([\s\S]*?)<\/artifact>/g;
     const tagMatches = Array.from(cleaned.matchAll(attrPattern));
 
     for (const match of tagMatches) {
