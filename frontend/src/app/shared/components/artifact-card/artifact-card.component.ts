@@ -303,27 +303,81 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
         return `<!DOCTYPE html><html><head>${baseStyle}${heightScript}</head><body>${artifact.content}</body></html>`;
 
       case 'chart': {
-        const colors = isDark
-          ? "['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#fb923c']"
-          : "['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#f97316']";
+        const palette = isDark
+          ? "['#7c9aff','#5de4b8','#ffd666','#ff85a8','#b89aff','#ffb366','#67e8f9','#a3e635']"
+          : "['#4f72e8','#10b981','#f59e0b','#e0457b','#8b5cf6','#f97316','#06b6d4','#84cc16']";
         return `<!DOCTYPE html><html><head>${baseStyle}
           <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
           </head><body>
-          <canvas id="chart" style="max-height:500px"></canvas>
+          <div style="position:relative; max-height:360px; margin:0 auto;">
+            <canvas id="chart"></canvas>
+          </div>
           <script>
             try {
               var spec = ${JSON.stringify(artifact.content)};
               var parsed = JSON.parse(spec);
-              var colors = ${colors};
+              var palette = ${palette};
+              var isDark = ${isDark};
+              var chartType = parsed.chartType || 'bar';
+              var isCircular = chartType === 'pie' || chartType === 'doughnut';
+
               parsed.data.datasets.forEach(function(ds, i) {
-                if (!ds.backgroundColor) ds.backgroundColor = colors;
-                if (!ds.borderColor && parsed.chartType !== 'pie' && parsed.chartType !== 'doughnut') ds.borderColor = colors[i % colors.length];
+                if (!ds.backgroundColor) ds.backgroundColor = isCircular ? palette : palette[i % palette.length] + 'cc';
+                if (!ds.borderColor) {
+                  if (isCircular) { ds.borderColor = isDark ? '#1e1e2e' : '#ffffff'; ds.borderWidth = 2; }
+                  else { ds.borderColor = palette[i % palette.length]; ds.borderWidth = 2; }
+                }
+                if (!isCircular && !ds.borderRadius) ds.borderRadius = 4;
+                if (isCircular && !ds.hoverOffset) ds.hoverOffset = 8;
               });
+
+              var opts = {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                  legend: {
+                    position: isCircular ? 'bottom' : 'top',
+                    labels: {
+                      color: isDark ? '#cdd6f4' : '#374151',
+                      padding: 16,
+                      usePointStyle: true,
+                      pointStyleWidth: 10,
+                      font: { size: 12, family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+                    },
+                  },
+                  tooltip: {
+                    backgroundColor: isDark ? '#313244' : '#1f2937',
+                    titleColor: '#fff',
+                    bodyColor: '#e5e7eb',
+                    borderColor: isDark ? '#45475a' : '#374151',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    padding: 10,
+                    bodyFont: { size: 13 },
+                  },
+                },
+                scales: isCircular ? {} : {
+                  x: {
+                    ticks: { color: isDark ? '#a6adc8' : '#6b7280', font: { size: 11 } },
+                    grid: { color: isDark ? '#31324422' : '#f3f4f622' },
+                  },
+                  y: {
+                    ticks: { color: isDark ? '#a6adc8' : '#6b7280', font: { size: 11 } },
+                    grid: { color: isDark ? '#313244' : '#f3f4f6' },
+                  },
+                },
+              };
+
+              if (parsed.options) {
+                if (parsed.options.plugins) Object.assign(opts.plugins, parsed.options.plugins);
+                if (parsed.options.scales) Object.assign(opts.scales, parsed.options.scales);
+              }
+
               new Chart(document.getElementById('chart'), {
-                type: parsed.chartType || 'bar',
+                type: chartType,
                 data: parsed.data,
-                options: Object.assign({}, parsed.options, { responsive: true, maintainAspectRatio: true }),
+                options: opts,
               });
             } catch (e) {
               document.body.innerHTML = '<pre style="color:#ef4444">Invalid chart spec: ' + e.message + '<\/pre>';
