@@ -50,7 +50,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
           <iframe
             #iframeEl
             [srcdoc]="srcdoc()"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             (load)="onIframeLoad()"
           ></iframe>
         </div>
@@ -141,6 +141,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
       width: 100%;
       border: none;
       display: block;
+      min-height: 200px;
       max-height: 600px;
       overflow: auto;
     }
