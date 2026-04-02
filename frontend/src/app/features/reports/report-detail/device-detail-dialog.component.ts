@@ -114,14 +114,16 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
       @if (data.type === 'gateway' && data.device.wan_ports?.length) {
         <h3>WAN Ports</h3>
         <div class="table-card">
-          <table mat-table [dataSource]="data.device.wan_ports">
+          <table mat-table [dataSource]="flattenPortsWithMembers(data.device.wan_ports)">
             <ng-container matColumnDef="interface">
               <th mat-header-cell *matHeaderCellDef>Interface</th>
-              <td mat-cell *matCellDef="let p">{{ p.interface }}</td>
+              <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember">
+                {{ p._isMember ? '  ' + p.interface : p.interface }}
+              </td>
             </ng-container>
             <ng-container matColumnDef="name">
               <th mat-header-cell *matHeaderCellDef>Name</th>
-              <td mat-cell *matCellDef="let p">{{ p.name }}</td>
+              <td mat-cell *matCellDef="let p">{{ p._isMember ? '(member)' : p.name }}</td>
             </ng-container>
             <ng-container matColumnDef="status">
               <th mat-header-cell *matHeaderCellDef>Status</th>
@@ -134,7 +136,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
             </ng-container>
             <ng-container matColumnDef="wan_type">
               <th mat-header-cell *matHeaderCellDef>WAN Type</th>
-              <td mat-cell *matCellDef="let p">{{ p.wan_type }}</td>
+              <td mat-cell *matCellDef="let p">{{ p._isMember ? '' : p.wan_type }}</td>
             </ng-container>
             <ng-container matColumnDef="wan_neighbor">
               <th mat-header-cell *matHeaderCellDef>LLDP Neighbor</th>
@@ -143,7 +145,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
               </td>
             </ng-container>
             <tr mat-header-row *matHeaderRowDef="['interface', 'name', 'status', 'wan_type', 'wan_neighbor']"></tr>
-            <tr mat-row *matRowDef="let p; columns: ['interface', 'name', 'status', 'wan_type', 'wan_neighbor']"></tr>
+            <tr mat-row *matRowDef="let p; columns: ['interface', 'name', 'status', 'wan_type', 'wan_neighbor']"
+                [class.member-row]="p._isMember"></tr>
           </table>
         </div>
       }
@@ -152,14 +155,16 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
       @if (data.type === 'gateway' && data.device.lan_ports?.length) {
         <h3>LAN Ports</h3>
         <div class="table-card">
-          <table mat-table [dataSource]="data.device.lan_ports">
+          <table mat-table [dataSource]="flattenPortsWithMembers(data.device.lan_ports)">
             <ng-container matColumnDef="interface">
               <th mat-header-cell *matHeaderCellDef>Interface</th>
-              <td mat-cell *matCellDef="let p">{{ p.interface }}</td>
+              <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember">
+                {{ p._isMember ? '  ' + p.interface : p.interface }}
+              </td>
             </ng-container>
             <ng-container matColumnDef="network">
               <th mat-header-cell *matHeaderCellDef>Network</th>
-              <td mat-cell *matCellDef="let p">{{ p.network }}</td>
+              <td mat-cell *matCellDef="let p">{{ p._isMember ? '' : p.network }}</td>
             </ng-container>
             <ng-container matColumnDef="status">
               <th mat-header-cell *matHeaderCellDef>Status</th>
@@ -177,7 +182,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
               </td>
             </ng-container>
             <tr mat-header-row *matHeaderRowDef="['interface', 'network', 'status', 'lan_neighbor']"></tr>
-            <tr mat-row *matRowDef="let p; columns: ['interface', 'network', 'status', 'lan_neighbor']"></tr>
+            <tr mat-row *matRowDef="let p; columns: ['interface', 'network', 'status', 'lan_neighbor']"
+                [class.member-row]="p._isMember"></tr>
           </table>
         </div>
       }
@@ -211,6 +217,34 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
             </ng-container>
             <tr mat-header-row *matHeaderRowDef="['name', 'gateway_ip', 'dhcp_status', 'dhcp_detail']"></tr>
             <tr mat-row *matRowDef="let n; columns: ['name', 'gateway_ip', 'dhcp_status', 'dhcp_detail']"></tr>
+          </table>
+        </div>
+      }
+      <!-- Device Events -->
+      @if (data.device.events?.length) {
+        <h3>Device Events (24h)</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="data.device.events">
+            <ng-container matColumnDef="display">
+              <th mat-header-cell *matHeaderCellDef>Event</th>
+              <td mat-cell *matCellDef="let ev">{{ ev.display }}</td>
+            </ng-container>
+            <ng-container matColumnDef="sub_id">
+              <th mat-header-cell *matHeaderCellDef>Detail</th>
+              <td mat-cell *matCellDef="let ev">{{ ev.sub_id || '' }}</td>
+            </ng-container>
+            <ng-container matColumnDef="event_status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let ev">
+                <span [class]="'event-status ' + ev.status">{{ ev.status }}</span>
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="counts">
+              <th mat-header-cell *matHeaderCellDef>Trigger / Clear</th>
+              <td mat-cell *matCellDef="let ev">{{ ev.trigger_count }} / {{ ev.clear_count }}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="['display', 'sub_id', 'event_status', 'counts']"></tr>
+            <tr mat-row *matRowDef="let ev; columns: ['display', 'sub_id', 'event_status', 'counts']"></tr>
           </table>
         </div>
       }
@@ -298,11 +332,27 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
           color: var(--app-error);
         }
       }
+
+      .member-row {
+        opacity: 0.7;
+        font-size: 12px;
+      }
+
+      .event-status {
+        text-transform: capitalize;
+        font-weight: 500;
+        &.triggered {
+          color: var(--app-error);
+        }
+        &.cleared {
+          color: var(--app-success);
+        }
+      }
     `,
   ],
 })
 export class DeviceDetailDialogComponent {
-  readonly data: { type: 'switch' | 'gateway'; device: any } = inject(MAT_DIALOG_DATA);
+  readonly data: { type: 'ap' | 'switch' | 'gateway'; device: any } = inject(MAT_DIALOG_DATA);
 
   overallStatus(): string {
     const dev = this.data.device;
@@ -333,5 +383,16 @@ export class DeviceDetailDialogComponent {
 
   formatCheckName(check: string): string {
     return check.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ':';
+  }
+
+  flattenPortsWithMembers(ports: any[]): any[] {
+    const rows: any[] = [];
+    for (const p of ports) {
+      rows.push(p);
+      for (const m of p.members ?? []) {
+        rows.push({ ...m, _isMember: true });
+      }
+    }
+    return rows;
   }
 }

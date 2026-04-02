@@ -9,7 +9,7 @@ from app.core.exceptions import ConfigurationError
 
 logger = structlog.get_logger(__name__)
 
-_LOCAL_PROVIDERS = {"lm_studio", "ollama"}
+_LOCAL_PROVIDERS = {"lm_studio", "ollama", "llama_cpp"}
 
 
 async def create_llm_service(config_id: str | None = None):
@@ -96,6 +96,7 @@ def _default_model(provider: str) -> str:
         "anthropic": "claude-sonnet-4-20250514",
         "ollama": "llama3.1",
         "lm_studio": "local-model",
+        "llama_cpp": "default",
         "azure_openai": "gpt-4o",
         "bedrock": "anthropic.claude-sonnet-4-20250514-v1:0",
         "vertex": "gemini-2.0-flash",
@@ -130,7 +131,7 @@ def _default_canvas_tier(provider: str, model: str | None) -> str:
         return "explicit"
 
     # Local providers default to explicit
-    if provider in ("ollama", "lm_studio"):
+    if provider in ("ollama", "lm_studio", "llama_cpp"):
         return "explicit"
 
     return "explicit"

@@ -114,13 +114,18 @@ def generate_pdf(report) -> bytes:
     """Generate a PDF report from a completed ReportJob."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        topMargin=2 * cm, bottomMargin=2 * cm,
+        buf,
+        pagesize=A4,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
     )
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("ReportTitle", parent=styles["Title"], fontSize=18, spaceAfter=12)
-    heading_style = ParagraphStyle("SectionHeading", parent=styles["Heading2"], fontSize=14, spaceAfter=8, spaceBefore=16)
+    heading_style = ParagraphStyle(
+        "SectionHeading", parent=styles["Heading2"], fontSize=14, spaceAfter=8, spaceBefore=16
+    )
     normal_style = styles["Normal"]
 
     elements: list = []
@@ -186,8 +191,18 @@ def generate_pdf(report) -> bytes:
         data = [
             [_ph(""), _ph("Access Points"), _ph("Switches"), _ph("Gateways")],
             [_p("Total"), _p(str(ap_t)), _p(str(sw_t)), _p(str(gw_t))],
-            [_p("Success"), Paragraph(f"<b>{ap_s}</b>", _CELL_GREEN), Paragraph(f"<b>{sw_s}</b>", _CELL_GREEN), Paragraph(f"<b>{gw_s}</b>", _CELL_GREEN)],
-            [_p("Failed"), Paragraph(f"<b>{ap_f}</b>", _CELL_RED if ap_f else _CELL_STYLE), Paragraph(f"<b>{sw_f}</b>", _CELL_RED if sw_f else _CELL_STYLE), Paragraph(f"<b>{gw_f}</b>", _CELL_RED if gw_f else _CELL_STYLE)],
+            [
+                _p("Success"),
+                Paragraph(f"<b>{ap_s}</b>", _CELL_GREEN),
+                Paragraph(f"<b>{sw_s}</b>", _CELL_GREEN),
+                Paragraph(f"<b>{gw_s}</b>", _CELL_GREEN),
+            ],
+            [
+                _p("Failed"),
+                Paragraph(f"<b>{ap_f}</b>", _CELL_RED if ap_f else _CELL_STYLE),
+                Paragraph(f"<b>{sw_f}</b>", _CELL_RED if sw_f else _CELL_STYLE),
+                Paragraph(f"<b>{gw_f}</b>", _CELL_RED if gw_f else _CELL_STYLE),
+            ],
         ]
         summary_table = _make_table(data, cw)
         # Color the Failed row background if any failures
@@ -211,13 +226,15 @@ def generate_pdf(report) -> bytes:
         cw = [w * 0.1, w * 0.18, w * 0.22, w * 0.25, w * 0.25]
         data = [[_ph("Validation"), _ph("Template Type"), _ph("Template Name"), _ph("Variable"), _ph("Value")]]
         for item in tmpl_vars:
-            data.append([
-                _p_status(item.get("status", "")),
-                _p(item.get("template_type", "")),
-                _p(item.get("template_name", "")),
-                _p(item.get("variable", "")),
-                _p(str(item.get("value", ""))),
-            ])
+            data.append(
+                [
+                    _p_status(item.get("status", "")),
+                    _p(item.get("template_type", "")),
+                    _p(item.get("template_name", "")),
+                    _p(item.get("variable", "")),
+                    _p(str(item.get("value", ""))),
+                ]
+            )
         elements.append(_make_table(data, cw))
         elements.append(Spacer(1, 0.3 * cm))
 
@@ -227,23 +244,42 @@ def generate_pdf(report) -> bytes:
         elements.append(Paragraph(f"Access Points ({len(aps)})", heading_style))
         w = _PAGE_WIDTH
         cw = [w * 0.14, w * 0.08, w * 0.09, w * 0.11, w * 0.09, w * 0.06, w * 0.18, w * 0.25]
-        data = [[_ph("Name"), _ph("Model"), _ph("Conn."), _ph("Firmware"), _ph("Eth0"), _ph("Pwr"), _ph("Config"), _ph("LLDP Neighbor")]]
+        data = [
+            [
+                _ph("Name"),
+                _ph("Model"),
+                _ph("Conn."),
+                _ph("Firmware"),
+                _ph("Eth0"),
+                _ph("Pwr"),
+                _ph("Config"),
+                _ph("LLDP Neighbor"),
+            ]
+        ]
         for ap in aps:
             checks = {c["check"]: c for c in ap.get("checks", [])}
             lldp = ap.get("lldp_neighbor", {})
-            lldp_text = f"{lldp.get('system_name', '')} ({lldp.get('port_desc', '')})" if lldp.get("system_name") else ""
+            lldp_text = (
+                f"{lldp.get('system_name', '')} ({lldp.get('port_desc', '')})" if lldp.get("system_name") else ""
+            )
             conn_status = checks.get("connection_status", {}).get("status", "info")
             power_status = checks.get("power_constrained", {}).get("status", "pass")
-            data.append([
-                _p(_esc(ap.get("name", ""))),
-                _p(ap.get("model", "")),
-                _p_status(conn_status) if conn_status != "pass" else _p(checks.get("connection_status", {}).get("value", "")),
-                _p(checks.get("firmware_version", {}).get("value", "")),
-                _p(checks.get("eth0_port_speed", {}).get("value", "")),
-                Paragraph("<b>Yes</b>", _CELL_ORANGE) if power_status == "warn" else _p("No"),
-                _p(checks.get("config_status", {}).get("value", "")),
-                _p(lldp_text),
-            ])
+            data.append(
+                [
+                    _p(_esc(ap.get("name", ""))),
+                    _p(ap.get("model", "")),
+                    (
+                        _p_status(conn_status)
+                        if conn_status != "pass"
+                        else _p(checks.get("connection_status", {}).get("value", ""))
+                    ),
+                    _p(checks.get("firmware_version", {}).get("value", "")),
+                    _p(checks.get("eth0_port_speed", {}).get("value", "")),
+                    Paragraph("<b>Yes</b>", _CELL_ORANGE) if power_status == "warn" else _p("No"),
+                    _p(checks.get("config_status", {}).get("value", "")),
+                    _p(lldp_text),
+                ]
+            )
         elements.append(_make_table(data, cw))
         elements.append(Spacer(1, 0.3 * cm))
 
@@ -260,25 +296,29 @@ def generate_pdf(report) -> bytes:
             ct_failed = sum(1 for ct in sw.get("cable_tests", []) if ct.get("status") == "fail")
             ct_text = f"{ct_count} ports" + (f" ({ct_failed} failed)" if ct_failed else "") if ct_count else ""
             ct_style = _CELL_RED if ct_failed else _CELL_STYLE
-            data.append([
-                _p(_esc(sw.get("name", ""))),
-                _p(sw.get("model", "")),
-                _p(checks.get("connection_status", {}).get("value", "")),
-                _p(checks.get("firmware_version", {}).get("value", "")),
-                _p(checks.get("config_status", {}).get("value", "")),
-                Paragraph(ct_text, ct_style),
-            ])
+            data.append(
+                [
+                    _p(_esc(sw.get("name", ""))),
+                    _p(sw.get("model", "")),
+                    _p(checks.get("connection_status", {}).get("value", "")),
+                    _p(checks.get("firmware_version", {}).get("value", "")),
+                    _p(checks.get("config_status", {}).get("value", "")),
+                    Paragraph(ct_text, ct_style),
+                ]
+            )
         elements.append(_make_table(data, cw))
         elements.append(Spacer(1, 0.3 * cm))
 
         # Per-switch details
         for sw in switches:
             checks = {c["check"]: c for c in sw.get("checks", [])}
-            elements.append(Paragraph(
-                f"<b>{_esc(sw.get('name', '(unnamed)'))}</b> — {_esc(sw.get('model', ''))} — "
-                f"Firmware: {_esc(checks.get('firmware_version', {}).get('value', ''))}",
-                normal_style,
-            ))
+            elements.append(
+                Paragraph(
+                    f"<b>{_esc(sw.get('name', '(unnamed)'))}</b> — {_esc(sw.get('model', ''))} — "
+                    f"Firmware: {_esc(checks.get('firmware_version', {}).get('value', ''))}",
+                    normal_style,
+                )
+            )
 
             vc = sw.get("virtual_chassis")
             if vc and vc.get("members"):
@@ -286,13 +326,15 @@ def generate_pdf(report) -> bytes:
                 data = [[_ph("Member"), _ph("Model"), _ph("Firmware"), _ph("VC Ports UP"), _ph("Status")]]
                 for m in vc["members"]:
                     vc_up = m.get("vc_ports_up", 0)
-                    data.append([
-                        _p(str(m.get("member_id", ""))),
-                        _p(m.get("model", "")),
-                        _p(m.get("firmware", "")),
-                        Paragraph(f"<b>{vc_up}</b>", _CELL_GREEN if vc_up >= 2 else _CELL_RED),
-                        _p(m.get("status", "")),
-                    ])
+                    data.append(
+                        [
+                            _p(str(m.get("member_id", ""))),
+                            _p(m.get("model", "")),
+                            _p(m.get("firmware", "")),
+                            Paragraph(f"<b>{vc_up}</b>", _CELL_GREEN if vc_up >= 2 else _CELL_RED),
+                            _p(m.get("status", "")),
+                        ]
+                    )
                 elements.append(_make_table(data, cw_vc))
 
             cable_tests = sw.get("cable_tests", [])
@@ -302,12 +344,16 @@ def generate_pdf(report) -> bytes:
                 for ct in cable_tests:
                     result_status = ct.get("status", "")
                     pairs_text = ", ".join(f"{p['pair']}: {p['status']}" for p in ct.get("pairs", []))
-                    data.append([
-                        _p(ct.get("port", "")),
-                        _p(_lldp_str(ct)),
-                        Paragraph(f"<b>{result_status.upper()}</b>", _CELL_GREEN if result_status == "pass" else _CELL_RED),
-                        _p(pairs_text),
-                    ])
+                    data.append(
+                        [
+                            _p(ct.get("port", "")),
+                            _p(_lldp_str(ct)),
+                            Paragraph(
+                                f"<b>{result_status.upper()}</b>", _CELL_GREEN if result_status == "pass" else _CELL_RED
+                            ),
+                            _p(pairs_text),
+                        ]
+                    )
                 elements.append(_make_table(data, cw_ct))
             elements.append(Spacer(1, 0.3 * cm))
 
@@ -322,28 +368,73 @@ def generate_pdf(report) -> bytes:
             checks = {c["check"]: c for c in gw.get("checks", [])}
             wan_s = checks.get("wan_port_status", {}).get("status", "info")
             lan_s = checks.get("lan_port_status", {}).get("status", "info")
-            data.append([
-                _p(_esc(gw.get("name", ""))),
-                _p(gw.get("model", "")),
-                _p(checks.get("connection_status", {}).get("value", "")),
-                _p(checks.get("firmware_version", {}).get("value", "")),
-                _p(checks.get("config_status", {}).get("value", "")),
-                Paragraph(f"<b>{checks.get('wan_port_status', {}).get('value', '')}</b>", _CELL_GREEN if wan_s == "pass" else _CELL_RED if wan_s == "fail" else _CELL_ORANGE),
-                Paragraph(f"<b>{checks.get('lan_port_status', {}).get('value', '')}</b>", _CELL_GREEN if lan_s == "pass" else _CELL_RED if lan_s == "fail" else _CELL_ORANGE),
-            ])
+            data.append(
+                [
+                    _p(_esc(gw.get("name", ""))),
+                    _p(gw.get("model", "")),
+                    _p(checks.get("connection_status", {}).get("value", "")),
+                    _p(checks.get("firmware_version", {}).get("value", "")),
+                    _p(checks.get("config_status", {}).get("value", "")),
+                    Paragraph(
+                        f"<b>{checks.get('wan_port_status', {}).get('value', '')}</b>",
+                        _CELL_GREEN if wan_s == "pass" else _CELL_RED if wan_s == "fail" else _CELL_ORANGE,
+                    ),
+                    Paragraph(
+                        f"<b>{checks.get('lan_port_status', {}).get('value', '')}</b>",
+                        _CELL_GREEN if lan_s == "pass" else _CELL_RED if lan_s == "fail" else _CELL_ORANGE,
+                    ),
+                ]
+            )
         elements.append(_make_table(data, cw))
         elements.append(Spacer(1, 0.3 * cm))
 
         # Per-gateway details
         for gw in gateways:
-            elements.append(Paragraph(f"<b>{_esc(gw.get('name', '(unnamed)'))}</b> — {_esc(gw.get('model', ''))}", normal_style))
+            elements.append(
+                Paragraph(f"<b>{_esc(gw.get('name', '(unnamed)'))}</b> — {_esc(gw.get('model', ''))}", normal_style)
+            )
+
+            cluster = gw.get("cluster")
+            if cluster and cluster.get("members"):
+                cw_cl = [w * 0.15, w * 0.2, w * 0.25, w * 0.2, w * 0.2]
+                data = [[_ph("Node"), _ph("Model"), _ph("Firmware"), _ph("Status"), _ph("HA State")]]
+                for m in cluster["members"]:
+                    m_status = m.get("status", "")
+                    data.append([
+                        _p(m.get("node_name", "")),
+                        _p(m.get("model", "")),
+                        _p(m.get("firmware", "")),
+                        Paragraph(
+                            f"<b>{_esc(m_status)}</b>", _CELL_GREEN if m_status == "connected" else _CELL_RED
+                        ),
+                        _p(m.get("ha_state", "")),
+                    ])
+                elements.append(_make_table(data, cw_cl))
 
             wan_ports = gw.get("wan_ports", [])
             if wan_ports:
                 cw_wp = [w * 0.15, w * 0.15, w * 0.1, w * 0.2, w * 0.4]
                 data = [[_ph("Interface"), _ph("Name"), _ph("Status"), _ph("WAN Type"), _ph("LLDP Neighbor")]]
                 for p in wan_ports:
-                    data.append([_p(p.get("interface", "")), _p(p.get("name", "")), _p_updown(p.get("up", False)), _p(p.get("wan_type", "")), _p(_lldp_str(p))])
+                    data.append(
+                        [
+                            _p(p.get("interface", "")),
+                            _p(p.get("name", "")),
+                            _p_updown(p.get("up", False)),
+                            _p(p.get("wan_type", "")),
+                            _p(_lldp_str(p)),
+                        ]
+                    )
+                    for m in p.get("members", []):
+                        data.append(
+                            [
+                                _p(f"  {m.get('interface', '')}"),
+                                _p("(member)"),
+                                _p_updown(m.get("up", False)),
+                                _p(""),
+                                _p(_lldp_str(m)),
+                            ]
+                        )
                 elements.append(_make_table(data, cw_wp))
 
             lan_ports = gw.get("lan_ports", [])
@@ -351,7 +442,23 @@ def generate_pdf(report) -> bytes:
                 cw_lp = [w * 0.15, w * 0.25, w * 0.1, w * 0.5]
                 data = [[_ph("Interface"), _ph("Network"), _ph("Status"), _ph("LLDP Neighbor")]]
                 for p in lan_ports:
-                    data.append([_p(p.get("interface", "")), _p(p.get("network", "")), _p_updown(p.get("up", False)), _p(_lldp_str(p))])
+                    data.append(
+                        [
+                            _p(p.get("interface", "")),
+                            _p(p.get("network", "")),
+                            _p_updown(p.get("up", False)),
+                            _p(_lldp_str(p)),
+                        ]
+                    )
+                    for m in p.get("members", []):
+                        data.append(
+                            [
+                                _p(f"  {m.get('interface', '')}"),
+                                _p("(member)"),
+                                _p_updown(m.get("up", False)),
+                                _p(_lldp_str(m)),
+                            ]
+                        )
                 elements.append(_make_table(data, cw_lp))
 
             networks = gw.get("networks", [])
@@ -364,7 +471,9 @@ def generate_pdf(report) -> bytes:
                         detail = f"Pool: {n['dhcp_pool']}"
                     elif n.get("dhcp_status") == "Relay" and n.get("dhcp_relay_servers"):
                         detail = f"Servers: {', '.join(n['dhcp_relay_servers'])}"
-                    data.append([_p(n.get("name", "")), _p(n.get("gateway_ip", "")), _p(n.get("dhcp_status", "")), _p(detail)])
+                    data.append(
+                        [_p(n.get("name", "")), _p(n.get("gateway_ip", "")), _p(n.get("dhcp_status", "")), _p(detail)]
+                    )
                 elements.append(_make_table(data, cw_net))
 
             elements.append(Spacer(1, 0.3 * cm))
@@ -392,7 +501,9 @@ def generate_csv_zip(report) -> bytes:
             for g in site_info.get("site_groups", []):
                 si_rows.append({"category": "site_group", "type": "", "name": g, "source": ""})
             for t in site_info.get("templates", []):
-                si_rows.append({"category": "template", "type": t.get("type", ""), "name": t.get("name", ""), "source": ""})
+                si_rows.append(
+                    {"category": "template", "type": t.get("type", ""), "name": t.get("name", ""), "source": ""}
+                )
             for w in site_info.get("org_wlans", []):
                 si_rows.append({"category": "wlan", "type": "", "name": w.get("ssid", ""), "source": "org"})
             for w in site_info.get("site_wlans", []):
@@ -403,9 +514,12 @@ def generate_csv_zip(report) -> bytes:
         # Site variables
         tmpl_vars = result.get("template_variables", [])
         if tmpl_vars:
-            zf.writestr("site_variables.csv", _dict_list_to_csv(
-                tmpl_vars, ["template_type", "template_name", "variable", "value", "defined", "status"]
-            ))
+            zf.writestr(
+                "site_variables.csv",
+                _dict_list_to_csv(
+                    tmpl_vars, ["template_type", "template_name", "variable", "value", "defined", "status"]
+                ),
+            )
 
         # APs
         aps = result.get("aps", [])
@@ -414,21 +528,40 @@ def generate_csv_zip(report) -> bytes:
             for ap in aps:
                 checks = {c["check"]: c.get("value", "") for c in ap.get("checks", [])}
                 lldp = ap.get("lldp_neighbor", {})
-                ap_rows.append({
-                    "name": ap.get("name", ""), "device_id": ap.get("device_id", ""),
-                    "mac": ap.get("mac", ""), "model": ap.get("model", ""),
-                    "connection_status": checks.get("connection_status", ""),
-                    "firmware_version": checks.get("firmware_version", ""),
-                    "eth0_port_speed": checks.get("eth0_port_speed", ""),
-                    "power_constrained": checks.get("power_constrained", ""),
-                    "config_status": checks.get("config_status", ""),
-                    "lldp_system_name": lldp.get("system_name", ""),
-                    "lldp_port_desc": lldp.get("port_desc", ""),
-                })
-            zf.writestr("aps.csv", _dict_list_to_csv(ap_rows, [
-                "name", "device_id", "mac", "model", "connection_status", "firmware_version",
-                "eth0_port_speed", "power_constrained", "config_status", "lldp_system_name", "lldp_port_desc",
-            ]))
+                ap_rows.append(
+                    {
+                        "name": ap.get("name", ""),
+                        "device_id": ap.get("device_id", ""),
+                        "mac": ap.get("mac", ""),
+                        "model": ap.get("model", ""),
+                        "connection_status": checks.get("connection_status", ""),
+                        "firmware_version": checks.get("firmware_version", ""),
+                        "eth0_port_speed": checks.get("eth0_port_speed", ""),
+                        "power_constrained": checks.get("power_constrained", ""),
+                        "config_status": checks.get("config_status", ""),
+                        "lldp_system_name": lldp.get("system_name", ""),
+                        "lldp_port_desc": lldp.get("port_desc", ""),
+                    }
+                )
+            zf.writestr(
+                "aps.csv",
+                _dict_list_to_csv(
+                    ap_rows,
+                    [
+                        "name",
+                        "device_id",
+                        "mac",
+                        "model",
+                        "connection_status",
+                        "firmware_version",
+                        "eth0_port_speed",
+                        "power_constrained",
+                        "config_status",
+                        "lldp_system_name",
+                        "lldp_port_desc",
+                    ],
+                ),
+            )
 
         # Switches + cable tests
         switches = result.get("switches", [])
@@ -436,32 +569,63 @@ def generate_csv_zip(report) -> bytes:
             sw_rows: list[dict] = []
             for sw in switches:
                 checks = {c["check"]: c.get("value", "") for c in sw.get("checks", [])}
-                sw_rows.append({
-                    "name": sw.get("name", ""), "device_id": sw.get("device_id", ""),
-                    "mac": sw.get("mac", ""), "model": sw.get("model", ""),
-                    "connection_status": checks.get("connection_status", ""),
-                    "firmware_version": checks.get("firmware_version", ""),
-                    "config_status": checks.get("config_status", ""),
-                })
-            zf.writestr("switches.csv", _dict_list_to_csv(sw_rows, [
-                "name", "device_id", "mac", "model", "connection_status", "firmware_version", "config_status",
-            ]))
+                sw_rows.append(
+                    {
+                        "name": sw.get("name", ""),
+                        "device_id": sw.get("device_id", ""),
+                        "mac": sw.get("mac", ""),
+                        "model": sw.get("model", ""),
+                        "connection_status": checks.get("connection_status", ""),
+                        "firmware_version": checks.get("firmware_version", ""),
+                        "config_status": checks.get("config_status", ""),
+                    }
+                )
+            zf.writestr(
+                "switches.csv",
+                _dict_list_to_csv(
+                    sw_rows,
+                    [
+                        "name",
+                        "device_id",
+                        "mac",
+                        "model",
+                        "connection_status",
+                        "firmware_version",
+                        "config_status",
+                    ],
+                ),
+            )
 
             ct_rows: list[dict] = []
             for sw in switches:
                 for ct in sw.get("cable_tests", []):
-                    ct_rows.append({
-                        "switch_name": sw.get("name", ""), "switch_mac": sw.get("mac", ""),
-                        "port": ct.get("port", ""), "status": ct.get("status", ""),
-                        "neighbor_system_name": ct.get("neighbor_system_name", ""),
-                        "neighbor_port_desc": ct.get("neighbor_port_desc", ""),
-                        "pairs": str(ct.get("pairs", [])),
-                    })
+                    ct_rows.append(
+                        {
+                            "switch_name": sw.get("name", ""),
+                            "switch_mac": sw.get("mac", ""),
+                            "port": ct.get("port", ""),
+                            "status": ct.get("status", ""),
+                            "neighbor_system_name": ct.get("neighbor_system_name", ""),
+                            "neighbor_port_desc": ct.get("neighbor_port_desc", ""),
+                            "pairs": str(ct.get("pairs", [])),
+                        }
+                    )
             if ct_rows:
-                zf.writestr("cable_tests.csv", _dict_list_to_csv(ct_rows, [
-                    "switch_name", "switch_mac", "port", "status",
-                    "neighbor_system_name", "neighbor_port_desc", "pairs",
-                ]))
+                zf.writestr(
+                    "cable_tests.csv",
+                    _dict_list_to_csv(
+                        ct_rows,
+                        [
+                            "switch_name",
+                            "switch_mac",
+                            "port",
+                            "status",
+                            "neighbor_system_name",
+                            "neighbor_port_desc",
+                            "pairs",
+                        ],
+                    ),
+                )
 
         # Gateways + ports + networks
         gateways = result.get("gateways", [])
@@ -469,19 +633,36 @@ def generate_csv_zip(report) -> bytes:
             gw_rows: list[dict] = []
             for gw in gateways:
                 checks = {c["check"]: c.get("value", "") for c in gw.get("checks", [])}
-                gw_rows.append({
-                    "name": gw.get("name", ""), "device_id": gw.get("device_id", ""),
-                    "mac": gw.get("mac", ""), "model": gw.get("model", ""),
-                    "connection_status": checks.get("connection_status", ""),
-                    "firmware_version": checks.get("firmware_version", ""),
-                    "config_status": checks.get("config_status", ""),
-                    "wan_port_status": checks.get("wan_port_status", ""),
-                    "lan_port_status": checks.get("lan_port_status", ""),
-                })
-            zf.writestr("gateways.csv", _dict_list_to_csv(gw_rows, [
-                "name", "device_id", "mac", "model", "connection_status", "firmware_version",
-                "config_status", "wan_port_status", "lan_port_status",
-            ]))
+                gw_rows.append(
+                    {
+                        "name": gw.get("name", ""),
+                        "device_id": gw.get("device_id", ""),
+                        "mac": gw.get("mac", ""),
+                        "model": gw.get("model", ""),
+                        "connection_status": checks.get("connection_status", ""),
+                        "firmware_version": checks.get("firmware_version", ""),
+                        "config_status": checks.get("config_status", ""),
+                        "wan_port_status": checks.get("wan_port_status", ""),
+                        "lan_port_status": checks.get("lan_port_status", ""),
+                    }
+                )
+            zf.writestr(
+                "gateways.csv",
+                _dict_list_to_csv(
+                    gw_rows,
+                    [
+                        "name",
+                        "device_id",
+                        "mac",
+                        "model",
+                        "connection_status",
+                        "firmware_version",
+                        "config_status",
+                        "wan_port_status",
+                        "lan_port_status",
+                    ],
+                ),
+            )
 
             wan_rows: list[dict] = []
             lan_rows: list[dict] = []
@@ -489,33 +670,108 @@ def generate_csv_zip(report) -> bytes:
             for gw in gateways:
                 gw_name = gw.get("name", "")
                 for p in gw.get("wan_ports", []):
-                    wan_rows.append({
-                        "gateway_name": gw_name, "interface": p.get("interface", ""),
-                        "name": p.get("name", ""), "up": "UP" if p.get("up") else "DOWN",
-                        "wan_type": p.get("wan_type", ""),
-                        "neighbor_system_name": p.get("neighbor_system_name", ""),
-                        "neighbor_port_desc": p.get("neighbor_port_desc", ""),
-                    })
+                    wan_rows.append(
+                        {
+                            "gateway_name": gw_name,
+                            "interface": p.get("interface", ""),
+                            "name": p.get("name", ""),
+                            "up": "UP" if p.get("up") else "DOWN",
+                            "wan_type": p.get("wan_type", ""),
+                            "neighbor_system_name": p.get("neighbor_system_name", ""),
+                            "neighbor_port_desc": p.get("neighbor_port_desc", ""),
+                        }
+                    )
                 for p in gw.get("lan_ports", []):
-                    lan_rows.append({
-                        "gateway_name": gw_name, "interface": p.get("interface", ""),
-                        "network": p.get("network", ""), "up": "UP" if p.get("up") else "DOWN",
-                        "neighbor_system_name": p.get("neighbor_system_name", ""),
-                        "neighbor_port_desc": p.get("neighbor_port_desc", ""),
-                    })
+                    lan_rows.append(
+                        {
+                            "gateway_name": gw_name,
+                            "interface": p.get("interface", ""),
+                            "network": p.get("network", ""),
+                            "up": "UP" if p.get("up") else "DOWN",
+                            "neighbor_system_name": p.get("neighbor_system_name", ""),
+                            "neighbor_port_desc": p.get("neighbor_port_desc", ""),
+                        }
+                    )
                 for n in gw.get("networks", []):
-                    net_rows.append({
-                        "gateway_name": gw_name, "network": n.get("name", ""),
-                        "gateway_ip": n.get("gateway_ip", ""), "dhcp_status": n.get("dhcp_status", ""),
-                        "dhcp_pool": n.get("dhcp_pool", ""),
-                        "dhcp_relay_servers": ", ".join(n.get("dhcp_relay_servers", [])),
-                    })
+                    net_rows.append(
+                        {
+                            "gateway_name": gw_name,
+                            "network": n.get("name", ""),
+                            "gateway_ip": n.get("gateway_ip", ""),
+                            "dhcp_status": n.get("dhcp_status", ""),
+                            "dhcp_pool": n.get("dhcp_pool", ""),
+                            "dhcp_relay_servers": ", ".join(n.get("dhcp_relay_servers", [])),
+                        }
+                    )
             if wan_rows:
-                zf.writestr("gateway_wan_ports.csv", _dict_list_to_csv(wan_rows, ["gateway_name", "interface", "name", "up", "wan_type", "neighbor_system_name", "neighbor_port_desc"]))
+                zf.writestr(
+                    "gateway_wan_ports.csv",
+                    _dict_list_to_csv(
+                        wan_rows,
+                        [
+                            "gateway_name",
+                            "interface",
+                            "name",
+                            "up",
+                            "wan_type",
+                            "neighbor_system_name",
+                            "neighbor_port_desc",
+                        ],
+                    ),
+                )
             if lan_rows:
-                zf.writestr("gateway_lan_ports.csv", _dict_list_to_csv(lan_rows, ["gateway_name", "interface", "network", "up", "neighbor_system_name", "neighbor_port_desc"]))
+                zf.writestr(
+                    "gateway_lan_ports.csv",
+                    _dict_list_to_csv(
+                        lan_rows,
+                        ["gateway_name", "interface", "network", "up", "neighbor_system_name", "neighbor_port_desc"],
+                    ),
+                )
             if net_rows:
-                zf.writestr("gateway_networks.csv", _dict_list_to_csv(net_rows, ["gateway_name", "network", "gateway_ip", "dhcp_status", "dhcp_pool", "dhcp_relay_servers"]))
+                zf.writestr(
+                    "gateway_networks.csv",
+                    _dict_list_to_csv(
+                        net_rows,
+                        ["gateway_name", "network", "gateway_ip", "dhcp_status", "dhcp_pool", "dhcp_relay_servers"],
+                    ),
+                )
+
+        # Device events (all device types)
+        event_rows: list[dict] = []
+        for device_type in ("aps", "switches", "gateways"):
+            for dev in result.get(device_type, []):
+                dev_name = dev.get("name", "")
+                dev_mac = dev.get("mac", "")
+                for ev in dev.get("events", []):
+                    event_rows.append(
+                        {
+                            "device_type": device_type,
+                            "device_name": dev_name,
+                            "device_mac": dev_mac,
+                            "category": ev.get("display", ev.get("category", "")),
+                            "sub_id": ev.get("sub_id", ""),
+                            "status": ev.get("status", ""),
+                            "trigger_count": ev.get("trigger_count", 0),
+                            "clear_count": ev.get("clear_count", 0),
+                        }
+                    )
+        if event_rows:
+            zf.writestr(
+                "device_events.csv",
+                _dict_list_to_csv(
+                    event_rows,
+                    [
+                        "device_type",
+                        "device_name",
+                        "device_mac",
+                        "category",
+                        "sub_id",
+                        "status",
+                        "trigger_count",
+                        "clear_count",
+                    ],
+                ),
+            )
 
     return buf.getvalue()
 

@@ -462,12 +462,14 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
     import httpx
 
     try:
-        if provider in ("openai", "azure_openai", "lm_studio", "ollama"):
+        if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp"):
             from openai import AsyncOpenAI
 
             url = base_url
             if provider == "lm_studio" and not url:
                 url = "http://localhost:1234/v1"
+            if provider == "llama_cpp" and not url:
+                url = "http://localhost:8080/v1"
             if url and not url.rstrip("/").endswith("/v1"):
                 url = f"{url.rstrip('/')}/v1"
 

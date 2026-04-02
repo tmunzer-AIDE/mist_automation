@@ -14,6 +14,7 @@ class ValidationReportCreate(BaseModel):
     """Request body for creating a post-deployment validation report."""
 
     site_id: str = Field(..., description="Mist site ID to validate")
+    include_cable_tests: bool = Field(False, description="Run cable tests on connected switch ports")
 
     @field_validator("site_id")
     @classmethod

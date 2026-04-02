@@ -3,6 +3,7 @@ import { ReactiveFormsModule, FormControl, Validators } from '@angular/forms';
 import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -38,6 +39,7 @@ const REPORT_TYPES: ReportTypeOption[] = [
     MatDialogModule,
     MatFormFieldModule,
     MatAutocompleteModule,
+    MatCheckboxModule,
     MatInputModule,
     MatButtonModule,
     MatProgressBarModule,
@@ -78,6 +80,10 @@ const REPORT_TYPES: ReportTypeOption[] = [
           }
         </mat-autocomplete>
       </mat-form-field>
+
+      <mat-checkbox [formControl]="cableTestControl">
+        Include cable tests (runs TDR on all connected switch ports)
+      </mat-checkbox>
     </mat-dialog-content>
 
     <mat-dialog-actions align="end">
@@ -145,6 +151,7 @@ export class ReportCreateDialogComponent implements OnInit {
     nonNullable: true,
     validators: [Validators.required],
   });
+  cableTestControl = new FormControl<boolean>(false, { nonNullable: true });
 
   ngOnInit(): void {
     this.reportTypeControl.valueChanges.subscribe((value) => {
@@ -171,7 +178,10 @@ export class ReportCreateDialogComponent implements OnInit {
 
     this.submitting.set(true);
     this.api
-      .post<{ id: string }>(reportType.endpoint, { site_id: this.siteControl.value })
+      .post<{ id: string }>(reportType.endpoint, {
+        site_id: this.siteControl.value,
+        include_cable_tests: this.cableTestControl.value,
+      })
       .subscribe({
         next: (res) => {
           this.submitting.set(false);

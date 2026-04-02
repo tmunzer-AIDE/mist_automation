@@ -345,7 +345,7 @@ export class ReportDetailComponent implements OnInit, OnDestroy {
     return getWanPorts(device);
   }
 
-  openDeviceDetail(type: 'switch' | 'gateway', device: SwitchResult | GatewayResult): void {
+  openDeviceDetail(type: 'ap' | 'switch' | 'gateway', device: DeviceResult | SwitchResult | GatewayResult): void {
     import('./device-detail-dialog.component').then((m) => {
       this.dialog.open(m.DeviceDetailDialogComponent, {
         data: { type, device },

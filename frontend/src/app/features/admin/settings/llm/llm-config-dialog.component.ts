@@ -24,6 +24,7 @@ const PROVIDER_OPTIONS = [
   { value: 'azure_openai', label: 'Azure OpenAI' },
   { value: 'bedrock', label: 'AWS Bedrock' },
   { value: 'vertex', label: 'Google Vertex AI' },
+  { value: 'llama_cpp', label: 'llama.cpp (Local)' },
 ];
 
 @Component({
@@ -251,7 +252,7 @@ export class LlmConfigDialogComponent implements OnInit {
 
   showBaseUrl(): boolean {
     const p = this.form.get('provider')?.value;
-    return ['ollama', 'lm_studio', 'azure_openai', 'bedrock'].includes(p || '');
+    return ['ollama', 'lm_studio', 'azure_openai', 'bedrock', 'llama_cpp'].includes(p || '');
   }
 
   private buildConnectionPayload(): Record<string, string | undefined> {

@@ -32,12 +32,19 @@ export class ArtifactParserService {
       const content = match[2];
 
       const type = (this._extractAttr(attrsStr, 'type') as ArtifactType) || 'markdown';
+
+      // Markdown artifacts add no value — inline their content as regular prose
+      if (type === 'markdown' || !VALID_TYPES.has(type)) {
+        prose = prose.replace(match[0], content.trim());
+        continue;
+      }
+
       const title = this._extractAttr(attrsStr, 'title') || DEFAULT_TITLES[type] || 'Artifact';
       const language = this._extractAttr(attrsStr, 'language') || undefined;
 
       const artifact: Artifact = {
         id: crypto.randomUUID(),
-        type: VALID_TYPES.has(type) ? type : 'markdown',
+        type,
         title,
         language,
         content: content.trim(),
@@ -84,10 +91,12 @@ export class ArtifactParserService {
     if (!openMatch) return null;
     const attrs = openMatch[1];
     const type = (this._extractAttr(attrs, 'type') as ArtifactType) || 'markdown';
+    // Markdown artifacts are inlined as prose — don't buffer them during streaming
+    if (type === 'markdown' || !VALID_TYPES.has(type)) return null;
     const title = this._extractAttr(attrs, 'title') || DEFAULT_TITLES[type] || 'Artifact';
     const language = this._extractAttr(attrs, 'language') || undefined;
     return {
-      type: VALID_TYPES.has(type) ? type : 'markdown',
+      type,
       title,
       language,
       startIndex: openMatch.index,
