@@ -2,62 +2,64 @@
   <div class="sidebar-header">
     <img src="logo.svg" class="logo-icon" alt="Logo" />
     @if (!collapsed) {
-      <div class="app-name">
-        <span class="app-name-main">Mist Automation</span>
-        <span class="app-name-sub">P L A T F O R M</span>
-      </div>
+    <div class="app-name">
+      <span class="app-name-main">Mist Automation</span>
+      <span class="app-name-sub">P L A T F O R M</span>
+    </div>
     }
   </div>
 
   <mat-nav-list>
     @for (item of filteredNavItems$ | async; track item.route) {
-      <a
-        mat-list-item
-        [routerLink]="item.route"
-        routerLinkActive="active"
-        [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }"
-        [matTooltip]="collapsed ? item.label : ''"
-        matTooltipPosition="right"
-      >
-        <mat-icon
-          matListItemIcon
-          [matBadge]="impactAlertCount()"
-          [matBadgeHidden]="item.route !== '/impact-analysis' || impactAlertCount() === 0"
-          matBadgeColor="warn"
-          matBadgeSize="small"
-        >{{ item.icon }}</mat-icon>
-        @if (!collapsed) {
-          <span matListItemTitle>{{ item.label }}</span>
-        }
-      </a>
+    <a mat-list-item [routerLink]="item.route" routerLinkActive="active"
+      [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }" [matTooltip]="collapsed ? item.label : ''"
+      matTooltipPosition="right">
+      <mat-icon matListItemIcon [matBadge]="impactAlertCount()"
+        [matBadgeHidden]="item.route !== '/impact-analysis' || impactAlertCount() === 0" matBadgeColor="warn"
+        matBadgeSize="small">{{ item.icon }}</mat-icon>
+      @if (!collapsed) {
+      <span matListItemTitle>{{ item.label }}</span>
+      }
+    </a>
     }
   </mat-nav-list>
-
+  @if ((filteredMntrNavItems$ | async)?.length) {
+  <mat-divider></mat-divider>
+  <mat-nav-list>
+    @for (item of filteredMntrNavItems$ | async; track item.route) {
+    <a mat-list-item [routerLink]="item.route" routerLinkActive="active"
+      [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }" [matTooltip]="collapsed ? item.label : ''"
+      matTooltipPosition="right">
+      <mat-icon matListItemIcon [matBadge]="impactAlertCount()"
+        [matBadgeHidden]="item.route !== '/impact-analysis' || impactAlertCount() === 0" matBadgeColor="warn"
+        matBadgeSize="small">{{ item.icon }}</mat-icon>
+      @if (!collapsed) {
+      <span matListItemTitle>{{ item.label }}</span>
+      }
+    </a>
+    }
+  </mat-nav-list>
+  }
   <!-- Admin section pinned to bottom -->
   @if (adminItem$ | async; as admin) {
-    <div class="admin-section">
-      <mat-nav-list>
-        <a
-          mat-list-item
-          [matMenuTriggerFor]="adminMenu"
-          [matTooltip]="collapsed ? admin.label : ''"
-          matTooltipPosition="right"
-          [class.admin-active]="currentUrl().startsWith('/admin')"
-        >
-          <mat-icon matListItemIcon>{{ admin.icon }}</mat-icon>
-          @if (!collapsed) {
-            <span matListItemTitle>{{ admin.label }}</span>
-          }
-        </a>
-      </mat-nav-list>
-      <mat-menu #adminMenu="matMenu" yPosition="above">
-        @for (child of admin.children; track child.route) {
-          <a mat-menu-item [routerLink]="child.route">
-            <mat-icon>{{ child.icon }}</mat-icon>
-            <span>{{ child.label }}</span>
-          </a>
+  <div class="admin-section">
+    <mat-nav-list>
+      <a mat-list-item [matMenuTriggerFor]="adminMenu" [matTooltip]="collapsed ? admin.label : ''"
+        matTooltipPosition="right" [class.admin-active]="currentUrl().startsWith('/admin')">
+        <mat-icon matListItemIcon>{{ admin.icon }}</mat-icon>
+        @if (!collapsed) {
+        <span matListItemTitle>{{ admin.label }}</span>
         }
-      </mat-menu>
-    </div>
+      </a>
+    </mat-nav-list>
+    <mat-menu #adminMenu="matMenu" yPosition="above">
+      @for (child of admin.children; track child.route) {
+      <a mat-menu-item [routerLink]="child.route">
+        <mat-icon>{{ child.icon }}</mat-icon>
+        <span>{{ child.label }}</span>
+      </a>
+      }
+    </mat-menu>
+  </div>
   }
 </div>
