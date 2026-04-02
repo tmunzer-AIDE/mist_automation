@@ -33,8 +33,9 @@ export class ArtifactParserService {
 
       const type = (this._extractAttr(attrsStr, 'type') as ArtifactType) || 'markdown';
 
-      // Unknown/unsupported types: inline as prose
-      if (!VALID_TYPES.has(type)) {
+      // Markdown artifacts are inlined as rendered prose (not shown in an artifact card).
+      // Unknown/unsupported types are also inlined to avoid broken cards.
+      if (type === 'markdown' || !VALID_TYPES.has(type)) {
         prose = prose.replace(match[0], content.trim());
         continue;
       }
@@ -91,8 +92,8 @@ export class ArtifactParserService {
     if (!openMatch) return null;
     const attrs = openMatch[1];
     const type = (this._extractAttr(attrs, 'type') as ArtifactType) || 'markdown';
-    // Unknown/unsupported types: don't buffer during streaming
-    if (!VALID_TYPES.has(type)) return null;
+    // Markdown artifacts are inlined as prose — don't buffer them during streaming
+    if (type === 'markdown' || !VALID_TYPES.has(type)) return null;
     const title = this._extractAttr(attrs, 'title') || DEFAULT_TITLES[type] || 'Artifact';
     const language = this._extractAttr(attrs, 'language') || undefined;
     return {

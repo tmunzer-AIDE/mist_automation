@@ -65,10 +65,11 @@ describe('ArtifactParserService', () => {
     expect(result.prose).toContain('```python');
   });
 
-  it('defaults missing type to markdown', () => {
+  it('inlines artifacts with no type (defaults to markdown) as prose', () => {
     const input = '<artifact title="Note">some text</artifact>';
     const result = service.parse(input);
-    expect(result.artifacts[0].type).toBe('markdown');
+    expect(result.artifacts).toEqual([]);
+    expect(result.prose).toContain('some text');
   });
 
   it('generates title when missing', () => {
