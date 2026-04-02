@@ -12,16 +12,16 @@ app-ai-inline-analysis {
   margin-left: 12px;
   margin-right: 8px;
 
-  &.spinner-disconnected {
-    --mdc-circular-progress-active-indicator-color: var(--app-spinner-disconnected);
+  &.spinner-disconnected ::ng-deep circle {
+    stroke: var(--app-spinner-disconnected);
   }
 
-  &.spinner-paused {
-    --mdc-circular-progress-active-indicator-color: var(--app-spinner-paused);
+  &.spinner-paused ::ng-deep circle {
+    stroke: var(--app-spinner-disconnected);
   }
 
-  &.spinner-live {
-    --mdc-circular-progress-active-indicator-color: var(--app-spinner-live);
+  &.spinner-live ::ng-deep circle {
+    stroke: var(--app-spinner-live);
   }
 }
 
@@ -169,6 +169,7 @@ app-ai-inline-analysis {
   0% {
     background-color: var(--mat-sys-primary-container);
   }
+
   100% {
     background-color: transparent;
   }
