@@ -10,32 +10,20 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
   { label: 'Workflows', icon: 'account_tree', route: '/workflows' },
   { label: 'Backups', icon: 'backup', route: '/backup' },
-  { label: 'Webhooks', icon: 'webhook', route: '/monitoring' },
-  {
-    label: 'Impact Analysis',
-    icon: 'analytics',
-    route: '/impact-analysis',
-    roles: ['impact_analysis', 'admin'],
-  },
-  {
-    label: 'Telemetry',
-    icon: 'sensors',
-    route: '/telemetry',
-    roles: ['impact_analysis', 'admin'],
-  },
+  { label: 'Reports', icon: 'assessment', route: '/reports', roles: ['post_deployment', 'admin'] },
+  { label: 'Impact Analysis', icon: 'analytics', route: '/impact-analysis', roles: ['impact_analysis', 'admin'], },
   {
     label: 'Power Scheduling',
     icon: 'power_settings_new',
     route: '/power-scheduling',
     roles: ['impact_analysis', 'admin'],
   },
-  {
-    label: 'Reports',
-    icon: 'assessment',
-    route: '/reports',
-    roles: ['post_deployment', 'admin'],
-  },
 ];
+
+export const MNTR_NAV_ITEMS: NavItem[] = [
+  { label: 'Webhooks', icon: 'webhook', route: '/monitoring' },
+  { label: 'Telemetry', icon: 'sensors', route: '/telemetry', roles: ['impact_analysis', 'admin'], },
+]
 
 export const ADMIN_NAV_ITEM: NavItem = {
   label: 'Administration',

@@ -113,6 +113,7 @@ export class McpConfigDialogComponent implements OnInit {
       this.form.patchValue({
         name: c.name,
         url: c.url,
+        headers: '',  // Don't pre-fill — values are masked; placeholder says "Leave empty to keep current"
         ssl_verify: c.ssl_verify,
         enabled: c.enabled,
       });

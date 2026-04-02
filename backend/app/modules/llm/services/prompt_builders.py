@@ -447,3 +447,90 @@ def build_backup_list_summary_prompt(context: str, filters: dict) -> list[dict[s
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+
+
+# -- Canvas Artifact Instructions -----------------------------------------------
+
+
+_CANVAS_INSTRUCTIONS_FULL = """\
+
+
+## Canvas Artifacts
+
+When your response contains rich content, wrap it in an <artifact> tag instead of a markdown code block:
+
+<artifact type="TYPE" title="Short descriptive title">
+content
+</artifact>
+
+Supported types:
+
+| Type | When to use | Extra attributes |
+|------|-------------|-----------------|
+| code | Code snippets longer than 15 lines | language="python|json|jinja2|bash|yaml|..." (required) |
+| markdown | Structured documents, formatted reports, long-form text with headings/lists | |
+| html | Rich formatted tables, styled content, custom layouts | |
+| mermaid | Diagrams, flowcharts, network topologies | |
+| svg | Vector graphics, simple diagrams | |
+| chart | Data visualizations (bar, line, pie, doughnut, radar) | JSON spec (see below) |
+
+Chart artifact content must be a JSON object:
+{"chartType": "bar", "data": {"labels": [...], "datasets": [{"label": "...", "data": [...]}]}, "options": {}}
+
+Rules:
+- One artifact per response unless the user explicitly asks for more
+- Short code snippets (under 15 lines) stay inline as markdown code blocks
+- Prose and explanations go OUTSIDE the artifact tag, before or after it
+- The title attribute is always required
+- When asked to update an artifact, return the full updated content"""
+
+_CANVAS_INSTRUCTIONS_EXPLICIT_EXTRA = """
+
+IMPORTANT: Do NOT wrap the <artifact> tag inside a markdown code block. The tag goes directly in your response text.
+
+### Example
+
+User: Show me a Python script that pings a list of hosts.
+Assistant: Here is a script that pings each host and reports the result.
+
+<artifact type="code" language="python" title="Host Ping Script">
+import subprocess
+import sys
+
+hosts = ["8.8.8.8", "1.1.1.1", "10.0.0.1"]
+for host in hosts:
+    result = subprocess.run(
+        ["ping", "-c", "1", "-W", "2", host],
+        capture_output=True,
+        text=True,
+    )
+    status = "UP" if result.returncode == 0 else "DOWN"
+    print(f"{host}: {status}")
+
+print("Scan complete.")
+</artifact>
+
+The script pings each host once with a 2-second timeout.
+
+### Chart Example
+
+<artifact type="chart" title="Device Health">
+{"chartType": "doughnut", "data": {"labels": ["Healthy", "Warning", "Critical"], "datasets": [{"data": [45, 12, 3]}]}, "options": {}}
+</artifact>"""
+
+
+def build_canvas_instructions(tier: str) -> str:
+    """Return canvas artifact instructions for the given prompt tier.
+
+    Args:
+        tier: One of "full", "explicit", or "none".
+
+    Returns:
+        Prompt text to append to system prompts, or "" for "none".
+    """
+    if tier == "none":
+        return ""
+    if tier == "explicit":
+        return _CANVAS_INSTRUCTIONS_FULL + _CANVAS_INSTRUCTIONS_EXPLICIT_EXTRA
+    # "full" or any unrecognised value
+    return _CANVAS_INSTRUCTIONS_FULL

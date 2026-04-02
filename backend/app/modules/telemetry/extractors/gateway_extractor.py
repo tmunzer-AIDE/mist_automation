@@ -50,6 +50,7 @@ def _extract_gateway_health(payload: dict, org_id: str, site_id: str, timestamp:
         "model": payload.get("model", ""),
         "node_name": payload.get("node_name", ""),
         "router_name": payload.get("router_name", ""),
+        "mist_node0_mac": payload.get("mist_node0_mac", ""),
     }
 
     return {
@@ -232,6 +233,7 @@ def _extract_gateway_resources(payload: dict, org_id: str, site_id: str, timesta
                     "site_id": site_id,
                     "mac": payload.get("mac", ""),
                     "node_name": payload.get("node_name", ""),
+                    "mist_node0_mac": payload.get("mist_node0_mac", ""),
                     "resource_type": resource.get("type", ""),
                 },
                 "fields": {

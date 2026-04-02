@@ -8,6 +8,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -23,6 +24,7 @@ const PROVIDER_OPTIONS = [
   { value: 'azure_openai', label: 'Azure OpenAI' },
   { value: 'bedrock', label: 'AWS Bedrock' },
   { value: 'vertex', label: 'Google Vertex AI' },
+  { value: 'llama_cpp', label: 'llama.cpp (Local)' },
 ];
 
 @Component({
@@ -38,6 +40,7 @@ const PROVIDER_OPTIONS = [
     MatIconModule,
     MatInputModule,
     MatProgressBarModule,
+    MatSelectModule,
     MatSlideToggleModule,
     MatSliderModule,
     MatSnackBarModule,
@@ -143,6 +146,17 @@ const PROVIDER_OPTIONS = [
           <mat-slide-toggle formControlName="is_default">Set as Default</mat-slide-toggle>
           <mat-slide-toggle formControlName="enabled">Enabled</mat-slide-toggle>
         </div>
+
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Canvas Prompt Tier</mat-label>
+          <mat-select formControlName="canvas_prompt_tier">
+            <mat-option [value]="null">Auto-detect</mat-option>
+            <mat-option value="full">Full (large models)</mat-option>
+            <mat-option value="explicit">Explicit (small models)</mat-option>
+            <mat-option value="none">Disabled</mat-option>
+          </mat-select>
+          <mat-hint>Controls canvas artifact instructions in system prompts</mat-hint>
+        </mat-form-field>
       </form>
 
       @if (saving()) {
@@ -216,6 +230,7 @@ export class LlmConfigDialogComponent implements OnInit {
     max_tokens_per_request: [4096, [Validators.min(100), Validators.max(32000)]],
     is_default: [false],
     enabled: [true],
+    canvas_prompt_tier: [null as string | null],
   });
 
   ngOnInit(): void {
@@ -230,13 +245,14 @@ export class LlmConfigDialogComponent implements OnInit {
         max_tokens_per_request: c.max_tokens_per_request,
         is_default: c.is_default,
         enabled: c.enabled,
+        canvas_prompt_tier: c.canvas_prompt_tier ?? null,
       });
     }
   }
 
   showBaseUrl(): boolean {
     const p = this.form.get('provider')?.value;
-    return ['ollama', 'lm_studio', 'azure_openai', 'bedrock'].includes(p || '');
+    return ['ollama', 'lm_studio', 'azure_openai', 'bedrock', 'llama_cpp'].includes(p || '');
   }
 
   private buildConnectionPayload(): Record<string, string | undefined> {
@@ -291,6 +307,8 @@ export class LlmConfigDialogComponent implements OnInit {
 
     for (const [k, v] of Object.entries(values)) {
       if (k === 'api_key' && !v) continue;
+      // canvas_prompt_tier: null means "auto-detect" and must be sent explicitly
+      if (k === 'canvas_prompt_tier') { payload[k] = v; continue; }
       if (v !== null && v !== undefined) payload[k] = v;
     }
 

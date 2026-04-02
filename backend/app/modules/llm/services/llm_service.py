@@ -16,7 +16,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # Providers that speak the OpenAI chat-completions protocol natively.
-_OPENAI_COMPAT_PROVIDERS = {"openai", "lm_studio", "azure_openai"}
+_OPENAI_COMPAT_PROVIDERS = {"openai", "lm_studio", "azure_openai", "llama_cpp"}
 
 
 @dataclass

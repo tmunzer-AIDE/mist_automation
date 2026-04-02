@@ -13,6 +13,9 @@ import mistapi
 import structlog
 from beanie import PydanticObjectId
 from mistapi.api.v1.orgs import (
+    deviceprofiles as org_deviceprofiles,
+)
+from mistapi.api.v1.orgs import (
     gatewaytemplates as org_gatewaytemplates,
 )
 from mistapi.api.v1.orgs import (
@@ -29,7 +32,6 @@ from mistapi.api.v1.orgs import (
 )
 from mistapi.api.v1.sites import (
     devices,
-    gatewaytemplates,
     networks,
     setting,
     stats,
@@ -45,6 +47,7 @@ from mistapi.api.v1.sites import (
 from app.core.websocket import ws_manager
 from app.modules.reports.models import ReportJob, ReportStatus
 from app.utils.cable_test import clean_terminal_text, parse_tdr_output
+from app.utils.event_definitions import EVENT_CATEGORY_DISPLAY, EVENT_TYPE_MAP, extract_sub_id
 from app.utils.variables import extract_variables
 
 logger = structlog.get_logger(__name__)
@@ -55,6 +58,7 @@ _STEPS = [
     ("templates", "Templates & WLANs"),
     ("variables", "Template Variables"),
     ("config_events", "Configuration Events"),
+    ("device_events", "Device Events"),
     ("aps", "Access Points"),
     ("switches", "Switches"),
     ("gateways", "Gateways"),
@@ -73,8 +77,6 @@ class _ProgressTracker:
         }
         self.overall_completed = 0
         self.overall_total = 0  # 0 = discovery phase (indeterminate)
-        self._persist_counter = 0
-        self._persist_lock = asyncio.Lock()
 
     async def start_step(self, step_id: str, message: str = "") -> None:
         self.steps[step_id]["status"] = "running"
@@ -113,10 +115,6 @@ class _ProgressTracker:
         self.steps["cable_tests"]["message"] = message
         self.overall_completed += 1
         await self._broadcast()
-        # Persist to DB periodically (every 10 ports) to avoid excessive writes
-        self._persist_counter += 1
-        if self._persist_counter % 10 == 0:
-            await self._persist()
 
     async def _broadcast(self) -> None:
         await ws_manager.broadcast(
@@ -133,17 +131,16 @@ class _ProgressTracker:
         )
 
     async def _persist(self) -> None:
-        async with self._persist_lock:
-            self.report.progress = {
-                "overall_completed": self.overall_completed,
-                "overall_total": self.overall_total,
-                "steps": list(self.steps.values()),
-            }
-            self.report.update_timestamp()
-            await self.report.save()
+        self.report.progress = {
+            "overall_completed": self.overall_completed,
+            "overall_total": self.overall_total,
+            "steps": list(self.steps.values()),
+        }
+        self.report.update_timestamp()
+        await self.report.save()
 
 
-async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
+async def run_post_deployment_validation(report_id: str, site_id: str, *, include_cable_tests: bool = False) -> None:
     """Run the full post-deployment validation for a site."""
     report = await ReportJob.get(PydanticObjectId(report_id))
     if not report:
@@ -185,11 +182,45 @@ async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
         sitegroup_names = await _resolve_sitegroup_names(session, mist.org_id, sitegroup_ids)
         await tracker.complete_step("site_info")
 
-        # Step 2: Fetch assigned templates + WLANs
+        # Step 2: Fetch assigned templates + WLANs + gateway template
         await tracker.start_step("templates", "Checking templates and WLANs...")
-        assigned_templates, assigned_template_data = await _fetch_assigned_templates(session, mist.org_id, site_data)
+        assigned_templates, assigned_template_data, gw_template_config = await _fetch_assigned_templates(
+            session, mist.org_id, site_data
+        )
         derived_sources = await _fetch_derived_sources(session, site_id)
         wlan_info = await _fetch_wlan_info(session, site_id)
+
+        # Filter templates to only networks assigned to gateway ports
+        # (only when a gateway template was actually loaded — empty config means no filtering)
+        used_network_names = _used_networks_from_port_config(gw_template_config.get("port_config", {}))
+        if not used_network_names:
+            used_network_names = set(gw_template_config.get("ip_configs", {}).keys())
+
+        used_services = _extract_used_services(gw_template_config, derived_sources)
+
+        if gw_template_config:
+            _FILTERABLE_TEMPLATES = {"gateway_template", "network_template"}
+
+            def _filter_derived(ttype: str, tlist: list) -> list:
+                if ttype == "network" and used_network_names:
+                    return [t for t in tlist if t.get("name") in used_network_names]
+                if ttype == "application" and used_services:
+                    return [t for t in tlist if t.get("name") in used_services]
+                return tlist
+
+            derived_sources = [(ttype, _filter_derived(ttype, tlist)) for ttype, tlist in derived_sources]
+            assigned_template_data = [
+                (
+                    ttype,
+                    (
+                        [_filter_template_networks(t, used_network_names) for t in tlist]
+                        if ttype in _FILTERABLE_TEMPLATES and used_network_names
+                        else tlist
+                    ),
+                )
+                for ttype, tlist in assigned_template_data
+            ]
+
         result["site_info"] = {
             "site_name": report.site_name,
             "site_address": site_address,
@@ -215,6 +246,13 @@ async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
         config_events = await _fetch_config_events(session, site_id)
         await tracker.complete_step("config_events")
 
+        # Step 5: Fetch and correlate device events (trigger/clear pairs)
+        await tracker.start_step("device_events", "Fetching device events (24h)...")
+        raw_device_events = await _fetch_device_events(session, site_id)
+        events_by_mac = _correlate_device_events(raw_device_events)
+        total_correlated = sum(len(v) for v in events_by_mac.values())
+        await tracker.complete_step("device_events", f"{total_correlated} events correlated")
+
         # ── Execution phase (determinate progress bar) ───────────────
 
         # Parallel fetch: switch UP ports + switch device stats
@@ -223,40 +261,67 @@ async def run_post_deployment_validation(report_id: str, site_id: str) -> None:
             mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="switch", limit=1000),
         )
         switch_stats = sw_stats_resp.data if sw_stats_resp.status_code == 200 else []
-        total_cable_ports = sum(
-            len(up_ports_by_mac.get(sw.get("mac", ""), [])) for sw in switch_stats if sw.get("status") == "connected"
-        )
+
+        if include_cable_tests:
+            total_cable_ports = sum(
+                len(up_ports_by_mac.get(sw.get("mac", ""), []))
+                for sw in switch_stats
+                if sw.get("status") == "connected"
+            )
+        else:
+            total_cable_ports = 0
+
         tracker.set_execution_total(total_cable_ports)
 
-        # Step 5: AP validation
+        # Step 6: AP validation
         await tracker.start_step("aps", "Validating access points...")
         result["aps"] = await _validate_aps(session, site_id, config_events)
         tracker.update_label("aps", f"Access Points ({len(result['aps'])})")
         await tracker.complete_step("aps", f"{len(result['aps'])} APs validated")
 
-        # Step 6: Switch health validation (parallel, no cable tests)
+        # Step 7: Switch health validation (parallel, no cable tests)
         tracker.update_label("switches", f"Switches ({len(switch_stats)})")
         await tracker.start_step("switches", "Validating switches...")
         result["switches"] = _validate_switch_health(switch_stats, config_events)
+        # Attach LLDP neighbors from UP ports (available regardless of cable tests)
+        for sw_result in result["switches"]:
+            sw_mac = sw_result["mac"]
+            up_ports = up_ports_by_mac.get(sw_mac, [])
+            lldp_neighbors = []
+            for p in up_ports:
+                sys_name = p.get("neighbor_system_name", "")
+                port_desc = p.get("neighbor_port_desc", "")
+                if sys_name or port_desc:
+                    lldp_neighbors.append({
+                        "port_id": p["port_id"],
+                        "neighbor_system_name": sys_name,
+                        "neighbor_port_desc": port_desc,
+                    })
+            sw_result["lldp_neighbors"] = lldp_neighbors
         await tracker.complete_step("switches", f"{len(result['switches'])} switches validated")
 
-        # Step 7: Gateway validation
+        # Step 8: Gateway validation
         tracker.update_label("gateways", "Gateways")
         await tracker.start_step("gateways", "Validating gateways...")
-        result["gateways"] = await _validate_gateways(session, site_id, config_events, site_vars)
+        result["gateways"] = await _validate_gateways(
+            session, mist.org_id, site_id, config_events, site_vars, gw_template_config
+        )
         tracker.update_label("gateways", f"Gateways ({len(result['gateways'])})")
         await tracker.complete_step("gateways", f"{len(result['gateways'])} gateways validated")
 
-        # Step 8: Cable tests (run last to avoid impacting device stats validation)
-        if total_cable_ports > 0:
+        # Step 9: Cable tests (opt-in)
+        if include_cable_tests and total_cable_ports > 0:
             tracker.update_label("cable_tests", f"Cable Tests ({total_cable_ports} ports)")
             await tracker.start_step("cable_tests", f"Testing {total_cable_ports} ports...")
             await _run_all_cable_tests(session, site_id, result["switches"], up_ports_by_mac, tracker)
-            # increment=False: ports already counted individually via complete_cable_test_port
             await tracker.complete_step("cable_tests", f"{total_cable_ports} ports tested", increment=False)
         else:
-            await tracker.start_step("cable_tests", "No cable test ports")
-            await tracker.complete_step("cable_tests", "No cable test ports")
+            msg = "Skipped (opt-in)" if not include_cable_tests else "No cable test ports"
+            await tracker.start_step("cable_tests", msg)
+            await tracker.complete_step("cable_tests", msg)
+
+        # Attach correlated events to each device
+        _attach_device_events(result, events_by_mac)
 
         # Compute device summary and overall summary
         result["site_info"]["device_summary"] = _compute_device_summary(result)
@@ -380,15 +445,16 @@ async def _fetch_one_assigned_template(
 
 async def _fetch_assigned_templates(
     session, org_id: str, site_data: dict
-) -> tuple[list[dict], list[tuple[str, list[dict]]]]:
+) -> tuple[list[dict], list[tuple[str, list[dict]]], dict]:
     """Fetch assigned templates by ID from site info.
 
     Fetches all assigned templates in parallel via ``asyncio.gather()``.
 
     Returns:
-        (site_info_entries, template_data_for_var_scan)
+        (site_info_entries, template_data_for_var_scan, gw_template_config)
         - site_info_entries: list of {"type", "name", "id"} for site_info display
         - template_data_for_var_scan: list of (template_type, [full_template_dict]) for variable extraction
+        - gw_template_config: the raw gateway template dict (or {} if not assigned)
     """
     # Build tasks for all assigned templates
     tasks = []
@@ -398,12 +464,13 @@ async def _fetch_assigned_templates(
             tasks.append(_fetch_one_assigned_template(session, org_id, field, tmpl_type, api_fn, tmpl_id))
 
     if not tasks:
-        return [], []
+        return [], [], {}
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     site_info_entries: list[dict] = []
     var_scan_data: list[tuple[str, list[dict]]] = []
+    gw_template_config: dict = {}
 
     for result in results:
         if isinstance(result, Exception):
@@ -413,10 +480,12 @@ async def _fetch_assigned_templates(
         if data:
             site_info_entries.append({"type": tmpl_type, "name": data.get("name", tmpl_id[:8]), "id": tmpl_id})
             var_scan_data.append((tmpl_type, [data]))
+            if tmpl_type == "gateway_template":
+                gw_template_config = data
         else:
             site_info_entries.append({"type": tmpl_type, "name": tmpl_id[:8], "id": tmpl_id})
 
-    return site_info_entries, var_scan_data
+    return site_info_entries, var_scan_data, gw_template_config
 
 
 async def _fetch_one_template(
@@ -600,6 +669,104 @@ def _add_config_status_check(checks: list[dict], mac: str, config_events: dict[s
                 "value": "No config event found",
             }
         )
+
+
+# ── Device events (trigger/clear correlation) ──────────────────────────
+
+
+async def _fetch_device_events(session, site_id: str) -> list[dict]:
+    """Fetch all device events for the site in the last 24h."""
+    all_events: list[dict] = []
+    try:
+        resp = await mistapi.arun(
+            devices.searchSiteDeviceEvents,
+            session,
+            site_id,
+            limit=1000,
+            duration="24h",
+        )
+        if resp.status_code != 200:
+            logger.warning("device_events_fetch_failed", status=resp.status_code)
+            return all_events
+
+        data = resp.data
+        if isinstance(data, dict):
+            all_events = data.get("results", [])
+        elif isinstance(data, list):
+            all_events = data
+
+        logger.debug("device_events_fetched", count=len(all_events))
+    except Exception as e:
+        logger.warning("device_events_fetch_error", error=str(e))
+
+    return all_events
+
+
+def _correlate_device_events(raw_events: list[dict]) -> dict[str, list[dict]]:
+    """Correlate trigger/clear event pairs and group by device MAC."""
+    try:
+        sorted_events = sorted(raw_events, key=lambda e: e.get("timestamp", 0))
+    except (TypeError, KeyError):
+        sorted_events = raw_events
+
+    tracking: dict[tuple[str, str, str], dict] = {}
+
+    for event in sorted_events:
+        if not isinstance(event, dict):
+            continue
+        ev_type = event.get("type", "")
+        mapping = EVENT_TYPE_MAP.get(ev_type)
+        if not mapping:
+            continue
+
+        category, role, sub_id_field = mapping
+        mac = event.get("mac", event.get("device_mac", ""))
+        if not mac:
+            continue
+
+        sub_id = extract_sub_id(event, sub_id_field)
+        key = (mac, category, sub_id)
+
+        entry = tracking.get(key)
+        if not entry:
+            entry = {
+                "category": category,
+                "display": EVENT_CATEGORY_DISPLAY.get(category, category),
+                "sub_id": sub_id or None,
+                "status": "",
+                "trigger_count": 0,
+                "clear_count": 0,
+                "last_change": 0,
+            }
+            tracking[key] = entry
+
+        timestamp = event.get("timestamp", 0)
+        if role == "trigger":
+            entry["status"] = "triggered"
+            entry["trigger_count"] += 1
+        else:
+            entry["status"] = "cleared"
+            entry["clear_count"] += 1
+        entry["last_change"] = max(entry["last_change"], timestamp)
+
+    # Group by MAC
+    result: dict[str, list[dict]] = {}
+    for (mac, _category, _sub_id), entry in tracking.items():
+        result.setdefault(mac, []).append(entry)
+
+    # Sort: triggered first, then by category
+    for mac in result:
+        result[mac].sort(key=lambda e: (0 if e["status"] == "triggered" else 1, e["category"]))
+
+    return result
+
+
+def _attach_device_events(report_result: dict, events_by_mac: dict[str, list[dict]]) -> None:
+    """Attach correlated events to each device in the report result."""
+    for device_type in ("aps", "switches", "gateways"):
+        for device in report_result.get(device_type, []):
+            mac = device.get("mac", "")
+            device["events"] = events_by_mac.get(mac, [])
 
 
 # ── AP validation ────────────────────────────────────────────────────────
@@ -870,7 +1037,7 @@ def _check_virtual_chassis_from_stats(module_stat: list, expected_firmware: str)
 
         members.append(
             {
-                "member_id": mod.get("vc_member", idx),
+                "member_id": mod.get("vc_member", mod.get("fpc_idx", idx)),
                 "mac": mod.get("mac", ""),
                 "serial": mod.get("serial", ""),
                 "model": mod.get("model", ""),
@@ -976,25 +1143,96 @@ def _parse_cable_test_results(port_id: str, raw_messages: list) -> dict:
 # ── Gateway validation ───────────────────────────────────────────────────
 
 
-async def _validate_gateways(session, site_id: str, config_events: dict[str, dict], site_vars: dict) -> list[dict]:
+async def _fetch_device_profiles(session, org_id: str, device_configs: list[dict]) -> dict[str, dict]:
+    """Fetch device profiles referenced by device configs, cached by unique ID."""
+    profile_ids: set[str] = set()
+    for cfg in device_configs:
+        dp_id = cfg.get("deviceprofile_id")
+        if dp_id:
+            profile_ids.add(dp_id)
+
+    if not profile_ids:
+        return {}
+
+    profile_map: dict[str, dict] = {}
+
+    async def _fetch_one(dp_id: str) -> None:
+        try:
+            resp = await mistapi.arun(org_deviceprofiles.getOrgDeviceProfile, session, org_id, dp_id)
+            if resp.status_code == 200 and isinstance(resp.data, dict):
+                profile_map[dp_id] = resp.data
+        except Exception as e:
+            logger.warning("deviceprofile_fetch_failed", dp_id=dp_id, error=str(e))
+
+    await asyncio.gather(*[_fetch_one(dp_id) for dp_id in profile_ids])
+    return profile_map
+
+
+def _used_networks_from_port_config(port_config: dict) -> set[str]:
+    """Extract the set of network names actually assigned to ports."""
+    names: set[str] = set()
+    for cfg in port_config.values():
+        if not isinstance(cfg, dict):
+            continue
+        usage = cfg.get("usage", "")
+        if usage and usage not in ("wan", "lan"):
+            names.add(usage)
+        for net in cfg.get("networks", []):
+            if isinstance(net, str):
+                names.add(net)
+        pn = cfg.get("port_network", "")
+        if pn:
+            names.add(pn)
+    return names
+
+
+def _extract_used_services(gw_template_config: dict, derived_sources: list) -> set[str]:
+    """Collect service names explicitly referenced in service policies."""
+    names: set[str] = set()
+    for sp in gw_template_config.get("service_policies", []):
+        if isinstance(sp, dict):
+            for svc in sp.get("services", []):
+                if isinstance(svc, str) and svc != "any":
+                    names.add(svc)
+    for ttype, tlist in derived_sources:
+        if ttype == "application_policy":
+            for sp in tlist:
+                if isinstance(sp, dict):
+                    for svc in sp.get("services", []):
+                        if isinstance(svc, str) and svc != "any":
+                            names.add(svc)
+    return names
+
+
+def _filter_template_networks(tmpl: dict, used_networks: set[str]) -> dict:
+    """Return a shallow copy of a gateway template with only used network configs."""
+    filtered = dict(tmpl)
+    for key in ("ip_configs", "dhcpd_config"):
+        if key in filtered and isinstance(filtered[key], dict):
+            filtered[key] = {k: v for k, v in filtered[key].items() if k in used_networks}
+    if "networks" in filtered and isinstance(filtered["networks"], list):
+        filtered["networks"] = [
+            n for n in filtered["networks"] if isinstance(n, dict) and n.get("name") in used_networks
+        ]
+    return filtered
+
+
+async def _validate_gateways(
+    session,
+    org_id: str,
+    site_id: str,
+    config_events: dict[str, dict],
+    site_vars: dict,
+    gw_template_config: dict | None = None,
+) -> list[dict]:
     """Validate all gateways at the site with port classification and network details."""
     resp = await mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="gateway", limit=1000)
     if resp.status_code != 200:
         logger.warning("gateway_stats_fetch_failed", status=resp.status_code)
         return []
 
-    # Fetch gateway template derived config (base config for all gateways at this site)
-    gw_template_config: dict = {}
-    try:
-        tmpl_resp = await mistapi.arun(gatewaytemplates.listSiteGatewayTemplatesDerived, session, site_id, resolve=True)
-        if tmpl_resp.status_code == 200:
-            tmpl_data = tmpl_resp.data
-            if isinstance(tmpl_data, list) and tmpl_data:
-                gw_template_config = tmpl_data[0] if isinstance(tmpl_data[0], dict) else {}
-            elif isinstance(tmpl_data, dict):
-                gw_template_config = tmpl_data
-    except Exception as e:
-        logger.warning("gateway_template_fetch_failed", error=str(e))
+    if gw_template_config is None:
+        gw_template_config = {}
 
     # Pre-fetch all device configs and port stats in parallel (avoids N+1 per gateway)
     device_config_map: dict[str, dict] = {}
@@ -1034,11 +1272,17 @@ async def _validate_gateways(session, site_id: str, config_events: dict[str, dic
 
     await asyncio.gather(_fetch_device_configs(), _fetch_port_stats())
 
+    # Fetch device profiles for gateways that have one assigned
+    device_profile_map = await _fetch_device_profiles(session, org_id, list(device_config_map.values()))
+
     results = await asyncio.gather(
         *[
             _validate_single_gateway(
                 gw_stat,
                 gw_template_config,
+                device_profile_map.get(
+                    device_config_map.get(gw_stat.get("id", ""), {}).get("deviceprofile_id", ""), {}
+                ),
                 device_config_map.get(gw_stat.get("id", ""), {}),
                 port_stats_by_mac.get(gw_stat.get("mac", ""), {}),
                 config_events,
@@ -1050,9 +1294,31 @@ async def _validate_gateways(session, site_id: str, config_events: dict[str, dic
     return list(results)
 
 
+def _merge_port_configs(*configs: dict) -> dict:
+    """Merge port_config from multiple config layers (template -> profile -> device).
+
+    Each port entry is merged individually so device-level overrides don't lose
+    template-level fields like ``aggregated`` and ``ae_idx``.
+    """
+    all_keys: set[str] = set()
+    for cfg in configs:
+        all_keys.update(cfg.get("port_config", {}).keys())
+
+    merged: dict[str, dict] = {}
+    for key in all_keys:
+        port_merged: dict = {}
+        for cfg in configs:
+            pc = cfg.get("port_config", {}).get(key, {})
+            if isinstance(pc, dict):
+                port_merged.update(pc)
+        merged[key] = port_merged
+    return merged
+
+
 async def _validate_single_gateway(
     gw_stat: dict,
     gw_template_config: dict,
+    deviceprofile_config: dict,
     device_config: dict,
     port_stats_map: dict[str, dict],
     config_events: dict[str, dict],
@@ -1063,11 +1329,28 @@ async def _validate_single_gateway(
     name = gw_stat.get("name", "")
     mac = gw_stat.get("mac", "")
 
-    # Merge: device-level overrides template-level (shallow merge per config section)
-    port_config = {**gw_template_config.get("port_config", {}), **device_config.get("port_config", {})}
-    ip_configs = {**gw_template_config.get("ip_configs", {}), **device_config.get("ip_configs", {})}
-    dhcpd_config = {**gw_template_config.get("dhcpd_config", {}), **device_config.get("dhcpd_config", {})}
-    networks_list = device_config.get("networks", gw_template_config.get("networks", []))
+    # Merge: template -> deviceprofile -> device
+    # port_config uses per-port deep merge to preserve template fields (aggregated, ae_idx)
+    port_config = _merge_port_configs(gw_template_config, deviceprofile_config, device_config)
+    ip_configs = {
+        **gw_template_config.get("ip_configs", {}),
+        **deviceprofile_config.get("ip_configs", {}),
+        **device_config.get("ip_configs", {}),
+    }
+    dhcpd_config = {
+        **gw_template_config.get("dhcpd_config", {}),
+        **deviceprofile_config.get("dhcpd_config", {}),
+        **device_config.get("dhcpd_config", {}),
+    }
+    networks_list = (
+        device_config.get("networks") or deviceprofile_config.get("networks") or gw_template_config.get("networks", [])
+    )
+
+    # Resolve Jinja2 variables in the final merged configs
+    port_config = _resolve_all_vars(port_config, site_vars)  # type: ignore[assignment]
+    ip_configs = _resolve_all_vars(ip_configs, site_vars)  # type: ignore[assignment]
+    dhcpd_config = _resolve_all_vars(dhcpd_config, site_vars)  # type: ignore[assignment]
+    networks_list = _resolve_all_vars(networks_list, site_vars)  # type: ignore[assignment]
 
     # Basic checks
     checks: list[dict] = []
@@ -1079,40 +1362,144 @@ async def _validate_single_gateway(
 
     _add_config_status_check(checks, mac, config_events)
 
+    # Detect ae interfaces from port stats and supplement port_config.
+    ae_member_ports: set[str] = set()
+    for port_id, ps in port_stats_map.items():
+        if not port_id.startswith("ae") or not isinstance(ps, dict):
+            continue
+        if port_id in port_config:
+            continue
+        ae_cfg: dict = {"usage": ps.get("port_usage", "lan"), "aggregated": True}
+        if_stat_data = gw_stat.get("if_stat", {})
+        ae_networks: list[str] = []
+        ae_port_network = ""
+        for _if_key, if_data in if_stat_data.items():
+            if isinstance(if_data, dict) and if_data.get("port_id") == port_id:
+                net = if_data.get("network_name", "")
+                vlan = if_data.get("vlan", 0)
+                if net:
+                    if vlan == 0:
+                        ae_port_network = net
+                    elif net not in ae_networks:
+                        ae_networks.append(net)
+        if ae_port_network:
+            ae_cfg["port_network"] = ae_port_network
+        if ae_networks:
+            ae_cfg["networks"] = ae_networks
+        port_config[port_id] = ae_cfg
+
+    # Collect member ports for ALL ae bundles (synthesized above or pre-existing in port_config).
+    # Any port whose port_parent starts with "ae" belongs to an ae bundle and must be excluded
+    # from individual WAN/LAN classification to avoid duplicate rows.
+    for member_id, mstat in port_stats_map.items():
+        if isinstance(mstat, dict):
+            parent = mstat.get("port_parent")
+            if isinstance(parent, str) and parent.startswith("ae"):
+                ae_member_ports.add(member_id)
+
+    # Pre-resolve ae indices for aggregated ports
+    ae_idx_map: dict[str, str] = {}
+    for iface, cfg in port_config.items():
+        if isinstance(cfg, dict) and cfg.get("aggregated"):
+            idx = cfg.get("ae_idx")
+            if idx is not None and str(idx) != "":
+                ae_idx_map[iface] = f"ae{idx}"
+        if iface.startswith("ae"):
+            ae_idx_map[iface] = iface
+
     # Classify ports using port_config
     wan_ports: list[dict] = []
     lan_ports: list[dict] = []
+    if_stat = gw_stat.get("if_stat", {})
 
     for iface, cfg in port_config.items():
         if not isinstance(cfg, dict):
             continue
+        if iface in ae_member_ports:
+            continue
         usage = cfg.get("usage", "")
-        pstat = port_stats_map.get(iface, {})
+        if not usage:
+            continue
+        iface_stats = port_stats_map.get(iface, {})
+        if iface_stats.get("unconfigured"):
+            continue
+
+        effective_iface = ae_idx_map.get(iface, iface)
+
+        # Look up port stats; fall back to if_stat for ae/subinterface ports
+        pstat = port_stats_map.get(effective_iface, {})
+        if not pstat:
+            port_up = False
+            found = False
+            for _if_key, if_data in if_stat.items():
+                if isinstance(if_data, dict) and if_data.get("port_id") == effective_iface:
+                    found = True
+                    if if_data.get("up"):
+                        port_up = True
+                        break
+            if found:
+                pstat = {"up": port_up}
+
         is_up = pstat.get("up", False)
         neighbor_sys = pstat.get("neighbor_system_name", "")
         neighbor_port = pstat.get("neighbor_port_desc", "")
 
+        # Collect LACP member details for ae interfaces
+        members: list[dict] = []
+        if iface in ae_idx_map:
+            for lacp in pstat.get("lacp_stats", []):
+                member_name = lacp.get("name", "")
+                member_stat = port_stats_map.get(member_name, {})
+                members.append(
+                    {
+                        "interface": member_name,
+                        "up": member_stat.get("up", False),
+                        "neighbor_system_name": member_stat.get("neighbor_system_name", ""),
+                        "neighbor_port_desc": member_stat.get("neighbor_port_desc", ""),
+                    }
+                )
+            if not members:
+                for pid, ps in port_stats_map.items():
+                    if isinstance(ps, dict) and ps.get("port_parent") == effective_iface:
+                        members.append(
+                            {
+                                "interface": pid,
+                                "up": ps.get("up", False),
+                                "neighbor_system_name": ps.get("neighbor_system_name", ""),
+                                "neighbor_port_desc": ps.get("neighbor_port_desc", ""),
+                            }
+                        )
+
         if usage == "wan":
-            wan_ports.append(
-                {
-                    "interface": iface,
-                    "name": cfg.get("name", ""),
-                    "up": is_up,
-                    "wan_type": cfg.get("wan_type", cfg.get("wan_source", "")),
-                    "neighbor_system_name": neighbor_sys,
-                    "neighbor_port_desc": neighbor_port,
-                }
-            )
+            entry: dict = {
+                "interface": effective_iface,
+                "name": cfg.get("name", ""),
+                "up": is_up,
+                "wan_type": cfg.get("wan_type", cfg.get("wan_source", "")),
+                "neighbor_system_name": neighbor_sys,
+                "neighbor_port_desc": neighbor_port,
+            }
+            if members:
+                entry["members"] = members
+            wan_ports.append(entry)
         else:
-            lan_ports.append(
-                {
-                    "interface": iface,
-                    "network": usage,
-                    "up": is_up,
-                    "neighbor_system_name": neighbor_sys,
-                    "neighbor_port_desc": neighbor_port,
-                }
-            )
+            networks = cfg.get("networks", [])
+            port_network = cfg.get("port_network", "")
+            if usage == "lan":
+                network_label = ", ".join([port_network] + networks) if port_network else ", ".join(networks)
+            else:
+                network_label = usage
+
+            entry = {
+                "interface": effective_iface,
+                "network": network_label,
+                "up": is_up,
+                "neighbor_system_name": neighbor_sys,
+                "neighbor_port_desc": neighbor_port,
+            }
+            if members:
+                entry["members"] = members
+            lan_ports.append(entry)
 
     # WAN/LAN port checks
     wan_up = sum(1 for p in wan_ports if p["up"])
@@ -1137,8 +1524,13 @@ async def _validate_single_gateway(
         lan_status = "fail"
     checks.append({"check": "lan_port_status", "status": lan_status, "value": f"{lan_up}/{len(lan_ports)} UP"})
 
-    # Networks with IP and DHCP details
-    networks: list[dict] = _build_network_details(ip_configs, dhcpd_config, networks_list, site_vars)
+    # Networks with IP and DHCP details (filtered to port-assigned networks)
+    gw_networks: list[dict] = _build_network_details(ip_configs, dhcpd_config, networks_list, port_config)  # type: ignore[arg-type]
+
+    # Cluster / HA detection
+    cluster_result = None
+    if gw_stat.get("is_ha"):
+        cluster_result = _check_gateway_cluster(gw_stat)
 
     return {
         "device_id": device_id,
@@ -1146,10 +1538,77 @@ async def _validate_single_gateway(
         "mac": mac,
         "model": gw_stat.get("model", ""),
         "checks": checks,
+        "cluster": cluster_result,
         "wan_ports": wan_ports,
         "lan_ports": lan_ports,
-        "networks": networks,
+        "networks": gw_networks,
     }
+
+
+def _check_gateway_cluster(gw_stat: dict) -> dict:
+    """Check gateway HA cluster nodes using module_stat / module2_stat."""
+    expected_firmware = gw_stat.get("version", gw_stat.get("fw_version", ""))
+    nodes: list[tuple[str, dict]] = []
+
+    for idx, stat_key in enumerate(("module_stat", "module2_stat")):
+        mod_list = gw_stat.get(stat_key, [])
+        if isinstance(mod_list, list):
+            for mod in mod_list:
+                if not isinstance(mod, dict):
+                    continue
+                nodes.append((f"node{idx}", mod))
+
+    members: list[dict] = []
+    for default_name, mod in nodes:
+        node_fw = mod.get("version", "")
+        node_status = mod.get("status", "")
+        ha_state = mod.get("ha_state", "")
+
+        fw_match = bool(node_fw and node_fw == expected_firmware)
+        member_checks: list[dict] = [
+            {
+                "check": "firmware_match",
+                "status": "pass" if fw_match else ("fail" if node_fw else "info"),
+                "value": node_fw or "unknown",
+                "expected": expected_firmware,
+            },
+            {
+                "check": "node_connected",
+                "status": "pass" if node_status == "connected" else "fail",
+                "value": node_status or "unknown",
+            },
+        ]
+
+        members.append({
+            "node_name": mod.get("node_name") or mod.get("router_name") or default_name,
+            "mac": mod.get("mac", ""),
+            "serial": mod.get("serial", ""),
+            "model": mod.get("model", ""),
+            "firmware": node_fw,
+            "status": node_status,
+            "ha_state": ha_state,
+            "checks": member_checks,
+        })
+
+    cluster_state = gw_stat.get("cluster_stat", {}).get("state", "")
+    cluster_config = gw_stat.get("cluster_config")
+    config_summary = None
+    if isinstance(cluster_config, dict):
+        cluster_state = cluster_state or cluster_config.get("status", "")
+        config_summary = {
+            "configuration": cluster_config.get("configuration", ""),
+            "operational": cluster_config.get("operational", ""),
+            "primary_node_health": cluster_config.get("primary_node_health", ""),
+            "secondary_node_health": cluster_config.get("secondary_node_health", ""),
+            "control_link": cluster_config.get("control_link_info", {}),
+            "fabric_link": cluster_config.get("fabric_link_info", {}),
+            "reth_interfaces": cluster_config.get("ethernet_connection", []),
+        }
+
+    result: dict = {"status": cluster_state or "checked", "members": members}
+    if config_summary:
+        result["config"] = config_summary
+    return result
 
 
 _jinja_env = None
@@ -1175,13 +1634,52 @@ def _resolve_vars(text: str, site_vars: dict) -> str:
         return text
 
 
-def _build_network_details(ip_configs: dict, dhcpd_config: dict, networks_list: list, site_vars: dict) -> list[dict]:
-    """Build network details (IP, DHCP) for a gateway."""
-    # Collect network names from ip_configs keys and networks list
+def _resolve_all_vars(data: object, site_vars: dict) -> object:
+    """Recursively resolve Jinja2 variables in all string values of a data structure."""
+    if isinstance(data, str):
+        return _resolve_vars(data, site_vars)
+    if isinstance(data, dict):
+        return {k: _resolve_all_vars(v, site_vars) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_resolve_all_vars(item, site_vars) for item in data]
+    return data
+
+
+def _build_network_details(
+    ip_configs: dict,
+    dhcpd_config: dict,
+    networks_list: list,
+    port_config: dict | None = None,
+) -> list[dict]:
+    """Build network details (IP, DHCP) for a gateway.
+
+    All Jinja2 variables must be resolved before calling this function.
+
+    When *port_config* is provided, only networks that are actually referenced
+    as a ``usage`` value in a port are included.
+    """
+    # Collect candidate network names from ip_configs keys and networks list
     network_names: set[str] = set(ip_configs.keys())
     for net in networks_list:
         if isinstance(net, dict) and net.get("name"):
             network_names.add(net["name"])
+
+    # Filter to only networks actually assigned to a port
+    if port_config:
+        used_networks: set[str] = set()
+        for cfg in port_config.values():
+            if not isinstance(cfg, dict):
+                continue
+            usage = cfg.get("usage", "")
+            if usage and usage not in ("wan", "lan"):
+                used_networks.add(usage)
+            for net in cfg.get("networks", []):
+                if isinstance(net, str):
+                    used_networks.add(net)
+            pn = cfg.get("port_network", "")
+            if pn:
+                used_networks.add(pn)
+        network_names = network_names & used_networks
 
     results: list[dict] = []
     for net_name in sorted(network_names):
@@ -1192,15 +1690,12 @@ def _build_network_details(ip_configs: dict, dhcpd_config: dict, networks_list: 
         if not isinstance(dhcp_cfg, dict):
             dhcp_cfg = {}
 
-        # Gateway IP — resolve variables if present
-        raw_ip = ip_cfg.get("ip", "")
+        # Gateway IP (already resolved upstream via _resolve_all_vars)
+        gateway_ip = ip_cfg.get("ip", "")
         netmask = ip_cfg.get("netmask", ip_cfg.get("prefix_length", ""))
-        gateway_ip = _resolve_vars(raw_ip, site_vars)
         if gateway_ip and netmask:
-            # netmask can be dotted (255.255.255.0), CIDR prefix (/24 or 24), or empty
             netmask_str = str(netmask).lstrip("/")
             if "." in netmask_str:
-                # Convert dotted netmask to CIDR
                 cidr = sum(bin(int(x)).count("1") for x in netmask_str.split("."))
                 gateway_ip = f"{gateway_ip}/{cidr}"
             else:

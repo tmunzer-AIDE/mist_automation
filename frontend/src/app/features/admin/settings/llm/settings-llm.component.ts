@@ -14,6 +14,7 @@ import { LlmConfig } from '../../../../core/models/llm.model';
 import { SettingsService } from '../settings.service';
 import { LlmConfigDialogComponent } from './llm-config-dialog.component';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
+import { SkillsAdminComponent } from './skills-admin.component';
 
 @Component({
   selector: 'app-settings-llm',
@@ -29,6 +30,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
     MatSnackBarModule,
     MatTableModule,
     MatTooltipModule,
+    SkillsAdminComponent,
   ],
   template: `
     @if (loading()) {
@@ -121,6 +123,8 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
               }
             </mat-card-content>
           </mat-card>
+
+          <app-skills-admin></app-skills-admin>
         }
       </div>
     }

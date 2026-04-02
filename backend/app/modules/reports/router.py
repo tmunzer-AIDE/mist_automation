@@ -132,7 +132,7 @@ async def create_validation_report(
     from app.modules.reports.services.validation_service import run_post_deployment_validation
 
     create_background_task(
-        run_post_deployment_validation(str(job.id), request.site_id),
+        run_post_deployment_validation(str(job.id), request.site_id, include_cable_tests=request.include_cable_tests),
         name=f"validation-report-{job.id}",
     )
 

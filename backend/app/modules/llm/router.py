@@ -9,14 +9,13 @@ from contextlib import asynccontextmanager
 
 import structlog
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_current_user_from_token, require_admin, require_automation_role, require_backup_role
 from app.models.user import User
-from app.modules.llm.services.llm_service_factory import _LOCAL_PROVIDERS
-from fastapi import Query
-
 from app.modules.llm.schemas import (
+    AddDirectSkillRequest,
+    AddGitRepoRequest,
     AuditLogSummaryRequest,
     BackupListSummaryRequest,
     CategorySelectionRequest,
@@ -47,6 +46,8 @@ from app.modules.llm.schemas import (
     MCPConfigUpdate,
     MCPConnectionTestRequest,
     McpToolCallRequest,
+    SkillGitRepoResponse,
+    SkillResponse,
     SummarizeDiffRequest,
     SummaryResponse,
     SystemLogSummaryRequest,
@@ -55,6 +56,7 @@ from app.modules.llm.schemas import (
     WorkflowAssistRequest,
     WorkflowAssistResponse,
 )
+from app.modules.llm.services.llm_service_factory import _LOCAL_PROVIDERS
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -103,6 +105,18 @@ def _check_llm_rate_limit(user_id: str) -> None:
             detail="Too many LLM requests. Please wait before trying again.",
         )
     _llm_requests[user_id].append(now)
+
+
+async def _get_canvas_instructions() -> str:
+    """Load the effective canvas tier from the default LLM config and return instructions."""
+    from app.modules.llm.models import LLMConfig as LLMConfigModel
+    from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
+    from app.modules.llm.services.prompt_builders import build_canvas_instructions
+
+    default_config = await LLMConfigModel.find_one(LLMConfigModel.is_default == True, LLMConfigModel.enabled == True)  # noqa: E712
+    if not default_config:
+        return ""
+    return build_canvas_instructions(get_effective_canvas_tier(default_config))
 
 
 async def _load_external_mcp_clients(config_ids: list[str]) -> list:
@@ -203,6 +217,8 @@ async def test_llm_connection(_current_user: User = Depends(get_current_user_fro
 
 
 def _config_to_response(cfg) -> LLMConfigResponse:
+    from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
+
     return LLMConfigResponse(
         id=str(cfg.id),
         name=cfg.name,
@@ -214,6 +230,8 @@ def _config_to_response(cfg) -> LLMConfigResponse:
         max_tokens_per_request=cfg.max_tokens_per_request,
         is_default=cfg.is_default,
         enabled=cfg.enabled,
+        canvas_prompt_tier=cfg.canvas_prompt_tier,
+        canvas_prompt_tier_effective=get_effective_canvas_tier(cfg),
     )
 
 
@@ -249,6 +267,7 @@ async def create_llm_config(
         max_tokens_per_request=request.max_tokens_per_request,
         is_default=request.is_default,
         enabled=request.enabled,
+        canvas_prompt_tier=request.canvas_prompt_tier,
     )
     await cfg.insert()
     return _config_to_response(cfg)
@@ -443,12 +462,14 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
     import httpx
 
     try:
-        if provider in ("openai", "azure_openai", "lm_studio", "ollama"):
+        if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp"):
             from openai import AsyncOpenAI
 
             url = base_url
             if provider == "lm_studio" and not url:
                 url = "http://localhost:1234/v1"
+            if provider == "llama_cpp" and not url:
+                url = "http://localhost:8080/v1"
             if url and not url.rstrip("/").endswith("/v1"):
                 url = f"{url.rstrip('/')}/v1"
 
@@ -482,10 +503,22 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
 
 
 def _mcp_config_to_response(cfg) -> MCPConfigResponse:
+    import json as json_mod
+
+    from app.core.security import decrypt_sensitive_data
+
+    headers = None
+    if cfg.headers:
+        try:
+            parsed = json_mod.loads(decrypt_sensitive_data(cfg.headers))
+            headers = {k: "••••••••" for k in parsed}  # Mask values, show keys only
+        except Exception:
+            pass  # Decryption failure — return None, headers_set still shows True
     return MCPConfigResponse(
         id=str(cfg.id),
         name=cfg.name,
         url=cfg.url,
+        headers=headers,
         headers_set=bool(cfg.headers),
         ssl_verify=cfg.ssl_verify,
         enabled=cfg.enabled,
@@ -776,6 +809,13 @@ async def summarize_backup_change(
         version_id_2=request.version_id_2,
         object_id=ctx.get("object_id", ""),
     )
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
 
     thread = await _load_or_create_thread(
         request.thread_id, current_user.id, "backup_summary", prompt_messages, context_ref=request.version_id_2
@@ -1252,6 +1292,13 @@ async def summarize_webhook_events(
     events_summary, event_count = await get_webhook_summary_context(hours=request.hours)
 
     prompt_messages = build_webhook_summary_prompt(events_summary, request.hours)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "webhook_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1288,6 +1335,13 @@ async def summarize_dashboard(
     context = await get_dashboard_summary_context()
 
     prompt_messages = build_dashboard_summary_prompt(context)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "dashboard_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1335,6 +1389,13 @@ async def summarize_audit_logs(
         "end_date": request.end_date,
     }
     prompt_messages = build_audit_log_summary_prompt(context, filters)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "audit_log_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1375,6 +1436,13 @@ async def summarize_system_logs(
 
     filters = {"level": request.level, "logger": request.logger}
     prompt_messages = build_system_log_summary_prompt(context, filters)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "system_log_summary", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1416,6 +1484,13 @@ async def summarize_backups(
 
     filters = {"object_type": request.object_type, "site_id": request.site_id, "scope": request.scope}
     prompt_messages = build_backup_list_summary_prompt(context, filters)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
+        prompt_messages[0]["content"] += "\n\n" + canvas_instr
+    from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
+
+    catalog = await build_skills_catalog()
+    prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "backup_summary_list", prompt_messages)
 
     llm_messages = thread.to_llm_messages()
@@ -1451,9 +1526,16 @@ async def global_chat(
         build_global_chat_system_prompt,
         build_workflow_editor_context,
     )
+    from app.modules.llm.services.skills_service import build_skills_catalog
 
     llm = await create_llm_service()
+    skills_catalog = await build_skills_catalog()
     system_prompt = build_global_chat_system_prompt(current_user.roles)
+    canvas_instr = await _get_canvas_instructions()
+    if canvas_instr:
+        system_prompt += "\n\n" + canvas_instr
+    if skills_catalog:
+        system_prompt += "\n\n" + skills_catalog
     safe_ctx = _sanitize_for_prompt(request.page_context, max_len=2000) if request.page_context else None
     if safe_ctx:
         system_prompt += f"\n\nCurrent UI context:\n{safe_ctx}"
@@ -1469,6 +1551,10 @@ async def global_chat(
         # Update system prompt with latest page context for existing threads
         if thread.messages and thread.messages[0].role == "system":
             base_prompt = build_global_chat_system_prompt(current_user.roles)
+            if canvas_instr:
+                base_prompt += "\n\n" + canvas_instr
+            if skills_catalog:
+                base_prompt += "\n\n" + skills_catalog
             thread.messages[0].content = base_prompt + f"\n\nCurrent UI context:\n{safe_ctx}"
 
     # Add user message
@@ -1643,7 +1729,7 @@ async def get_thread(
     )
 
 
-@router.delete("/llm/threads/{thread_id}", tags=["LLM"])
+@router.delete("/llm/threads/{thread_id}", tags=["LLM"], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thread(
     thread_id: str,
     current_user: User = Depends(get_current_user_from_token),
@@ -1658,4 +1744,334 @@ async def delete_thread(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     await thread.delete()
-    return {"status": "deleted"}
+
+
+# ── Skills (Agent Skills support) ────────────────────────────────────────────
+
+
+def _skill_to_response(skill, git_repo_url: str | None = None) -> SkillResponse:
+    return SkillResponse(
+        id=str(skill.id),
+        name=skill.name,
+        description=skill.description,
+        source=skill.source,
+        enabled=skill.enabled,
+        git_repo_id=str(skill.git_repo_id) if skill.git_repo_id else None,
+        git_repo_url=git_repo_url,
+        error=skill.error,
+        last_synced_at=skill.last_synced_at,
+    )
+
+
+def _repo_to_response(repo) -> SkillGitRepoResponse:
+    return SkillGitRepoResponse(
+        id=str(repo.id),
+        url=repo.url,
+        branch=repo.branch,
+        token_set=repo.token_set,
+        local_path=repo.local_path,
+        last_refreshed_at=repo.last_refreshed_at,
+        error=repo.error,
+    )
+
+
+@router.get("/llm/skills", tags=["LLM"])
+async def list_skills(
+    _: User = Depends(require_admin),
+):
+    """List all skills. Admin only."""
+    from app.modules.llm.models import Skill, SkillGitRepo
+
+    skills = await Skill.find_all().to_list()
+    # Build a repo URL lookup map to avoid N+1 queries
+    repo_ids = {str(s.git_repo_id) for s in skills if s.git_repo_id}
+    repos_by_id: dict[str, str] = {}
+    if repo_ids:
+        repos = await SkillGitRepo.find({"_id": {"$in": [PydanticObjectId(r) for r in repo_ids]}}).to_list()
+        repos_by_id = {str(r.id): r.url for r in repos}
+
+    return [_skill_to_response(s, repos_by_id.get(str(s.git_repo_id))) for s in skills]
+
+
+@router.post("/llm/skills/direct", status_code=status.HTTP_201_CREATED, tags=["LLM"])
+async def add_direct_skill(
+    request: AddDirectSkillRequest,
+    _: User = Depends(require_admin),
+):
+    """Add a skill by pasting its SKILL.md content. Admin only."""
+    import os
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from app.config import settings
+    from app.modules.llm.models import Skill
+    from app.modules.llm.services.skills_service import parse_skill_md
+
+    # Parse frontmatter from the submitted content
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as tmp:
+        tmp.write(request.content)
+        tmp_path = tmp.name
+
+    try:
+        try:
+            name, description, _ = parse_skill_md(Path(tmp_path))
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    finally:
+        os.unlink(tmp_path)
+
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKILL.md 'name' field is required")
+
+    import re
+
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Skill name must be 1-64 chars, lowercase alphanumeric/hyphens/underscores, no path separators",
+        )
+
+    # Check for name collision
+    existing = await Skill.find_one(Skill.name == name)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"A skill named '{name}' already exists")
+
+    # Write to filesystem
+    skill_dir = Path(settings.skills_dir) / "direct" / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(request.content, encoding="utf-8")
+
+    now = datetime.now(timezone.utc)
+    skill = Skill(
+        name=name,
+        description=description,
+        source="direct",
+        local_path=str(skill_dir),
+        enabled=True,
+        error=None,
+        last_synced_at=now,
+    )
+    await skill.insert()
+    return _skill_to_response(skill)
+
+
+@router.patch("/llm/skills/{skill_id}/toggle", tags=["LLM"])
+async def toggle_skill(
+    skill_id: str,
+    _: User = Depends(require_admin),
+):
+    """Enable or disable a skill. Admin only."""
+    from app.modules.llm.models import Skill
+
+    oid = _parse_oid(skill_id, "skill ID")
+    skill = await Skill.get(oid)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
+
+    skill.enabled = not skill.enabled
+    skill.update_timestamp()
+    await skill.save()
+    return _skill_to_response(skill)
+
+
+@router.delete("/llm/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["LLM"])
+async def delete_skill(
+    skill_id: str,
+    _: User = Depends(require_admin),
+):
+    """Delete a direct-source skill (and its directory). Git-sourced skills cannot be deleted individually. Admin only."""
+    from pathlib import Path
+
+    from app.modules.llm.models import Skill
+    from app.modules.llm.services.skills_service import remove_dir
+
+    oid = _parse_oid(skill_id, "skill ID")
+    skill = await Skill.get(oid)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
+    if skill.source == "git":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Git-sourced skills cannot be deleted individually. Disable the skill or delete the repo.",
+        )
+
+    remove_dir(Path(skill.local_path))
+    await skill.delete()
+
+
+# ── Skill Git Repos ───────────────────────────────────────────────────────────
+
+
+@router.get("/llm/skills/repos", tags=["LLM"])
+async def list_skill_repos(
+    _: User = Depends(require_admin),
+):
+    """List all git repo skills sources. Admin only."""
+    from app.modules.llm.models import SkillGitRepo
+
+    repos = await SkillGitRepo.find_all().to_list()
+    return [_repo_to_response(r) for r in repos]
+
+
+@router.get("/llm/skills/repos/{repo_id}", tags=["LLM"])
+async def get_skill_repo(
+    repo_id: str,
+    _: User = Depends(require_admin),
+):
+    """Get a single git repo record (used for polling status). Admin only."""
+    from app.modules.llm.models import SkillGitRepo
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+    return _repo_to_response(repo)
+
+
+async def _clone_and_scan(repo_id: str) -> None:
+    """Background task: clone a git repo and scan for skills."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from beanie import PydanticObjectId
+
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import SkillGitRepo
+    from app.modules.llm.services.skills_service import clone_repo, sync_skills_from_repo
+
+    repo = await SkillGitRepo.get(PydanticObjectId(repo_id))
+    if not repo:
+        return
+
+    token = decrypt_sensitive_data(repo.token) if repo.token else None
+
+    try:
+        await clone_repo(repo.url, token, repo.branch, Path(repo.local_path))
+        added, updated = await sync_skills_from_repo(repo_id, Path(repo.local_path))
+        repo.last_refreshed_at = datetime.now(timezone.utc)
+        repo.error = None
+        repo.update_timestamp()
+        await repo.save()
+        logger.info("skill_repo_cloned", repo_id=repo_id, added=added, updated=updated)
+    except Exception as exc:
+        repo.error = str(exc)[:500]
+        repo.update_timestamp()
+        await repo.save()
+        logger.error("skill_repo_clone_failed", repo_id=repo_id, error=str(exc))
+
+
+async def _pull_and_scan(repo_id: str) -> None:
+    """Background task: pull a git repo and re-scan for skills."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from beanie import PydanticObjectId
+
+    from app.core.security import decrypt_sensitive_data
+    from app.modules.llm.models import SkillGitRepo
+    from app.modules.llm.services.skills_service import pull_repo, sync_skills_from_repo
+
+    repo = await SkillGitRepo.get(PydanticObjectId(repo_id))
+    if not repo:
+        return
+    if not repo.local_path:
+        logger.error("skill_repo_pull_skipped_no_path", repo_id=repo_id)
+        return
+
+    token = decrypt_sensitive_data(repo.token) if repo.token else None
+
+    try:
+        await pull_repo(Path(repo.local_path), repo.url, token)
+        added, updated = await sync_skills_from_repo(repo_id, Path(repo.local_path))
+        repo.last_refreshed_at = datetime.now(timezone.utc)
+        repo.error = None
+        repo.update_timestamp()
+        await repo.save()
+        logger.info("skill_repo_pulled", repo_id=repo_id, added=added, updated=updated)
+    except Exception as exc:
+        repo.error = str(exc)[:500]
+        repo.update_timestamp()
+        await repo.save()
+        logger.error("skill_repo_pull_failed", repo_id=repo_id, error=str(exc))
+
+
+@router.post("/llm/skills/repos", status_code=status.HTTP_201_CREATED, tags=["LLM"])
+async def add_skill_repo(
+    request: AddGitRepoRequest,
+    _: User = Depends(require_admin),
+):
+    """Add a git repo as a skills source. Clone + scan runs in the background. Admin only."""
+    from pathlib import Path
+
+    from app.config import settings
+    from app.core.security import encrypt_sensitive_data
+    from app.core.tasks import create_background_task
+    from app.modules.llm.models import SkillGitRepo
+    from app.utils.url_safety import validate_outbound_url
+
+    try:
+        validate_outbound_url(request.url)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid URL: {exc}") from exc
+
+    encrypted_token = encrypt_sensitive_data(request.token) if request.token else None
+
+    repo = SkillGitRepo(
+        url=request.url,
+        branch=request.branch,
+        token=encrypted_token,
+        local_path="",  # set after insert (need the ID for the path)
+    )
+    await repo.insert()
+
+    local_path = str(Path(settings.skills_dir) / "repos" / str(repo.id))
+    repo.local_path = local_path
+    repo.update_timestamp()
+    await repo.save()
+
+    create_background_task(_clone_and_scan(str(repo.id)), name=f"clone_skill_repo_{repo.id}")
+    return _repo_to_response(repo)
+
+
+@router.post("/llm/skills/repos/{repo_id}/refresh", status_code=status.HTTP_202_ACCEPTED, tags=["LLM"])
+async def refresh_skill_repo(
+    repo_id: str,
+    _: User = Depends(require_admin),
+):
+    """Pull latest changes and re-scan for skills. Runs in the background. Admin only."""
+    from app.core.tasks import create_background_task
+    from app.modules.llm.models import SkillGitRepo
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+
+    create_background_task(_pull_and_scan(repo_id), name=f"pull_skill_repo_{repo_id}")
+    return {"status": "refreshing"}
+
+
+@router.delete("/llm/skills/repos/{repo_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["LLM"])
+async def delete_skill_repo(
+    repo_id: str,
+    _: User = Depends(require_admin),
+):
+    """Delete a git repo, all its skills, and the cloned directory. Admin only."""
+    from pathlib import Path
+
+    from app.modules.llm.models import Skill, SkillGitRepo
+    from app.modules.llm.services.skills_service import remove_dir
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+
+    # Delete all skills from this repo
+    await Skill.find(Skill.git_repo_id == oid).delete()
+
+    # Remove cloned directory
+    remove_dir(Path(repo.local_path))
+
+    await repo.delete()

@@ -22,6 +22,8 @@ export interface LlmConfig {
   max_tokens_per_request: number;
   is_default: boolean;
   enabled: boolean;
+  canvas_prompt_tier: string | null;
+  canvas_prompt_tier_effective: string;
 }
 
 export interface LlmConfigAvailable {
@@ -48,6 +50,7 @@ export interface McpConfig {
   id: string;
   name: string;
   url: string;
+  headers: Record<string, string> | null;
   headers_set: boolean;
   ssl_verify: boolean;
   enabled: boolean;
@@ -108,4 +111,41 @@ export interface ConversationThreadDetail {
 export interface ConversationThreadListResponse {
   threads: ConversationThreadSummary[];
   total: number;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  source: 'direct' | 'git';
+  enabled: boolean;
+  git_repo_id: string | null;
+  git_repo_url: string | null;
+  error: string | null;
+  last_synced_at: string | null;
+}
+
+export interface SkillGitRepo {
+  id: string;
+  url: string;
+  branch: string;
+  token_set: boolean;
+  local_path: string;
+  last_refreshed_at: string | null;
+  error: string | null;
+}
+
+export type ArtifactType = 'code' | 'markdown' | 'html' | 'mermaid' | 'svg' | 'chart';
+
+export interface Artifact {
+  id: string;
+  type: ArtifactType;
+  title: string;
+  language?: string;
+  content: string;
+}
+
+export interface ParsedContent {
+  prose: string;
+  artifacts: Artifact[];
 }

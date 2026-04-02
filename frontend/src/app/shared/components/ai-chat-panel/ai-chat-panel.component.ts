@@ -26,9 +26,11 @@ import { RestoreDiffCardComponent, RestoreDiffData } from './restore-diff-card.c
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { Subscription } from 'rxjs';
-import { McpConfigAvailable } from '../../../core/models/llm.model';
+import { Artifact, McpConfigAvailable } from '../../../core/models/llm.model';
 import { LlmService } from '../../../core/services/llm.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { ArtifactCardComponent } from '../artifact-card/artifact-card.component';
+import { ArtifactParserService } from '../../services/artifact-parser.service';
 import { extractErrorMessage } from '../../utils/error.utils';
 
 export interface ChatMessage {
@@ -38,8 +40,15 @@ export interface ChatMessage {
   metadata?: { tool_calls?: { tool: string; server: string; status: string; result_preview?: string }[]; thinking_texts?: string[] } | null;
 }
 
+export interface MessageSection {
+  type: 'prose' | 'artifact';
+  html?: string;
+  artifact?: Artifact;
+  state?: 'loading' | 'ready';
+}
+
 export type TimelineItem =
-  | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string }
+  | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string; sections?: MessageSection[] }
   | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; resultPreview?: string; expanded: boolean };
 
 function renderMarkdown(md: string): string {
@@ -50,7 +59,7 @@ function renderMarkdown(md: string): string {
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
-  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, AiIconComponent, RestoreDiffCardComponent],
+  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, AiIconComponent, RestoreDiffCardComponent, ArtifactCardComponent],
   template: `
     <div class="ai-chat-panel">
       <div class="chat-messages" #chatMessages aria-live="polite" aria-relevant="additions">
@@ -76,8 +85,19 @@ function renderMarkdown(md: string): string {
                   <app-ai-icon [size]="16"></app-ai-icon>
                 </div>
               }
-              <div class="message-bubble">
-                @if (item.role === 'assistant') {
+              <div class="message-bubble" [class.has-artifacts]="item.sections?.length">
+                @if (item.role === 'assistant' && item.sections?.length) {
+                  @for (section of item.sections; track $index) {
+                    @if (section.type === 'prose' && section.html) {
+                      <div class="message-content markdown-body" [innerHTML]="section.html"></div>
+                    } @else if (section.type === 'artifact' && section.artifact) {
+                      <app-artifact-card
+                        [artifact]="section.artifact"
+                        [state]="section.state ?? 'ready'"
+                      />
+                    }
+                  }
+                } @else if (item.role === 'assistant') {
                   <div class="message-content markdown-body" [innerHTML]="item.html"></div>
                 } @else {
                   <div class="message-content">{{ item.content }}</div>
@@ -461,6 +481,10 @@ function renderMarkdown(md: string): string {
         border-top: 1px solid var(--mat-sys-outline-variant);
       }
 
+      .has-artifacts app-artifact-card {
+        margin: 8px 0;
+      }
+
       :host ::ng-deep .markdown-body {
         p {
           margin: 0 0 8px;
@@ -743,9 +767,15 @@ export class AiChatPanelComponent {
   private readonly wsService = inject(WebSocketService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly artifactParser = inject(ArtifactParserService);
   private readonly chatMessagesEl = viewChild<ElementRef<HTMLDivElement>>('chatMessages');
   private readonly chatInputEl = viewChild<ElementRef<HTMLTextAreaElement>>('chatInput');
   private streamSub: Subscription | null = null;
+  private _artifactBuffer: string | null = null;
+  private _artifactMeta: { type: string; title: string; language?: string } | null = null;
+  /** Tracks how far into streamedContent has been fully rendered, so new artifact detection
+   *  starts AFTER already-processed artifacts and doesn't re-match their opening tags. */
+  private _streamProcessedTo = 0;
 
   /** Unified chronological timeline of messages and tool calls */
   timeline = signal<TimelineItem[]>([]);
@@ -809,17 +839,20 @@ export class AiChatPanelComponent {
       const summary = this.initialSummary();
       if (!summary) return;
       untracked(() => {
+        const items = this._buildArtifactTimeline(summary, 'assistant');
         this.timeline.update((tl) => {
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: summary, html: renderMarkdown(summary) };
-          const last = tl[tl.length - 1];
-          if (last?.kind === 'message' && last.role === 'assistant') {
-            return [...tl.slice(0, -1), entry];
+          let trimIdx = tl.length;
+          while (trimIdx > 0 && tl[trimIdx - 1].kind === 'message' && (tl[trimIdx - 1] as { role: string }).role === 'assistant') {
+            trimIdx--;
           }
-          return [...tl, entry];
+          const base = tl.slice(0, trimIdx);
+          return [...base, ...items];
         });
       });
       this.streamSub?.unsubscribe();
       this.streamSub = null;
+      this._artifactBuffer = null;
+      this._artifactMeta = null;
       this.scrollToBottom();
     });
     // Load pre-existing messages (thread history) or clear on reset
@@ -851,7 +884,10 @@ export class AiChatPanelComponent {
           }
         }
         // Skip empty assistant messages (tool-call-only responses have no text content)
-        if (m.role === 'user' || m.content?.trim()) {
+        if (m.role === 'assistant' && m.content?.trim()) {
+          const parsed = this._buildArtifactTimeline(m.content, 'assistant');
+          tl.push(...parsed);
+        } else if (m.role === 'user' || m.content?.trim()) {
           tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '' });
         }
       }
@@ -898,19 +934,20 @@ export class AiChatPanelComponent {
 
     // Subscribe to streaming tokens via WebSocket
     const streamId = crypto.randomUUID();
+    this._streamProcessedTo = 0;
     this._subscribeToStream(`llm:${streamId}`);
 
     // Send API request with stream_id
     this.llmService.followUp(thread, text, streamId, this.mcpConfigIds()).subscribe({
       next: (res) => {
-        // Replace the last streamed assistant bubble with the final polished response
+        // Replace the last streamed assistant bubble with the final artifact-aware response
         this.timeline.update((tl) => {
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: res.reply, html: renderMarkdown(res.reply) };
+          const items = this._buildArtifactTimeline(res.reply, 'assistant');
           const last = tl[tl.length - 1];
           if (last?.kind === 'message' && last.role === 'assistant') {
-            return [...tl.slice(0, -1), entry];
+            return [...tl.slice(0, -1), ...items];
           }
-          return [...tl, entry];
+          return [...tl, ...items];
         });
         this.loading.set(false);
         this.followUpSent.emit();
@@ -923,6 +960,35 @@ export class AiChatPanelComponent {
         this.loading.set(false);
       },
     });
+  }
+
+  /** Parse content through artifact parser and return a single message with inline sections. */
+  private _buildArtifactTimeline(content: string, role: 'user' | 'assistant'): TimelineItem[] {
+    if (role === 'user') {
+      return [{ kind: 'message', role, content, html: '' }];
+    }
+    const parsed = this.artifactParser.parse(content);
+    if (parsed.artifacts.length === 0) {
+      return [{ kind: 'message', role, content, html: renderMarkdown(content) }];
+    }
+    // Build interleaved sections: prose + artifact + prose + ...
+    const sections: MessageSection[] = [];
+    const parts = parsed.prose.split(/\[artifact:[^\]]+\]/);
+    const placeholders = [...parsed.prose.matchAll(/\[artifact:([^\]]+)\]/g)];
+    for (let i = 0; i < parts.length; i++) {
+      const text = parts[i].replace(/^\n+|\n+$/g, '');
+      if (text) {
+        sections.push({ type: 'prose', html: renderMarkdown(text) });
+      }
+      if (i < placeholders.length) {
+        const artifactId = placeholders[i][1];
+        const artifact = parsed.artifacts.find((a) => a.id === artifactId);
+        if (artifact) {
+          sections.push({ type: 'artifact', artifact, state: 'ready' });
+        }
+      }
+    }
+    return [{ kind: 'message', role, content, html: '', sections }];
   }
 
   /** Subscribe to a WS stream channel and handle all event types. */
@@ -982,14 +1048,81 @@ export class AiChatPanelComponent {
           }
           this.waitingAfterTool.set(false);
           streamedContent += msg.content ?? '';
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) };
-          this.timeline.update((tl) => {
-            const last = tl[tl.length - 1];
-            if (last?.kind === 'message' && last.role === 'assistant') {
-              return [...tl.slice(0, -1), entry];
+
+          if (this._artifactBuffer !== null) {
+            // Buffering artifact content
+            this._artifactBuffer += msg.content ?? '';
+            if (this.artifactParser.hasClosingTag(this._artifactBuffer)) {
+              // Artifact complete -- parse and render as single message with sections
+              const items = this._buildArtifactTimeline(streamedContent, 'assistant');
+              this.timeline.update((tl) => {
+                // Remove the last assistant message (which had the loading artifact)
+                const trimmed = tl.filter(
+                  (item, idx) => !(idx === tl.length - 1 && item.kind === 'message' && item.role === 'assistant'),
+                );
+                return [...trimmed, ...items];
+              });
+              this._artifactBuffer = null;
+              this._artifactMeta = null;
+              this._streamProcessedTo = streamedContent.length;
             }
-            return [...tl, entry];
-          });
+          } else {
+            // Search only from the last fully-processed position so prior artifact opening tags
+            // are not re-matched when a subsequent artifact starts streaming.
+            const unprocessed = streamedContent.slice(this._streamProcessedTo);
+            const rawMeta = this.artifactParser.detectOpeningTag(unprocessed);
+            const tagMeta = rawMeta
+              ? { ...rawMeta, startIndex: rawMeta.startIndex + this._streamProcessedTo, endIndex: rawMeta.endIndex + this._streamProcessedTo }
+              : null;
+            const contentFromTag = tagMeta ? streamedContent.slice(tagMeta.startIndex) : '';
+            if (tagMeta && !this.artifactParser.hasClosingTag(contentFromTag)) {
+              // Opening tag detected -- start buffering, capture any content already after the tag
+              this._artifactMeta = tagMeta;
+              this._artifactBuffer = streamedContent.slice(tagMeta.endIndex);
+              const proseBeforeTag = streamedContent.slice(0, tagMeta.startIndex).replace(/^\n+|\n+$/g, '');
+              const loadingArtifact: Artifact = {
+                id: crypto.randomUUID(),
+                type: tagMeta.type as Artifact['type'],
+                title: tagMeta.title,
+                language: tagMeta.language,
+                content: '',
+              };
+              const sections: MessageSection[] = [];
+              if (proseBeforeTag) {
+                sections.push({ type: 'prose', html: renderMarkdown(proseBeforeTag) });
+              }
+              sections.push({ type: 'artifact', artifact: loadingArtifact, state: 'loading' });
+              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: '', sections };
+              this.timeline.update((tl) => {
+                const last = tl[tl.length - 1];
+                if (last?.kind === 'message' && last.role === 'assistant') {
+                  return [...tl.slice(0, -1), entry];
+                }
+                return [...tl, entry];
+              });
+            } else if (tagMeta && this.artifactParser.hasClosingTag(contentFromTag)) {
+              // Complete artifact arrived in one chunk
+              this._streamProcessedTo = streamedContent.length;
+              const items = this._buildArtifactTimeline(streamedContent, 'assistant');
+              this.timeline.update((tl) => {
+                const last = tl[tl.length - 1];
+                if (last?.kind === 'message' && last.role === 'assistant') {
+                  return [...tl.slice(0, -1), ...items];
+                }
+                return [...tl, ...items];
+              });
+            } else {
+              // Normal text
+              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) };
+              this.timeline.update((tl) => {
+                const last = tl[tl.length - 1];
+                if (last?.kind === 'message' && last.role === 'assistant') {
+                  return [...tl.slice(0, -1), entry];
+                }
+                return [...tl, entry];
+              });
+            }
+          }
           this.scrollToBottom();
         } else if (msg.type === 'elicitation' && msg.request_id && msg.description) {
           this.pendingElicitation.set({
@@ -1000,6 +1133,29 @@ export class AiChatPanelComponent {
           });
           this.scrollToBottom();
         } else if (msg.type === 'done') {
+          if (this._artifactBuffer !== null && this._artifactMeta) {
+            const truncatedArtifact: Artifact = {
+              id: crypto.randomUUID(),
+              type: (this._artifactMeta.type as Artifact['type']) || 'code',
+              title: this._artifactMeta.title + ' (Truncated)',
+              language: this._artifactMeta.language,
+              content: this._artifactBuffer,
+            };
+            const section: MessageSection = { type: 'artifact', artifact: truncatedArtifact, state: 'ready' };
+            this.timeline.update((tl) => {
+              const last = tl[tl.length - 1];
+              if (last?.kind === 'message' && last.role === 'assistant' && last.sections?.length) {
+                // Replace loading section with ready truncated artifact
+                const updatedSections = last.sections.map((s) =>
+                  s.type === 'artifact' && s.state === 'loading' ? section : s,
+                );
+                return [...tl.slice(0, -1), { ...last, sections: updatedSections }];
+              }
+              return [...tl, { kind: 'message' as const, role: 'assistant' as const, content: '', html: '', sections: [section] }];
+            });
+            this._artifactBuffer = null;
+            this._artifactMeta = null;
+          }
           this.streamSub?.unsubscribe();
           this.streamSub = null;
         }
@@ -1010,6 +1166,9 @@ export class AiChatPanelComponent {
   startStream(streamId: string, userMessage: string): void {
     this.timeline.set([{ kind: 'message' as const, role: 'user' as const, content: userMessage, html: '' }]);
     this.waitingAfterTool.set(false);
+    this._artifactBuffer = null;
+    this._artifactMeta = null;
+    this._streamProcessedTo = 0;
     this._subscribeToStream(`llm:${streamId}`);
   }
 
@@ -1023,6 +1182,9 @@ export class AiChatPanelComponent {
     this.pendingElicitation.set(null);
     this.waitingAfterTool.set(false);
     this.followUpText.reset();
+    this._artifactBuffer = null;
+    this._artifactMeta = null;
+    this._streamProcessedTo = 0;
   }
 
   toggleToolExpand(index: number): void {

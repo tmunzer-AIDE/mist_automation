@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # Mist OpenAPI Spec
     mist_oas_url: str = Field(default="https://raw.githubusercontent.com/mistsys/mist_openapi/refs/heads/master/mist.openapi.yaml", description="URL to Mist OpenAPI JSON for variable autocomplete and mock responses")
 
+    # Skills (Agent Skills filesystem storage)
+    skills_dir: str = Field(default="/data/skills", description="Root directory for Agent Skills storage (must be a persistent volume in Docker)")
+
     # TLS / Proxy
     ca_cert_path: str | None = Field(default=None, description="Path to custom CA certificate bundle (PEM) for TLS-intercepting proxies like ZScaler")
 

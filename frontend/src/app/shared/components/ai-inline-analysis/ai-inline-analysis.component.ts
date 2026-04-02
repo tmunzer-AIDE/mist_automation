@@ -91,8 +91,8 @@ import { AiIconComponent } from '../ai-icon/ai-icon.component';
         background: color-mix(in srgb, var(--mat-sys-primary) 4%, transparent);
         border-radius: 10px;
         border: 1px solid color-mix(in srgb, var(--mat-sys-primary) 15%, transparent);
-        max-height: 40vh;
-        overflow: hidden;
+        max-height: 50vh;
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
         animation: analysis-expand 200ms ease;
@@ -104,7 +104,7 @@ import { AiIconComponent } from '../ai-icon/ai-icon.component';
           opacity: 0;
         }
         to {
-          max-height: 40vh;
+          max-height: 50vh;
           opacity: 1;
         }
       }

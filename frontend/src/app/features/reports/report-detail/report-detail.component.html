@@ -329,7 +329,8 @@
         *matHeaderRowDef="['validation', 'connection', 'name', 'model', 'firmware', 'eth0_speed', 'power', 'config_status', 'lldp']">
       </tr>
       <tr mat-row
-        *matRowDef="let row; columns: ['validation', 'connection', 'name', 'model', 'firmware', 'eth0_speed', 'power', 'config_status', 'lldp']">
+        *matRowDef="let row; columns: ['validation', 'connection', 'name', 'model', 'firmware', 'eth0_speed', 'power', 'config_status', 'lldp']"
+        class="clickable-row" (click)="openDeviceDetail('ap', row)">
       </tr>
     </table>
   </div>

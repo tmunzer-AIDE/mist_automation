@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AsyncPipe } from '@angular/common';
 import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { MatBadgeModule } from '@angular/material/badge';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
@@ -13,7 +14,7 @@ import { Observable, filter, map } from 'rxjs';
 import { selectUserRoles } from '../../core/state/auth/auth.selectors';
 import { GlobalChatService } from '../../core/services/global-chat.service';
 import { WebSocketService } from '../../core/services/websocket.service';
-import { NAV_ITEMS, ADMIN_NAV_ITEM, NavItem } from './nav-items.config';
+import { NAV_ITEMS, MNTR_NAV_ITEMS, ADMIN_NAV_ITEM, NavItem } from './nav-items.config';
 
 interface ImpactAlertData {
   session_id: string;
@@ -32,6 +33,7 @@ interface ImpactAlertData {
     AsyncPipe,
     RouterModule,
     MatBadgeModule,
+    MatDividerModule,
     MatIconModule,
     MatListModule,
     MatMenuModule,
@@ -57,6 +59,11 @@ export class SidebarComponent {
   filteredNavItems$: Observable<NavItem[]> = this.roles$.pipe(
     map((roles) =>
       NAV_ITEMS.filter((item) => !item.roles || item.roles.some((r) => roles.includes(r))),
+    ),
+  );
+  filteredMntrNavItems$: Observable<NavItem[]> = this.roles$.pipe(
+    map((roles) =>
+      MNTR_NAV_ITEMS.filter((item) => !item.roles || item.roles.some((r) => roles.includes(r))),
     ),
   );
 
