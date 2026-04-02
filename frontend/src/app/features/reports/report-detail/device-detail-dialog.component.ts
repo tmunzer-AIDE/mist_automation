@@ -117,8 +117,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
           <table mat-table [dataSource]="flattenPortsWithMembers(data.device.wan_ports)">
             <ng-container matColumnDef="interface">
               <th mat-header-cell *matHeaderCellDef>Interface</th>
-              <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember">
-                {{ p._isMember ? '  ' + p.interface : p.interface }}
+              <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember" [style.paddingLeft]="p._isMember ? '28px' : null">
+                {{ p.interface }}
               </td>
             </ng-container>
             <ng-container matColumnDef="name">
@@ -158,8 +158,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
           <table mat-table [dataSource]="flattenPortsWithMembers(data.device.lan_ports)">
             <ng-container matColumnDef="interface">
               <th mat-header-cell *matHeaderCellDef>Interface</th>
-              <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember">
-                {{ p._isMember ? '  ' + p.interface : p.interface }}
+              <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember" [style.paddingLeft]="p._isMember ? '28px' : null">
+                {{ p.interface }}
               </td>
             </ng-container>
             <ng-container matColumnDef="network">

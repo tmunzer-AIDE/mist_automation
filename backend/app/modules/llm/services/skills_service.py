@@ -144,10 +144,10 @@ def _auth_url(url: str, token: str | None) -> str:
     """Embed a token into an HTTPS URL for authentication."""
     if not token:
         return url
-    from urllib.parse import urlparse, urlunparse
+    from urllib.parse import quote, urlparse, urlunparse
 
     parsed = urlparse(url)
-    netloc = f"oauth2:{token}@{parsed.hostname}"
+    netloc = f"oauth2:{quote(token, safe='')}@{parsed.hostname}"
     if parsed.port:
         netloc += f":{parsed.port}"
     return urlunparse(parsed._replace(netloc=netloc))

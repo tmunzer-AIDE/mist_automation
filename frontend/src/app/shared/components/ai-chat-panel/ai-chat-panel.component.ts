@@ -1063,7 +1063,10 @@ export class AiChatPanelComponent {
             }
           } else {
             const tagMeta = this.artifactParser.detectOpeningTag(streamedContent);
-            if (tagMeta && !this.artifactParser.hasClosingTag(streamedContent)) {
+            // Only look for closing tag from the current artifact's opening tag onwards,
+            // so a prior </artifact> from an earlier artifact doesn't cause a false match.
+            const contentFromTag = tagMeta ? streamedContent.slice(tagMeta.startIndex) : '';
+            if (tagMeta && !this.artifactParser.hasClosingTag(contentFromTag)) {
               // Opening tag detected -- start buffering, capture any content already after the tag
               this._artifactMeta = tagMeta;
               this._artifactBuffer = streamedContent.slice(tagMeta.endIndex);
@@ -1088,7 +1091,7 @@ export class AiChatPanelComponent {
                 }
                 return [...tl, entry];
               });
-            } else if (tagMeta && this.artifactParser.hasClosingTag(streamedContent)) {
+            } else if (tagMeta && this.artifactParser.hasClosingTag(contentFromTag)) {
               // Complete artifact in one chunk
               const items = this._buildArtifactTimeline(streamedContent, 'assistant');
               this.timeline.update((tl) => {

@@ -1385,8 +1385,14 @@ async def _validate_single_gateway(
         if ae_networks:
             ae_cfg["networks"] = ae_networks
         port_config[port_id] = ae_cfg
-        for member_id, mstat in port_stats_map.items():
-            if isinstance(mstat, dict) and mstat.get("port_parent") == port_id:
+
+    # Collect member ports for ALL ae bundles (synthesized above or pre-existing in port_config).
+    # Any port whose port_parent starts with "ae" belongs to an ae bundle and must be excluded
+    # from individual WAN/LAN classification to avoid duplicate rows.
+    for member_id, mstat in port_stats_map.items():
+        if isinstance(mstat, dict):
+            parent = mstat.get("port_parent")
+            if isinstance(parent, str) and parent.startswith("ae"):
                 ae_member_ports.add(member_id)
 
     # Pre-resolve ae indices for aggregated ports
