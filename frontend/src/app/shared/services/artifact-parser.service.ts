@@ -21,22 +21,25 @@ export class ArtifactParserService {
     let cleaned = text.replace(/```[^\n]*\n(<artifact[\s\S]*?<\/artifact>)\n```/g, '$1');
 
     const artifacts: Artifact[] = [];
-    let prose = cleaned;
 
-    // Step 2: Extract <artifact> tags
+    // Step 2: Extract <artifact> tags — splice by index in reverse to keep positions stable
     const attrPattern = /<artifact\s*([^>]*)>([\s\S]*?)<\/artifact>/g;
     const tagMatches = Array.from(cleaned.matchAll(attrPattern));
 
+    // Build replacements (index-based) then apply in reverse
+    const replacements: { start: number; end: number; text: string }[] = [];
     for (const match of tagMatches) {
       const attrsStr = match[1];
       const content = match[2];
+      const start = match.index!;
+      const end = start + match[0].length;
 
       const type = (this._extractAttr(attrsStr, 'type') as ArtifactType) || 'markdown';
 
       // Markdown artifacts are inlined as rendered prose (not shown in an artifact card).
       // Unknown/unsupported types are also inlined to avoid broken cards.
       if (type === 'markdown' || !VALID_TYPES.has(type)) {
-        prose = prose.replace(match[0], content.trim());
+        replacements.push({ start, end, text: content.trim() });
         continue;
       }
 
@@ -51,13 +54,16 @@ export class ArtifactParserService {
         content: content.trim(),
       };
       artifacts.push(artifact);
-      prose = prose.replace(match[0], `[artifact:${artifact.id}]`);
+      replacements.push({ start, end, text: `[artifact:${artifact.id}]` });
     }
+
+    let prose = this._applyReplacements(cleaned, replacements);
 
     // Step 3: Auto-promote large code blocks (only if no artifacts were found via tags)
     if (artifacts.length === 0) {
       const codePattern = /```([^\n`]*)?\n([\s\S]*?)```/g;
       const codeMatches = Array.from(prose.matchAll(codePattern));
+      const codeReplacements: { start: number; end: number; text: string }[] = [];
       for (const codeMatch of codeMatches) {
         const lang = codeMatch[1] || undefined;
         const code = codeMatch[2];
@@ -71,9 +77,14 @@ export class ArtifactParserService {
             content: code.trim(),
           };
           artifacts.push(artifact);
-          prose = prose.replace(codeMatch[0], `[artifact:${artifact.id}]`);
+          codeReplacements.push({
+            start: codeMatch.index!,
+            end: codeMatch.index! + codeMatch[0].length,
+            text: `[artifact:${artifact.id}]`,
+          });
         }
       }
+      prose = this._applyReplacements(prose, codeReplacements);
     }
 
     return { prose: prose.trim(), artifacts };
@@ -108,6 +119,15 @@ export class ArtifactParserService {
   /** Check if text contains a closing </artifact> tag. */
   hasClosingTag(text: string): boolean {
     return text.includes('</artifact>');
+  }
+
+  /** Apply index-based replacements in reverse order so positions stay stable. */
+  private _applyReplacements(text: string, replacements: { start: number; end: number; text: string }[]): string {
+    for (let i = replacements.length - 1; i >= 0; i--) {
+      const r = replacements[i];
+      text = text.slice(0, r.start) + r.text + text.slice(r.end);
+    }
+    return text;
   }
 
   private _extractAttr(attrsStr: string, name: string): string | null {
