@@ -468,6 +468,7 @@ Supported types:
 | Type | When to use | Extra attributes |
 |------|-------------|-----------------|
 | code | Code snippets longer than 15 lines | language="python|json|jinja2|bash|yaml|..." (required) |
+| markdown | Structured documents, formatted reports, long-form text with headings/lists | |
 | html | Rich formatted tables, styled content, custom layouts | |
 | mermaid | Diagrams, flowcharts, network topologies | |
 | svg | Vector graphics, simple diagrams | |

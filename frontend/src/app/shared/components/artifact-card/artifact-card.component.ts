@@ -302,15 +302,17 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
     const cspSandboxed = `<meta http-equiv="Content-Security-Policy" content="${CSP_SANDBOXED}">`;
 
     switch (artifact.type) {
-      case 'code':
+      case 'code': {
+        const lang = /^[a-z0-9_+\-]+$/i.test(artifact.language || '') ? artifact.language : 'plaintext';
         return `<!DOCTYPE html><html><head>${cspScripted}${baseStyle}
           <link rel="stylesheet" href="${CDN}/@highlightjs/cdn-assets@11.9.0/styles/${isDark ? 'github-dark' : 'github'}.min.css">
           <script src="${CDN}/@highlightjs/cdn-assets@11.9.0/highlight.min.js"><\/script>
           ${heightScript}
           </head><body>
-          <pre><code class="language-${artifact.language || 'plaintext'}">${this._escapeHtml(artifact.content)}</code></pre>
+          <pre><code class="language-${lang}">${this._escapeHtml(artifact.content)}</code></pre>
           <script>hljs.highlightAll();<\/script>
           </body></html>`;
+      }
 
       case 'markdown':
         return `<!DOCTYPE html><html><head>${cspScripted}${baseStyle}

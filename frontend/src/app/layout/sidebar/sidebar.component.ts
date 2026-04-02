@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AsyncPipe } from '@angular/common';
 import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { MatBadgeModule } from '@angular/material/badge';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
@@ -32,6 +33,7 @@ interface ImpactAlertData {
     AsyncPipe,
     RouterModule,
     MatBadgeModule,
+    MatDividerModule,
     MatIconModule,
     MatListModule,
     MatMenuModule,

@@ -191,33 +191,35 @@ async def run_post_deployment_validation(report_id: str, site_id: str, *, includ
         wlan_info = await _fetch_wlan_info(session, site_id)
 
         # Filter templates to only networks assigned to gateway ports
+        # (only when a gateway template was actually loaded — empty config means no filtering)
         used_network_names = _used_networks_from_port_config(gw_template_config.get("port_config", {}))
         if not used_network_names:
             used_network_names = set(gw_template_config.get("ip_configs", {}).keys())
 
         used_services = _extract_used_services(gw_template_config, derived_sources)
-        _FILTERABLE_TEMPLATES = {"gateway_template", "network_template"}
 
-        def _filter_derived(ttype: str, tlist: list) -> list:
-            if ttype == "network":
-                # Only scan networks actually assigned to gateway ports
-                return [t for t in tlist if t.get("name") in used_network_names]
-            if ttype == "application":
-                return [t for t in tlist if t.get("name") in used_services]
-            return tlist
+        if gw_template_config:
+            _FILTERABLE_TEMPLATES = {"gateway_template", "network_template"}
 
-        derived_sources = [(ttype, _filter_derived(ttype, tlist)) for ttype, tlist in derived_sources]
-        assigned_template_data = [
-            (
-                ttype,
+            def _filter_derived(ttype: str, tlist: list) -> list:
+                if ttype == "network" and used_network_names:
+                    return [t for t in tlist if t.get("name") in used_network_names]
+                if ttype == "application" and used_services:
+                    return [t for t in tlist if t.get("name") in used_services]
+                return tlist
+
+            derived_sources = [(ttype, _filter_derived(ttype, tlist)) for ttype, tlist in derived_sources]
+            assigned_template_data = [
                 (
-                    [_filter_template_networks(t, used_network_names) for t in tlist]
-                    if ttype in _FILTERABLE_TEMPLATES
-                    else tlist
-                ),
-            )
-            for ttype, tlist in assigned_template_data
-        ]
+                    ttype,
+                    (
+                        [_filter_template_networks(t, used_network_names) for t in tlist]
+                        if ttype in _FILTERABLE_TEMPLATES and used_network_names
+                        else tlist
+                    ),
+                )
+                for ttype, tlist in assigned_template_data
+            ]
 
         result["site_info"] = {
             "site_name": report.site_name,
