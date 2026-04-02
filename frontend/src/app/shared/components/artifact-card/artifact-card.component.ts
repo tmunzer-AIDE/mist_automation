@@ -352,8 +352,8 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
               Chart.defaults.color = '${legendColor}';
               Chart.defaults.backgroundColor = '${chartBg}';
 
-              // JSON.stringify escapes the string for safe injection into <script>; JSON.parse recovers the object
-              var spec = ${JSON.stringify(artifact.content)};
+              // JSON.stringify + </script> escaping prevents premature script-tag closure; JSON.parse recovers the object
+              var spec = ${JSON.stringify(artifact.content).replace(/<\/script>/gi, '<\\/script>')};
               var parsed = JSON.parse(spec);
               var palette = ${palette};
               var isDark = ${isDark};
