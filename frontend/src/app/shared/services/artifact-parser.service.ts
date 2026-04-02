@@ -18,7 +18,7 @@ const VALID_TYPES = new Set<ArtifactType>(['code', 'markdown', 'html', 'mermaid'
 export class ArtifactParserService {
   parse(text: string): ParsedContent {
     // Step 1: Strip markdown code block wrapping around artifact tags
-    let cleaned = text.replace(/```\w*\n(<artifact[\s\S]*?<\/artifact>)\n```/g, '$1');
+    let cleaned = text.replace(/```[^\n]*\n(<artifact[\s\S]*?<\/artifact>)\n```/g, '$1');
 
     const artifacts: Artifact[] = [];
     let prose = cleaned;
@@ -55,7 +55,7 @@ export class ArtifactParserService {
 
     // Step 3: Auto-promote large code blocks (only if no artifacts were found via tags)
     if (artifacts.length === 0) {
-      const codePattern = /```(\w+)?\n([\s\S]*?)```/g;
+      const codePattern = /```([^\n`]*)?\n([\s\S]*?)```/g;
       const codeMatches = Array.from(prose.matchAll(codePattern));
       for (const codeMatch of codeMatches) {
         const lang = codeMatch[1] || undefined;

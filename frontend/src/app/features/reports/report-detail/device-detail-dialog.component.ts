@@ -114,7 +114,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
       @if (data.type === 'gateway' && data.device.wan_ports?.length) {
         <h3>WAN Ports</h3>
         <div class="table-card">
-          <table mat-table [dataSource]="flattenPortsWithMembers(data.device.wan_ports)">
+          <table mat-table [dataSource]="flatWanPorts">
             <ng-container matColumnDef="interface">
               <th mat-header-cell *matHeaderCellDef>Interface</th>
               <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember" [style.paddingLeft]="p._isMember ? '28px' : null">
@@ -155,7 +155,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
       @if (data.type === 'gateway' && data.device.lan_ports?.length) {
         <h3>LAN Ports</h3>
         <div class="table-card">
-          <table mat-table [dataSource]="flattenPortsWithMembers(data.device.lan_ports)">
+          <table mat-table [dataSource]="flatLanPorts">
             <ng-container matColumnDef="interface">
               <th mat-header-cell *matHeaderCellDef>Interface</th>
               <td mat-cell *matCellDef="let p" [class.member-row]="p._isMember" [style.paddingLeft]="p._isMember ? '28px' : null">
@@ -354,6 +354,9 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 export class DeviceDetailDialogComponent {
   readonly data: { type: 'ap' | 'switch' | 'gateway'; device: any } = inject(MAT_DIALOG_DATA);
 
+  readonly flatWanPorts = this._flattenWithMembers(this.data.device.wan_ports ?? []);
+  readonly flatLanPorts = this._flattenWithMembers(this.data.device.lan_ports ?? []);
+
   overallStatus(): string {
     const dev = this.data.device;
     if (dev.checks?.some((c: any) => c.status === 'fail')) return 'fail';
@@ -385,7 +388,7 @@ export class DeviceDetailDialogComponent {
     return check.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ':';
   }
 
-  flattenPortsWithMembers(ports: any[]): any[] {
+  private _flattenWithMembers(ports: any[]): any[] {
     const rows: any[] = [];
     for (const p of ports) {
       rows.push(p);

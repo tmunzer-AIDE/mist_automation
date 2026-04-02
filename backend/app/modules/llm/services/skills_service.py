@@ -26,7 +26,7 @@ def parse_skill_md(path: Path) -> tuple[str, str, str]:
     Raises ValueError if frontmatter is absent, unclosed, unparseable,
     or missing the required 'description' field.
     """
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8").replace("\r\n", "\n")
     if not content.startswith("---"):
         raise ValueError("SKILL.md missing YAML frontmatter")
 
