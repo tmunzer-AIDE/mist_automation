@@ -19,6 +19,12 @@ import { ThemeService } from '../../../core/services/theme.service';
 
 /** CDN base URL for iframe-loaded libraries. Change for air-gapped/self-hosted deployments. */
 const CDN = 'https://cdn.jsdelivr.net/npm';
+const CDN_ORIGIN = 'https://cdn.jsdelivr.net';
+
+/** CSP for artifact types that load scripts from CDN (code/markdown/mermaid/chart). */
+const CSP_SCRIPTED = `default-src 'none'; script-src ${CDN_ORIGIN} 'unsafe-inline'; style-src 'unsafe-inline' ${CDN_ORIGIN}; img-src 'none'; connect-src 'none';`;
+/** CSP for sandboxed artifact types (html/svg) — block all external loads. */
+const CSP_SANDBOXED = `default-src 'none'; style-src 'unsafe-inline';`;
 
 const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   code: { label: 'Code', color: '#60a5fa' },
@@ -292,9 +298,12 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
       <\/script>
     `;
 
+    const cspScripted = `<meta http-equiv="Content-Security-Policy" content="${CSP_SCRIPTED}">`;
+    const cspSandboxed = `<meta http-equiv="Content-Security-Policy" content="${CSP_SANDBOXED}">`;
+
     switch (artifact.type) {
       case 'code':
-        return `<!DOCTYPE html><html><head>${baseStyle}
+        return `<!DOCTYPE html><html><head>${cspScripted}${baseStyle}
           <link rel="stylesheet" href="${CDN}/@highlightjs/cdn-assets@11.9.0/styles/${isDark ? 'github-dark' : 'github'}.min.css">
           <script src="${CDN}/@highlightjs/cdn-assets@11.9.0/highlight.min.js"><\/script>
           ${heightScript}
@@ -304,7 +313,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           </body></html>`;
 
       case 'markdown':
-        return `<!DOCTYPE html><html><head>${baseStyle}
+        return `<!DOCTYPE html><html><head>${cspScripted}${baseStyle}
           <script src="${CDN}/marked@12.0.0/marked.min.js"><\/script>
           <script src="${CDN}/dompurify@3.0.9/dist/purify.min.js"><\/script>
           ${heightScript}
@@ -316,10 +325,10 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           </body></html>`;
 
       case 'html':
-        return `<!DOCTYPE html><html><head>${baseStyle}</head><body>${artifact.content}</body></html>`;
+        return `<!DOCTYPE html><html><head>${cspSandboxed}${baseStyle}</head><body>${artifact.content}</body></html>`;
 
       case 'mermaid':
-        return `<!DOCTYPE html><html><head>${baseStyle}
+        return `<!DOCTYPE html><html><head>${cspScripted}${baseStyle}
           <script src="${CDN}/mermaid@10.9.0/dist/mermaid.min.js"><\/script>
           ${heightScript}
           </head><body>
@@ -328,7 +337,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
           </body></html>`;
 
       case 'svg':
-        return `<!DOCTYPE html><html><head>${baseStyle}</head><body>${artifact.content}</body></html>`;
+        return `<!DOCTYPE html><html><head>${cspSandboxed}${baseStyle}</head><body>${artifact.content}</body></html>`;
 
       case 'chart': {
         // Use the app's actual --app-chart-topic-* palette
@@ -339,7 +348,7 @@ export class ArtifactCardComponent implements OnInit, OnDestroy {
         const legendColor = fg;
         const gridColor = theme.outlineVariant;
         const tickColor = theme.onSurfaceVariant;
-        return `<!DOCTYPE html><html><head>
+        return `<!DOCTYPE html><html><head>${cspScripted}
           <script src="${CDN}/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>
           ${heightScript}
           </head><body style="margin:0;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:${chartBg};color:${fg};font-size:14px;">

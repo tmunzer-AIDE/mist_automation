@@ -773,6 +773,9 @@ export class AiChatPanelComponent {
   private streamSub: Subscription | null = null;
   private _artifactBuffer: string | null = null;
   private _artifactMeta: { type: string; title: string; language?: string } | null = null;
+  /** Tracks how far into streamedContent has been fully rendered, so new artifact detection
+   *  starts AFTER already-processed artifacts and doesn't re-match their opening tags. */
+  private _streamProcessedTo = 0;
 
   /** Unified chronological timeline of messages and tool calls */
   timeline = signal<TimelineItem[]>([]);
@@ -931,6 +934,7 @@ export class AiChatPanelComponent {
 
     // Subscribe to streaming tokens via WebSocket
     const streamId = crypto.randomUUID();
+    this._streamProcessedTo = 0;
     this._subscribeToStream(`llm:${streamId}`);
 
     // Send API request with stream_id
@@ -1060,11 +1064,16 @@ export class AiChatPanelComponent {
               });
               this._artifactBuffer = null;
               this._artifactMeta = null;
+              this._streamProcessedTo = streamedContent.length;
             }
           } else {
-            const tagMeta = this.artifactParser.detectOpeningTag(streamedContent);
-            // Only look for closing tag from the current artifact's opening tag onwards,
-            // so a prior </artifact> from an earlier artifact doesn't cause a false match.
+            // Search only from the last fully-processed position so prior artifact opening tags
+            // are not re-matched when a subsequent artifact starts streaming.
+            const unprocessed = streamedContent.slice(this._streamProcessedTo);
+            const rawMeta = this.artifactParser.detectOpeningTag(unprocessed);
+            const tagMeta = rawMeta
+              ? { ...rawMeta, startIndex: rawMeta.startIndex + this._streamProcessedTo, endIndex: rawMeta.endIndex + this._streamProcessedTo }
+              : null;
             const contentFromTag = tagMeta ? streamedContent.slice(tagMeta.startIndex) : '';
             if (tagMeta && !this.artifactParser.hasClosingTag(contentFromTag)) {
               // Opening tag detected -- start buffering, capture any content already after the tag
@@ -1092,7 +1101,8 @@ export class AiChatPanelComponent {
                 return [...tl, entry];
               });
             } else if (tagMeta && this.artifactParser.hasClosingTag(contentFromTag)) {
-              // Complete artifact in one chunk
+              // Complete artifact arrived in one chunk
+              this._streamProcessedTo = streamedContent.length;
               const items = this._buildArtifactTimeline(streamedContent, 'assistant');
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
@@ -1158,6 +1168,7 @@ export class AiChatPanelComponent {
     this.waitingAfterTool.set(false);
     this._artifactBuffer = null;
     this._artifactMeta = null;
+    this._streamProcessedTo = 0;
     this._subscribeToStream(`llm:${streamId}`);
   }
 
@@ -1173,6 +1184,7 @@ export class AiChatPanelComponent {
     this.followUpText.reset();
     this._artifactBuffer = null;
     this._artifactMeta = null;
+    this._streamProcessedTo = 0;
   }
 
   toggleToolExpand(index: number): void {
