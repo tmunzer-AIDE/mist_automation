@@ -20,7 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export const MNTR_NAV_ITEM: NavItem[] = [
+export const MNTR_NAV_ITEMS: NavItem[] = [
   { label: 'Webhooks', icon: 'webhook', route: '/monitoring' },
   { label: 'Telemetry', icon: 'sensors', route: '/telemetry', roles: ['impact_analysis', 'admin'], },
 ]

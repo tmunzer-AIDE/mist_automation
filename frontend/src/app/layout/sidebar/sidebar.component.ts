@@ -13,7 +13,7 @@ import { Observable, filter, map } from 'rxjs';
 import { selectUserRoles } from '../../core/state/auth/auth.selectors';
 import { GlobalChatService } from '../../core/services/global-chat.service';
 import { WebSocketService } from '../../core/services/websocket.service';
-import { NAV_ITEMS, MNTR_NAV_ITEM, ADMIN_NAV_ITEM, NavItem } from './nav-items.config';
+import { NAV_ITEMS, MNTR_NAV_ITEMS, ADMIN_NAV_ITEM, NavItem } from './nav-items.config';
 
 interface ImpactAlertData {
   session_id: string;
@@ -61,7 +61,7 @@ export class SidebarComponent {
   );
   filteredMntrNavItems$: Observable<NavItem[]> = this.roles$.pipe(
     map((roles) =>
-      MNTR_NAV_ITEM.filter((item) => !item.roles || item.roles.some((r) => roles.includes(r))),
+      MNTR_NAV_ITEMS.filter((item) => !item.roles || item.roles.some((r) => roles.includes(r))),
     ),
   );
 
