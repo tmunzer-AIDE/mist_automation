@@ -548,7 +548,7 @@ async def session_chat(
     The AI has full context about the session (config changes, validation results,
     SLE metrics, incidents, timeline) and access to MCP tools for querying app data.
     """
-    from app.modules.llm.router import (
+    from app.api.v1.llm import (
         _agent_result_metadata,
         _check_llm_rate_limit,
         _load_external_mcp_clients,
@@ -774,7 +774,7 @@ async def group_chat(
     The AI has full context about the group (child sessions, devices, validation results,
     SLE metrics, incidents) and access to MCP tools for querying app data.
     """
-    from app.modules.llm.router import (
+    from app.api.v1.llm import (
         _agent_result_metadata,
         _check_llm_rate_limit,
         _load_external_mcp_clients,

@@ -984,8 +984,9 @@ def _agent_result_metadata(result) -> dict | None:
             {
                 "tool": tc.tool,
                 "server": tc.server,
+                "arguments": tc.arguments,
                 "status": "error" if tc.is_error else "success",
-                "result_preview": tc.result[:300],
+                "result_preview": tc.result,
             }
             for tc in result.tool_calls
         ],

@@ -37,7 +37,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   html: string;
-  metadata?: { tool_calls?: { tool: string; server: string; status: string; result_preview?: string }[]; thinking_texts?: string[] } | null;
+  metadata?: { tool_calls?: { tool: string; server: string; status: string; arguments?: Record<string, unknown>; result_preview?: string }[]; thinking_texts?: string[] } | null;
 }
 
 export interface MessageSection {
@@ -49,7 +49,7 @@ export interface MessageSection {
 
 export type TimelineItem =
   | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string; sections?: MessageSection[] }
-  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; resultPreview?: string; expanded: boolean };
+  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; arguments?: Record<string, unknown>; resultPreview?: string; expanded: boolean };
 
 function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
@@ -124,12 +124,23 @@ function renderMarkdown(md: string): string {
                   <strong>{{ item.tool }}</strong>
                   <span class="tool-server">on {{ item.server }}</span>
                 </span>
-                @if (item.resultPreview) {
+                @if (item.resultPreview || (item.arguments && objectKeys(item.arguments).length)) {
                   <mat-icon class="tool-expand-icon">{{ item.expanded ? 'expand_less' : 'expand_more' }}</mat-icon>
                 }
               </div>
-              @if (item.expanded && item.resultPreview) {
-                <pre class="tool-call-result">{{ item.resultPreview }}</pre>
+              @if (item.expanded) {
+                @if (item.arguments && objectKeys(item.arguments).length) {
+                  <div class="tool-call-section">
+                    <div class="tool-call-section-label">Parameters</div>
+                    <pre class="tool-call-arguments">{{ formatJson(item.arguments) }}</pre>
+                  </div>
+                }
+                @if (item.resultPreview) {
+                  <div class="tool-call-section">
+                    <div class="tool-call-section-label">Response</div>
+                    <pre class="tool-call-result">{{ item.resultPreview }}</pre>
+                  </div>
+                }
               }
             </div>
           }
@@ -466,19 +477,32 @@ function renderMarkdown(md: string): string {
         color: var(--mat-sys-on-surface-variant);
       }
 
+      .tool-call-section {
+        border-top: 1px solid var(--mat-sys-outline-variant);
+      }
+
+      .tool-call-section-label {
+        font-size: 10px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--mat-sys-on-surface-variant);
+        padding: 4px 10px 0;
+      }
+
+      .tool-call-arguments,
       .tool-call-result {
         font-size: 11px;
         font-family: var(--app-font-mono, monospace);
         background: var(--mat-sys-surface-variant, #f0f0f0);
         color: var(--mat-sys-on-surface-variant);
-        padding: 6px 10px;
+        padding: 4px 10px 6px;
         margin: 0;
-        max-height: 120px;
+        max-height: 200px;
         overflow: auto;
         white-space: pre-wrap;
         word-break: break-all;
         scrollbar-width: thin;
-        border-top: 1px solid var(--mat-sys-outline-variant);
       }
 
       .has-artifacts app-artifact-card {
@@ -879,7 +903,7 @@ export class AiChatPanelComponent {
             }
             if (i < toolCallsList.length) {
               const tc = toolCallsList[i];
-              tl.push({ kind: 'tool', tool: tc.tool, server: tc.server, status: (tc.status as 'success' | 'error') || 'success', resultPreview: tc.result_preview, expanded: false });
+              tl.push({ kind: 'tool', tool: tc.tool, server: tc.server, status: (tc.status as 'success' | 'error') || 'success', arguments: tc.arguments, resultPreview: tc.result_preview, expanded: false });
             }
           }
         }
@@ -1004,6 +1028,7 @@ export class AiChatPanelComponent {
         tool?: string;
         server?: string;
         status?: string;
+        arguments?: Record<string, unknown>;
         result_preview?: string;
         request_id?: string;
         description?: string;
@@ -1014,7 +1039,7 @@ export class AiChatPanelComponent {
         if (msg.type === 'tool_start' && msg.tool) {
           this.waitingAfterTool.set(false);
           needsNewBubble = true;
-          this.timeline.update((tl) => [...tl, { kind: 'tool' as const, tool: msg.tool!, server: msg.server ?? '', status: 'running' as const, expanded: false }]);
+          this.timeline.update((tl) => [...tl, { kind: 'tool' as const, tool: msg.tool!, server: msg.server ?? '', status: 'running' as const, arguments: msg.arguments, expanded: false }]);
           this.scrollToBottom();
         } else if (msg.type === 'tool_end' && msg.tool) {
           this.waitingAfterTool.set(true);
@@ -1191,6 +1216,12 @@ export class AiChatPanelComponent {
     this.timeline.update((tl) =>
       tl.map((item, i) => (i === index && item.kind === 'tool' ? { ...item, expanded: !item.expanded } : item)),
     );
+  }
+
+  objectKeys = Object.keys;
+
+  formatJson(obj: Record<string, unknown>): string {
+    return JSON.stringify(obj, null, 2);
   }
 
   respondElicitation(accepted: boolean): void {

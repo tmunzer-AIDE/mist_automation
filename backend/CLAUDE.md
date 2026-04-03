@@ -37,7 +37,7 @@ The app uses FastAPI's `lifespan` context manager:
 1. **Startup**: `Database.connect_db()` → `start_smee()` (if enabled) → `start_scheduler()`
 2. **Shutdown**: `stop_scheduler()` → `stop_smee()` → `Database.close_db()`
 
-Modules are registered via `MODULES` list in `app/modules/__init__.py` — each `AppModule` declares its router import path and model classes. `get_all_document_models()` collects models for Beanie initialization.
+Modules are registered via `MODULES` list in `app/modules/__init__.py` — each `AppModule` declares its router import path (in `app/api/v1/`) and model classes. All route handlers live in `app/api/v1/`; module internals (models, services, schemas, workers) live in `app/modules/<name>/`. `get_all_document_models()` collects models for Beanie initialization.
 
 ### Configuration Cascade
 

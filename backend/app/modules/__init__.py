@@ -2,8 +2,9 @@
 Module registry for the Mist Automation backend.
 
 To add a new module:
-  1. Create a directory at app/modules/<name>/ with router.py, models.py, etc.
-  2. Add one AppModule(...) entry to MODULES below — nothing else to change.
+  1. Create a directory at app/modules/<name>/ with models.py, services/, schemas.py, etc.
+  2. Create a router file at app/api/v1/<name>.py with the route handlers.
+  3. Add one AppModule(...) entry to MODULES below — nothing else to change.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="automation",
-        router_module="app.modules.automation.router",
+        router_module="app.api.v1.automation",
         model_imports=[
             ("app.modules.automation.models.workflow", "Workflow"),
             ("app.modules.automation.models.execution", "WorkflowExecution"),
@@ -76,7 +77,7 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="backup",
-        router_module="app.modules.backup.router",
+        router_module="app.api.v1.backup",
         model_imports=[
             ("app.modules.backup.models", "BackupObject"),
             ("app.modules.backup.models", "BackupConfig"),
@@ -92,7 +93,7 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="reports",
-        router_module="app.modules.reports.router",
+        router_module="app.api.v1.reports",
         model_imports=[
             ("app.modules.reports.models", "ReportJob"),
         ],
@@ -121,7 +122,7 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="llm",
-        router_module="app.modules.llm.router",
+        router_module="app.api.v1.llm",
         model_imports=[
             ("app.modules.llm.models", "LLMConfig"),
             ("app.modules.llm.models", "MCPConfig"),
@@ -134,7 +135,7 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="impact_analysis",
-        router_module="app.modules.impact_analysis.router",
+        router_module="app.api.v1.impact_analysis",
         model_imports=[
             ("app.modules.impact_analysis.models", "MonitoringSession"),
             ("app.modules.impact_analysis.models", "SessionLogEntry"),
@@ -144,13 +145,13 @@ MODULES: list[AppModule] = [
     ),
     AppModule(
         name="telemetry",
-        router_module="app.modules.telemetry.router",
+        router_module="app.api.v1.telemetry",
         model_imports=[],
         tags=["Telemetry"],
     ),
     AppModule(
         name="power_scheduling",
-        router_module="app.modules.power_scheduling.router",
+        router_module="app.api.v1.power_scheduling",
         model_imports=[
             ("app.modules.power_scheduling.models", "PowerSchedule"),
             ("app.modules.power_scheduling.models", "PowerScheduleLog"),

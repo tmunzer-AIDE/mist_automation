@@ -187,7 +187,7 @@ class AIAgentService:
                 server_name = client.config.name if client else "unknown"
 
                 if on_tool_call:
-                    await on_tool_call("tool_start", {"tool": tool_name, "server": server_name})
+                    await on_tool_call("tool_start", {"tool": tool_name, "server": server_name, "arguments": arguments})
 
                 tool_is_error = False
                 if not client:
@@ -206,7 +206,7 @@ class AIAgentService:
                         "tool": tool_name,
                         "server": server_name,
                         "status": "error" if tool_is_error else "success",
-                        "result_preview": result_text[:300],
+                        "result_preview": result_text[:2000],
                     })
 
                 tool_calls.append(ToolCallRecord(

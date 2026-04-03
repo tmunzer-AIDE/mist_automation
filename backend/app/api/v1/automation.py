@@ -23,6 +23,8 @@ from app.modules.automation.models.workflow import (
     WorkflowNode,
     WorkflowStatus,
 )
+from app.modules.automation.router_recipes import publish_router as _publish_router
+from app.modules.automation.router_recipes import router as _recipes_router
 from app.modules.automation.schemas.workflow import (
     InlineGraphRequest,
     SimulateRequest,
@@ -32,9 +34,6 @@ from app.modules.automation.schemas.workflow import (
     WorkflowResponse,
     WorkflowUpdate,
 )
-
-from app.modules.automation.router_recipes import publish_router as _publish_router
-from app.modules.automation.router_recipes import router as _recipes_router
 
 router = APIRouter()
 router.include_router(_recipes_router)

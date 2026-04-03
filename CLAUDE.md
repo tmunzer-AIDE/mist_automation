@@ -16,11 +16,11 @@ See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for build, test, and lint comma
 
 ### Backend (FastAPI + Beanie/MongoDB)
 
-**Module registry pattern**: All features register in `app/modules/__init__.py` as `AppModule` entries. To add a new module: create `app/modules/<name>/` with `router.py` and models, then add one `AppModule(...)` to the `MODULES` list.
+**Module registry pattern**: All features register in `app/modules/__init__.py` as `AppModule` entries. To add a new module: create `app/modules/<name>/` with models and services, create a router at `app/api/v1/<name>.py`, then add one `AppModule(...)` to the `MODULES` list.
 
 **Key layers**:
-- `app/api/v1/` — Route handlers for auth, users, admin, and the unified webhook gateway (receives all Mist webhooks, routes to automation/backup, manages Smee.io)
-- `app/modules/` — Feature modules: `automation` (workflows, workflow execution, cron/webhook workers), `backup` (config snapshots, restore, git versioning), `reports` (post-deployment validation reports with PDF/CSV export), `impact_analysis` (automated config change impact monitoring), `telemetry` (real-time device stats via Mist WebSocket → InfluxDB)
+- `app/api/v1/` — All route handlers (auth, users, admin, webhooks, automation, backup, reports, llm, impact_analysis, telemetry, power_scheduling)
+- `app/modules/` — Feature module internals (models, services, schemas, workers): `automation`, `backup`, `reports`, `impact_analysis`, `telemetry`, `llm`, `mcp_server`, `power_scheduling`
 - `app/models/` — Beanie Document models (User, UserSession, SystemConfig, AuditLog). Module-specific models live in their module dirs.
 - `app/services/` — Business logic: `auth_service`, `mist_service`, `mist_service_factory` (shared async factory for MistService), `notification_service`
 - `app/core/` — Database init, security, logging (structlog), middleware, custom exceptions, `smee_service` (dev webhook forwarding), `tasks` (safe background task creation)
