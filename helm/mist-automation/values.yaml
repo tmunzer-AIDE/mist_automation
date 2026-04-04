@@ -196,7 +196,7 @@ redis:
 # -- InfluxDB configuration (optional — used for telemetry only)
 influxdb:
   # -- Deploy bundled InfluxDB (official influxdb:2.7 image)
-  enabled: false
+  enabled: true
   # -- External InfluxDB settings (used when enabled=false)
   external:
     url: ""
