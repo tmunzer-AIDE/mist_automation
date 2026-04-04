@@ -5,10 +5,23 @@ User model for authentication and authorization.
 from datetime import datetime, timezone
 
 from beanie import Document
-from pydantic import EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, IndexModel
 
 from app.models.mixins import TimestampMixin
+
+
+class WebAuthnCredential(BaseModel):
+    """A registered WebAuthn/passkey credential."""
+
+    credential_id: bytes
+    public_key: bytes
+    sign_count: int = 0
+    transports: list[str] = Field(default_factory=list)
+    name: str = ""
+    aaguid: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_used_at: datetime | None = None
 
 
 class User(TimestampMixin, Document):
@@ -32,6 +45,11 @@ class User(TimestampMixin, Document):
     totp_enabled: bool = Field(default=False, description="Whether 2FA is enabled")
     backup_codes: list[str] = Field(default_factory=list, description="Hashed backup codes for 2FA recovery")
 
+    # WebAuthn / Passkeys
+    webauthn_credentials: list[WebAuthnCredential] = Field(
+        default_factory=list, description="Registered WebAuthn/passkey credentials"
+    )
+
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -41,6 +59,7 @@ class User(TimestampMixin, Document):
         name = "users"
         indexes = [
             IndexModel([("email", ASCENDING)], unique=True),
+            IndexModel([("webauthn_credentials.credential_id", ASCENDING)]),
             "is_active",
         ]
     
