@@ -112,20 +112,19 @@ questions:
   type: boolean
   default: true
   group: "Database"
-  show_subquestion_if: true
   subquestions:
     - variable: mongodb.auth.rootPassword
       label: MongoDB Root Password
       description: "Leave empty for no authentication"
       type: password
       default: ""
-
-- variable: mongodb.external.url
-  label: External MongoDB URL
-  description: "Only used when bundled MongoDB is disabled (e.g., mongodb://user:pass@host:27017)"
-  type: string
-  default: ""
-  group: "Database"
+      show_if: "mongodb.enabled=true"
+    - variable: mongodb.external.url
+      label: External MongoDB URL
+      description: "e.g., mongodb://user:pass@host:27017"
+      type: string
+      default: ""
+      show_if: "mongodb.enabled=false"
 
 - variable: redis.enabled
   label: Deploy Bundled Redis
@@ -133,20 +132,19 @@ questions:
   type: boolean
   default: true
   group: "Database"
-  show_subquestion_if: true
   subquestions:
     - variable: redis.auth.password
       label: Redis Password
       description: "Leave empty for no authentication"
       type: password
       default: ""
-
-- variable: redis.external.url
-  label: External Redis URL
-  description: "Only used when bundled Redis is disabled (e.g., redis://:password@host:6379)"
-  type: string
-  default: ""
-  group: "Database"
+      show_if: "redis.enabled=true"
+    - variable: redis.external.url
+      label: External Redis URL
+      description: "e.g., redis://:password@host:6379"
+      type: string
+      default: ""
+      show_if: "redis.enabled=false"
 
 - variable: influxdb.enabled
   label: Deploy Bundled InfluxDB
