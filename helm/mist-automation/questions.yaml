@@ -1,0 +1,237 @@
+questions:
+
+# ── Required ─────────────────────────────────────────────────────────────────
+
+- variable: security.secretKey
+  label: JWT Secret Key
+  description: "Secret key for signing JWT tokens. Generate with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+  type: password
+  required: true
+  group: "Security"
+
+- variable: mistApi.token
+  label: Mist API Token
+  description: "Your Juniper Mist API token"
+  type: password
+  required: true
+  group: "Mist API"
+
+- variable: mistApi.orgId
+  label: Mist Organization ID
+  description: "Your Mist organization ID"
+  type: string
+  required: true
+  group: "Mist API"
+
+# ── Application ──────────────────────────────────────────────────────────────
+
+- variable: app.environment
+  label: Environment
+  description: "Application environment"
+  type: enum
+  default: "production"
+  options:
+    - "development"
+    - "staging"
+    - "production"
+  group: "Application"
+
+- variable: image.repository
+  label: Image Repository
+  description: "Docker image repository"
+  type: string
+  default: "tmunzer/mist-automation"
+  group: "Application"
+
+- variable: image.tag
+  label: Image Tag
+  description: "Docker image tag"
+  type: string
+  default: "latest"
+  group: "Application"
+
+# ── WebAuthn / Passkeys ─────────────────────────────────────────────────────
+
+- variable: webauthn.rpId
+  label: Passkey Relying Party ID
+  description: "Must match the domain where the app is hosted (e.g., mist.example.com). No protocol or port."
+  type: string
+  default: "localhost"
+  group: "Authentication"
+
+- variable: webauthn.rpName
+  label: Passkey Display Name
+  description: "Name shown in browser passkey prompts"
+  type: string
+  default: "Mist Automation"
+  group: "Authentication"
+
+- variable: webauthn.origin
+  label: Passkey Expected Origin
+  description: "Full origin URL including protocol (e.g., https://mist.example.com)"
+  type: string
+  default: "http://localhost:4200"
+  group: "Authentication"
+
+# ── Session Management ───────────────────────────────────────────────────────
+
+- variable: session.accessTokenExpireHours
+  label: Access Token Expiry (hours)
+  type: int
+  default: 24
+  group: "Authentication"
+
+- variable: session.maxConcurrentSessions
+  label: Max Concurrent Sessions
+  type: int
+  default: 5
+  group: "Authentication"
+
+# ── Password Policy ──────────────────────────────────────────────────────────
+
+- variable: passwordPolicy.minLength
+  label: Minimum Password Length
+  type: int
+  default: 12
+  group: "Authentication"
+
+- variable: passwordPolicy.requireSpecialChars
+  label: Require Special Characters
+  type: boolean
+  default: true
+  group: "Authentication"
+
+# ── Mist API ─────────────────────────────────────────────────────────────────
+
+- variable: mistApi.cloudRegion
+  label: Mist Cloud Region
+  type: enum
+  default: "global"
+  options:
+    - "global"
+    - "eu"
+    - "apac"
+  group: "Mist API"
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
+
+- variable: ingress.enabled
+  label: Enable Ingress
+  type: boolean
+  default: true
+  group: "Networking"
+  show_subquestion_if: true
+  subquestions:
+    - variable: ingress.className
+      label: Ingress Class
+      type: string
+      default: "traefik"
+    - variable: ingress.hosts[0].host
+      label: Hostname
+      type: hostname
+      default: "mist-automation.local"
+
+# ── Replicas ─────────────────────────────────────────────────────────────────
+
+- variable: backend.replicaCount
+  label: Backend Replicas
+  type: int
+  default: 1
+  min: 1
+  max: 10
+  group: "Scaling"
+
+- variable: celeryWorker.replicaCount
+  label: Celery Worker Replicas
+  type: int
+  default: 1
+  min: 1
+  max: 10
+  group: "Scaling"
+
+# ── Database ─────────────────────────────────────────────────────────────────
+
+- variable: mongodb.enabled
+  label: Deploy Bundled MongoDB
+  description: "Disable to use an external MongoDB instance"
+  type: boolean
+  default: true
+  group: "Database"
+  show_subquestion_if: false
+  subquestions:
+    - variable: mongodb.external.url
+      label: External MongoDB URL
+      type: string
+      default: ""
+
+- variable: redis.enabled
+  label: Deploy Bundled Redis
+  description: "Disable to use an external Redis instance"
+  type: boolean
+  default: true
+  group: "Database"
+  show_subquestion_if: false
+  subquestions:
+    - variable: redis.external.url
+      label: External Redis URL
+      type: string
+      default: ""
+
+- variable: influxdb.enabled
+  label: Deploy Bundled InfluxDB
+  description: "Disable to use an external InfluxDB instance. InfluxDB is optional (used for telemetry)."
+  type: boolean
+  default: true
+  group: "Database"
+
+# ── Backup ───────────────────────────────────────────────────────────────────
+
+- variable: backup.enabled
+  label: Enable Backups
+  type: boolean
+  default: true
+  group: "Backup"
+
+- variable: backup.fullScheduleCron
+  label: Backup Schedule (cron)
+  type: string
+  default: "0 2 * * *"
+  group: "Backup"
+
+- variable: backup.retentionDays
+  label: Backup Retention (days)
+  type: int
+  default: 90
+  group: "Backup"
+
+- variable: backup.git.enabled
+  label: Enable Git Backup
+  description: "Push backups to a Git repository"
+  type: boolean
+  default: false
+  group: "Backup"
+  show_subquestion_if: true
+  subquestions:
+    - variable: backup.git.repoUrl
+      label: Git Repository URL
+      type: string
+    - variable: backup.git.branch
+      label: Git Branch
+      type: string
+      default: "main"
+
+# ── Integrations ─────────────────────────────────────────────────────────────
+
+- variable: integrations.slack.webhookUrl
+  label: Slack Webhook URL
+  description: "Optional — for workflow failure notifications"
+  type: string
+  default: ""
+  group: "Integrations"
+
+- variable: integrations.pagerDuty.integrationKey
+  label: PagerDuty Integration Key
+  description: "Optional — for workflow failure alerts"
+  type: password
+  default: ""
+  group: "Integrations"
