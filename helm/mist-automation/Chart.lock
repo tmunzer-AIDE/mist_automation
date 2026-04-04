@@ -1,0 +1,12 @@
+dependencies:
+- name: mongodb
+  repository: https://charts.bitnami.com/bitnami
+  version: 14.13.0
+- name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 18.19.4
+- name: influxdb
+  repository: https://charts.bitnami.com/bitnami
+  version: 5.18.1
+digest: sha256:90e9e145a8018fb5addc59d981a14b95dcbf392e68490985f6ff7d6979570e99
+generated: "2026-04-04T19:14:34.665189+02:00"
