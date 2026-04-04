@@ -150,7 +150,7 @@ questions:
   label: Deploy Bundled InfluxDB
   description: "Optional — used for telemetry only. Uses official influxdb:2.7 image."
   type: boolean
-  default: false
+  default: true
   group: "Database"
 
 # ── Backup ───────────────────────────────────────────────────────────────────

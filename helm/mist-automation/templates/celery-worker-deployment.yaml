@@ -40,6 +40,15 @@ spec:
           env:
             - name: MONGODB_URL
               value: {{ include "mist-automation.mongodbUrl" . }}
+            {{- if and .Values.mongodb.enabled .Values.mongodb.auth.rootPassword }}
+            - name: MONGODB_USERNAME
+              value: "root"
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mist-automation.fullname" . }}
+                  key: MONGODB_ROOT_PASSWORD
+            {{- end }}
             - name: CELERY_BROKER_URL
               value: "{{ include "mist-automation.redisUrl" . }}/1"
             - name: CELERY_RESULT_BACKEND

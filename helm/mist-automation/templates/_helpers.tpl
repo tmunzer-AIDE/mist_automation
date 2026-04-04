@@ -105,11 +105,7 @@ MongoDB connection URL
 */}}
 {{- define "mist-automation.mongodbUrl" -}}
 {{- if .Values.mongodb.enabled }}
-{{- if .Values.mongodb.auth.rootPassword }}
-{{- printf "mongodb://root:%s@%s-mongodb:27017/?authSource=admin" (.Values.mongodb.auth.rootPassword | urlquery) (include "mist-automation.fullname" .) }}
-{{- else }}
 {{- printf "mongodb://%s-mongodb:27017" (include "mist-automation.fullname" .) }}
-{{- end }}
 {{- else }}
 {{- .Values.mongodb.external.url }}
 {{- end }}
