@@ -83,3 +83,55 @@ class SessionListResponse(BaseModel):
 
     sessions: list[SessionResponse]
     total: int
+
+
+class PasskeyRegisterBeginResponse(BaseModel):
+    """Response from passkey registration begin."""
+
+    session_id: str = Field(..., description="Challenge session ID")
+    options: dict = Field(..., description="PublicKeyCredentialCreationOptions")
+
+
+class PasskeyRegisterCompleteRequest(BaseModel):
+    """Request to complete passkey registration."""
+
+    session_id: str = Field(..., description="Challenge session ID from begin step")
+    credential: str = Field(..., description="JSON-encoded attestation response from browser")
+    name: str = Field("Passkey", description="User-friendly name for this passkey", max_length=100)
+
+
+class PasskeyLoginBeginResponse(BaseModel):
+    """Response from passkey login begin."""
+
+    session_id: str = Field(..., description="Challenge session ID")
+    options: dict = Field(..., description="PublicKeyCredentialRequestOptions")
+
+
+class PasskeyLoginCompleteRequest(BaseModel):
+    """Request to complete passkey login."""
+
+    session_id: str = Field(..., description="Challenge session ID from begin step")
+    credential: str = Field(..., description="JSON-encoded assertion response from browser")
+
+
+class PasskeyResponse(BaseModel):
+    """A registered passkey (public info only)."""
+
+    id: str = Field(..., description="Base64url credential ID")
+    name: str = Field(..., description="User-given name")
+    created_at: datetime = Field(..., description="When the passkey was registered")
+    last_used_at: datetime | None = Field(None, description="Last successful authentication")
+    transports: list[str] = Field(default_factory=list, description="Transport hints")
+
+
+class PasskeyListResponse(BaseModel):
+    """List of user's passkeys."""
+
+    passkeys: list[PasskeyResponse]
+    total: int
+
+
+class PasskeyDeleteRequest(BaseModel):
+    """Request to delete a passkey (requires password re-auth)."""
+
+    password: str = Field(..., description="Current password for re-authentication")
