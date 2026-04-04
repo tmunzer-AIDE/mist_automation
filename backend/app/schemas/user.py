@@ -59,6 +59,7 @@ class UserResponse(BaseModel):
     timezone: str = Field(..., description="User timezone")
     is_active: bool = Field(..., description="Whether user is active")
     totp_enabled: bool = Field(..., description="Whether 2FA is enabled")
+    has_passkeys: bool = Field(default=False, description="Whether user has registered passkeys")
     created_at: datetime = Field(..., description="Account creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
     last_login: datetime | None = Field(None, description="Last login timestamp")
@@ -78,6 +79,7 @@ def user_to_response(user) -> UserResponse:
         timezone=user.timezone,
         is_active=user.is_active,
         totp_enabled=user.totp_enabled,
+        has_passkeys=len(user.webauthn_credentials) > 0,
         created_at=user.created_at,
         updated_at=user.updated_at,
         last_login=user.last_login,

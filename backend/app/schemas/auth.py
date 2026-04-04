@@ -34,6 +34,7 @@ class UserResponse(BaseModel):
     timezone: str = Field(..., description="User timezone")
     is_active: bool = Field(..., description="Whether user is active")
     totp_enabled: bool = Field(..., description="Whether 2FA is enabled")
+    has_passkeys: bool = Field(default=False, description="Whether user has registered passkeys")
     created_at: datetime = Field(..., description="Account creation timestamp")
     last_login: datetime | None = Field(None, description="Last login timestamp")
 

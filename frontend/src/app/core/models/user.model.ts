@@ -19,6 +19,7 @@ export interface UserResponse {
   timezone: string;
   is_active: boolean;
   totp_enabled: boolean;
+  has_passkeys: boolean;
   created_at: string;
   last_login: string | null;
 }
