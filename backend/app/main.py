@@ -3,10 +3,12 @@ Main FastAPI application entry point.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.system_health import start_health_broadcaster, stop_health_broadcaster
 from app.config import settings
@@ -257,6 +259,7 @@ async def health_check():
         "environment": settings.environment,
         "is_initialized": is_initialized,
         "maintenance_mode": maintenance,
+        "passkey_support": True,
         "password_policy": {
             "min_length": settings.min_password_length,
             "require_uppercase": settings.require_uppercase,
@@ -267,9 +270,17 @@ async def health_check():
     }
 
 
+_FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+
+
 @app.get("/", tags=["Root"])
 async def root():
-    """Root endpoint."""
+    """Serve Angular SPA index.html if available, otherwise return API info."""
+    index = _FRONTEND_DIR / "index.html"
+    if index.is_file():
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse(index.read_text())
     return {
         "app": settings.app_name,
         "version": settings.app_version,
@@ -303,6 +314,23 @@ try:
     logger.info("mcp_server_mounted", path="/mcp", auth="jwt")
 except Exception as e:
     logger.warning("mcp_server_mount_failed", error=str(e))
+
+
+# Serve Angular frontend static files and SPA catch-all
+_static_dir = _FRONTEND_DIR / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+    logger.info("frontend_static_mounted", path="/static")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_catch_all(full_path: str):
+        """Catch-all route that serves index.html for Angular SPA routing."""
+        from fastapi.responses import HTMLResponse
+
+        index = _FRONTEND_DIR / "index.html"
+        return HTMLResponse(index.read_text())
+
+    logger.info("spa_catch_all_registered")
 
 
 if __name__ == "__main__":
