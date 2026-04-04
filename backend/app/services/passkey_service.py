@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import structlog
 import webauthn
-from webauthn.helpers import bytes_to_base64url, base64url_to_bytes
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     AuthenticatorTransport,

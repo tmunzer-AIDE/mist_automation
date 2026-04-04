@@ -26,7 +26,7 @@ class WebAuthnCredential(BaseModel):
 
 class User(TimestampMixin, Document):
     """User model with authentication and authorization data."""
-    
+
     email: EmailStr = Field(..., description="User email address")
     password_hash: str = Field(..., description="Hashed password")
     roles: list[str] = Field(
@@ -39,7 +39,7 @@ class User(TimestampMixin, Document):
     last_name: str | None = Field(default=None, description="User last name")
     timezone: str = Field(default="UTC", description="User timezone for cron schedules")
     is_active: bool = Field(default=True, description="Whether the user account is active")
-    
+
     # Two-Factor Authentication
     totp_secret: str | None = Field(default=None, description="TOTP secret for 2FA (encrypted)")
     totp_enabled: bool = Field(default=False, description="Whether 2FA is enabled")
@@ -54,7 +54,7 @@ class User(TimestampMixin, Document):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login: datetime | None = Field(default=None, description="Last successful login timestamp")
-    
+
     class Settings:
         name = "users"
         indexes = [
@@ -62,23 +62,23 @@ class User(TimestampMixin, Document):
             IndexModel([("webauthn_credentials.credential_id", ASCENDING)]),
             "is_active",
         ]
-    
+
     def has_role(self, role: str) -> bool:
         """Check if user has a specific role."""
         return role in self.roles
-    
+
     def has_any_role(self, *roles: str) -> bool:
         """Check if user has any of the specified roles."""
         return any(role in self.roles for role in roles)
-    
+
     def is_admin(self) -> bool:
         """Check if user has admin role."""
         return self.has_role("admin")
-    
+
     def can_manage_workflows(self) -> bool:
         """Check if user can manage workflows."""
         return self.has_any_role("admin", "automation")
-    
+
     def can_manage_backups(self) -> bool:
         """Check if user can manage backups."""
         return self.has_any_role("admin", "backup")
@@ -107,7 +107,7 @@ class User(TimestampMixin, Document):
     def update_last_login(self):
         """Update last login timestamp."""
         self.last_login = datetime.now(timezone.utc)
-    
+
     class Config:
         json_schema_extra = {
             "example": {
