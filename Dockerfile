@@ -15,12 +15,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy backend source
+# Copy backend and install from pyproject.toml
 COPY backend/ .
+RUN pip install --no-cache-dir -e "."
 
 # Copy built frontend into the backend static directory
 COPY --from=frontend-build /build/dist/frontend/browser/index.html app/frontend/index.html
