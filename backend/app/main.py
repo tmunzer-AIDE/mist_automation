@@ -324,8 +324,14 @@ if _static_dir.is_dir():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_catch_all(full_path: str):
-        """Catch-all route that serves index.html for Angular SPA routing."""
-        from fastapi.responses import HTMLResponse
+        """Serve static assets at root paths, otherwise return index.html for SPA routing."""
+        from fastapi.responses import FileResponse, HTMLResponse
+
+        # Serve assets referenced without /static/ prefix (e.g. logo.svg, favicon.ico)
+        if full_path and not full_path.startswith(".."):
+            asset = (_static_dir / full_path).resolve()
+            if asset.is_file() and str(asset).startswith(str(_static_dir.resolve())):
+                return FileResponse(asset)
 
         index = _FRONTEND_DIR / "index.html"
         return HTMLResponse(index.read_text())

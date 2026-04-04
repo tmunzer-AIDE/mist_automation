@@ -1,4 +1,4 @@
-# Mist Automation & Backup
+# Mist Automation Platform
 
 A self-hosted platform for automating Juniper Mist network operations and managing configuration backups. Built with FastAPI and Angular.
 

@@ -1,0 +1,71 @@
+# Example development values for Mist Automation
+# Usage: helm install mist-automation ./helm/mist-automation -f values-development.yaml
+
+# Application settings
+app:
+  debug: true
+  environment: development
+
+# Reduced replicas for development
+backend:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+celeryWorker:
+  replicaCount: 1
+
+celeryBeat:
+  replicaCount: 1
+
+# Use bundled databases for development
+mongodb:
+  enabled: true
+  persistence:
+    size: 1Gi
+
+redis:
+  enabled: true
+  master:
+    persistence:
+      size: 500Mi
+
+influxdb:
+  enabled: true
+  persistence:
+    size: 1Gi
+
+# Relaxed password policy for dev
+passwordPolicy:
+  minLength: 6
+  requireUppercase: false
+  requireLowercase: false
+  requireDigits: false
+  requireSpecialChars: false
+
+# Logging
+logging:
+  level: DEBUG
+  format: console
+
+# Security - Use a simple dev secret
+security:
+  secretKey: "dev-only-insecure-secret-key-change-in-production"
+
+# API
+api:
+  corsOrigins: "*"
+
+# No ingress for local dev - use port-forward
+ingress:
+  enabled: false
+
+# Disable backup git in dev
+backup:
+  git:
+    enabled: false

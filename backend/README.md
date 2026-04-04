@@ -1,6 +1,6 @@
-# Mist Automation & Backup - Backend
+# Mist Automation Platform - Backend
 
-FastAPI backend for the Mist Automation & Backup application.
+FastAPI backend for the Mist Automation Platform application.
 
 ## Overview
 

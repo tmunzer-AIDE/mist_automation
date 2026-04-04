@@ -1,5 +1,5 @@
 """
-FastMCP server instance for Mist Automation & Backup.
+FastMCP server instance for Mist Automation Platform.
 
 Exposes 4 consolidated tools (search, backup, workflow, get_details)
 that give LLM agents access to app data with a minimal token footprint.
@@ -15,7 +15,7 @@ mcp_user_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("mc
 mcp = FastMCP(
     name="mist-automation",
     instructions=(
-        "Tools for querying and managing Mist Automation & Backup data. "
+        "Tools for querying and managing Mist Automation Platform data. "
         "Domains: backups (versioned config snapshots), workflows (automation graphs), "
         "webhook events, validation reports, and system dashboard stats."
     ),

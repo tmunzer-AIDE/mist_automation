@@ -1,4 +1,4 @@
-# Mist Automation & Backup Application - Implementation Plan
+# Mist Automation Platform Application - Implementation Plan
 
 ## Executive Summary
 

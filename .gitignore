@@ -63,3 +63,4 @@ node_modules/.worktrees/
 
 # Runtime data (skills loaded from git repos / direct uploads)
 /skills/
+backend/app/frontend/

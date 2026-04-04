@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Mist Automation & Backup
+  title: Mist Automation Platform
   description: Comprehensive web application for automating Juniper Mist operations
     and managing configuration backups
   version: 1.0.0

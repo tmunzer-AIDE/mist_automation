@@ -595,6 +595,7 @@ export class AiChatsComponent implements OnInit {
             content: m.content,
             html: m.role === 'assistant' ? renderMarkdown(m.content) : '',
             metadata: m.metadata,
+            timestamp: m.timestamp,
           }));
         this.loadedMessages.set(msgs);
         // Restore MCP selection from thread

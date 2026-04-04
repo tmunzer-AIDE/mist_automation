@@ -1,0 +1,33 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.backend.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "mist-automation.fullname" . }}-backend)
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.backend.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "mist-automation.fullname" . }}-backend'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "mist-automation.fullname" . }}-backend --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.backend.service.port }}
+{{- else if contains "ClusterIP" .Values.backend.service.type }}
+  echo "Visit http://127.0.0.1:8000 to use the application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "mist-automation.fullname" . }}-backend 8000:{{ .Values.backend.service.port }}
+{{- end }}
+
+2. Important notes:
+   - Make sure to set 'security.secretKey' to a secure random value
+   - Configure 'mistApi.token' and 'mistApi.orgId' for Mist API access
+   - Review and update password policy settings as needed
+
+3. Dependencies:
+   - MongoDB: {{ if .Values.mongodb.enabled }}Bundled (Bitnami chart){{ else }}External: {{ .Values.mongodb.external.url }}{{ end }}
+   - Redis: {{ if .Values.redis.enabled }}Bundled (Bitnami chart){{ else }}External: {{ .Values.redis.external.url }}{{ end }}
+   - InfluxDB: {{ if .Values.influxdb.enabled }}Bundled (Bitnami chart){{ else }}External: {{ .Values.influxdb.external.url }}{{ end }}
+
+4. If you need to update dependencies, run:
+   helm dependency update

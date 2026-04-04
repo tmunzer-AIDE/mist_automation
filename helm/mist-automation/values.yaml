@@ -9,7 +9,7 @@ global:
 
 # -- Application settings
 app:
-  name: "Mist Automation & Backup"
+  name: "Mist Automation Platform"
   version: "1.0.0"
   debug: false
   environment: production

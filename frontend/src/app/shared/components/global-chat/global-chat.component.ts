@@ -158,8 +158,8 @@ import { extractErrorMessage } from '../../utils/error.utils';
       }
 
       .chat-panel {
-        width: 420px;
-        height: 560px;
+        width: 600px;
+        height: 700px;
         border-radius: 16px;
         background: var(--mat-sys-surface);
         border: 1px solid var(--mat-sys-outline-variant);

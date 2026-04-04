@@ -38,6 +38,7 @@ export interface ChatMessage {
   content: string;
   html: string;
   metadata?: { tool_calls?: { tool: string; server: string; status: string; arguments?: Record<string, unknown>; result_preview?: string }[]; thinking_texts?: string[] } | null;
+  timestamp?: string;
 }
 
 export interface MessageSection {
@@ -48,8 +49,8 @@ export interface MessageSection {
 }
 
 export type TimelineItem =
-  | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string; sections?: MessageSection[] }
-  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; arguments?: Record<string, unknown>; resultPreview?: string; expanded: boolean };
+  | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string; sections?: MessageSection[]; timestamp?: string }
+  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; arguments?: Record<string, unknown>; resultPreview?: string; expanded: boolean; timestamp?: string };
 
 function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
@@ -75,6 +76,9 @@ function renderMarkdown(md: string): string {
         @for (item of timeline(); track $index) {
           @if (item.kind === 'message') {
           @if (item.role === 'user' || item.content.trim()) {
+            @if (item.timestamp) {
+              <div class="message-timestamp" [class.user-ts]="item.role === 'user'">{{ formatTimestamp(item.timestamp) }}</div>
+            }
             <div
               class="chat-message"
               [class.user]="item.role === 'user'"
@@ -112,6 +116,9 @@ function renderMarkdown(md: string): string {
           }
           } @else {
             <div class="tool-call-inline" [class.running]="item.status === 'running'" [class.success]="item.status === 'success'" [class.error]="item.status === 'error'">
+              @if (item.timestamp) {
+                <div class="message-timestamp tool-timestamp">{{ formatTimestamp(item.timestamp) }}</div>
+              }
               <div class="tool-call-header" (click)="toggleToolExpand($index)">
                 @if (item.status === 'running') {
                   <mat-icon class="tool-status-icon spinning">hub</mat-icon>
@@ -505,6 +512,25 @@ function renderMarkdown(md: string): string {
         scrollbar-width: thin;
       }
 
+      .message-timestamp {
+        font-size: 10px;
+        color: var(--mat-sys-on-surface-variant);
+        margin-top: 2px;
+        padding: 0 4px;
+        margin-left: 38px;
+
+        &.user-ts {
+          text-align: right;
+          margin-left: 0;
+          margin-right: 38px;
+        }
+      }
+
+      .tool-timestamp {
+        margin-left: 0;
+        padding: 2px 10px 4px;
+      }
+
       .has-artifacts app-artifact-card {
         margin: 8px 0;
       }
@@ -863,12 +889,13 @@ export class AiChatPanelComponent {
       const summary = this.initialSummary();
       if (!summary) return;
       untracked(() => {
-        const items = this._buildArtifactTimeline(summary, 'assistant');
         this.timeline.update((tl) => {
           let trimIdx = tl.length;
           while (trimIdx > 0 && tl[trimIdx - 1].kind === 'message' && (tl[trimIdx - 1] as { role: string }).role === 'assistant') {
             trimIdx--;
           }
+          const existingTs = trimIdx < tl.length ? tl[trimIdx].timestamp : new Date().toISOString();
+          const items = this._buildArtifactTimeline(summary, 'assistant', existingTs);
           const base = tl.slice(0, trimIdx);
           return [...base, ...items];
         });
@@ -899,20 +926,20 @@ export class AiChatPanelComponent {
           // Interleave: thinking[0] → tool calls → thinking[1] → ... → final assistant message
           for (let i = 0; i < Math.max(thinkingTexts.length, toolCallsList.length); i++) {
             if (i < thinkingTexts.length && thinkingTexts[i]) {
-              tl.push({ kind: 'message', role: 'assistant', content: thinkingTexts[i], html: renderMarkdown(thinkingTexts[i]) });
+              tl.push({ kind: 'message', role: 'assistant', content: thinkingTexts[i], html: renderMarkdown(thinkingTexts[i]), timestamp: m.timestamp });
             }
             if (i < toolCallsList.length) {
               const tc = toolCallsList[i];
-              tl.push({ kind: 'tool', tool: tc.tool, server: tc.server, status: (tc.status as 'success' | 'error') || 'success', arguments: tc.arguments, resultPreview: tc.result_preview, expanded: false });
+              tl.push({ kind: 'tool', tool: tc.tool, server: tc.server, status: (tc.status as 'success' | 'error') || 'success', arguments: tc.arguments, resultPreview: tc.result_preview, expanded: false, timestamp: m.timestamp });
             }
           }
         }
         // Skip empty assistant messages (tool-call-only responses have no text content)
         if (m.role === 'assistant' && m.content?.trim()) {
-          const parsed = this._buildArtifactTimeline(m.content, 'assistant');
+          const parsed = this._buildArtifactTimeline(m.content, 'assistant', m.timestamp);
           tl.push(...parsed);
         } else if (m.role === 'user' || m.content?.trim()) {
-          tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '' });
+          tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '', timestamp: m.timestamp });
         }
       }
       this.timeline.set(tl);
@@ -948,7 +975,7 @@ export class AiChatPanelComponent {
 
     this.timeline.update((tl) => [
       ...tl,
-      { kind: 'message' as const, role: 'user' as const, content: text, html: '' },
+      { kind: 'message' as const, role: 'user' as const, content: text, html: '', timestamp: new Date().toISOString() },
     ]);
     this.followUpText.reset();
     this.loading.set(true);
@@ -966,8 +993,9 @@ export class AiChatPanelComponent {
       next: (res) => {
         // Replace the last streamed assistant bubble with the final artifact-aware response
         this.timeline.update((tl) => {
-          const items = this._buildArtifactTimeline(res.reply, 'assistant');
           const last = tl[tl.length - 1];
+          const ts = last?.kind === 'message' && last.role === 'assistant' ? last.timestamp : new Date().toISOString();
+          const items = this._buildArtifactTimeline(res.reply, 'assistant', ts);
           if (last?.kind === 'message' && last.role === 'assistant') {
             return [...tl.slice(0, -1), ...items];
           }
@@ -987,13 +1015,13 @@ export class AiChatPanelComponent {
   }
 
   /** Parse content through artifact parser and return a single message with inline sections. */
-  private _buildArtifactTimeline(content: string, role: 'user' | 'assistant'): TimelineItem[] {
+  private _buildArtifactTimeline(content: string, role: 'user' | 'assistant', timestamp?: string): TimelineItem[] {
     if (role === 'user') {
-      return [{ kind: 'message', role, content, html: '' }];
+      return [{ kind: 'message', role, content, html: '', timestamp }];
     }
     const parsed = this.artifactParser.parse(content);
     if (parsed.artifacts.length === 0) {
-      return [{ kind: 'message', role, content, html: renderMarkdown(content) }];
+      return [{ kind: 'message', role, content, html: renderMarkdown(content), timestamp }];
     }
     // Build interleaved sections: prose + artifact + prose + ...
     const sections: MessageSection[] = [];
@@ -1012,13 +1040,14 @@ export class AiChatPanelComponent {
         }
       }
     }
-    return [{ kind: 'message', role, content, html: '', sections }];
+    return [{ kind: 'message', role, content, html: '', sections, timestamp }];
   }
 
   /** Subscribe to a WS stream channel and handle all event types. */
   private _subscribeToStream(channel: string): void {
     let streamedContent = '';
     let needsNewBubble = false;
+    let streamTimestamp = new Date().toISOString();
 
     this.streamSub?.unsubscribe();
     this.streamSub = this.wsService
@@ -1039,7 +1068,7 @@ export class AiChatPanelComponent {
         if (msg.type === 'tool_start' && msg.tool) {
           this.waitingAfterTool.set(false);
           needsNewBubble = true;
-          this.timeline.update((tl) => [...tl, { kind: 'tool' as const, tool: msg.tool!, server: msg.server ?? '', status: 'running' as const, arguments: msg.arguments, expanded: false }]);
+          this.timeline.update((tl) => [...tl, { kind: 'tool' as const, tool: msg.tool!, server: msg.server ?? '', status: 'running' as const, arguments: msg.arguments, expanded: false, timestamp: new Date().toISOString() }]);
           this.scrollToBottom();
         } else if (msg.type === 'tool_end' && msg.tool) {
           this.waitingAfterTool.set(true);
@@ -1054,10 +1083,11 @@ export class AiChatPanelComponent {
           this.waitingAfterTool.set(false);
           if (needsNewBubble) {
             streamedContent = '';
+            streamTimestamp = new Date().toISOString();
             needsNewBubble = false;
           }
           streamedContent += msg.content;
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) };
+          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent), timestamp: streamTimestamp };
           this.timeline.update((tl) => {
             const last = tl[tl.length - 1];
             if (last?.kind === 'message' && last.role === 'assistant' && streamedContent.length > msg.content!.length) {
@@ -1069,6 +1099,7 @@ export class AiChatPanelComponent {
         } else if (msg.type === 'token') {
           if (needsNewBubble) {
             streamedContent = '';
+            streamTimestamp = new Date().toISOString();
             needsNewBubble = false;
           }
           this.waitingAfterTool.set(false);
@@ -1079,7 +1110,7 @@ export class AiChatPanelComponent {
             this._artifactBuffer += msg.content ?? '';
             if (this.artifactParser.hasClosingTag(this._artifactBuffer)) {
               // Artifact complete -- parse and render as single message with sections
-              const items = this._buildArtifactTimeline(streamedContent, 'assistant');
+              const items = this._buildArtifactTimeline(streamedContent, 'assistant', streamTimestamp);
               this.timeline.update((tl) => {
                 // Remove the last assistant message (which had the loading artifact)
                 const trimmed = tl.filter(
@@ -1117,7 +1148,7 @@ export class AiChatPanelComponent {
                 sections.push({ type: 'prose', html: renderMarkdown(proseBeforeTag) });
               }
               sections.push({ type: 'artifact', artifact: loadingArtifact, state: 'loading' });
-              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: '', sections };
+              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: '', sections, timestamp: streamTimestamp };
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
                 if (last?.kind === 'message' && last.role === 'assistant') {
@@ -1128,7 +1159,7 @@ export class AiChatPanelComponent {
             } else if (tagMeta && this.artifactParser.hasClosingTag(contentFromTag)) {
               // Complete artifact arrived in one chunk
               this._streamProcessedTo = streamedContent.length;
-              const items = this._buildArtifactTimeline(streamedContent, 'assistant');
+              const items = this._buildArtifactTimeline(streamedContent, 'assistant', streamTimestamp);
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
                 if (last?.kind === 'message' && last.role === 'assistant') {
@@ -1138,7 +1169,7 @@ export class AiChatPanelComponent {
               });
             } else {
               // Normal text
-              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent) };
+              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent), timestamp: streamTimestamp };
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
                 if (last?.kind === 'message' && last.role === 'assistant') {
@@ -1176,7 +1207,7 @@ export class AiChatPanelComponent {
                 );
                 return [...tl.slice(0, -1), { ...last, sections: updatedSections }];
               }
-              return [...tl, { kind: 'message' as const, role: 'assistant' as const, content: '', html: '', sections: [section] }];
+              return [...tl, { kind: 'message' as const, role: 'assistant' as const, content: '', html: '', sections: [section], timestamp: streamTimestamp }];
             });
             this._artifactBuffer = null;
             this._artifactMeta = null;
@@ -1189,7 +1220,7 @@ export class AiChatPanelComponent {
 
   /** Start streaming for initial message flow — called by parent before HTTP request. */
   startStream(streamId: string, userMessage: string): void {
-    this.timeline.set([{ kind: 'message' as const, role: 'user' as const, content: userMessage, html: '' }]);
+    this.timeline.set([{ kind: 'message' as const, role: 'user' as const, content: userMessage, html: '', timestamp: new Date().toISOString() }]);
     this.waitingAfterTool.set(false);
     this._artifactBuffer = null;
     this._artifactMeta = null;
@@ -1222,6 +1253,19 @@ export class AiChatPanelComponent {
 
   formatJson(obj: Record<string, unknown>): string {
     return JSON.stringify(obj, null, 2);
+  }
+
+  formatTimestamp(ts: string): string {
+    const d = new Date(ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z');
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if (d.toDateString() === now.toDateString()) return time;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const date = `${months[d.getMonth()]} ${d.getDate()}`;
+    if (d.getFullYear() === now.getFullYear()) return `${date}, ${time}`;
+    return `${date} ${d.getFullYear()}, ${time}`;
   }
 
   respondElicitation(accepted: boolean): void {

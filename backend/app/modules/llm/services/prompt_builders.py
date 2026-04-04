@@ -125,7 +125,7 @@ def build_global_chat_system_prompt(user_roles: list[str]) -> str:
     safe_roles = [r for r in user_roles if r in _KNOWN_ROLES] if user_roles else []
     roles = ", ".join(safe_roles) if safe_roles else "none"
     return (
-        "You are an assistant for the Mist Automation & Backup platform. "
+        "You are an assistant for the Mist Automation Platform platform. "
         "You can query backups, workflows, executions, webhook events, reports, and system stats. "
         f"The current user has roles: {roles}. "
         "Use the available tools to look up data before answering. "
