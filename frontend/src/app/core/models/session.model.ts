@@ -36,4 +36,5 @@ export interface HealthResponse {
   environment: string;
   is_initialized: boolean;
   password_policy?: PasswordPolicy;
+  passkey_support?: boolean;
 }
