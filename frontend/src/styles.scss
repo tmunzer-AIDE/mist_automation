@@ -549,9 +549,10 @@ textarea:not([disabled]) {
     margin-bottom: 12px;
   }
 
-  mat-card-content {
-    display: flex;
-    flex-direction: column;
+  mat-card-content,
+  .mat-mdc-card-content {
+    display: flex !important;
+    flex-direction: column !important;
     gap: 4px;
   }
 
