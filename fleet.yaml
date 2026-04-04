@@ -1,0 +1,6 @@
+defaultNamespace: mist-automation
+helm:
+  chart: helm/mist-automation
+  releaseName: mist-automation
+  valuesFiles:
+    - helm/mist-automation/values-production.yaml
