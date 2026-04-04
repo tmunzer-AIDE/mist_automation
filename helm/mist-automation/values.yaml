@@ -198,10 +198,11 @@ redis:
   replica:
     replicaCount: 0
 
-# -- InfluxDB configuration
+# -- InfluxDB configuration (app requires InfluxDB 2.x, optional — used for telemetry only)
+# NOTE: Bitnami no longer publishes InfluxDB 2.x images. Disable bundled and use an external instance.
 influxdb:
-  # -- Enable bundled InfluxDB (Bitnami chart)
-  enabled: true
+  # -- Enable bundled InfluxDB (Bitnami chart) — disabled by default as Bitnami only ships 3.x
+  enabled: false
   # -- External InfluxDB settings (used when enabled=false)
   external:
     url: ""
