@@ -1,5 +1,8 @@
-# Example production values for Mist Automation
+# Example production values for Mist Automation Platform
 # Usage: helm install mist-automation ./helm/mist-automation -f values-production.yaml
+
+# FQDN — drives ingress host + passkey WebAuthn config
+fqdn: "mist-automation.example.com"
 
 # Application settings
 app:
@@ -86,12 +89,6 @@ ingress:
     - secretName: mist-automation-tls
       hosts:
         - mist-automation.example.com
-
-# WebAuthn / Passkeys — MUST match your ingress host
-webauthn:
-  rpId: "mist-automation.example.com"
-  rpName: "Mist Automation"
-  origin: "https://mist-automation.example.com"
 
 # Logging
 logging:

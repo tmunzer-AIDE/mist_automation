@@ -2,6 +2,13 @@ questions:
 
 # ── Required ─────────────────────────────────────────────────────────────────
 
+- variable: fqdn
+  label: Application FQDN
+  description: "Fully qualified domain name (e.g., mist.example.com). Used for ingress host and passkey/WebAuthn configuration."
+  type: hostname
+  required: true
+  group: "General"
+
 - variable: security.secretKey
   label: JWT Secret Key
   description: "Secret key for signing JWT tokens. Generate with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
@@ -36,29 +43,6 @@ questions:
   default: "latest"
   group: "Application"
 
-# ── WebAuthn / Passkeys ─────────────────────────────────────────────────────
-
-- variable: webauthn.rpId
-  label: Passkey Relying Party ID
-  description: "Must match the domain where the app is hosted (e.g., mist.example.com). No protocol or port."
-  type: string
-  default: "localhost"
-  group: "Authentication"
-
-- variable: webauthn.rpName
-  label: Passkey Display Name
-  description: "Name shown in browser passkey prompts"
-  type: string
-  default: "Mist Automation"
-  group: "Authentication"
-
-- variable: webauthn.origin
-  label: Passkey Expected Origin
-  description: "Full origin URL including protocol (e.g., https://mist.example.com)"
-  type: string
-  default: "http://localhost:4200"
-  group: "Authentication"
-
 # ── Session Management ───────────────────────────────────────────────────────
 
 - variable: session.accessTokenExpireHours
@@ -91,6 +75,7 @@ questions:
 
 - variable: ingress.enabled
   label: Enable Ingress
+  description: "Host is derived from the FQDN field above"
   type: boolean
   default: true
   group: "Networking"
@@ -100,10 +85,6 @@ questions:
       label: Ingress Class
       type: string
       default: "traefik"
-    - variable: ingress.hosts[0].host
-      label: Hostname
-      type: hostname
-      default: "mist-automation.local"
 
 # ── Replicas ─────────────────────────────────────────────────────────────────
 

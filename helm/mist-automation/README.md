@@ -45,8 +45,6 @@ See [values.yaml](values.yaml) for the full list of configurable parameters.
 | `backend.replicaCount` | Number of backend replicas | `1` |
 | `celeryWorker.replicaCount` | Number of Celery worker replicas | `1` |
 | `security.secretKey` | JWT secret key (required) | `""` |
-| `mistApi.token` | Mist API token | `""` |
-| `mistApi.orgId` | Mist Organization ID | `""` |
 | `mongodb.enabled` | Use bundled MongoDB | `true` |
 | `redis.enabled` | Use bundled Redis | `true` |
 | `influxdb.enabled` | Use bundled InfluxDB | `true` |

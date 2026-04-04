@@ -29,9 +29,14 @@ data:
   DEVICE_TRUST_DAYS: {{ .Values.session.deviceTrustDays | quote }}
 
   # WebAuthn / Passkeys
-  WEBAUTHN_RP_ID: {{ .Values.webauthn.rpId | quote }}
+  {{- if .Values.fqdn }}
+  WEBAUTHN_RP_ID: {{ .Values.fqdn | quote }}
+  WEBAUTHN_ORIGIN: {{ printf "https://%s" .Values.fqdn | quote }}
+  {{- else }}
+  WEBAUTHN_RP_ID: "localhost"
+  WEBAUTHN_ORIGIN: "http://localhost:4200"
+  {{- end }}
   WEBAUTHN_RP_NAME: {{ .Values.webauthn.rpName | quote }}
-  WEBAUTHN_ORIGIN: {{ .Values.webauthn.origin | quote }}
   
   # MongoDB
   MONGODB_DB_NAME: {{ .Values.mongodb.database | quote }}

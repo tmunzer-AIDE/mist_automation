@@ -7,6 +7,9 @@ global:
   imagePullSecrets: []
   storageClass: ""
 
+# -- Fully qualified domain name (used for ingress host + passkey/WebAuthn config)
+fqdn: ""
+
 # -- Application settings
 app:
   name: "Mist Automation Platform"
@@ -154,13 +157,9 @@ session:
   deviceTrustDays: 30
 
 # -- WebAuthn / Passkey configuration
+# rpId and origin are auto-derived from global fqdn when set. Override here only if needed.
 webauthn:
-  # -- Relying Party ID (must match your domain, e.g., "mist-automation.example.com")
-  rpId: "localhost"
-  # -- Display name shown in browser passkey prompts
-  rpName: "Mist Automation"
-  # -- Expected origin for verification (must include protocol, e.g., "https://mist-automation.example.com")
-  origin: "http://localhost:4200"
+  rpName: "Mist Automation Platform"
 
 # -- MongoDB configuration (when using external)
 mongodb:

@@ -17,13 +17,29 @@ spec:
   tls:
     {{- range .Values.ingress.tls }}
     - hosts:
+        {{- if $.Values.fqdn }}
+        - {{ $.Values.fqdn | quote }}
+        {{- else }}
         {{- range .hosts }}
         - {{ . | quote }}
+        {{- end }}
         {{- end }}
       secretName: {{ .secretName }}
     {{- end }}
   {{- end }}
   rules:
+    {{- if .Values.fqdn }}
+    - host: {{ .Values.fqdn | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mist-automation.fullname" . }}-backend
+                port:
+                  number: {{ .Values.backend.service.port }}
+    {{- else }}
     {{- range .Values.ingress.hosts }}
     - host: {{ .host | quote }}
       http:
@@ -37,5 +53,6 @@ spec:
                 port:
                   number: {{ $.Values.backend.service.port }}
           {{- end }}
+    {{- end }}
     {{- end }}
 {{- end }}
