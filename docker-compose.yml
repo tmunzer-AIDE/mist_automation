@@ -1,6 +1,57 @@
 version: "3.8"
 
 services:
+  mist-automation:
+    image: tmunzer/mist-automation:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - REDIS_URL=redis://redis:6379/0
+      - INFLUXDB_URL=http://influxdb:8086
+      # WebAuthn / Passkeys — set these to your public domain in production
+      # - WEBAUTHN_RP_ID=mist-automation.example.com
+      # - WEBAUTHN_RP_NAME=Mist Automation
+      # - WEBAUTHN_ORIGIN=https://mist-automation.example.com
+    depends_on:
+      - mongodb
+      - redis
+    restart: unless-stopped
+
+  celery-worker:
+    image: tmunzer/mist-automation:latest
+    command: celery -A app.core.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - INFLUXDB_URL=http://influxdb:8086
+    depends_on:
+      - mongodb
+      - redis
+    restart: unless-stopped
+
+  celery-beat:
+    image: tmunzer/mist-automation:latest
+    command: celery -A app.core.celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - INFLUXDB_URL=http://influxdb:8086
+    depends_on:
+      - mongodb
+      - redis
+    restart: unless-stopped
+
   mongodb:
     image: mongo:7
     ports:

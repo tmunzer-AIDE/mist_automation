@@ -1,0 +1,301 @@
+# Default values for mist-automation
+# This is a YAML-formatted file.
+
+# -- Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# -- Application settings
+app:
+  name: "Mist Automation & Backup"
+  version: "1.0.0"
+  debug: false
+  environment: production
+
+# -- Application image (shared by backend, celery worker, celery beat)
+image:
+  repository: tmunzer/mist-automation
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# -- Backend deployment (serves API + frontend static files)
+backend:
+  enabled: true
+  replicaCount: 1
+
+  # -- Resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  # -- Service configuration
+  service:
+    type: ClusterIP
+    port: 8000
+    annotations: {}
+
+  # -- Pod annotations
+  podAnnotations: {}
+
+  # -- Node selector
+  nodeSelector: {}
+
+  # -- Tolerations
+  tolerations: []
+
+  # -- Affinity rules
+  affinity: {}
+
+  # -- Liveness probe
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # -- Readiness probe
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# -- Celery worker deployment
+celeryWorker:
+  enabled: true
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -- Celery beat scheduler
+celeryBeat:
+  enabled: true
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -- Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: mist-automation.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: mist-automation-tls
+  #    hosts:
+  #      - mist-automation.local
+
+# -- Security configuration
+security:
+  # -- Secret key for JWT tokens (generate with: python -c "import secrets; print(secrets.token_urlsafe(64))")
+  secretKey: ""
+  # -- Use existing secret for sensitive values
+  existingSecret: ""
+
+# -- API configuration
+api:
+  v1Prefix: /api/v1
+  corsOrigins: "http://localhost:4200,http://localhost:8080"
+
+# -- Password policy
+passwordPolicy:
+  minLength: 8
+  requireUppercase: true
+  requireLowercase: true
+  requireDigits: true
+  requireSpecialChars: false
+
+# -- Session management
+session:
+  accessTokenExpireHours: 24
+  refreshTokenExpireDays: 30
+  maxConcurrentSessions: 5
+  deviceTrustDays: 30
+
+# -- WebAuthn / Passkey configuration
+webauthn:
+  # -- Relying Party ID (must match your domain, e.g., "mist-automation.example.com")
+  rpId: "localhost"
+  # -- Display name shown in browser passkey prompts
+  rpName: "Mist Automation"
+  # -- Expected origin for verification (must include protocol, e.g., "https://mist-automation.example.com")
+  origin: "http://localhost:4200"
+
+# -- MongoDB configuration (when using external)
+mongodb:
+  # -- Enable bundled MongoDB (Bitnami chart)
+  enabled: true
+  # -- External MongoDB URL (used when enabled=false)
+  external:
+    url: ""
+  # -- Database name
+  database: mist_automation
+  # -- Connection pool settings
+  pool:
+    minSize: 10
+    maxSize: 100
+  # -- Bitnami chart specific values
+  auth:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# -- Redis configuration (when using external)
+redis:
+  # -- Enable bundled Redis (Bitnami chart)
+  enabled: true
+  # -- External Redis URL (used when enabled=false)
+  external:
+    url: ""
+  # -- Bitnami chart specific values
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+  replica:
+    replicaCount: 0
+
+# -- InfluxDB configuration
+influxdb:
+  # -- Enable bundled InfluxDB (Bitnami chart)
+  enabled: true
+  # -- External InfluxDB settings (used when enabled=false)
+  external:
+    url: ""
+    token: ""
+    org: ""
+    bucket: ""
+  # -- Bitnami chart specific values
+  auth:
+    admin:
+      username: admin
+      password: ""
+      token: "mist-telemetry-token"
+      org: mist_automation
+      bucket: mist_telemetry
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# -- Telemetry settings
+telemetry:
+  retentionDays: 30
+
+# -- Mist API configuration
+mistApi:
+  # -- Mist API token (stored in secret)
+  token: ""
+  # -- Mist Organization ID
+  orgId: ""
+  # -- Cloud region (global, eu, apac)
+  cloudRegion: global
+  # -- API timeout in seconds
+  timeout: 30
+  # -- Max retries
+  maxRetries: 3
+
+# -- Workflow execution settings
+workflow:
+  maxConcurrent: 10
+  defaultTimeout: 300
+  maxTimeout: 3600
+  webhookDedupTtl: 300
+
+# -- Backup configuration
+backup:
+  enabled: true
+  # -- Full backup schedule (cron format)
+  fullScheduleCron: "0 2 * * *"
+  # -- Retention period in days
+  retentionDays: 90
+  # -- Git backup settings
+  git:
+    enabled: false
+    repoUrl: ""
+    branch: main
+    authorName: "Mist Automation"
+    authorEmail: "automation@example.com"
+    # -- Git credentials (stored in secret)
+    username: ""
+    password: ""
+
+# -- Logging configuration
+logging:
+  level: INFO
+  format: json
+  file: ""
+
+# -- External integrations
+integrations:
+  slack:
+    webhookUrl: ""
+  serviceNow:
+    instanceUrl: ""
+    username: ""
+    password: ""
+  pagerDuty:
+    integrationKey: ""
+
+# -- Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# -- Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# -- Container security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true

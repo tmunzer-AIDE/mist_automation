@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-config
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+data:
+  # Application
+  APP_NAME: {{ .Values.app.name | quote }}
+  APP_VERSION: {{ .Values.app.version | quote }}
+  DEBUG: {{ .Values.app.debug | quote }}
+  ENVIRONMENT: {{ .Values.app.environment | quote }}
+  
+  # API
+  API_V1_PREFIX: {{ .Values.api.v1Prefix | quote }}
+  CORS_ORIGINS: {{ .Values.api.corsOrigins | quote }}
+  
+  # Password Policy
+  MIN_PASSWORD_LENGTH: {{ .Values.passwordPolicy.minLength | quote }}
+  REQUIRE_UPPERCASE: {{ .Values.passwordPolicy.requireUppercase | quote }}
+  REQUIRE_LOWERCASE: {{ .Values.passwordPolicy.requireLowercase | quote }}
+  REQUIRE_DIGITS: {{ .Values.passwordPolicy.requireDigits | quote }}
+  REQUIRE_SPECIAL_CHARS: {{ .Values.passwordPolicy.requireSpecialChars | quote }}
+  
+  # Session Management
+  ACCESS_TOKEN_EXPIRE_HOURS: {{ .Values.session.accessTokenExpireHours | quote }}
+  REFRESH_TOKEN_EXPIRE_DAYS: {{ .Values.session.refreshTokenExpireDays | quote }}
+  MAX_CONCURRENT_SESSIONS: {{ .Values.session.maxConcurrentSessions | quote }}
+  DEVICE_TRUST_DAYS: {{ .Values.session.deviceTrustDays | quote }}
+
+  # WebAuthn / Passkeys
+  WEBAUTHN_RP_ID: {{ .Values.webauthn.rpId | quote }}
+  WEBAUTHN_RP_NAME: {{ .Values.webauthn.rpName | quote }}
+  WEBAUTHN_ORIGIN: {{ .Values.webauthn.origin | quote }}
+  
+  # MongoDB
+  MONGODB_DB_NAME: {{ .Values.mongodb.database | quote }}
+  MONGODB_MIN_POOL_SIZE: {{ .Values.mongodb.pool.minSize | quote }}
+  MONGODB_MAX_POOL_SIZE: {{ .Values.mongodb.pool.maxSize | quote }}
+  
+  # Mist API
+  MIST_ORG_ID: {{ .Values.mistApi.orgId | quote }}
+  MIST_CLOUD_REGION: {{ .Values.mistApi.cloudRegion | quote }}
+  MIST_API_TIMEOUT: {{ .Values.mistApi.timeout | quote }}
+  MIST_API_MAX_RETRIES: {{ .Values.mistApi.maxRetries | quote }}
+  
+  # Workflow Execution
+  MAX_CONCURRENT_WORKFLOWS: {{ .Values.workflow.maxConcurrent | quote }}
+  WORKFLOW_DEFAULT_TIMEOUT: {{ .Values.workflow.defaultTimeout | quote }}
+  WORKFLOW_MAX_TIMEOUT: {{ .Values.workflow.maxTimeout | quote }}
+  WEBHOOK_DEDUP_TTL: {{ .Values.workflow.webhookDedupTtl | quote }}
+  
+  # Backup Configuration
+  BACKUP_ENABLED: {{ .Values.backup.enabled | quote }}
+  BACKUP_FULL_SCHEDULE_CRON: {{ .Values.backup.fullScheduleCron | quote }}
+  BACKUP_RETENTION_DAYS: {{ .Values.backup.retentionDays | quote }}
+  BACKUP_GIT_ENABLED: {{ .Values.backup.git.enabled | quote }}
+  BACKUP_GIT_BRANCH: {{ .Values.backup.git.branch | quote }}
+  BACKUP_GIT_AUTHOR_NAME: {{ .Values.backup.git.authorName | quote }}
+  BACKUP_GIT_AUTHOR_EMAIL: {{ .Values.backup.git.authorEmail | quote }}
+  
+  # Logging
+  LOG_LEVEL: {{ .Values.logging.level | quote }}
+  LOG_FORMAT: {{ .Values.logging.format | quote }}
+  {{- if .Values.logging.file }}
+  LOG_FILE: {{ .Values.logging.file | quote }}
+  {{- end }}
+  
+  # InfluxDB
+  INFLUXDB_ORG: {{ include "mist-automation.influxdbOrg" . | quote }}
+  INFLUXDB_BUCKET: {{ include "mist-automation.influxdbBucket" . | quote }}
+  TELEMETRY_RETENTION_DAYS: {{ .Values.telemetry.retentionDays | quote }}

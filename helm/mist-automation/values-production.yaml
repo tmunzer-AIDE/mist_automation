@@ -1,0 +1,114 @@
+# Example production values for Mist Automation
+# Usage: helm install mist-automation ./helm/mist-automation -f values-production.yaml
+
+# Application settings
+app:
+  debug: false
+  environment: production
+
+# Backend deployment
+backend:
+  replicaCount: 3
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+# Celery workers
+celeryWorker:
+  replicaCount: 3
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# Security - PROVIDE THESE VALUES VIA --set OR EXTERNAL SECRET
+# security:
+#   secretKey: ""  # Required! Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
+#   existingSecret: "mist-automation-prod-secrets"  # Or use existing secret
+
+# Mist API - PROVIDE THESE VALUES VIA --set
+# mistApi:
+#   token: ""
+#   orgId: ""
+
+# Password policy (stricter for production)
+passwordPolicy:
+  minLength: 12
+  requireUppercase: true
+  requireLowercase: true
+  requireDigits: true
+  requireSpecialChars: true
+
+# MongoDB (use external for production)
+mongodb:
+  enabled: false
+  external:
+    url: "mongodb+srv://user:password@mongodb-cluster.example.com"
+  database: mist_automation_prod
+
+# Redis (use external for production)
+redis:
+  enabled: false
+  external:
+    url: "rediss://redis-cluster.example.com:6379"
+
+# InfluxDB (use external for production)
+influxdb:
+  enabled: false
+  external:
+    url: "https://influxdb.example.com:8086"
+    # token: ""  # Provide via --set
+    org: "production"
+    bucket: "mist_telemetry"
+
+# Ingress
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/tls-acme: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  hosts:
+    - host: mist-automation.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mist-automation-tls
+      hosts:
+        - mist-automation.example.com
+
+# WebAuthn / Passkeys — MUST match your ingress host
+webauthn:
+  rpId: "mist-automation.example.com"
+  rpName: "Mist Automation"
+  origin: "https://mist-automation.example.com"
+
+# Logging
+logging:
+  level: INFO
+  format: json
+
+# Backup
+backup:
+  enabled: true
+  fullScheduleCron: "0 2 * * *"
+  retentionDays: 365
+  git:
+    enabled: true
+    # repoUrl: ""  # Provide via --set
+    branch: main
+    authorName: "Mist Automation"
+    authorEmail: "automation@example.com"
+
+# Pod disruption budgets would be added as additional templates
+# for production high availability
