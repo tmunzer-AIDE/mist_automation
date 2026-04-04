@@ -8,4 +8,4 @@
 .git
 .gitignore
 .helmignore
-*.tgz
+# *.tgz — DO NOT ignore, needed for bundled chart dependencies in charts/
