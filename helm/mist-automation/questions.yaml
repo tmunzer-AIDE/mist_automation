@@ -9,20 +9,6 @@ questions:
   required: true
   group: "Security"
 
-- variable: mistApi.token
-  label: Mist API Token
-  description: "Your Juniper Mist API token"
-  type: password
-  required: true
-  group: "Mist API"
-
-- variable: mistApi.orgId
-  label: Mist Organization ID
-  description: "Your Mist organization ID"
-  type: string
-  required: true
-  group: "Mist API"
-
 # ── Application ──────────────────────────────────────────────────────────────
 
 - variable: app.environment
@@ -100,18 +86,6 @@ questions:
   type: boolean
   default: true
   group: "Authentication"
-
-# ── Mist API ─────────────────────────────────────────────────────────────────
-
-- variable: mistApi.cloudRegion
-  label: Mist Cloud Region
-  type: enum
-  default: "global"
-  options:
-    - "global"
-    - "eu"
-    - "apac"
-  group: "Mist API"
 
 # ── Ingress ──────────────────────────────────────────────────────────────────
 
