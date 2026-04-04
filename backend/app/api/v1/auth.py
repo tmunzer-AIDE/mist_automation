@@ -5,13 +5,15 @@ Authentication API endpoints.
 import random
 import time
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pymongo.errors import DuplicateKeyError
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
 from app.config import settings
+from app.core.redis_client import get_challenge_store
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -25,12 +27,20 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
     OnboardRequest,
+    PasskeyDeleteRequest,
+    PasskeyListResponse,
+    PasskeyLoginBeginResponse,
+    PasskeyLoginCompleteRequest,
+    PasskeyRegisterBeginResponse,
+    PasskeyRegisterCompleteRequest,
+    PasskeyResponse,
     SessionListResponse,
     SessionResponse,
     TokenResponse,
     UpdateProfileRequest,
     UserResponse,
 )
+from app.services.passkey_service import PasskeyError, PasskeyService
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -47,6 +57,17 @@ def _user_to_response(user: User) -> UserResponse:
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT_WINDOW = 300  # 5 minutes
 _RATE_LIMIT_MAX = 5  # max attempts per window
+
+
+async def _get_passkey_service() -> PasskeyService:
+    """Create a PasskeyService with the current configuration."""
+    store = await get_challenge_store()
+    return PasskeyService(
+        challenge_store=store,
+        rp_id=settings.webauthn_rp_id,
+        rp_name=settings.webauthn_rp_name,
+        expected_origin=settings.webauthn_origin,
+    )
 
 
 def _check_login_rate_limit(key: str) -> None:
@@ -394,4 +415,220 @@ async def revoke_session(
     await session.delete()
     logger.info("session_revoked", user_id=str(current_user.id), session_id=session_id)
 
+    return None
+
+
+# ── Passkey / WebAuthn ──────────────────────────────────────────────────────
+
+
+@router.post(
+    "/auth/passkey/register/begin",
+    response_model=PasskeyRegisterBeginResponse,
+    tags=["Authentication"],
+)
+async def passkey_register_begin(current_user: User = Depends(get_current_user_from_token)):
+    """Begin passkey registration — returns challenge options."""
+    service = await _get_passkey_service()
+    try:
+        session_id, options = await service.generate_registration_options(current_user)
+    except PasskeyError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    return PasskeyRegisterBeginResponse(session_id=session_id, options=options)
+
+
+@router.post(
+    "/auth/passkey/register/complete",
+    response_model=PasskeyResponse,
+    tags=["Authentication"],
+)
+async def passkey_register_complete(
+    data: PasskeyRegisterCompleteRequest,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Complete passkey registration — verify attestation and store credential."""
+    service = await _get_passkey_service()
+    try:
+        credential = await service.verify_registration(
+            user=current_user,
+            session_id=data.session_id,
+            credential_json=data.credential,
+            name=data.name,
+        )
+    except PasskeyError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+
+    current_user.webauthn_credentials.append(credential)
+    current_user.update_timestamp()
+    await current_user.save()
+
+    logger.info("passkey_registered", user_id=str(current_user.id), name=data.name)
+
+    return PasskeyResponse(
+        id=bytes_to_base64url(credential.credential_id),
+        name=credential.name,
+        created_at=credential.created_at,
+        last_used_at=credential.last_used_at,
+        transports=credential.transports,
+    )
+
+
+@router.post(
+    "/auth/passkey/login/begin",
+    response_model=PasskeyLoginBeginResponse,
+    tags=["Authentication"],
+)
+async def passkey_login_begin(request: Request):
+    """Begin passkey authentication — returns challenge options (no auth required)."""
+    ip = request.client.host if request.client else "unknown"
+    _check_login_rate_limit(f"{ip}:passkey")
+
+    service = await _get_passkey_service()
+    session_id, options = await service.generate_authentication_options()
+    return PasskeyLoginBeginResponse(session_id=session_id, options=options)
+
+
+@router.post(
+    "/auth/passkey/login/complete",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+)
+async def passkey_login_complete(request: Request, data: PasskeyLoginCompleteRequest):
+    """Complete passkey authentication — verify assertion and return JWT."""
+    import json as json_mod
+
+    ip = request.client.host if request.client else "unknown"
+    _check_login_rate_limit(f"{ip}:passkey")
+
+    # Extract credential_id from the assertion to find the user
+    try:
+        cred_data = json_mod.loads(data.credential)
+        raw_id_b64 = cred_data.get("rawId") or cred_data.get("id")
+        credential_id_bytes = base64url_to_bytes(raw_id_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credential format") from exc
+
+    # Find user by credential_id
+    user = await User.find_one({"webauthn_credentials.credential_id": credential_id_bytes})
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid passkey")
+
+    # Find the matching stored credential
+    stored_cred = None
+    for cred in user.webauthn_credentials:
+        if cred.credential_id == credential_id_bytes:
+            stored_cred = cred
+            break
+
+    if stored_cred is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid passkey")
+
+    service = await _get_passkey_service()
+    try:
+        new_sign_count = await service.verify_authentication(
+            session_id=data.session_id,
+            credential_json=data.credential,
+            credential_id_bytes=credential_id_bytes,
+            stored_credential=stored_cred,
+        )
+    except PasskeyError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from None
+
+    # Update credential state
+    stored_cred.sign_count = new_sign_count
+    stored_cred.last_used_at = datetime.now(timezone.utc)
+    user.update_timestamp()
+    await user.save()
+
+    # Create JWT + session (same as password login)
+    token_data = {
+        "sub": str(user.id),
+        "email": user.email,
+        "roles": user.roles,
+    }
+    expires_delta = timedelta(hours=settings.access_token_expire_hours)
+    access_token, token_jti = create_access_token(data=token_data, expires_delta=expires_delta)
+
+    ip_address = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "")
+    session = UserSession.create_session(
+        user_id=user.id,
+        token_jti=token_jti,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_delta=expires_delta,
+    )
+    await session.insert()
+
+    from app.models.system import SystemConfig
+
+    sys_config = await SystemConfig.get_config()
+    max_sessions = sys_config.max_concurrent_sessions or 5
+    excess = await UserSession.find(UserSession.user_id == user.id).sort("last_activity").to_list()
+    if len(excess) > max_sessions:
+        for old_session in excess[: len(excess) - max_sessions]:
+            await old_session.delete()
+
+    user.update_last_login()
+    await user.save()
+
+    logger.info("user_logged_in_passkey", user_id=str(user.id), email=user.email)
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=int(expires_delta.total_seconds()),
+    )
+
+
+@router.get(
+    "/auth/passkeys",
+    response_model=PasskeyListResponse,
+    tags=["Authentication"],
+)
+async def list_passkeys(current_user: User = Depends(get_current_user_from_token)):
+    """List current user's registered passkeys."""
+    passkeys = [
+        PasskeyResponse(
+            id=bytes_to_base64url(cred.credential_id),
+            name=cred.name,
+            created_at=cred.created_at,
+            last_used_at=cred.last_used_at,
+            transports=cred.transports,
+        )
+        for cred in current_user.webauthn_credentials
+    ]
+    return PasskeyListResponse(passkeys=passkeys, total=len(passkeys))
+
+
+@router.post(
+    "/auth/passkey/{credential_id}/delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Authentication"],
+)
+async def delete_passkey(
+    credential_id: str,
+    data: PasskeyDeleteRequest,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Delete a passkey. Requires password re-authentication."""
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password")
+
+    try:
+        cred_id_bytes = base64url_to_bytes(credential_id)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credential ID") from exc
+
+    original_count = len(current_user.webauthn_credentials)
+    current_user.webauthn_credentials = [
+        c for c in current_user.webauthn_credentials if c.credential_id != cred_id_bytes
+    ]
+
+    if len(current_user.webauthn_credentials) == original_count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Passkey not found")
+
+    current_user.update_timestamp()
+    await current_user.save()
+
+    logger.info("passkey_deleted", user_id=str(current_user.id), credential_id=credential_id)
     return None
