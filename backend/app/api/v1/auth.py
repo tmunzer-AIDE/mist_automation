@@ -10,10 +10,8 @@ from datetime import datetime, timedelta, timezone
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pymongo.errors import DuplicateKeyError
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
 from app.config import settings
-from app.core.redis_client import get_challenge_store
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -40,7 +38,16 @@ from app.schemas.auth import (
     UpdateProfileRequest,
     UserResponse,
 )
-from app.services.passkey_service import PasskeyError, PasskeyService
+
+# Passkey/WebAuthn imports — optional, degrade gracefully if not installed
+try:
+    from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+    from app.core.redis_client import get_challenge_store
+    from app.services.passkey_service import PasskeyError, PasskeyService
+
+    _PASSKEY_AVAILABLE = True
+except ImportError:
+    _PASSKEY_AVAILABLE = False
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -59,8 +66,15 @@ _RATE_LIMIT_WINDOW = 300  # 5 minutes
 _RATE_LIMIT_MAX = 5  # max attempts per window
 
 
-async def _get_passkey_service() -> PasskeyService:
+def _require_passkey_support():
+    """Raise 501 if webauthn is not installed."""
+    if not _PASSKEY_AVAILABLE:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Passkey support not available")
+
+
+async def _get_passkey_service():
     """Create a PasskeyService with the current configuration."""
+    _require_passkey_support()
     store = await get_challenge_store()
     return PasskeyService(
         challenge_store=store,

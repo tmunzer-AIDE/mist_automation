@@ -232,6 +232,15 @@ app.add_middleware(MaintenanceModeMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)  # outermost — headers added to ALL responses including errors
 
 
+def _passkey_available() -> bool:
+    try:
+        import webauthn  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -259,7 +268,7 @@ async def health_check():
         "environment": settings.environment,
         "is_initialized": is_initialized,
         "maintenance_mode": maintenance,
-        "passkey_support": True,
+        "passkey_support": _passkey_available(),
         "password_policy": {
             "min_length": settings.min_password_length,
             "require_uppercase": settings.require_uppercase,
