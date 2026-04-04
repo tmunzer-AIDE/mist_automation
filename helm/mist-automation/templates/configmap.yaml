@@ -13,7 +13,8 @@ data:
   
   # API
   API_V1_PREFIX: {{ .Values.api.v1Prefix | quote }}
-  CORS_ORIGINS: {{ .Values.api.corsOrigins | quote }}
+  {{- $origins := splitList "," .Values.api.corsOrigins }}
+  CORS_ORIGINS: {{ $origins | toJson | quote }}
   
   # Password Policy
   MIN_PASSWORD_LENGTH: {{ .Values.passwordPolicy.minLength | quote }}
