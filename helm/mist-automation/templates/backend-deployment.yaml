@@ -43,6 +43,8 @@ spec:
           env:
             - name: MONGODB_URL
               value: {{ include "mist-automation.mongodbUrl" . }}
+            - name: REDIS_URL
+              value: "{{ include "mist-automation.redisUrl" . }}/0"
             - name: CELERY_BROKER_URL
               value: "{{ include "mist-automation.redisUrl" . }}/1"
             - name: CELERY_RESULT_BACKEND

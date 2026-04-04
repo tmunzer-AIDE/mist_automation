@@ -1,0 +1,73 @@
+{{- if .Values.mongodb.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-mongodb
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mongodb.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-mongodb
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "mist-automation.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mongodb
+  template:
+    metadata:
+      labels:
+        {{- include "mist-automation.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "mist-automation.fullname" . }}-mongodb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-mongodb
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  selector:
+    {{- include "mist-automation.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+{{- end }}

@@ -22,16 +22,6 @@ maintainers:
 home: https://github.com/example/mist-automation
 sources:
   - https://github.com/example/mist-automation
-dependencies:
-  - name: mongodb
-    version: "18.6.21"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: mongodb.enabled
-  - name: redis
-    version: "25.3.9"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: redis.enabled
-  - name: influxdb
-    version: "7.1.20"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: influxdb.enabled
+## No external chart dependencies — MongoDB, Redis, and InfluxDB are deployed
+## as simple Deployment+Service+PVC using official images (mongo:7, redis:7-alpine, influxdb:2.7).
+## Set enabled: false and provide external URLs to use existing instances instead.

@@ -1,0 +1,88 @@
+{{- if .Values.influxdb.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-influxdb
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.influxdb.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-influxdb
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "mist-automation.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: influxdb
+  template:
+    metadata:
+      labels:
+        {{- include "mist-automation.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: influxdb
+    spec:
+      containers:
+        - name: influxdb
+          image: influxdb:2.7
+          ports:
+            - containerPort: 8086
+          env:
+            - name: DOCKER_INFLUXDB_INIT_MODE
+              value: setup
+            - name: DOCKER_INFLUXDB_INIT_USERNAME
+              value: admin
+            - name: DOCKER_INFLUXDB_INIT_PASSWORD
+              value: {{ .Values.influxdb.auth.password | default "changeme" | quote }}
+            - name: DOCKER_INFLUXDB_INIT_ORG
+              value: {{ .Values.influxdb.auth.org | default "mist_automation" | quote }}
+            - name: DOCKER_INFLUXDB_INIT_BUCKET
+              value: {{ .Values.influxdb.auth.bucket | default "mist_telemetry" | quote }}
+            - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+              value: {{ .Values.influxdb.auth.token | default "mist-telemetry-token" | quote }}
+            - name: DOCKER_INFLUXDB_INIT_RETENTION
+              value: {{ printf "%dd" (int .Values.telemetry.retentionDays) | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/influxdb2
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "mist-automation.fullname" . }}-influxdb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mist-automation.fullname" . }}-influxdb
+  labels:
+    {{- include "mist-automation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb
+spec:
+  selector:
+    {{- include "mist-automation.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb
+  ports:
+    - port: 8086
+      targetPort: 8086
+{{- end }}

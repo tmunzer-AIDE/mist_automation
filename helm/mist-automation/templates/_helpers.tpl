@@ -105,7 +105,7 @@ MongoDB connection URL
 */}}
 {{- define "mist-automation.mongodbUrl" -}}
 {{- if .Values.mongodb.enabled }}
-{{- printf "mongodb://%s-mongodb:27017" .Release.Name }}
+{{- printf "mongodb://%s-mongodb:27017" (include "mist-automation.fullname" .) }}
 {{- else }}
 {{- .Values.mongodb.external.url }}
 {{- end }}
@@ -116,7 +116,7 @@ Redis connection URL
 */}}
 {{- define "mist-automation.redisUrl" -}}
 {{- if .Values.redis.enabled }}
-{{- printf "redis://%s-redis-master:6379" .Release.Name }}
+{{- printf "redis://%s-redis:6379" (include "mist-automation.fullname" .) }}
 {{- else }}
 {{- .Values.redis.external.url }}
 {{- end }}
@@ -127,7 +127,7 @@ InfluxDB URL
 */}}
 {{- define "mist-automation.influxdbUrl" -}}
 {{- if .Values.influxdb.enabled }}
-{{- printf "http://%s-influxdb:8086" .Release.Name }}
+{{- printf "http://%s-influxdb:8086" (include "mist-automation.fullname" .) }}
 {{- else }}
 {{- .Values.influxdb.external.url }}
 {{- end }}
@@ -138,7 +138,7 @@ InfluxDB Token
 */}}
 {{- define "mist-automation.influxdbToken" -}}
 {{- if .Values.influxdb.enabled }}
-{{- .Values.influxdb.auth.admin.token }}
+{{- .Values.influxdb.auth.token | default "mist-telemetry-token" }}
 {{- else }}
 {{- .Values.influxdb.external.token }}
 {{- end }}
@@ -149,7 +149,7 @@ InfluxDB Organization
 */}}
 {{- define "mist-automation.influxdbOrg" -}}
 {{- if .Values.influxdb.enabled }}
-{{- .Values.influxdb.auth.admin.org }}
+{{- .Values.influxdb.auth.org | default "mist_automation" }}
 {{- else }}
 {{- .Values.influxdb.external.org }}
 {{- end }}
@@ -160,7 +160,7 @@ InfluxDB Bucket
 */}}
 {{- define "mist-automation.influxdbBucket" -}}
 {{- if .Values.influxdb.enabled }}
-{{- .Values.influxdb.auth.admin.bucket }}
+{{- .Values.influxdb.auth.bucket | default "mist_telemetry" }}
 {{- else }}
 {{- .Values.influxdb.external.bucket }}
 {{- end }}

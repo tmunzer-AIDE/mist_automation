@@ -161,9 +161,9 @@ session:
 webauthn:
   rpName: "Mist Automation Platform"
 
-# -- MongoDB configuration (when using external)
+# -- MongoDB configuration
 mongodb:
-  # -- Enable bundled MongoDB (Bitnami chart)
+  # -- Deploy bundled MongoDB (official mongo:7 image)
   enabled: true
   # -- External MongoDB URL (used when enabled=false)
   external:
@@ -174,34 +174,22 @@ mongodb:
   pool:
     minSize: 10
     maxSize: 100
-  # -- Bitnami chart specific values
-  auth:
-    enabled: false
   persistence:
-    enabled: true
     size: 10Gi
 
-# -- Redis configuration (when using external)
+# -- Redis configuration
 redis:
-  # -- Enable bundled Redis (Bitnami chart)
+  # -- Deploy bundled Redis (official redis:7-alpine image)
   enabled: true
   # -- External Redis URL (used when enabled=false)
   external:
     url: ""
-  # -- Bitnami chart specific values
-  auth:
-    enabled: false
-  master:
-    persistence:
-      enabled: true
-      size: 2Gi
-  replica:
-    replicaCount: 0
+  persistence:
+    size: 2Gi
 
-# -- InfluxDB configuration (app requires InfluxDB 2.x, optional — used for telemetry only)
-# NOTE: Bitnami no longer publishes InfluxDB 2.x images. Disable bundled and use an external instance.
+# -- InfluxDB configuration (optional — used for telemetry only)
 influxdb:
-  # -- Enable bundled InfluxDB (Bitnami chart) — disabled by default as Bitnami only ships 3.x
+  # -- Deploy bundled InfluxDB (official influxdb:2.7 image)
   enabled: false
   # -- External InfluxDB settings (used when enabled=false)
   external:
@@ -209,16 +197,13 @@ influxdb:
     token: ""
     org: ""
     bucket: ""
-  # -- Bitnami chart specific values
+  # -- Auth settings for bundled InfluxDB init
   auth:
-    admin:
-      username: admin
-      password: ""
-      token: "mist-telemetry-token"
-      org: mist_automation
-      bucket: mist_telemetry
+    password: ""
+    token: "mist-telemetry-token"
+    org: mist_automation
+    bucket: mist_telemetry
   persistence:
-    enabled: true
     size: 10Gi
 
 # -- Telemetry settings
