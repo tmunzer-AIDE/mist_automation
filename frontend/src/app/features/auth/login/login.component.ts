@@ -13,6 +13,8 @@ import { Store } from '@ngrx/store';
 import { AuthActions } from '../../../core/state/auth/auth.actions';
 import { selectAuthLoading, selectAuthError } from '../../../core/state/auth/auth.selectors';
 import { AuthService } from '../../../core/services/auth.service';
+import { PasskeyService } from '../../../core/services/passkey.service';
+import { TokenService } from '../../../core/services/token.service';
 
 @Component({
   selector: 'app-login',
@@ -36,11 +38,17 @@ export class LoginComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly store = inject(Store);
   private readonly authService = inject(AuthService);
+  private readonly passkeyService = inject(PasskeyService);
+  private readonly tokenService = inject(TokenService);
 
   loading$ = this.store.select(selectAuthLoading);
   error$ = this.store.select(selectAuthError);
   showOnboardLink = false;
   hidePassword = true;
+
+  passkeySupported = false;
+  passkeyLoading = false;
+  passkeyError: string | null = null;
 
   loginForm = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
@@ -49,11 +57,32 @@ export class LoginComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.passkeySupported = this.passkeyService.isSupported();
     this.authService.checkHealth().subscribe({
       next: (health) => {
         this.showOnboardLink = !health.is_initialized;
+        if (!health.passkey_support) {
+          this.passkeySupported = false;
+        }
       },
       error: () => {},
+    });
+  }
+
+  onPasskeyLogin(): void {
+    this.passkeyLoading = true;
+    this.passkeyError = null;
+    this.passkeyService.login().subscribe({
+      next: (response) => {
+        this.tokenService.setToken(response.access_token, response.expires_in);
+        this.store.dispatch(AuthActions.loginSuccess({ expiresIn: response.expires_in }));
+        this.passkeyLoading = false;
+      },
+      error: (err) => {
+        this.passkeyLoading = false;
+        if (err?.name === 'NotAllowedError') return;
+        this.passkeyError = err?.error?.detail || 'Passkey authentication failed';
+      },
     });
   }
 

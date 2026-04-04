@@ -14,6 +14,25 @@
       @if (error$ | async; as error) {
         <div class="error-message">{{ error }}</div>
       }
+      @if (passkeyError) {
+        <div class="error-message">{{ passkeyError }}</div>
+      }
+
+      @if (passkeySupported) {
+        <button
+          mat-flat-button
+          class="passkey-button"
+          (click)="onPasskeyLogin()"
+          [disabled]="passkeyLoading"
+        >
+          <mat-icon>passkey</mat-icon>
+          Sign in with passkey
+        </button>
+
+        <div class="divider">
+          <span>or</span>
+        </div>
+      }
 
       <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
         <mat-form-field appearance="outline">
