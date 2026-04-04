@@ -110,11 +110,12 @@ All under `/api/v1/auth/passkey/`.
 - Requires: `get_current_user_from_token`
 - Returns: list of `{ id, name, created_at, last_used_at, transports }` — no secret material
 
-**`DELETE /auth/passkey/{credential_id}`**
+**`POST /auth/passkey/{credential_id}/delete`**
 - Requires: `get_current_user_from_token`
 - Body: `{ password }` — re-authentication required
 - Verifies password, then removes matching credential from user's list
 - `credential_id` is base64url-encoded in path
+- Uses POST instead of DELETE because the frontend `ApiService.delete()` doesn't support request bodies
 
 ## Backend Service Layer
 
