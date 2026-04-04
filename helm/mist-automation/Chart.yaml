@@ -24,14 +24,14 @@ sources:
   - https://github.com/example/mist-automation
 dependencies:
   - name: mongodb
-    version: "14.x.x"
+    version: "14.13.0"
     repository: "https://charts.bitnami.com/bitnami"
     condition: mongodb.enabled
   - name: redis
-    version: "18.x.x"
+    version: "18.19.4"
     repository: "https://charts.bitnami.com/bitnami"
     condition: redis.enabled
   - name: influxdb
-    version: "5.x.x"
+    version: "5.18.1"
     repository: "https://charts.bitnami.com/bitnami"
     condition: influxdb.enabled
