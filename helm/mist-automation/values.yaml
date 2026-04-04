@@ -170,6 +170,9 @@ mongodb:
     url: ""
   # -- Database name
   database: mist_automation
+  # -- Authentication (bundled MongoDB only)
+  auth:
+    rootPassword: ""
   # -- Connection pool settings
   pool:
     minSize: 10
@@ -184,6 +187,9 @@ redis:
   # -- External Redis URL (used when enabled=false)
   external:
     url: ""
+  # -- Authentication (bundled Redis only)
+  auth:
+    password: ""
   persistence:
     size: 2Gi
 

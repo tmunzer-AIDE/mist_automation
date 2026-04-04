@@ -105,7 +105,11 @@ MongoDB connection URL
 */}}
 {{- define "mist-automation.mongodbUrl" -}}
 {{- if .Values.mongodb.enabled }}
+{{- if .Values.mongodb.auth.rootPassword }}
+{{- printf "mongodb://root:%s@%s-mongodb:27017" .Values.mongodb.auth.rootPassword (include "mist-automation.fullname" .) }}
+{{- else }}
 {{- printf "mongodb://%s-mongodb:27017" (include "mist-automation.fullname" .) }}
+{{- end }}
 {{- else }}
 {{- .Values.mongodb.external.url }}
 {{- end }}
@@ -116,7 +120,11 @@ Redis connection URL
 */}}
 {{- define "mist-automation.redisUrl" -}}
 {{- if .Values.redis.enabled }}
+{{- if .Values.redis.auth.password }}
+{{- printf "redis://:%s@%s-redis:6379" .Values.redis.auth.password (include "mist-automation.fullname" .) }}
+{{- else }}
 {{- printf "redis://%s-redis:6379" (include "mist-automation.fullname" .) }}
+{{- end }}
 {{- else }}
 {{- .Values.redis.external.url }}
 {{- end }}

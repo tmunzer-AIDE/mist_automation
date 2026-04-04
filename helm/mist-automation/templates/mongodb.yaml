@@ -41,6 +41,16 @@ spec:
           image: mongo:7
           ports:
             - containerPort: 27017
+          {{- if .Values.mongodb.auth.rootPassword }}
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: "root"
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mist-automation.fullname" . }}
+                  key: MONGODB_ROOT_PASSWORD
+          {{- end }}
           volumeMounts:
             - name: data
               mountPath: /data/db
