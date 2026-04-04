@@ -33,6 +33,14 @@ import { TopbarService } from '../../core/services/topbar.service';
         [active]="ss.isActive"
         >Sessions</a
       >
+      <a
+        mat-tab-link
+        routerLink="passkeys"
+        routerLinkActive
+        #pk="routerLinkActive"
+        [active]="pk.isActive"
+        >Passkeys</a
+      >
     </nav>
     <mat-tab-nav-panel #tabPanel>
       <router-outlet></router-outlet>

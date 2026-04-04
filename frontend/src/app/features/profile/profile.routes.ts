@@ -21,6 +21,11 @@ const routes: Routes = [
         loadComponent: () =>
           import('./sessions/sessions.component').then((m) => m.SessionsComponent),
       },
+      {
+        path: 'passkeys',
+        loadComponent: () =>
+          import('./passkeys/passkeys.component').then((m) => m.PasskeysComponent),
+      },
     ],
   },
 ];
