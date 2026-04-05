@@ -40,12 +40,18 @@ class SmeeStartRequest(BaseModel):
     smee_channel_url: str | None = None
 
 
-def _verify_mist_signature(payload: bytes, signature: str, secret: str) -> bool:
-    """Verify the Mist webhook HMAC-SHA256 signature."""
+def _verify_mist_signature(payload: bytes, signature: str, secret: str, *, use_sha256: bool = False) -> bool:
+    """Verify a Mist webhook HMAC signature.
+
+    X-Mist-Signature    (v1): HMAC-SHA1   (40-char hex)
+    X-Mist-Signature-v2 (v2): HMAC-SHA256 (64-char hex)
+    """
     if not signature or not secret:
         return False
-    expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature, expected)
+    sig = signature.strip()
+    digestmod = hashlib.sha256 if use_sha256 else hashlib.sha1
+    expected = hmac.new(secret.encode(), payload, digestmod).hexdigest()
+    return hmac.compare_digest(sig, expected)
 
 
 def _event_fields(event: WebhookEvent) -> dict:
@@ -114,7 +120,8 @@ def _ip_in_allowlist(client_ip: str, allowlist: list[str]) -> bool:
 @router.post("/webhooks/mist", tags=["Webhooks"])
 async def receive_mist_webhook(
     request: Request,
-    x_mist_signature: str | None = Header(None, description="Mist webhook signature"),
+    x_mist_signature: str | None = Header(None, description="Mist webhook HMAC-SHA1 signature (v1)"),
+    x_mist_signature_v2: str | None = Header(None, description="Mist webhook HMAC-SHA256 signature (v2)"),
     x_forwarded_by: str | None = Header(None, description="Set by internal Smee forwarder"),
 ):
     """
@@ -152,7 +159,9 @@ async def receive_mist_webhook(
     if config.webhook_secret and not smee_forwarded:
         from app.core.security import decrypt_sensitive_data
 
-        if not x_mist_signature:
+        # Prefer v2 (SHA256) over v1 (SHA1); require at least one
+        sig_header = x_mist_signature_v2 or x_mist_signature
+        if not sig_header:
             logger.warning("webhook_signature_missing", webhook_type=webhook_type)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -160,9 +169,14 @@ async def receive_mist_webhook(
             )
 
         secret = decrypt_sensitive_data(config.webhook_secret)
-        signature_valid = _verify_mist_signature(body, x_mist_signature, secret)
+        use_sha256 = x_mist_signature_v2 is not None
+        signature_valid = _verify_mist_signature(body, sig_header, secret, use_sha256=use_sha256)
         if not signature_valid:
-            logger.warning("webhook_signature_invalid", webhook_type=webhook_type)
+            logger.warning(
+                "webhook_signature_invalid",
+                webhook_type=webhook_type,
+                sig_version="v2" if use_sha256 else "v1",
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid webhook signature",

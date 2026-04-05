@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Mist Automation Platform"
-    app_version: str = "0.1.2"
+    app_version: str = "0.1.3"
     debug: bool = False
     environment: str = Field(default="development", description="Environment: development, staging, production")
 

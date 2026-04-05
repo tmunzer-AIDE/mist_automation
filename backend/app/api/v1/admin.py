@@ -114,7 +114,8 @@ async def update_system_settings(
     for field, value in updates.items():
         if field in sensitive_encrypt:
             if value and (not isinstance(value, str) or value.strip()):  # Non-empty: encrypt and store
-                setattr(config, field, encrypt_sensitive_data(value))
+                clean_value = value.strip() if isinstance(value, str) else value
+                setattr(config, field, encrypt_sensitive_data(clean_value))
             else:  # Empty/None: clear the field
                 setattr(config, field, None)
         else:

@@ -13,7 +13,7 @@ fqdn: ""
 # -- Application settings
 app:
   name: "Mist Automation Platform"
-  version: "0.1.2"
+  version: "0.1.3"
   debug: false
   environment: production
 
@@ -21,7 +21,7 @@ app:
 image:
   repository: tmunzer/mist-automation
   tag: "latest"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # -- Backend deployment (serves API + frontend static files)
 backend:

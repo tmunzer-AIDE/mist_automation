@@ -9,7 +9,7 @@ from app.core.exceptions import ConfigurationError
 
 logger = structlog.get_logger(__name__)
 
-_LOCAL_PROVIDERS = {"lm_studio", "ollama", "llama_cpp"}
+_LOCAL_PROVIDERS = {"lm_studio", "ollama", "llama_cpp", "vllm"}
 
 
 async def create_llm_service(config_id: str | None = None):

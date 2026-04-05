@@ -393,10 +393,16 @@ async def test_connection_anonymous(
 
         validate_outbound_url(request.base_url)
     try:
+        model = _default_model(request.provider)
+        # For providers that serve a dynamically-named model, discover it at runtime
+        if request.provider in {"vllm", "lm_studio", "llama_cpp"}:
+            discovered = await _fetch_models(request.provider, api_key or "", request.base_url)
+            if discovered:
+                model = discovered[0]["id"]
         llm = LLMService(
             provider=request.provider,
             api_key=api_key,
-            model=_default_model(request.provider),
+            model=model,
             base_url=request.base_url,
         )
         response = await llm.complete([LLMMessage(role="user", content="Reply with exactly: OK")])
