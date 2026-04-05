@@ -1,156 +1,88 @@
 """
-Middleware for request/response processing.
+Pure ASGI middleware for request/response processing.
+
+Avoids Starlette's BaseHTTPMiddleware which wraps send/receive in internal
+channels that break streaming responses, SSE, and MCP streamable HTTP.
 """
 
+import json
 import time
+import traceback
 import uuid
-from collections.abc import Callable
 
 import structlog
-from fastapi import Request, Response
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.exceptions import MistAutomationException
 
 logger = structlog.get_logger(__name__)
 
 
-class _SkipWebSocketMiddleware(BaseHTTPMiddleware):
-    """Base middleware that bypasses BaseHTTPMiddleware entirely for WebSocket and MCP streaming."""
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _json_error_body(status_code: int, error_type: str, message: str, details: dict | None = None) -> bytes:
+    payload: dict = {"error": {"type": error_type, "message": message}}
+    if details:
+        payload["error"]["details"] = details
+    return json.dumps(payload).encode("utf-8")
+
+
+async def _send_json_response(send, status_code: int, body: bytes, extra_headers: list | None = None) -> None:
+    headers = [[b"content-type", b"application/json"], [b"content-length", str(len(body)).encode()]]
+    if extra_headers:
+        headers.extend(extra_headers)
+    await send({"type": "http.response.start", "status": status_code, "headers": headers})
+    await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
+# ── Security Headers ─────────────────────────────────────────────────────────
+
+
+class SecurityHeadersMiddleware:
+    """Add security headers to all HTTP responses."""
+
+    def __init__(self, app):
+        self.app = app
 
     async def __call__(self, scope, receive, send):
-        # Bypass BaseHTTPMiddleware's internal channel plumbing completely —
-        # it wraps send/receive in streams that break streaming responses (SSE, streamable HTTP).
-        if scope.get("type") == "websocket":
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        if scope.get("type") == "http" and scope.get("path", "").startswith("/mcp"):
-            await self.app(scope, receive, send)
-            return
-        await super().__call__(scope, receive, send)
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        return await self.process_request(request, call_next)
+        # Extract host from ASGI headers for CSP
+        host = ""
+        for key, value in scope.get("headers", []):
+            if key == b"host":
+                host = value.decode("latin-1")
+                break
 
-    async def process_request(self, request: Request, call_next: Callable) -> Response:
-        raise NotImplementedError
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.extend(
+                    [
+                        [b"x-content-type-options", b"nosniff"],
+                        [b"x-frame-options", b"DENY"],
+                        [b"x-xss-protection", b"1; mode=block"],
+                        [b"strict-transport-security", b"max-age=31536000; includeSubDomains"],
+                        [b"referrer-policy", b"strict-origin-when-cross-origin"],
+                        [
+                            b"content-security-policy",
+                            (
+                                "default-src 'self'; script-src 'self'; "
+                                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                                "img-src 'self' data:; "
+                                "font-src 'self' https://fonts.gstatic.com; "
+                                f"connect-src 'self' wss://{host} ws://{host}; frame-ancestors 'none'"
+                            ).encode(),
+                        ],
+                        [b"permissions-policy", b"camera=(), microphone=(), geolocation=()"],
+                    ]
+                )
+                message = {**message, "headers": headers}
+            await send(message)
 
-
-class RequestLoggingMiddleware(_SkipWebSocketMiddleware):
-    """Log all HTTP requests and responses."""
-
-    async def process_request(self, request: Request, call_next: Callable) -> Response:
-        # Generate request ID
-        request_id = str(uuid.uuid4())
-        request.state.request_id = request_id
-
-        # Get client info
-        client_ip = request.client.host if request.client else "unknown"
-
-        # Log request
-        logger.info(
-            "http_request_started",
-            request_id=request_id,
-            method=request.method,
-            path=request.url.path,
-            client_ip=client_ip,
-            user_agent=request.headers.get("user-agent", "unknown"),
-        )
-
-        # Process request and measure time
-        start_time = time.time()
-        response = await call_next(request)
-        process_time = time.time() - start_time
-
-        # Add custom headers
-        response.headers["X-Request-ID"] = request_id
-        response.headers["X-Process-Time"] = str(process_time)
-
-        # Log response
-        logger.info(
-            "http_request_completed",
-            request_id=request_id,
-            method=request.method,
-            path=request.url.path,
-            status_code=response.status_code,
-            process_time=round(process_time, 4),
-        )
-
-        return response
-
-
-class ExceptionHandlerMiddleware(_SkipWebSocketMiddleware):
-    """Handle exceptions and return standardized error responses."""
-
-    async def process_request(self, request: Request, call_next: Callable) -> Response:
-        try:
-            return await call_next(request)
-        except MistAutomationException as e:
-            # Handle custom application exceptions
-            logger.warning(
-                "application_exception",
-                exception_type=type(e).__name__,
-                message=e.message,
-                status_code=e.status_code,
-                details=e.details,
-                request_id=getattr(request.state, "request_id", None),
-            )
-
-            return JSONResponse(
-                status_code=e.status_code,
-                content={
-                    "error": {
-                        "type": type(e).__name__,
-                        "message": e.message,
-                        "details": e.details,
-                    }
-                },
-            )
-        except Exception as e:
-            # Handle unexpected exceptions
-            logger.error(
-                "unexpected_exception",
-                exception_type=type(e).__name__,
-                message=str(e),
-                request_id=getattr(request.state, "request_id", None),
-                exc_info=True,
-            )
-
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": {
-                        "type": "InternalServerError",
-                        "message": "An unexpected error occurred",
-                    }
-                },
-            )
-
-
-class SecurityHeadersMiddleware(_SkipWebSocketMiddleware):
-    """Add security headers to all responses."""
-
-    async def process_request(self, request: Request, call_next: Callable) -> Response:
-        response = await call_next(request)
-
-        # Add security headers
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        host = request.headers.get("host", "")
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "img-src 'self' data:; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            f"connect-src 'self' wss://{host} ws://{host}; frame-ancestors 'none'"
-        )
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-
-        return response
+        await self.app(scope, receive, send_with_headers)
 
 
 # ── Maintenance Mode ─────────────────────────────────────────────────────────
@@ -181,19 +113,148 @@ async def _get_maintenance_mode() -> bool:
     return _maintenance_cache
 
 
-class MaintenanceModeMiddleware(_SkipWebSocketMiddleware):
+class MaintenanceModeMiddleware:
     """Return 503 for non-admin/auth requests when maintenance mode is active."""
 
     _BYPASS_PREFIXES = ("/api/v1/auth/", "/api/v1/admin/", "/health", "/mcp")
 
-    async def process_request(self, request: Request, call_next: Callable) -> Response:
-        path = request.url.path
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
         if any(path.startswith(p) for p in self._BYPASS_PREFIXES):
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
+
         if await _get_maintenance_mode():
-            return JSONResponse(
-                status_code=503,
-                content={"error": {"type": "MaintenanceMode", "message": "System is under maintenance."}},
-                headers={"Retry-After": "3600"},
+            body = _json_error_body(503, "MaintenanceMode", "System is under maintenance.")
+            await _send_json_response(send, 503, body, extra_headers=[[b"retry-after", b"3600"]])
+            return
+
+        await self.app(scope, receive, send)
+
+
+# ── Exception Handler ────────────────────────────────────────────────────────
+
+
+class ExceptionHandlerMiddleware:
+    """Handle exceptions and return standardized error responses."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def send_tracking(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_tracking)
+        except MistAutomationException as e:
+            request_id = scope.get("state", {}).get("request_id")
+            logger.warning(
+                "application_exception",
+                exception_type=type(e).__name__,
+                message=e.message,
+                status_code=e.status_code,
+                details=e.details,
+                request_id=request_id,
             )
-        return await call_next(request)
+            if not response_started:
+                body = _json_error_body(e.status_code, type(e).__name__, e.message, e.details)
+                await _send_json_response(send, e.status_code, body)
+        except Exception as e:
+            request_id = scope.get("state", {}).get("request_id")
+            logger.error(
+                "unexpected_exception",
+                exception_type=type(e).__name__,
+                message=str(e),
+                request_id=request_id,
+                exception=traceback.format_exc(),
+            )
+            if not response_started:
+                body = _json_error_body(500, "InternalServerError", "An unexpected error occurred")
+                await _send_json_response(send, 500, body)
+
+
+# ── Request Logging ──────────────────────────────────────────────────────────
+
+
+class RequestLoggingMiddleware:
+    """Log all HTTP requests and responses."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request_id = str(uuid.uuid4())
+        scope.setdefault("state", {})["request_id"] = request_id
+
+        # Extract client IP and user-agent from ASGI scope
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
+        user_agent = "unknown"
+        for key, value in scope.get("headers", []):
+            if key == b"user-agent":
+                user_agent = value.decode("latin-1")
+                break
+
+        path = scope.get("path", "")
+        method = scope.get("method", "")
+
+        logger.info(
+            "http_request_started",
+            request_id=request_id,
+            method=method,
+            path=path,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
+
+        start_time = time.time()
+        status_code = 0
+
+        async def send_with_logging(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 0)
+                # Inject X-Request-ID and X-Process-Time headers
+                headers = list(message.get("headers", []))
+                process_time = time.time() - start_time
+                headers.extend(
+                    [
+                        [b"x-request-id", request_id.encode()],
+                        [b"x-process-time", str(process_time).encode()],
+                    ]
+                )
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_logging)
+
+        process_time = time.time() - start_time
+        logger.info(
+            "http_request_completed",
+            request_id=request_id,
+            method=method,
+            path=path,
+            status_code=status_code,
+            process_time=round(process_time, 4),
+        )
