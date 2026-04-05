@@ -132,8 +132,9 @@ webhookCollector:
     annotations: {}
 
   # -- Separate ingress for internet-facing webhook endpoint
+  # Requires 'host' to be set — ingress won't render with an empty host
   ingress:
-    enabled: true
+    enabled: false
     className: ""
     annotations: {}
       # kubernetes.io/ingress.class: nginx

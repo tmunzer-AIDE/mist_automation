@@ -1,4 +1,4 @@
-{{- if and .Values.webhookCollector.enabled .Values.webhookCollector.ingress.enabled }}
+{{- if and .Values.webhookCollector.enabled .Values.webhookCollector.ingress.enabled .Values.webhookCollector.ingress.host }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
