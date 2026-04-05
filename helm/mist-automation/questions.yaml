@@ -86,6 +86,58 @@ questions:
       type: string
       default: "traefik"
 
+# ── Webhook Collector ────────────────────────────────────────────────────────
+
+- variable: webhookCollector.enabled
+  label: Enable Webhook Collector
+  description: "Run a dedicated webhook ingestion server on a separate port. Allows exposing only the webhook endpoint to the internet while keeping the UI/API internal."
+  type: boolean
+  default: true
+  group: "Webhook Collector"
+  show_subquestion_if: true
+  subquestions:
+    - variable: webhookCollector.port
+      label: Collector Port
+      type: int
+      default: 9000
+    - variable: webhookCollector.replicaCount
+      label: Collector Replicas
+      type: int
+      default: 1
+      min: 1
+      max: 10
+    - variable: webhookCollector.ingress.enabled
+      label: Enable Webhook Ingress
+      description: "Create a separate ingress for the webhook endpoint. Requires a host to be set."
+      type: boolean
+      default: false
+    - variable: webhookCollector.ingress.host
+      label: Webhook Ingress Host
+      description: "Public FQDN for the webhook endpoint (e.g., webhook.example.com). Must differ from the main app FQDN."
+      type: hostname
+      default: ""
+      show_if: "webhookCollector.ingress.enabled=true"
+    - variable: webhookCollector.ingress.className
+      label: Webhook Ingress Class
+      type: string
+      default: "traefik"
+      show_if: "webhookCollector.ingress.enabled=true"
+    - variable: webhookCollector.service.type
+      label: Service Type
+      description: "Use NodePort or LoadBalancer to expose without an ingress controller"
+      type: enum
+      default: "ClusterIP"
+      options:
+        - "ClusterIP"
+        - "NodePort"
+        - "LoadBalancer"
+    - variable: webhookCollector.service.nodePort
+      label: Node Port
+      description: "Fixed port on the node (30000-32767)"
+      type: int
+      default: 30900
+      show_if: "webhookCollector.service.type=NodePort"
+
 # ── Replicas ─────────────────────────────────────────────────────────────────
 
 - variable: backend.replicaCount
