@@ -144,8 +144,6 @@ async def _mcp_user_session(
     Always includes the local in-process MCP server. ``extra_clients`` are
     additional (external) MCPClientWrapper instances to connect alongside.
     """
-    import asyncio
-
     from app.modules.llm.services.mcp_client import create_local_mcp_client
     from app.modules.mcp_server.helpers import elicitation_channel_var
     from app.modules.mcp_server.server import mcp_user_id_var
@@ -156,16 +154,21 @@ async def _mcp_user_session(
     local = create_local_mcp_client()
     all_clients = [local] + (extra_clients or [])
     try:
-        await asyncio.gather(*(c.connect() for c in all_clients))
-    except Exception:
-        await asyncio.gather(*(c.disconnect() for c in all_clients), return_exceptions=True)
+        # Connect sequentially — asyncio.gather creates separate tasks which
+        # breaks anyio cancel scopes used by MCP streamable HTTP transport.
+        for c in all_clients:
+            await c.connect()
+    except BaseException:
+        for c in all_clients:
+            await c.disconnect()
         mcp_user_id_var.reset(token_user)
         elicitation_channel_var.reset(token_elicit)
         raise
     try:
         yield all_clients
     finally:
-        await asyncio.gather(*(c.disconnect() for c in all_clients), return_exceptions=True)
+        for c in all_clients:
+            await c.disconnect()
         mcp_user_id_var.reset(token_user)
         elicitation_channel_var.reset(token_elicit)
 

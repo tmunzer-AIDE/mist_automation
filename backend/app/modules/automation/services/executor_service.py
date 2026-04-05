@@ -1384,7 +1384,10 @@ class WorkflowExecutor:
         token_user = mcp_user_id_var.set(str(user_id)) if user_id else None
 
         try:
-            await asyncio.gather(*(c.connect() for c in clients))
+            # Connect sequentially — asyncio.gather creates separate tasks which
+            # breaks anyio cancel scopes used by MCP streamable HTTP transport.
+            for c in clients:
+                await c.connect()
 
             agent = AIAgentService(llm=llm, mcp_clients=clients, max_iterations=max_iterations)
             result = await agent.run(
@@ -1410,7 +1413,8 @@ class WorkflowExecutor:
             return result_dict
 
         finally:
-            await asyncio.gather(*(c.disconnect() for c in clients), return_exceptions=True)
+            for c in clients:
+                await c.disconnect()
             if token_user is not None:
                 mcp_user_id_var.reset(token_user)
 

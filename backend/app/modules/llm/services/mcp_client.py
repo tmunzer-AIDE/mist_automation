@@ -72,8 +72,12 @@ class MCPClientWrapper:
             self._session = session
             self._exit_stack = stack
             logger.info("mcp_connected", server=self.config.name)
-        except Exception:
-            await stack.aclose()
+        except BaseException:
+            # Must catch BaseException (not Exception) because CancelledError
+            # inherits from BaseException in Python 3.9+. Also suppress anyio
+            # cancel scope errors during cleanup.
+            with contextlib.suppress(BaseException):
+                await stack.aclose()
             raise
 
     async def disconnect(self) -> None:
@@ -81,7 +85,7 @@ class MCPClientWrapper:
         if self._exit_stack:
             try:
                 await self._exit_stack.aclose()
-            except Exception:
+            except BaseException:
                 logger.debug("mcp_disconnect_error", server=self.config.name)
             self._session = None
             self._exit_stack = None
