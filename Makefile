@@ -1,5 +1,5 @@
 DOCKER_IMAGE ?= tmunzer/mist-automation
-DOCKER_TAG   ?= latest
+VERSION      := $(shell grep '^version' backend/pyproject.toml | sed 's/version = "//;s/"//')
 FRONTEND_DIR  = frontend
 BACKEND_DIR   = backend
 STATIC_DIR    = $(BACKEND_DIR)/app/frontend/static
@@ -15,13 +15,16 @@ angular:
 	cp -r $(FRONTEND_DIR)/dist/frontend/browser/* $(STATIC_DIR)/
 	mv $(STATIC_DIR)/index.html $(INDEX_DIR)/index.html
 
-# Build the Docker image (runs angular first)
+# Build the Docker image tagged with version + latest
 docker: angular
-	docker buildx build --platform linux/amd64 -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	docker buildx build --platform linux/amd64 \
+		-t $(DOCKER_IMAGE):$(VERSION) \
+		-t $(DOCKER_IMAGE):latest .
 
-# Push the image to Docker Hub
+# Push both tags to Docker Hub
 publish: docker
-	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker push $(DOCKER_IMAGE):$(VERSION)
+	docker push $(DOCKER_IMAGE):latest
 
 # Shorthand: build and push
 all: publish
