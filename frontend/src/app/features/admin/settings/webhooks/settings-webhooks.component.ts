@@ -1,6 +1,7 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
@@ -23,6 +24,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
   imports: [
     ReactiveFormsModule,
     MatCardModule,
+    MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
     MatButtonModule,
@@ -90,6 +92,45 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
               Restrict incoming webhooks to specific IP addresses or CIDR ranges.
               Leave empty to allow all sources.
             </p>
+
+            @if (!mistIpsExpanded()) {
+              <button
+                mat-stroked-button
+                type="button"
+                (click)="loadMistIps()"
+                [disabled]="loadingMistIps()"
+                class="mist-ips-btn"
+              >
+                <mat-icon>cloud_download</mat-icon>
+                {{ loadingMistIps() ? 'Loading...' : 'Load Mist Cloud IPs' }}
+              </button>
+            } @else {
+              <div class="mist-ips-panel">
+                <p class="hint-text">Select Mist cloud regions to add their webhook source IPs:</p>
+                <div class="region-grid">
+                  @for (region of mistRegions(); track region.name) {
+                    <label class="region-item">
+                      <mat-checkbox
+                        [checked]="region.selected"
+                        (change)="toggleRegion(region.name)"
+                      >
+                        <span class="region-name">{{ region.name }}</span>
+                        <span class="region-ips">{{ region.ips.join(', ') }}</span>
+                      </mat-checkbox>
+                    </label>
+                  }
+                </div>
+                <div class="action-row">
+                  <button mat-flat-button type="button" (click)="addSelectedMistIps()">
+                    <mat-icon>add</mat-icon> Add Selected
+                  </button>
+                  <button mat-stroked-button type="button" (click)="mistIpsExpanded.set(false)">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            }
+
             <mat-form-field appearance="outline" class="full-width">
               <mat-label>Allowed IPs / CIDRs</mat-label>
               <textarea
@@ -208,6 +249,32 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
       .smee-badge {
         margin-left: 12px;
       }
+      .mist-ips-btn {
+        margin-bottom: 16px;
+      }
+      .mist-ips-panel {
+        margin-bottom: 16px;
+        padding: 12px;
+        border: 1px solid var(--mat-sys-outline-variant, #c4c7c5);
+        border-radius: 8px;
+      }
+      .region-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .region-item {
+        display: block;
+      }
+      .region-name {
+        font-weight: 500;
+        margin-right: 8px;
+      }
+      .region-ips {
+        font-size: 12px;
+        color: var(--mat-sys-on-surface-variant);
+      }
     `,
   ],
 })
@@ -222,6 +289,9 @@ export class SettingsWebhooksComponent implements OnInit {
   secretVisible = false;
   smeeAction = signal(false);
   smeeStatus = signal<SmeeStatus | null>(null);
+  loadingMistIps = signal(false);
+  mistIpsExpanded = signal(false);
+  mistRegions = signal<{ name: string; ips: string[]; selected: boolean }[]>([]);
 
   form = this.fb.group({
     webhook_secret: [''],
@@ -355,6 +425,52 @@ export class SettingsWebhooksComponent implements OnInit {
         this.smeeAction.set(false);
         this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
       },
+    });
+  }
+
+  loadMistIps(): void {
+    this.loadingMistIps.set(true);
+    this.api.get<Record<string, string[]>>('/admin/mist-webhook-ips').subscribe({
+      next: (data) => {
+        this.mistRegions.set(
+          Object.entries(data).map(([name, ips]) => ({ name, ips, selected: false }))
+        );
+        this.mistIpsExpanded.set(true);
+        this.loadingMistIps.set(false);
+      },
+      error: (err) => {
+        this.loadingMistIps.set(false);
+        this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  toggleRegion(name: string): void {
+    this.mistRegions.update((regions) =>
+      regions.map((r) => (r.name === name ? { ...r, selected: !r.selected } : r))
+    );
+  }
+
+  addSelectedMistIps(): void {
+    const selected = this.mistRegions().filter((r) => r.selected);
+    if (!selected.length) {
+      this.snackBar.open('Select at least one region', 'OK', { duration: 3000 });
+      return;
+    }
+    const newIps = selected.flatMap((r) => r.ips);
+    const current = (this.form.value.webhook_ip_whitelist || '')
+      .split('\n')
+      .map((l: string) => l.trim())
+      .filter((l: string) => l.length > 0);
+    const existing = new Set(current);
+    const toAdd = newIps.filter((ip) => !existing.has(ip));
+    if (toAdd.length) {
+      const merged = [...current, ...toAdd].join('\n');
+      this.form.patchValue({ webhook_ip_whitelist: merged });
+    }
+    this.mistIpsExpanded.set(false);
+    this.snackBar.open(`Added ${toAdd.length} IP(s) from ${selected.length} region(s)`, 'OK', {
+      duration: 3000,
     });
   }
 

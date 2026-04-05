@@ -101,6 +101,19 @@ app.kubernetes.io/component: celery-beat
 {{- end }}
 
 {{/*
+Webhook collector specific labels
+*/}}
+{{- define "mist-automation.webhook-collector.labels" -}}
+{{ include "mist-automation.labels" . }}
+app.kubernetes.io/component: webhook-collector
+{{- end }}
+
+{{- define "mist-automation.webhook-collector.selectorLabels" -}}
+{{ include "mist-automation.selectorLabels" . }}
+app.kubernetes.io/component: webhook-collector
+{{- end }}
+
+{{/*
 MongoDB connection URL
 */}}
 {{- define "mist-automation.mongodbUrl" -}}

@@ -22,6 +22,25 @@ services:
       - redis
     restart: unless-stopped
 
+  # Optional: dedicated webhook collector on a separate port for internet exposure
+  # Uncomment to run webhooks on port 9000 while keeping the UI/API on port 8000
+  # webhook-collector:
+  #   image: tmunzer/mist-automation:latest
+  #   command: ["uvicorn", "app.webhook_server:webhook_app", "--host", "0.0.0.0", "--port", "9000"]
+  #   ports:
+  #     - "9000:9000"
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - MONGODB_URL=mongodb://mongodb:27017
+  #     - CELERY_BROKER_URL=redis://redis:6379/1
+  #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
+  #     - REDIS_URL=redis://redis:6379/0
+  #   depends_on:
+  #     - mongodb
+  #     - redis
+  #   restart: unless-stopped
+
   celery-worker:
     image: tmunzer/mist-automation:latest
     command: celery -A app.core.celery_app worker --loglevel=info

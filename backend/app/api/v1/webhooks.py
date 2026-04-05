@@ -479,7 +479,7 @@ async def start_smee_client(
 
     from app.core.smee_service import start_smee
 
-    target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
+    target = settings.smee_target_url or f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
     await start_smee(channel_url, target)
 
     # Persist the URL and enabled state
