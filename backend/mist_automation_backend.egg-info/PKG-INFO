@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: mist-automation-backend
-Version: 1.0.0
-Summary: FastAPI backend for Mist Automation & Backup application
+Version: 0.1.1
+Summary: FastAPI backend for Mist Automation Platform application
 Author-email: Mist Automation Team <automation@example.com>
 License: Proprietary
 Project-URL: Homepage, https://github.com/yourusername/mist-automation
@@ -51,6 +51,8 @@ Requires-Dist: python-json-logger>=2.0.7
 Requires-Dist: litellm>=1.40.0
 Requires-Dist: fastmcp>=3.0.0
 Requires-Dist: influxdb-client[async]>=1.46.0
+Requires-Dist: croniter>=1.3.0
+Requires-Dist: pytz>=2024.1
 Provides-Extra: dev
 Requires-Dist: black>=24.10.0; extra == "dev"
 Requires-Dist: ruff>=0.7.3; extra == "dev"
@@ -66,9 +68,9 @@ Requires-Dist: pytest-httpx>=0.30.0; extra == "test"
 Provides-Extra: all
 Requires-Dist: mist-automation-backend[dev,test]; extra == "all"
 
-# Mist Automation & Backup - Backend
+# Mist Automation Platform - Backend
 
-FastAPI backend for the Mist Automation & Backup application.
+FastAPI backend for the Mist Automation Platform application.
 
 ## Overview
 

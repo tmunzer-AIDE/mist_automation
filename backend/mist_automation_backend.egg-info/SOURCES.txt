@@ -4,6 +4,7 @@ app/__init__.py
 app/config.py
 app/dependencies.py
 app/main.py
+app/webhook_server.py
 app/api/__init__.py
 app/api/v1/__init__.py
 app/api/v1/admin.py
@@ -28,6 +29,7 @@ app/core/exceptions.py
 app/core/log_broadcaster.py
 app/core/logger.py
 app/core/middleware.py
+app/core/redis_client.py
 app/core/security.py
 app/core/smee_service.py
 app/core/tasks.py
@@ -171,6 +173,7 @@ app/services/auth_service.py
 app/services/mist_service.py
 app/services/mist_service_factory.py
 app/services/notification_service.py
+app/services/passkey_service.py
 app/utils/__init__.py
 app/utils/cable_test.py
 app/utils/db_helpers.py
