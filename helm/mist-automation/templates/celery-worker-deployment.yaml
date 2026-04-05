@@ -60,9 +60,23 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: skills
+              mountPath: /data/skills
+            {{- if .Values.backup.git.enabled }}
+            - name: git-backup
+              mountPath: /backups/git
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: skills
+          persistentVolumeClaim:
+            claimName: {{ include "mist-automation.fullname" . }}-skills
+        {{- if .Values.backup.git.enabled }}
+        - name: git-backup
+          persistentVolumeClaim:
+            claimName: {{ include "mist-automation.fullname" . }}-git-backup
+        {{- end }}
       {{- with .Values.celeryWorker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

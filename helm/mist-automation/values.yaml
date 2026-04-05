@@ -268,6 +268,13 @@ mistApi:
   # -- Max retries
   maxRetries: 3
 
+# -- Agent skills storage (shared by backend + celery worker)
+# Note: uses ReadWriteOnce — both pods must be on the same node.
+# For multi-node clusters, override accessMode to ReadWriteMany in a custom PVC.
+skills:
+  persistence:
+    size: 1Gi
+
 # -- Workflow execution settings
 workflow:
   maxConcurrent: 10
@@ -292,6 +299,8 @@ backup:
     # -- Git credentials (stored in secret)
     username: ""
     password: ""
+    persistence:
+      size: 2Gi
 
 # -- Logging configuration
 logging:

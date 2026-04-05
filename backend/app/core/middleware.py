@@ -17,14 +17,20 @@ logger = structlog.get_logger(__name__)
 
 
 class _SkipWebSocketMiddleware(BaseHTTPMiddleware):
-    """Base middleware that skips WebSocket and MCP streaming connections (BaseHTTPMiddleware is incompatible with them)."""
+    """Base middleware that bypasses BaseHTTPMiddleware entirely for WebSocket and MCP streaming."""
+
+    async def __call__(self, scope, receive, send):
+        # Bypass BaseHTTPMiddleware's internal channel plumbing completely —
+        # it wraps send/receive in streams that break streaming responses (SSE, streamable HTTP).
+        if scope.get("type") == "websocket":
+            await self.app(scope, receive, send)
+            return
+        if scope.get("type") == "http" and scope.get("path", "").startswith("/mcp"):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if request.scope.get("type") == "websocket":
-            return await call_next(request)
-        # MCP uses streamable HTTP which is incompatible with BaseHTTPMiddleware
-        if request.url.path.startswith("/mcp"):
-            return await call_next(request)
         return await self.process_request(request, call_next)
 
     async def process_request(self, request: Request, call_next: Callable) -> Response:
@@ -134,12 +140,13 @@ class SecurityHeadersMiddleware(_SkipWebSocketMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        host = request.headers.get("host", "")
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data:; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self'; frame-ancestors 'none'"
+            f"connect-src 'self' wss://{host} ws://{host}; frame-ancestors 'none'"
         )
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 

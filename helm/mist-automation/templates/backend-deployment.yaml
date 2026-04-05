@@ -69,9 +69,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: skills
+              mountPath: /data/skills
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: skills
+          persistentVolumeClaim:
+            claimName: {{ include "mist-automation.fullname" . }}-skills
       {{- with .Values.backend.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

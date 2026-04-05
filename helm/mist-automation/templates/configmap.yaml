@@ -65,6 +65,9 @@ data:
   BACKUP_GIT_AUTHOR_NAME: {{ .Values.backup.git.authorName | quote }}
   BACKUP_GIT_AUTHOR_EMAIL: {{ .Values.backup.git.authorEmail | quote }}
   
+  # Skills
+  SKILLS_DIR: "/data/skills"
+
   # Logging
   LOG_LEVEL: {{ .Values.logging.level | quote }}
   LOG_FORMAT: {{ .Values.logging.format | quote }}
