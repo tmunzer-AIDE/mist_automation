@@ -92,7 +92,7 @@ questions:
   label: Enable Webhook Collector
   description: "Run a dedicated webhook ingestion server on a separate port. Allows exposing only the webhook endpoint to the internet while keeping the UI/API internal."
   type: boolean
-  default: true
+  default: false
   group: "Webhook Collector"
   show_subquestion_if: true
   subquestions:

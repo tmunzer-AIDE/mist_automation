@@ -113,7 +113,7 @@ celeryBeat:
 
 # -- Webhook collector (separate pod for internet-facing webhook ingestion)
 webhookCollector:
-  enabled: true
+  enabled: false
   replicaCount: 1
   port: 9000
 
