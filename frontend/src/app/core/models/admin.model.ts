@@ -48,13 +48,6 @@ export interface SystemSettings {
   maintenance_mode: boolean;
   // LLM (global toggle — configs managed via /llm/configs)
   llm_enabled: boolean;
-  // Telemetry (InfluxDB — configs managed via /telemetry/settings)
-  telemetry_enabled: boolean;
-  influxdb_url: string | null;
-  influxdb_token_set: boolean;
-  influxdb_org: string | null;
-  influxdb_bucket: string | null;
-  telemetry_retention_days: number;
   updated_at: string;
 }
 

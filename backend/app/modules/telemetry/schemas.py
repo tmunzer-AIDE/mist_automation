@@ -175,25 +175,12 @@ class LatestStatsResponse(BaseModel):
 
 
 class TelemetrySettingsResponse(BaseModel):
-    """Response for GET /telemetry/settings (read-only view)."""
+    """Read-only telemetry config from environment variables."""
 
-    telemetry_enabled: bool
     influxdb_url: str | None = None
     influxdb_token_set: bool = False
-    influxdb_org: str | None = None
-    influxdb_bucket: str | None = None
-    telemetry_retention_days: int = 30
-
-
-class TelemetrySettingsUpdate(BaseModel):
-    """Request body for PUT /telemetry/settings."""
-
-    telemetry_enabled: bool | None = None
-    influxdb_url: str | None = None
-    influxdb_token: str | None = None
-    influxdb_org: str | None = None
-    influxdb_bucket: str | None = None
-    telemetry_retention_days: int | None = Field(None, ge=1, le=365)
+    influxdb_org: str = "mist_automation"
+    influxdb_bucket: str = "mist_telemetry"
 
 
 class ReconnectResponse(BaseModel):

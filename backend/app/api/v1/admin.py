@@ -85,13 +85,6 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "maintenance_mode": config.maintenance_mode,
         # LLM (global toggle — configs managed via /llm/configs)
         "llm_enabled": config.llm_enabled,
-        # Telemetry
-        "telemetry_enabled": config.telemetry_enabled,
-        "influxdb_url": config.influxdb_url,
-        "influxdb_token_set": bool(config.influxdb_token),
-        "influxdb_org": config.influxdb_org,
-        "influxdb_bucket": config.influxdb_bucket,
-        "telemetry_retention_days": config.telemetry_retention_days,
         "updated_at": config.updated_at,
     }
 
@@ -117,7 +110,6 @@ async def update_system_settings(
         "pagerduty_api_key",
         "slack_signing_secret",
         "smtp_password",
-        "influxdb_token",
     }
     for field, value in updates.items():
         if field in sensitive_encrypt:
@@ -695,3 +687,27 @@ async def get_worker_status(_current_user: User = Depends(require_admin)):
             "jobs": jobs,
         }
     }
+
+
+# ── Mist webhook source IPs ─────────────────────────────────────────────────
+
+MIST_WEBHOOK_SOURCE_IPS: dict[str, list[str]] = {
+    "Global 01": ["54.193.71.17", "54.215.237.20"],
+    "Global 02": ["34.94.226.48/28"],
+    "Global 03": ["34.231.34.177", "54.235.187.11", "18.233.33.230"],
+    "Global 04": ["34.152.4.85", "35.203.21.42", "34.152.7.156"],
+    "Global 05": ["35.192.224.0/29"],
+    "EMEA 01": ["3.122.172.223", "3.121.19.146", "3.120.167.1"],
+    "EMEA 02": ["35.234.156.66"],
+    "EMEA 03": ["51.112.15.151", "51.112.76.109", "51.112.86.222"],
+    "EMEA 04": ["34.166.152.112/29"],
+    "APAC 01": ["54.206.226.168", "13.238.77.6", "54.79.134.226"],
+    "APAC 02": ["34.47.180.168/29"],
+    "APAC 03": ["34.104.128.8/29"],
+}
+
+
+@router.get("/admin/mist-webhook-ips", tags=["Admin"])
+async def get_mist_webhook_ips(_current_user: User = Depends(require_admin)):
+    """Return known Mist webhook source IPs by cloud region."""
+    return MIST_WEBHOOK_SOURCE_IPS

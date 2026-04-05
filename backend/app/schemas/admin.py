@@ -83,14 +83,6 @@ class SystemSettingsUpdate(BaseModel):
     impact_analysis_sle_threshold_percent: float | None = Field(None, ge=1.0, le=50.0)
     impact_analysis_retention_days: int | None = Field(None, ge=1, le=365)
 
-    # Telemetry
-    telemetry_enabled: bool | None = None
-    influxdb_url: str | None = None
-    influxdb_token: str | None = None
-    influxdb_org: str | None = None
-    influxdb_bucket: str | None = None
-    telemetry_retention_days: int | None = Field(None, ge=1, le=365)
-
     @field_validator("webhook_ip_whitelist")
     @classmethod
     def validate_ip_whitelist(cls, v: list[str] | None) -> list[str] | None:
@@ -117,7 +109,7 @@ class SystemSettingsUpdate(BaseModel):
         return v
 
     @field_validator(
-        "backup_git_repo_url", "slack_webhook_url", "servicenow_instance_url", "smee_channel_url", "influxdb_url"
+        "backup_git_repo_url", "slack_webhook_url", "servicenow_instance_url", "smee_channel_url"
     )
     @classmethod
     def validate_url(cls, v: str | None) -> str | None:

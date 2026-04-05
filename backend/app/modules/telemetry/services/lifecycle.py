@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def start_telemetry_pipeline() -> dict:
-    """Start the full telemetry pipeline from SystemConfig.
+    """Start the full telemetry pipeline from env-var config.
 
     Returns a status dict with sites count and connection info.
     Raises on failure (caller should clean up).
@@ -20,7 +20,7 @@ async def start_telemetry_pipeline() -> dict:
     import mistapi
 
     import app.modules.telemetry as telemetry_mod
-    from app.core.security import decrypt_sensitive_data
+    from app.config import settings
     from app.models.system import SystemConfig
     from app.modules.telemetry.services.client_ws_manager import ClientWsManager
     from app.modules.telemetry.services.cov_filter import CoVFilter
@@ -31,28 +31,25 @@ async def start_telemetry_pipeline() -> dict:
     from app.modules.telemetry.services.mist_ws_manager import MistWsManager
     from app.services.mist_service_factory import create_mist_service
 
-    config = await SystemConfig.get_config()
-
-    if not config.telemetry_enabled:
-        raise ValueError("Telemetry is not enabled in settings")
-    if not config.influxdb_url:
-        raise ValueError("InfluxDB URL is not configured")
-    if not config.influxdb_token:
-        raise ValueError("InfluxDB token is not configured")
+    if not settings.influxdb_url:
+        raise ValueError("INFLUXDB_URL environment variable is not set")
+    if not settings.influxdb_token:
+        raise ValueError("INFLUXDB_TOKEN environment variable is not set")
 
     # 1. Core services
     telemetry_mod._latest_cache = LatestValueCache()
     telemetry_mod._client_cache = LatestClientCache()
     telemetry_mod._cov_filter = CoVFilter()
     telemetry_mod._influxdb_service = InfluxDBService(
-        url=config.influxdb_url,
-        token=decrypt_sensitive_data(config.influxdb_token),
-        org=config.influxdb_org or "mist_automation",
-        bucket=config.influxdb_bucket or "mist_telemetry",
+        url=settings.influxdb_url,
+        token=settings.influxdb_token,
+        org=settings.influxdb_org,
+        bucket=settings.influxdb_bucket,
     )
     await telemetry_mod._influxdb_service.start()
 
     # 2. Ingestion service (shared queue for both device + client WS managers)
+    config = await SystemConfig.get_config()
     org_id = config.mist_org_id or ""
     telemetry_mod._ingestion_service = IngestionService(
         influxdb=telemetry_mod._influxdb_service,

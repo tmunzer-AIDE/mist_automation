@@ -4825,39 +4825,6 @@ paths:
                 $ref: '#/components/schemas/TelemetrySettingsResponse'
       security:
       - HTTPBearer: []
-    put:
-      tags:
-      - Telemetry
-      - Telemetry
-      summary: Update Telemetry Settings
-      description: 'Update telemetry settings.
-
-
-        Changes take effect on next restart or reconnect. To apply immediately,
-
-        call POST /telemetry/reconnect after updating settings.'
-      operationId: update_telemetry_settings_api_v1_telemetry_settings_put
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TelemetrySettingsUpdate'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TelemetrySettingsResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /api/v1/telemetry/reconnect:
     post:
       tags:
@@ -7894,46 +7861,11 @@ components:
             minimum: 1.0
           - type: 'null'
           title: Impact Analysis Retention Days
-        telemetry_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          title: Telemetry Enabled
-        influxdb_url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Url
-        influxdb_token:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Token
-        influxdb_org:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Org
-        influxdb_bucket:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Bucket
-        telemetry_retention_days:
-          anyOf:
-          - type: integer
-            maximum: 365.0
-            minimum: 1.0
-          - type: 'null'
-          title: Telemetry Retention Days
       type: object
       title: SystemSettingsUpdate
       description: Schema for PUT /admin/settings — partial update of system configuration.
     TelemetrySettingsResponse:
       properties:
-        telemetry_enabled:
-          type: boolean
-          title: Telemetry Enabled
         influxdb_url:
           anyOf:
           - type: string
@@ -7944,61 +7876,16 @@ components:
           title: Influxdb Token Set
           default: false
         influxdb_org:
-          anyOf:
-          - type: string
-          - type: 'null'
+          type: string
           title: Influxdb Org
+          default: mist_automation
         influxdb_bucket:
-          anyOf:
-          - type: string
-          - type: 'null'
+          type: string
           title: Influxdb Bucket
-        telemetry_retention_days:
-          type: integer
-          title: Telemetry Retention Days
-          default: 30
+          default: mist_telemetry
       type: object
-      required:
-      - telemetry_enabled
       title: TelemetrySettingsResponse
-      description: Response for GET /telemetry/settings (read-only view).
-    TelemetrySettingsUpdate:
-      properties:
-        telemetry_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          title: Telemetry Enabled
-        influxdb_url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Url
-        influxdb_token:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Token
-        influxdb_org:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Org
-        influxdb_bucket:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Influxdb Bucket
-        telemetry_retention_days:
-          anyOf:
-          - type: integer
-            maximum: 365.0
-            minimum: 1.0
-          - type: 'null'
-          title: Telemetry Retention Days
-      type: object
-      title: TelemetrySettingsUpdate
-      description: Request body for PUT /telemetry/settings.
+      description: Read-only telemetry config from environment variables.
     TimelineEntryResponse:
       properties:
         timestamp:

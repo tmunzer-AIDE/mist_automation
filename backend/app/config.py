@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     mist_api_timeout: int = 30
     mist_api_max_retries: int = 3
 
+    # InfluxDB / Telemetry
+    influxdb_url: str | None = Field(default=None, description="InfluxDB connection URL")
+    influxdb_token: str | None = Field(default=None, description="InfluxDB authentication token")
+    influxdb_org: str = Field(default="mist_automation", description="InfluxDB organization name")
+    influxdb_bucket: str = Field(default="mist_telemetry", description="InfluxDB bucket name")
+
     # Workflow Execution
     max_concurrent_workflows: int = 10
     workflow_default_timeout: int = 300  # 5 minutes
@@ -94,6 +100,10 @@ class Settings(BaseSettings):
 
     # TLS / Proxy
     ca_cert_path: str | None = Field(default=None, description="Path to custom CA certificate bundle (PEM) for TLS-intercepting proxies like ZScaler")
+
+    # Webhook Collector
+    webhook_port: int = Field(default=9000, description="Port for dedicated webhook collector server")
+    smee_target_url: str | None = Field(default=None, description="Override Smee forwarding target URL (e.g. http://127.0.0.1:9000/api/v1/webhooks/mist)")
 
     # Logging
     log_level: str = "INFO"

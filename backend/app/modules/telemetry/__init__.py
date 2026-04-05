@@ -1,7 +1,7 @@
 """Telemetry module — WebSocket device stats ingestion pipeline.
 
 Module-level singletons are initialized during app startup when
-telemetry_enabled is True in SystemConfig.
+INFLUXDB_URL and INFLUXDB_TOKEN environment variables are set.
 """
 
 from __future__ import annotations

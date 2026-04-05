@@ -7,7 +7,6 @@ from app.modules.telemetry.schemas import (
     AggregateQueryParams,
     LatestStatsResponse,
     RangeQueryParams,
-    TelemetrySettingsUpdate,
 )
 
 
@@ -114,25 +113,6 @@ class TestAggregateQueryParams:
                 agg=a,
             )
             assert p.agg == a
-
-
-class TestTelemetrySettingsUpdate:
-    """Validate settings update schema."""
-
-    def test_all_optional(self):
-        s = TelemetrySettingsUpdate()
-        assert s.telemetry_enabled is None
-
-    def test_partial_update(self):
-        s = TelemetrySettingsUpdate(telemetry_enabled=True)
-        assert s.telemetry_enabled is True
-        assert s.influxdb_url is None
-
-    def test_retention_bounds(self):
-        with pytest.raises(ValidationError):
-            TelemetrySettingsUpdate(telemetry_retention_days=0)
-        with pytest.raises(ValidationError):
-            TelemetrySettingsUpdate(telemetry_retention_days=999)
 
 
 class TestLatestStatsResponse:

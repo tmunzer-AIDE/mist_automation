@@ -48,7 +48,7 @@ async def lifespan(_app: FastAPI):
             if config.smee_enabled and config.smee_channel_url:
                 from app.core.smee_service import start_smee
 
-                target = f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
+                target = settings.smee_target_url or f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
                 await start_smee(config.smee_channel_url, target)
                 logger.info("smee_client_auto_started", channel=config.smee_channel_url)
         except Exception as e:
@@ -99,16 +99,11 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("impact_session_recovery_failed", error=str(e))
 
-        # Start telemetry pipeline if enabled
+        # Start telemetry pipeline if InfluxDB env vars are set
         try:
-            from app.models.system import SystemConfig as _SystemConfig
+            from app.config import settings as _cfg
 
-            _telemetry_config = await _SystemConfig.get_config()
-            if (
-                _telemetry_config.telemetry_enabled
-                and _telemetry_config.influxdb_url
-                and _telemetry_config.influxdb_token
-            ):
+            if _cfg.influxdb_url and _cfg.influxdb_token:
                 from app.modules.telemetry.services.lifecycle import start_telemetry_pipeline
 
                 await start_telemetry_pipeline()

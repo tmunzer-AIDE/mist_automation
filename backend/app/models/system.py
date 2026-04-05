@@ -97,14 +97,6 @@ class SystemConfig(TimestampMixin, Document):
         default=30, ge=1, le=365, description="Monitoring session retention in days"
     )
 
-    # Telemetry Configuration (WebSocket device stats → InfluxDB)
-    telemetry_enabled: bool = Field(default=False, description="Enable WebSocket telemetry ingestion")
-    influxdb_url: str | None = Field(default=None, description="InfluxDB connection URL")
-    influxdb_token: str | None = Field(default=None, description="Encrypted InfluxDB authentication token")
-    influxdb_org: str | None = Field(default=None, description="InfluxDB organization name")
-    influxdb_bucket: str | None = Field(default=None, description="InfluxDB bucket name")
-    telemetry_retention_days: int = Field(default=30, ge=1, le=365, description="Telemetry data retention in days")
-
     # System Status
     is_initialized: bool = Field(default=False, description="Whether initial setup is complete")
     maintenance_mode: bool = Field(default=False, description="Whether system is in maintenance mode")

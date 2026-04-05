@@ -253,57 +253,30 @@ class TestQueryAggregate:
 
 
 class TestTelemetrySettings:
-    """Tests for GET/PUT /telemetry/settings."""
+    """Tests for GET /telemetry/settings (read-only, env-var-driven)."""
 
     async def test_get_settings(self, client, test_db):
-        """Returns current telemetry settings."""
+        """Returns current telemetry settings from env vars."""
         resp = await client.get("/api/v1/telemetry/settings")
         assert resp.status_code == 200
         data = resp.json()
-        assert "telemetry_enabled" in data
+        assert "influxdb_url" in data
         assert "influxdb_token_set" in data
+        assert "influxdb_org" in data
+        assert "influxdb_bucket" in data
         # Token value never returned, only boolean flag
         assert "influxdb_token" not in data
+        # Removed fields should not appear
+        assert "telemetry_enabled" not in data
+        assert "telemetry_retention_days" not in data
 
-    async def test_put_settings_partial_update(self, client, test_db):
-        """Partial update only changes provided fields."""
+    async def test_put_settings_removed(self, client, test_db):
+        """PUT endpoint no longer exists."""
         resp = await client.put(
             "/api/v1/telemetry/settings",
-            json={"telemetry_retention_days": 14},
+            json={"influxdb_url": "http://influx:8086"},
         )
-        assert resp.status_code == 200
-        assert resp.json()["telemetry_retention_days"] == 14
-
-    async def test_put_settings_enable_telemetry(self, client, test_db):
-        """Can enable telemetry via settings endpoint."""
-        resp = await client.put(
-            "/api/v1/telemetry/settings",
-            json={"telemetry_enabled": True, "influxdb_url": "http://influx:8086"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["telemetry_enabled"] is True
-        assert data["influxdb_url"] == "http://influx:8086"
-
-    async def test_put_settings_token_not_returned(self, client, test_db):
-        """Token is stored encrypted, never returned in plain text."""
-        resp = await client.put(
-            "/api/v1/telemetry/settings",
-            json={"influxdb_token": "my-secret-token"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["influxdb_token_set"] is True
-        assert "influxdb_token" not in data
-
-    async def test_put_settings_clear_token(self, client, test_db):
-        """Sending empty string clears the token."""
-        # First set a token
-        await client.put("/api/v1/telemetry/settings", json={"influxdb_token": "my-token"})
-        # Now clear it
-        resp = await client.put("/api/v1/telemetry/settings", json={"influxdb_token": ""})
-        assert resp.status_code == 200
-        assert resp.json()["influxdb_token_set"] is False
+        assert resp.status_code == 405
 
 
 class TestReconnect:

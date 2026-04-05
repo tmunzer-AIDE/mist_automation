@@ -66,9 +66,10 @@ const CLOUD_REGIONS = [
 
             <mat-form-field appearance="outline">
               <mat-label>Cloud Region</mat-label>
-              <input matInput [matAutocomplete]="regionAuto"
+              <input matInput formControlName="mist_cloud_region"
+                     [matAutocomplete]="regionAuto"
                      (input)="cloudRegionSearch.set($any($event.target).value)">
-              <mat-autocomplete #regionAuto (optionSelected)="form.get('mist_cloud_region')!.setValue($event.option.value)">
+              <mat-autocomplete #regionAuto [displayWith]="displayRegion">
                 @for (region of filteredCloudRegions(); track region.value) {
                   <mat-option [value]="region.value">{{ region.label }}</mat-option>
                 }
@@ -193,6 +194,10 @@ export class SettingsMistComponent implements OnInit {
       },
     });
   }
+
+  displayRegion = (value: string): string => {
+    return CLOUD_REGIONS.find((r) => r.value === value)?.label ?? value;
+  };
 
   testConnection(): void {
     this.testingConnection.set(true);

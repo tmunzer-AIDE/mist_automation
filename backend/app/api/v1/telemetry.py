@@ -38,7 +38,6 @@ from app.modules.telemetry.schemas import (
     SiteSummaryRecord,
     SwitchScopeSummary,
     TelemetrySettingsResponse,
-    TelemetrySettingsUpdate,
 )
 
 logger = structlog.get_logger(__name__)
@@ -809,55 +808,14 @@ async def query_aggregate(
 async def get_telemetry_settings(
     _current_user: User = Depends(require_admin),
 ) -> TelemetrySettingsResponse:
-    """Return current telemetry settings."""
-    from app.models.system import SystemConfig
-
-    config = await SystemConfig.get_config()
-    return TelemetrySettingsResponse(
-        telemetry_enabled=config.telemetry_enabled,
-        influxdb_url=config.influxdb_url,
-        influxdb_token_set=bool(config.influxdb_token),
-        influxdb_org=config.influxdb_org,
-        influxdb_bucket=config.influxdb_bucket,
-        telemetry_retention_days=config.telemetry_retention_days,
-    )
-
-
-@router.put("/settings", response_model=TelemetrySettingsResponse)
-async def update_telemetry_settings(
-    settings: TelemetrySettingsUpdate,
-    _current_user: User = Depends(require_admin),
-) -> TelemetrySettingsResponse:
-    """Update telemetry settings.
-
-    Changes take effect on next restart or reconnect. To apply immediately,
-    call POST /telemetry/reconnect after updating settings.
-    """
-    from app.core.security import encrypt_sensitive_data
-    from app.models.system import SystemConfig
-
-    config = await SystemConfig.get_config()
-    updates = settings.model_dump(exclude_unset=True)
-
-    for field_name, value in updates.items():
-        if field_name == "influxdb_token":
-            if value and isinstance(value, str) and value.strip():
-                setattr(config, field_name, encrypt_sensitive_data(value))
-            else:
-                setattr(config, field_name, None)
-        else:
-            setattr(config, field_name, value)
-
-    config.update_timestamp()
-    await config.save()
+    """Return current telemetry configuration (from environment variables)."""
+    from app.config import settings
 
     return TelemetrySettingsResponse(
-        telemetry_enabled=config.telemetry_enabled,
-        influxdb_url=config.influxdb_url,
-        influxdb_token_set=bool(config.influxdb_token),
-        influxdb_org=config.influxdb_org,
-        influxdb_bucket=config.influxdb_bucket,
-        telemetry_retention_days=config.telemetry_retention_days,
+        influxdb_url=settings.influxdb_url,
+        influxdb_token_set=bool(settings.influxdb_token),
+        influxdb_org=settings.influxdb_org,
+        influxdb_bucket=settings.influxdb_bucket,
     )
 
 
@@ -870,9 +828,8 @@ async def reconnect_websockets(
 ) -> ReconnectResponse:
     """Stop and restart the full telemetry pipeline.
 
-    Reads current SystemConfig, tears down all services, and reinitializes.
-    Works both for restarting an existing pipeline and for first-time init
-    after enabling telemetry in settings (no app restart needed).
+    Tears down all services and reinitializes from environment variables.
+    Useful for forcing a reconnect without restarting the app.
     """
     from app.modules.telemetry.services.lifecycle import start_telemetry_pipeline, stop_telemetry_pipeline
 
