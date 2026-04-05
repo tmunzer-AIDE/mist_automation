@@ -23,6 +23,7 @@ class MCPServerConfig:
     url: str
     headers: dict[str, str] | None = None
     ssl_verify: bool = True
+    timeout: float = 30.0
 
 
 @dataclass
@@ -44,24 +45,37 @@ class MCPClientWrapper:
 
     async def connect(self) -> None:
         """Connect to the MCP server and initialize the session."""
+        import asyncio
+
+        verify = self._build_verify()
+        timeout = self.config.timeout
+        logger.info(
+            "mcp_connecting",
+            server=self.config.name,
+            url=self.config.url,
+            ssl_verify=self.config.ssl_verify,
+            timeout=timeout,
+        )
+
+        try:
+            await asyncio.wait_for(self._do_connect(verify, timeout), timeout=timeout)
+        except asyncio.TimeoutError as e:
+            raise ConnectionError(
+                f"MCP server '{self.config.name}' did not respond within {timeout}s"
+            ) from e
+
+    async def _do_connect(self, verify: str | bool, timeout: float) -> None:
+        """Internal connect logic — separated so we can wrap with wait_for."""
         import contextlib
 
         import httpx
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
 
-        verify = self._build_verify()
-        logger.info(
-            "mcp_connecting",
-            server=self.config.name,
-            url=self.config.url,
-            ssl_verify=self.config.ssl_verify,
-        )
-
         stack = contextlib.AsyncExitStack()
         try:
             http_client = await stack.enter_async_context(
-                httpx.AsyncClient(verify=verify, headers=self.config.headers)
+                httpx.AsyncClient(verify=verify, headers=self.config.headers, timeout=httpx.Timeout(timeout))
             )
             read_stream, write_stream, _ = await stack.enter_async_context(
                 streamable_http_client(self.config.url, http_client=http_client)
@@ -72,10 +86,8 @@ class MCPClientWrapper:
             self._session = session
             self._exit_stack = stack
             logger.info("mcp_connected", server=self.config.name)
-        except BaseException:
-            # Must catch BaseException (not Exception) because CancelledError
-            # inherits from BaseException in Python 3.9+. Also suppress anyio
-            # cancel scope errors during cleanup.
+        except BaseException as exc:
+            logger.warning("mcp_connect_failed", server=self.config.name, error=str(exc), error_type=type(exc).__name__)
             with contextlib.suppress(BaseException):
                 await stack.aclose()
             raise

@@ -635,9 +635,9 @@ async def test_mcp_config(
         await client.connect()
         tools = await client.list_tools()
         return {"status": "connected", "tools": len(tools), "tool_names": [t.name for t in tools[:20]]}
-    except Exception as e:
-        logger.warning("mcp_config_test_failed", config_id=config_id, error=str(e))
-        return {"status": "error", "error": "Connection test failed. Check URL and credentials."}
+    except BaseException as e:
+        logger.warning("mcp_config_test_failed", config_id=config_id, error=str(e), error_type=type(e).__name__)
+        return {"status": "error", "error": f"Connection test failed: {type(e).__name__}. Check URL and credentials."}
     finally:
         await client.disconnect()
 
@@ -680,9 +680,9 @@ async def test_mcp_connection_anonymous(
         await client.connect()
         tools = await client.list_tools()
         return {"status": "connected", "tools": len(tools), "tool_names": [t.name for t in tools[:20]]}
-    except Exception as e:
-        logger.warning("mcp_test_connection_failed", error=str(e))
-        return {"status": "error", "error": "Connection test failed. Check URL and credentials."}
+    except BaseException as e:
+        logger.warning("mcp_test_connection_failed", error=str(e), error_type=type(e).__name__)
+        return {"status": "error", "error": f"Connection test failed: {type(e).__name__}. Check URL and credentials."}
     finally:
         await client.disconnect()
 
@@ -705,8 +705,8 @@ async def list_mcp_config_tools(
         await client.connect()
         tools = await client.list_tools()
         return [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
-    except Exception as e:
-        logger.warning("mcp_list_tools_failed", config_id=config_id, error=str(e))
+    except BaseException as e:
+        logger.warning("mcp_list_tools_failed", config_id=config_id, error=str(e), error_type=type(e).__name__)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to connect to MCP server") from None
     finally:
         await client.disconnect()
@@ -729,8 +729,8 @@ async def call_mcp_config_tool(
         await client.connect()
         result = await client.call_tool(tool_name, request.arguments)
         return {"result": result}
-    except Exception as e:
-        logger.warning("mcp_tool_call_failed", config_id=config_id, tool=tool_name, error=str(e))
+    except BaseException as e:
+        logger.warning("mcp_tool_call_failed", config_id=config_id, tool=tool_name, error=str(e), error_type=type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Tool call failed. Check server connection and arguments.",
@@ -753,6 +753,9 @@ async def list_local_mcp_tools(
         await client.connect()
         tools = await client.list_tools()
         return [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
+    except BaseException as e:
+        logger.warning("mcp_local_list_tools_failed", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to list local MCP tools") from None
     finally:
         await client.disconnect()
         mcp_user_id_var.reset(token_user)
@@ -774,8 +777,8 @@ async def call_local_mcp_tool(
         await client.connect()
         result = await client.call_tool(tool_name, request.arguments)
         return {"result": result}
-    except Exception as e:
-        logger.warning("mcp_local_tool_call_failed", tool=tool_name, error=str(e))
+    except BaseException as e:
+        logger.warning("mcp_local_tool_call_failed", tool=tool_name, error=str(e), error_type=type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Tool call failed.",
