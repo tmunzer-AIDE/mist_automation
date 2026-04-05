@@ -462,7 +462,7 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
     import httpx
 
     try:
-        if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp"):
+        if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp", "vllm"):
             from openai import AsyncOpenAI
 
             url = base_url

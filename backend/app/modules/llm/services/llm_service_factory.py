@@ -100,6 +100,7 @@ def _default_model(provider: str) -> str:
         "azure_openai": "gpt-4o",
         "bedrock": "anthropic.claude-sonnet-4-20250514-v1:0",
         "vertex": "gemini-2.0-flash",
+        "vllm": "default",
     }
     return defaults.get(provider, "gpt-4o")
 
@@ -130,8 +131,8 @@ def _default_canvas_tier(provider: str, model: str | None) -> str:
             return "full"
         return "explicit"
 
-    # Local providers default to explicit
-    if provider in ("ollama", "lm_studio", "llama_cpp"):
+    # Local/self-hosted providers default to explicit
+    if provider in ("ollama", "lm_studio", "llama_cpp", "vllm"):
         return "explicit"
 
     return "explicit"
