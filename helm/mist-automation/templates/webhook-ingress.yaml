@@ -5,8 +5,10 @@ metadata:
   name: {{ include "mist-automation.fullname" . }}-webhook
   labels:
     {{- include "mist-automation.webhook-collector.labels" . | nindent 4 }}
-  {{- with .Values.webhookCollector.ingress.annotations }}
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  {{- with .Values.webhookCollector.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
