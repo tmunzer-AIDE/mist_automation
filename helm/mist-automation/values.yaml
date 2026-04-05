@@ -13,7 +13,7 @@ fqdn: ""
 # -- Application settings
 app:
   name: "Mist Automation Platform"
-  version: "0.1.7"
+  version: "0.1.8"
   debug: false
   environment: production
 
