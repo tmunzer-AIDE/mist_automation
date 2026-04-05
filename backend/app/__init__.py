@@ -3,5 +3,5 @@ Mist Automation Platform Application.
 FastAPI backend for workflow automation and configuration backup.
 """
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __app_name__ = "Mist Automation Platform"
