@@ -50,6 +50,8 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 
 ### Webhook Event Routing
 
+**Dedicated collector** (`app/webhook_server.py`): Optional lightweight FastAPI app on port 9000 for internet-facing webhook ingestion. Reuses the same webhook router with minimal middleware (no frontend, no auth routes, no scheduler). Deploy as a separate container with different CMD — see Helm chart `webhookCollector` values and `docker-compose.yml`. Backward compatible: if not deployed, the main app handles webhooks on port 8000.
+
 **Gateway** (`app/api/v1/webhooks.py`): Single `POST /webhooks/mist` endpoint receives all Mist webhooks. Flow:
 1. HMAC-SHA256 signature validation (from `SystemConfig.webhook_secret`)
 2. IP allowlist enforcement (CIDR-aware, from `SystemConfig.webhook_ip_whitelist`)

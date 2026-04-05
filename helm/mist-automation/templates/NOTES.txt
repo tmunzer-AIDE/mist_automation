@@ -29,5 +29,17 @@
    - Redis: {{ if .Values.redis.enabled }}Bundled (Bitnami chart){{ else }}External: {{ .Values.redis.external.url }}{{ end }}
    - InfluxDB: {{ if .Values.influxdb.enabled }}Bundled (Bitnami chart){{ else }}External: {{ .Values.influxdb.external.url }}{{ end }}
 
-4. If you need to update dependencies, run:
+{{- if .Values.webhookCollector.enabled }}
+4. Webhook Collector:
+   A dedicated webhook ingestion server is running on port {{ .Values.webhookCollector.port }}.
+   {{- if and .Values.webhookCollector.ingress.enabled .Values.webhookCollector.ingress.host }}
+   Webhook URL: https://{{ .Values.webhookCollector.ingress.host }}/api/v1/webhooks/mist
+   {{- else if eq .Values.webhookCollector.service.type "NodePort" }}
+   Webhook URL: http://<node-ip>:{{ .Values.webhookCollector.service.nodePort | default 30900 }}/api/v1/webhooks/mist
+   {{- else }}
+   To access the webhook collector, configure an ingress or use a NodePort/LoadBalancer service.
+   {{- end }}
+{{- end }}
+
+5. If you need to update dependencies, run:
    helm dependency update

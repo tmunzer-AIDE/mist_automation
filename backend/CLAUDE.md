@@ -64,7 +64,24 @@ Single entry point `POST /webhooks/mist` receives all Mist webhooks. See root `C
 
 Current limitation: routing is hardcoded — adding a new consumer requires editing `webhooks.py`. A pub/sub event bus design exists at `docs/superpowers/specs/2026-03-26-webhook-event-bus-design.md`.
 
-Smee.io forwarding (`app/core/smee_service.py`) connects to a Smee SSE channel and replays events to the local webhook endpoint for development. It bypasses signature verification.
+Smee.io forwarding (`app/core/smee_service.py`) connects to a Smee SSE channel and replays events to the local webhook endpoint for development. It bypasses signature verification. Target URL is configurable via `settings.smee_target_url` (defaults to `http://127.0.0.1:8000/api/v1/webhooks/mist`).
+
+### Webhook Collector Server (app/webhook_server.py)
+
+Lightweight FastAPI app for running webhook ingestion on a dedicated port (default 9000), separate from the main UI/API server. Allows exposing only the webhook endpoint to the internet while keeping the UI internal.
+
+- **Minimal lifespan**: only `Database.connect_db()` — no scheduler, no Smee, no telemetry, no OAS, no MCP
+- **Minimal middleware**: `RequestLoggingMiddleware` + `ExceptionHandlerMiddleware` only (no CORS, no security headers, no maintenance mode)
+- **Reuses** the existing webhook router from `app.api.v1.webhooks` — same validation, event storage, and dispatch logic
+- **No frontend**: no static files, no SPA catch-all
+- **Config**: `webhook_port` (default 9000), `smee_target_url` (optional override)
+- **Run**: `uvicorn app.webhook_server:webhook_app --host 0.0.0.0 --port 9000`
+- **Deploy**: same Docker image, different CMD. See `docker-compose.yml` (commented-out `webhook-collector` service) and Helm chart (`webhookCollector` values)
+- **Backward compatible**: if not deployed, the main app on port 8000 handles everything as before
+
+### Mist Webhook Source IPs (app/api/v1/admin.py)
+
+`GET /admin/mist-webhook-ips` returns known Mist webhook source IPs organized by cloud region (Global 01–05, EMEA 01–04, APAC 01–03). Used by the frontend "Load Mist Cloud IPs" button to populate the IP allowlist. Stored as the `MIST_WEBHOOK_SOURCE_IPS` constant — update when Mist publishes new IPs.
 
 ### Worker Patterns
 

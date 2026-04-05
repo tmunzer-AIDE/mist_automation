@@ -2991,6 +2991,34 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/admin/mist-webhook-ips:
+    get:
+      tags:
+      - Admin
+      summary: Get Mist Webhook IPs
+      description: Return known Mist webhook source IPs by cloud region.
+      operationId: get_mist_webhook_ips_api_v1_admin_mist_webhook_ips_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+                example:
+                  Global 01:
+                  - 54.193.71.17
+                  - 54.215.237.20
+                  EMEA 01:
+                  - 3.122.172.223
+                  - 3.121.19.146
+                  - 3.120.167.1
+      security:
+      - HTTPBearer: []
   /api/v1/webhooks/slack/interactive:
     post:
       tags:
