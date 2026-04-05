@@ -17,10 +17,13 @@ logger = structlog.get_logger(__name__)
 
 
 class _SkipWebSocketMiddleware(BaseHTTPMiddleware):
-    """Base middleware that skips WebSocket connections (BaseHTTPMiddleware is incompatible with them)."""
+    """Base middleware that skips WebSocket and MCP streaming connections (BaseHTTPMiddleware is incompatible with them)."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.scope.get("type") == "websocket":
+            return await call_next(request)
+        # MCP uses streamable HTTP which is incompatible with BaseHTTPMiddleware
+        if request.url.path.startswith("/mcp"):
             return await call_next(request)
         return await self.process_request(request, call_next)
 
