@@ -5,7 +5,7 @@ BACKEND_DIR   = backend
 STATIC_DIR    = $(BACKEND_DIR)/app/frontend/static
 INDEX_DIR     = $(BACKEND_DIR)/app/frontend
 
-.PHONY: angular clean docker all
+.PHONY: angular clean docker publish all
 
 # Build Angular frontend and copy output into the backend static directory
 angular:
@@ -19,8 +19,12 @@ angular:
 docker: angular
 	docker buildx build --platform linux/amd64 -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 
-# Shorthand: build everything
-all: docker
+# Push the image to Docker Hub
+publish: docker
+	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+# Shorthand: build and push
+all: publish
 
 # Remove Angular build artifacts and copied static files
 clean:
