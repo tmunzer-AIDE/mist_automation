@@ -71,6 +71,14 @@ function renderMarkdown(md: string): string {
           }
         }
 
+        @if (pendingUserMessage(); as pending) {
+          <div class="message user-message">
+            <div class="bubble-wrapper">
+              <div class="bubble user-bubble">{{ pending }}</div>
+            </div>
+          </div>
+        }
+
         @if (streaming()) {
           <div class="message ai-message">
             <div class="avatar assistant-avatar"><app-ai-icon [size]="16"></app-ai-icon></div>
@@ -424,6 +432,9 @@ export class ImpactChatPanelComponent {
   /** Rendered HTML of the streaming content. */
   readonly streamingHtml = computed(() => renderMarkdown(this.streamingContent()));
 
+  /** User message shown optimistically before the server responds. */
+  readonly pendingUserMessage = signal<string | null>(null);
+
   /** Error message from the last send attempt. */
   readonly error = signal<string | null>(null);
 
@@ -446,11 +457,17 @@ export class ImpactChatPanelComponent {
       next: (configs) => this.mcpConfigs.set(configs),
     });
 
-    // Auto-scroll when new messages arrive from the parent
+    // When parent delivers new messages, clear optimistic state and scroll
     effect(() => {
       const count = this.messages().length;
       if (count !== untracked(() => this.previousMessageCount)) {
         this.previousMessageCount = count;
+        // Clear streaming and pending — real messages have arrived
+        if (untracked(() => this.streaming())) {
+          this.streaming.set(false);
+          this.streamingContent.set('');
+        }
+        this.pendingUserMessage.set(null);
         this.scrollToBottom();
       }
     });
@@ -497,6 +514,7 @@ export class ImpactChatPanelComponent {
     this.userInput = '';
     this.error.set(null);
     this.sending.set(true);
+    this.pendingUserMessage.set(text);
 
     const streamId = crypto.randomUUID();
     this.subscribeToStream(`llm:${streamId}`);
@@ -510,8 +528,8 @@ export class ImpactChatPanelComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.streaming.set(false);
-          this.streamingContent.set('');
+          // Don't clear streaming/pending here — the effect clears them
+          // when the parent delivers the new messages (no flash).
           this.sending.set(false);
           this.messageSent.emit();
         },
@@ -521,6 +539,7 @@ export class ImpactChatPanelComponent {
           this.streaming.set(false);
           this.streamingContent.set('');
           this.sending.set(false);
+          this.pendingUserMessage.set(null);
           this.error.set(extractErrorMessage(err));
         },
       });

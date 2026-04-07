@@ -603,6 +603,16 @@ async def session_chat(
     thread.add_message("user", request.message)
     await thread.save()
 
+    # Append user message to session timeline immediately (visible before LLM responds)
+    from app.modules.impact_analysis.models import TimelineEntry, TimelineEntryType
+
+    user_entry = TimelineEntry(
+        type=TimelineEntryType.CHAT_MESSAGE,
+        title=request.message[:200],
+        data={"role": "user", "content": request.message},
+    )
+    await session_manager.append_timeline_entry(session, user_entry)
+
     # Run agent with MCP tools (local + optional external)
     llm = await create_llm_service()
     elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
@@ -630,20 +640,12 @@ async def session_chat(
     thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
     await thread.save()
 
-    # Append chat messages to session timeline so other WS clients see them
-    from app.modules.impact_analysis.models import TimelineEntry, TimelineEntryType
-
-    user_entry = TimelineEntry(
-        type=TimelineEntryType.CHAT_MESSAGE,
-        title=request.message[:200],
-        data={"role": "user", "content": request.message},
-    )
+    # Append AI reply to session timeline
     ai_entry = TimelineEntry(
         type=TimelineEntryType.CHAT_MESSAGE,
         title=reply[:200],
         data={"role": "assistant", "content": reply},
     )
-    await session_manager.append_timeline_entry(session, user_entry)
     await session_manager.append_timeline_entry(session, ai_entry)
 
     logger.info(
@@ -837,6 +839,19 @@ async def group_chat(
     thread.add_message("user", request.message)
     await thread.save()
 
+    # Append user message to group timeline immediately (visible before LLM responds)
+    from app.core.websocket import ws_manager
+    from app.modules.impact_analysis.models import TimelineEntry, TimelineEntryType
+
+    user_entry = TimelineEntry(
+        type=TimelineEntryType.CHAT_MESSAGE,
+        title=request.message[:200],
+        data={"role": "user", "content": request.message},
+    )
+    user_dict = user_entry.model_dump(mode="json")
+    await ChangeGroup.find_one(ChangeGroup.id == group.id).update({"$push": {"timeline": user_dict}})
+    await ws_manager.broadcast(f"impact:group:{group.id}", {"type": "timeline_entry", "data": user_dict})
+
     # Run agent with MCP tools (local + optional external)
     llm = await create_llm_service()
     elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
@@ -863,6 +878,16 @@ async def group_chat(
     # Store assistant reply
     thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
     await thread.save()
+
+    # Append AI reply to group timeline
+    ai_entry = TimelineEntry(
+        type=TimelineEntryType.CHAT_MESSAGE,
+        title=reply[:200],
+        data={"role": "assistant", "content": reply},
+    )
+    ai_dict = ai_entry.model_dump(mode="json")
+    await ChangeGroup.find_one(ChangeGroup.id == group.id).update({"$push": {"timeline": ai_dict}})
+    await ws_manager.broadcast(f"impact:group:{group.id}", {"type": "timeline_entry", "data": ai_dict})
 
     logger.info(
         "group_chat_message",
