@@ -219,7 +219,7 @@ All require `require_admin`.
 
 ---
 
-## Phase 2: Conversation Compaction (Deferred)
+## Phase 2: Conversation Compaction (Implemented)
 
 Key decisions documented for future implementation:
 
