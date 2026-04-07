@@ -87,6 +87,10 @@ See `backend/app/modules/automation/CLAUDE.md` for full details.
 
 See `backend/app/modules/llm/CLAUDE.md` and `backend/app/modules/mcp_server/CLAUDE.md` for full details.
 
+### LLM Memory System
+
+Per-user persistent memory (key-value store) exposed via MCP tools (`memory_store`, `memory_recall`, `memory_forget`) in interactive chat contexts. Weekly "dreaming" consolidation job merges/deduplicates entries via LLM. User management in profile page, admin consolidation logs in LLM settings. See `backend/app/modules/llm/CLAUDE.md` and `backend/app/modules/mcp_server/CLAUDE.md` for details.
+
 ### Impact Analysis Module
 
 See `backend/app/modules/impact_analysis/CLAUDE.md` for full details.
