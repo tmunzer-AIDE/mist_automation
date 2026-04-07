@@ -72,6 +72,9 @@ class WorkflowScheduler:
         # Load impact analysis session cleanup schedule
         await self._load_impact_cleanup_schedule()
 
+        # Load memory consolidation schedule
+        await self._load_memory_consolidation_schedule()
+
         # Start the scheduler
         self.scheduler.start()
         self._initialized = True
@@ -286,6 +289,72 @@ class WorkflowScheduler:
             await cleanup_old_sessions()
         except Exception as e:
             logger.error("impact_session_cleanup_failed", error=str(e))
+
+    async def _load_memory_consolidation_schedule(self):
+        """Register the weekly memory consolidation job."""
+        try:
+            from app.models.system import SystemConfig
+
+            config = await SystemConfig.get_config()
+            if not getattr(config, "memory_consolidation_enabled", True):
+                logger.info("memory_consolidation_disabled")
+                return
+            cron_expr = getattr(config, "memory_consolidation_cron", "0 4 * * 0")
+            await self.schedule_memory_consolidation(cron_expr)
+        except Exception as e:
+            logger.error("failed_to_load_memory_consolidation_schedule", error=str(e))
+
+    async def schedule_memory_consolidation(self, cron_expression: str):
+        """Add or update the memory consolidation job."""
+        if not self.scheduler:
+            return
+
+        job_id = "memory_consolidation_weekly"
+
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+
+        parts = cron_expression.split()
+        if len(parts) != 5:
+            logger.error("invalid_memory_consolidation_cron", cron=cron_expression)
+            return
+
+        trigger = CronTrigger(
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2],
+            month=parts[3],
+            day_of_week=parts[4],
+            timezone="UTC",
+        )
+
+        self.scheduler.add_job(
+            self._run_memory_consolidation,
+            trigger=trigger,
+            id=job_id,
+            name="Weekly Memory Consolidation",
+            replace_existing=True,
+        )
+        logger.info("memory_consolidation_scheduled", cron=cron_expression)
+
+    async def unschedule_memory_consolidation(self):
+        """Remove the memory consolidation job."""
+        if not self.scheduler:
+            return
+
+        job_id = "memory_consolidation_weekly"
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+            logger.info("memory_consolidation_unscheduled")
+
+    async def _run_memory_consolidation(self):
+        """Execute the memory consolidation."""
+        from app.modules.llm.workers.consolidation_worker import run_consolidation
+
+        try:
+            await run_consolidation()
+        except Exception as e:
+            logger.error("memory_consolidation_failed", error=str(e))
 
     async def schedule_backup(self, cron_expression: str):
         """Add or update the scheduled backup job."""
