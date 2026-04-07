@@ -24,7 +24,7 @@ mistapi>=0.61.1  # Official Mist API package (device_utils + websockets + arun)
 httpx>=0.28.0  # HTTP client
 
 # HTTP Client
-aiohttp>=3.10.10
+aiohttp>=3.13.4
 aiosmtplib>=3.0.0
 
 # Background Tasks & Scheduling
