@@ -95,6 +95,9 @@ class ConversationThread(Document):
     messages: list[ConversationMessage] = Field(default_factory=list, description="Conversation messages")
     mcp_config_ids: list[str] = Field(default_factory=list, description="External MCP server IDs for this thread")
     is_archived: bool = Field(default=False, description="Whether the thread is archived")
+    compaction_summary: str | None = Field(default=None, description="LLM-generated summary of compacted older messages")
+    compacted_up_to_index: int | None = Field(default=None, description="Messages before this index are covered by compaction_summary")
+    compaction_in_progress: bool = Field(default=False, description="Lock to prevent concurrent compactions")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -112,14 +115,50 @@ class ConversationThread(Document):
         self.updated_at = datetime.now(timezone.utc)
 
     def get_messages_for_llm(self, max_turns: int = 20) -> list[dict[str, str]]:
-        """Return messages for the LLM, capped with a sliding window.
+        """Return messages for the LLM, using compaction summary when available.
 
-        Keeps all system messages + the last ``max_turns`` non-system messages
-        to avoid exceeding the model's context window on long threads.
+        With compaction: [system prompt] + [first user message] + [compaction summary] + [recent messages]
+        Without compaction: keeps all system messages + last ``max_turns`` non-system messages (sliding window).
         """
+        if self.compaction_summary and self.compacted_up_to_index is not None:
+            return self._get_compacted_messages(max_turns)
+
+        # Fallback: original sliding window behavior
         system = [{"role": m.role, "content": m.content} for m in self.messages if m.role == "system"]
         non_system = [{"role": m.role, "content": m.content} for m in self.messages if m.role != "system"]
         return system + non_system[-max_turns:]
+
+    def _get_compacted_messages(self, max_turns: int = 20) -> list[dict[str, str]]:
+        """Build message list using compaction summary."""
+        result: list[dict[str, str]] = []
+
+        # 1. System prompt (first system message)
+        for m in self.messages:
+            if m.role == "system":
+                result.append({"role": m.role, "content": m.content})
+                break
+
+        # 2. First user message
+        for m in self.messages:
+            if m.role == "user":
+                result.append({"role": m.role, "content": m.content})
+                break
+
+        # 3. Compaction summary as a system message
+        result.append({
+            "role": "system",
+            "content": f"Summary of prior conversation:\n{self.compaction_summary}",
+        })
+
+        # 4. Recent messages (after compacted_up_to_index), capped by max_turns
+        recent = [
+            {"role": m.role, "content": m.content}
+            for m in self.messages[self.compacted_up_to_index:]
+            if m.role != "system"
+        ]
+        result.extend(recent[-max_turns:])
+
+        return result
 
     def to_llm_messages(self, max_turns: int = 20):
         """Return messages as LLMMessage objects ready for the LLM service."""
