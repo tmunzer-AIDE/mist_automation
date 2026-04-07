@@ -14,6 +14,7 @@ import { LlmConfig } from '../../../../core/models/llm.model';
 import { SettingsService } from '../settings.service';
 import { LlmConfigDialogComponent } from './llm-config-dialog.component';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
+import { MemoryAdminComponent } from './memory-admin.component';
 import { SkillsAdminComponent } from './skills-admin.component';
 
 @Component({
@@ -30,6 +31,7 @@ import { SkillsAdminComponent } from './skills-admin.component';
     MatSnackBarModule,
     MatTableModule,
     MatTooltipModule,
+    MemoryAdminComponent,
     SkillsAdminComponent,
   ],
   template: `
@@ -125,6 +127,8 @@ import { SkillsAdminComponent } from './skills-admin.component';
           </mat-card>
 
           <app-skills-admin></app-skills-admin>
+
+          <app-memory-admin></app-memory-admin>
         }
       </div>
     }
