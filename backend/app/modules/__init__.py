@@ -130,6 +130,8 @@ MODULES: list[AppModule] = [
             ("app.modules.llm.models", "ConversationThread"),
             ("app.modules.llm.models", "Skill"),
             ("app.modules.llm.models", "SkillGitRepo"),
+            ("app.modules.llm.models", "MemoryEntry"),
+            ("app.modules.llm.models", "MemoryConsolidationLog"),
         ],
         tags=["LLM"],
     ),

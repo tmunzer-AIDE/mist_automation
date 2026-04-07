@@ -167,3 +167,44 @@ class Skill(TimestampMixin, Document):
             "source",
             "enabled",
         ]
+
+
+class MemoryEntry(TimestampMixin, Document):
+    """A single user memory entry, stored and managed by the LLM."""
+
+    user_id: PydanticObjectId = Field(..., description="User who owns this memory")
+    key: str = Field(..., max_length=100, description="Short unique label")
+    value: str = Field(..., max_length=500, description="Memory content")
+    category: str = Field(default="general", description="Category: general, network, preference, troubleshooting")
+    source_thread_id: str | None = Field(default=None, description="Conversation that created this entry")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "memory_entries"
+        indexes = [
+            IndexModel([("user_id", 1), ("key", 1)], unique=True),
+            IndexModel([("user_id", 1), ("category", 1)]),
+            IndexModel([("updated_at", 1)], expireAfterSeconds=180 * 24 * 3600),
+            IndexModel([("user_id", 1), ("key", "text"), ("value", "text")]),
+        ]
+
+
+class MemoryConsolidationLog(Document):
+    """Audit log for periodic memory consolidation (dreaming)."""
+
+    user_id: PydanticObjectId = Field(..., description="User whose memories were consolidated")
+    run_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    entries_before: int = Field(..., description="Entry count before consolidation")
+    entries_after: int = Field(..., description="Entry count after consolidation")
+    actions: list[dict] = Field(default_factory=list, description="Consolidation actions with reasoning")
+    llm_model: str = Field(default="", description="LLM model used for consolidation")
+    llm_tokens_used: int = Field(default=0, description="Tokens consumed")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "memory_consolidation_logs"
+        indexes = [
+            IndexModel([("user_id", 1), ("run_at", -1)]),
+            IndexModel([("created_at", 1)], expireAfterSeconds=365 * 24 * 3600),
+        ]
