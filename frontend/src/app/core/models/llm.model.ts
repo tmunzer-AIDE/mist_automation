@@ -149,3 +149,48 @@ export interface ParsedContent {
   prose: string;
   artifacts: Artifact[];
 }
+
+export interface MemoryEntry {
+  id: string;
+  key: string;
+  value: string;
+  category: string;
+  source_thread_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryListResponse {
+  entries: MemoryEntry[];
+  total: number;
+}
+
+export interface ConsolidationLogSummary {
+  id: string;
+  user_id: string;
+  user_email: string;
+  run_at: string;
+  entries_before: number;
+  entries_after: number;
+  actions_summary: { merged: number; deleted: number; kept: number };
+  llm_model: string;
+  llm_tokens_used: number;
+}
+
+export interface ConsolidationLogDetail {
+  id: string;
+  user_id: string;
+  run_at: string;
+  entries_before: number;
+  entries_after: number;
+  actions: Record<string, unknown>[];
+  llm_model: string;
+  llm_tokens_used: number;
+}
+
+export interface MemoryStats {
+  total_entries: number;
+  users_with_memories: number;
+  avg_entries_per_user: number;
+  top_users: { user_id: string; count: number }[];
+}

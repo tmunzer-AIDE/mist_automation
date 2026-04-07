@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
 import { ApiService } from './api.service';
 import {
+  ConsolidationLogDetail,
+  ConsolidationLogSummary,
   ConversationThreadDetail,
   ConversationThreadListResponse,
   GlobalChatResponse,
@@ -14,6 +16,9 @@ import {
   McpConfigAvailable,
   McpTestResult,
   McpTool,
+  MemoryEntry,
+  MemoryListResponse,
+  MemoryStats,
   Skill,
   SkillGitRepo,
 } from '../models/llm.model';
@@ -353,5 +358,45 @@ export class LlmService {
 
   deleteSkillRepo(id: string): Observable<void> {
     return this.api.delete<void>(`/llm/skills/repos/${id}`);
+  }
+
+  // ── User Memory ────────────────────────────────────────────────────────────
+
+  listMemories(category?: string, search?: string): Observable<MemoryListResponse> {
+    const params: Record<string, string> = {};
+    if (category) params['category'] = category;
+    if (search) params['search'] = search;
+    return this.api.get<MemoryListResponse>('/llm/memories', params);
+  }
+
+  updateMemory(id: string, data: { value?: string; category?: string }): Observable<MemoryEntry> {
+    return this.api.put<MemoryEntry>(`/llm/memories/${id}`, data);
+  }
+
+  deleteMemory(id: string): Observable<{ status: string; key: string }> {
+    return this.api.delete<{ status: string; key: string }>(`/llm/memories/${id}`);
+  }
+
+  deleteAllMemories(): Observable<{ status: string; count: number }> {
+    return this.api.delete<{ status: string; count: number }>('/llm/memories?confirm=true');
+  }
+
+  // ── Admin Memory ───────────────────────────────────────────────────────────
+
+  listConsolidationLogs(
+    page = 1,
+    pageSize = 25,
+  ): Observable<{ logs: ConsolidationLogSummary[]; total: number }> {
+    return this.api.get<{ logs: ConsolidationLogSummary[]; total: number }>(
+      `/admin/memory/consolidation-logs?page=${page}&page_size=${pageSize}`,
+    );
+  }
+
+  getConsolidationLog(id: string): Observable<ConsolidationLogDetail> {
+    return this.api.get<ConsolidationLogDetail>(`/admin/memory/consolidation-logs/${id}`);
+  }
+
+  getMemoryStats(): Observable<MemoryStats> {
+    return this.api.get<MemoryStats>('/admin/memory/stats');
   }
 }
