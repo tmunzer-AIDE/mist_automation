@@ -718,3 +718,131 @@ MIST_WEBHOOK_SOURCE_IPS: dict[str, list[str]] = {
 async def get_mist_webhook_ips(_current_user: User = Depends(require_admin)):
     """Return known Mist webhook source IPs by cloud region."""
     return MIST_WEBHOOK_SOURCE_IPS
+
+
+# ── Memory consolidation logs ────────────────────────────────────────────────
+
+
+@router.get("/admin/memory/consolidation-logs", tags=["Admin"])
+async def list_consolidation_logs(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    user_id: str | None = Query(default=None, description="Filter by user ID"),
+    _current_user: User = Depends(require_admin),
+):
+    """
+    Paginated list of memory consolidation runs (admin only).
+    """
+    from app.modules.llm.models import MemoryConsolidationLog
+
+    query: dict = {}
+    if user_id:
+        from beanie import PydanticObjectId as _ObjId
+
+        try:
+            query["user_id"] = _ObjId(user_id)
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user_id") from e
+
+    total = await MemoryConsolidationLog.find(query).count()
+    skip = (page - 1) * page_size
+    logs = await MemoryConsolidationLog.find(query).sort("-run_at").skip(skip).limit(page_size).to_list()
+
+    # Resolve user emails in one batch
+    user_ids = list({log.user_id for log in logs})
+    users = await User.find({"_id": {"$in": user_ids}}).to_list()
+    email_map = {str(u.id): u.email for u in users}
+
+    return {
+        "logs": [
+            {
+                "id": str(log.id),
+                "user_id": str(log.user_id),
+                "user_email": email_map.get(str(log.user_id)),
+                "run_at": log.run_at.isoformat(),
+                "entries_before": log.entries_before,
+                "entries_after": log.entries_after,
+                "actions_summary": {
+                    action["action"]: sum(
+                        1 for a in log.actions if a.get("action") == action["action"]
+                    )
+                    for action in log.actions
+                }
+                if log.actions
+                else {},
+                "llm_model": log.llm_model,
+                "llm_tokens_used": log.llm_tokens_used,
+            }
+            for log in logs
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.get("/admin/memory/consolidation-logs/{log_id}", tags=["Admin"])
+async def get_consolidation_log(
+    log_id: str,
+    _current_user: User = Depends(require_admin),
+):
+    """
+    Single consolidation log with full action details (admin only).
+    """
+    from beanie import PydanticObjectId
+
+    from app.modules.llm.models import MemoryConsolidationLog
+
+    try:
+        oid = PydanticObjectId(log_id)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid log_id") from e
+
+    log = await MemoryConsolidationLog.get(oid)
+    if not log:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consolidation log not found")
+
+    user = await User.get(log.user_id)
+
+    return {
+        "id": str(log.id),
+        "user_id": str(log.user_id),
+        "user_email": user.email if user else None,
+        "run_at": log.run_at.isoformat(),
+        "entries_before": log.entries_before,
+        "entries_after": log.entries_after,
+        "actions": log.actions,
+        "llm_model": log.llm_model,
+        "llm_tokens_used": log.llm_tokens_used,
+    }
+
+
+@router.get("/admin/memory/stats", tags=["Admin"])
+async def get_memory_stats(_current_user: User = Depends(require_admin)):
+    """
+    Aggregate memory stats across all users (admin only).
+    """
+    from app.modules.llm.models import MemoryEntry
+
+    pipeline = [
+        {
+            "$group": {
+                "_id": "$user_id",
+                "count": {"$sum": 1},
+            }
+        },
+        {"$sort": {"count": -1}},
+    ]
+    rows = await MemoryEntry.aggregate(pipeline).to_list()
+
+    total_entries = sum(r["count"] for r in rows)
+    users_with_memories = len(rows)
+    avg_entries_per_user = round(total_entries / users_with_memories, 2) if users_with_memories else 0.0
+    top_users = [{"user_id": str(r["_id"]), "count": r["count"]} for r in rows[:10]]
+
+    return {
+        "total_entries": total_entries,
+        "users_with_memories": users_with_memories,
+        "avg_entries_per_user": avg_entries_per_user,
+        "top_users": top_users,
+    }
