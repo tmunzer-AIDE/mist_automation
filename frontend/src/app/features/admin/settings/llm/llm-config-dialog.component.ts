@@ -1,6 +1,7 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { DecimalPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
@@ -32,6 +33,7 @@ const PROVIDER_OPTIONS = [
   selector: 'app-llm-config-dialog',
   standalone: true,
   imports: [
+    DecimalPipe,
     ReactiveFormsModule,
     MatAutocompleteModule,
     MatButtonModule,
@@ -108,7 +110,7 @@ const PROVIDER_OPTIONS = [
             @if (availableModels().length > 0) {
               <input matInput [matAutocomplete]="modelAuto"
                      (input)="modelSearch.set($any($event.target).value)">
-              <mat-autocomplete #modelAuto (optionSelected)="form.get('model')!.setValue($event.option.value)">
+              <mat-autocomplete #modelAuto (optionSelected)="onModelSelected($event.option.value)">
                 @for (m of filteredModels(); track m.id) {
                   <mat-option [value]="m.id">{{ m.name }}</mat-option>
                 }
@@ -140,6 +142,26 @@ const PROVIDER_OPTIONS = [
           <mat-label>Max Tokens per Request</mat-label>
           <input matInput type="number" formControlName="max_tokens_per_request" />
         </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Context Window (tokens)</mat-label>
+          <input matInput type="number" formControlName="context_window_tokens"
+                 placeholder="Auto-detected" min="1000" max="2000000">
+          <mat-hint>
+            @if (data.config?.context_window_effective; as effective) {
+              Effective: {{ effective | number }} tokens
+            } @else {
+              Leave empty for auto-detection (default: 20,000)
+            }
+          </mat-hint>
+        </mat-form-field>
+
+        @if (data.config && !data.config.context_window_tokens && data.config.context_window_effective === 20000) {
+          <div class="context-window-warning">
+            Context window could not be auto-detected for this model. Using default (20,000 tokens).
+            Set a manual value if your model supports a larger context.
+          </div>
+        }
 
         <mat-divider></mat-divider>
 
@@ -184,6 +206,7 @@ const PROVIDER_OPTIONS = [
       .slider-row label { font-size: 14px; color: var(--app-neutral); margin-bottom: 4px; }
       .toggle-row { display: flex; gap: 24px; margin: 8px 0; }
       mat-divider { margin: 8px 0; }
+      .context-window-warning { color: var(--app-warn); font-size: 12px; margin: -8px 0 8px 0; padding: 4px 8px; }
     `,
   ],
 })
@@ -229,6 +252,7 @@ export class LlmConfigDialogComponent implements OnInit {
     base_url: [''],
     temperature: [0.3, [Validators.min(0), Validators.max(2)]],
     max_tokens_per_request: [4096, [Validators.min(100), Validators.max(32000)]],
+    context_window_tokens: [this.data.config?.context_window_tokens || null],
     is_default: [false],
     enabled: [true],
     canvas_prompt_tier: [null as string | null],
@@ -244,10 +268,19 @@ export class LlmConfigDialogComponent implements OnInit {
         base_url: c.base_url || '',
         temperature: c.temperature,
         max_tokens_per_request: c.max_tokens_per_request,
+        context_window_tokens: c.context_window_tokens ?? null,
         is_default: c.is_default,
         enabled: c.enabled,
         canvas_prompt_tier: c.canvas_prompt_tier ?? null,
       });
+    }
+  }
+
+  onModelSelected(modelId: string): void {
+    this.form.get('model')!.setValue(modelId);
+    const selected = this.availableModels().find((m) => m.id === modelId);
+    if (selected?.context_window && !this.form.value.context_window_tokens) {
+      this.form.patchValue({ context_window_tokens: selected.context_window });
     }
   }
 
@@ -310,6 +343,8 @@ export class LlmConfigDialogComponent implements OnInit {
       if (k === 'api_key' && !v) continue;
       // canvas_prompt_tier: null means "auto-detect" and must be sent explicitly
       if (k === 'canvas_prompt_tier') { payload[k] = v; continue; }
+      // context_window_tokens: null means "auto-detect" and must be sent explicitly (to clear override)
+      if (k === 'context_window_tokens') { payload[k] = v ? Number(v) : null; continue; }
       if (v !== null && v !== undefined) payload[k] = v;
     }
 

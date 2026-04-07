@@ -20,6 +20,8 @@ export interface LlmConfig {
   base_url: string | null;
   temperature: number;
   max_tokens_per_request: number;
+  context_window_tokens: number | null;
+  context_window_effective: number;
   is_default: boolean;
   enabled: boolean;
   canvas_prompt_tier: string | null;
@@ -37,6 +39,7 @@ export interface LlmConfigAvailable {
 export interface LlmModel {
   id: string;
   name: string;
+  context_window?: number | null;
 }
 
 export interface GlobalChatResponse {
