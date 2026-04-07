@@ -419,3 +419,32 @@ class SkillGitRepoResponse(BaseModel):
     local_path: str
     last_refreshed_at: datetime | None
     error: str | None
+
+
+# ── User Memory ─────────────────────────────────────────────────────────────
+
+
+class MemoryUpdateRequest(BaseModel):
+    """Update a memory entry's value and/or category."""
+
+    value: str | None = Field(None, max_length=500, description="Updated memory value")
+    category: str | None = Field(None, description="Updated category: general, network, preference, troubleshooting")
+
+
+class MemoryEntryResponse(BaseModel):
+    """A single user memory entry."""
+
+    id: str
+    key: str
+    value: str
+    category: str
+    source_thread_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryListResponse(BaseModel):
+    """Paginated list of memory entries."""
+
+    entries: list[MemoryEntryResponse]
+    total: int

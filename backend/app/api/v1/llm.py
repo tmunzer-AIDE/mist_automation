@@ -46,6 +46,9 @@ from app.modules.llm.schemas import (
     MCPConfigUpdate,
     MCPConnectionTestRequest,
     McpToolCallRequest,
+    MemoryEntryResponse,
+    MemoryListResponse,
+    MemoryUpdateRequest,
     SkillGitRepoResponse,
     SkillResponse,
     SummarizeDiffRequest,
@@ -2118,3 +2121,133 @@ async def delete_skill_repo(
     remove_dir(Path(repo.local_path))
 
     await repo.delete()
+
+
+# ── User Memory ─────────────────────────────────────────────────────────────
+
+
+def _memory_to_response(entry) -> MemoryEntryResponse:
+    """Build a MemoryEntryResponse from a MemoryEntry document."""
+    return MemoryEntryResponse(
+        id=str(entry.id),
+        key=entry.key,
+        value=entry.value,
+        category=entry.category,
+        source_thread_id=entry.source_thread_id,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+    )
+
+
+@router.get("/llm/memories", response_model=MemoryListResponse, tags=["LLM"])
+async def list_memories(
+    category: str | None = Query(None, description="Filter by category"),
+    search: str | None = Query(None, description="Text search across key and value"),
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """List the current user's memory entries."""
+    from app.modules.llm.models import MemoryEntry
+
+    filters: dict = {"user_id": current_user.id}
+
+    if category:
+        filters["category"] = category
+
+    if search:
+        filters["$text"] = {"$search": search}
+
+    entries = await MemoryEntry.find(filters).sort(-MemoryEntry.updated_at).to_list()
+
+    return MemoryListResponse(
+        entries=[_memory_to_response(e) for e in entries],
+        total=len(entries),
+    )
+
+
+@router.get("/llm/memories/{memory_id}", response_model=MemoryEntryResponse, tags=["LLM"])
+async def get_memory(
+    memory_id: str,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Get a single memory entry. Verifies ownership."""
+    from app.modules.llm.models import MemoryEntry
+
+    entry = await MemoryEntry.get(_parse_oid(memory_id, "memory ID"))
+    if not entry or entry.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+
+    return _memory_to_response(entry)
+
+
+@router.put("/llm/memories/{memory_id}", response_model=MemoryEntryResponse, tags=["LLM"])
+async def update_memory(
+    memory_id: str,
+    request: MemoryUpdateRequest,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Update a memory entry's value and/or category."""
+    from datetime import datetime, timezone
+
+    from app.modules.llm.models import MemoryEntry
+    from app.modules.mcp_server.tools.memory import VALID_CATEGORIES
+
+    entry = await MemoryEntry.get(_parse_oid(memory_id, "memory ID"))
+    if not entry or entry.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+
+    if request.value is not None:
+        if len(request.value) > 500:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Value must be 500 characters or fewer",
+            )
+        entry.value = request.value
+
+    if request.category is not None:
+        if request.category not in VALID_CATEGORIES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid category. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}",
+            )
+        entry.category = request.category
+
+    entry.updated_at = datetime.now(timezone.utc)
+    await entry.save()
+
+    return _memory_to_response(entry)
+
+
+@router.delete("/llm/memories/{memory_id}", tags=["LLM"])
+async def delete_memory(
+    memory_id: str,
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Delete a single memory entry. Verifies ownership."""
+    from app.modules.llm.models import MemoryEntry
+
+    entry = await MemoryEntry.get(_parse_oid(memory_id, "memory ID"))
+    if not entry or entry.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+
+    key = entry.key
+    await entry.delete()
+    return {"status": "deleted", "key": key}
+
+
+@router.delete("/llm/memories", tags=["LLM"])
+async def delete_all_memories(
+    confirm: bool = Query(False, description="Must be true to confirm deletion"),
+    current_user: User = Depends(get_current_user_from_token),
+):
+    """Delete all memory entries for the current user. Requires confirm=true."""
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Must pass confirm=true to delete all memories",
+        )
+
+    from app.modules.llm.models import MemoryEntry
+
+    result = await MemoryEntry.find(MemoryEntry.user_id == current_user.id).delete()
+    count = result.deleted_count if result else 0
+    return {"status": "deleted", "count": count}
