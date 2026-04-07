@@ -50,7 +50,8 @@ export interface MessageSection {
 
 export type TimelineItem =
   | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string; sections?: MessageSection[]; timestamp?: string }
-  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; arguments?: Record<string, unknown>; resultPreview?: string; expanded: boolean; timestamp?: string };
+  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; arguments?: Record<string, unknown>; resultPreview?: string; expanded: boolean; timestamp?: string }
+  | { kind: 'compaction'; timestamp?: string };
 
 function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
@@ -114,7 +115,7 @@ function renderMarkdown(md: string): string {
               }
             </div>
           }
-          } @else {
+          } @else if (item.kind === 'tool') {
             <div class="tool-call-inline" [class.running]="item.status === 'running'" [class.success]="item.status === 'success'" [class.error]="item.status === 'error'">
               @if (item.timestamp) {
                 <div class="message-timestamp tool-timestamp">{{ formatTimestamp(item.timestamp) }}</div>
@@ -149,6 +150,11 @@ function renderMarkdown(md: string): string {
                   </div>
                 }
               }
+            </div>
+          } @else if (item.kind === 'compaction') {
+            <div class="compaction-notice">
+              <mat-icon>compress</mat-icon>
+              <span>Earlier messages have been summarized to save context</span>
             </div>
           }
         }
@@ -678,6 +684,24 @@ function renderMarkdown(md: string): string {
         }
       }
 
+      .compaction-notice {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        margin: 4px 0;
+        border-radius: 12px;
+        background: var(--app-surface-variant, rgba(0, 0, 0, 0.04));
+        color: var(--app-text-secondary, rgba(0, 0, 0, 0.6));
+        font-size: 12px;
+
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+        }
+      }
+
       .chat-input-container {
         padding: 12px 16px;
         border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
@@ -830,6 +854,7 @@ export class AiChatPanelComponent {
   /** Unified chronological timeline of messages and tool calls */
   timeline = signal<TimelineItem[]>([]);
   loading = signal(false);
+  readonly isCompacted = signal(false);
   error = signal<string | null>(null);
   pendingElicitation = signal<{
     requestId: string;
@@ -1237,10 +1262,22 @@ export class AiChatPanelComponent {
     this.error.set(null);
     this.pendingElicitation.set(null);
     this.waitingAfterTool.set(false);
+    this.isCompacted.set(false);
     this.followUpText.reset();
     this._artifactBuffer = null;
     this._artifactMeta = null;
     this._streamProcessedTo = 0;
+  }
+
+  /** Show compaction notice at the top of the timeline (called once when thread is loaded). */
+  setCompacted(compacted: boolean): void {
+    if (compacted && !this.isCompacted()) {
+      this.isCompacted.set(true);
+      this.timeline.update((items) => {
+        const notice: TimelineItem = { kind: 'compaction' };
+        return [notice, ...items];
+      });
+    }
   }
 
   toggleToolExpand(index: number): void {

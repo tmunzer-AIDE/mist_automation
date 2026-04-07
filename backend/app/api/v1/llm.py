@@ -1837,6 +1837,7 @@ async def get_thread(
             for m in thread.messages
         ],
         mcp_config_ids=thread.mcp_config_ids,
+        compacted=bool(thread.compaction_summary),
         created_at=thread.created_at,
         updated_at=thread.updated_at,
     )

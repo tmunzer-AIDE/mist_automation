@@ -601,6 +601,9 @@ export class AiChatsComponent implements OnInit {
         // Restore MCP selection from thread
         this.selectedMcpIds.set(detail.mcp_config_ids || []);
         this.loadingThread.set(false);
+        if (detail.compacted) {
+          this.chatPanel()?.setCompacted(true);
+        }
       },
       error: () => {
         this.loadingThread.set(false);

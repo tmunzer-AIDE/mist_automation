@@ -107,6 +107,7 @@ export interface ConversationThreadDetail {
   context_ref: string | null;
   messages: ChatMessage[];
   mcp_config_ids: string[];
+  compacted: boolean;
   created_at: string;
   updated_at: string;
 }

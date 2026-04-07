@@ -371,6 +371,7 @@ class ConversationThreadDetail(BaseModel):
     context_ref: str | None = None
     messages: list[ConversationMessageResponse] = Field(default_factory=list)
     mcp_config_ids: list[str] = Field(default_factory=list)
+    compacted: bool = False
     created_at: datetime
     updated_at: datetime
 
