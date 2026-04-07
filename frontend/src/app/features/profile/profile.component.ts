@@ -41,6 +41,14 @@ import { TopbarService } from '../../core/services/topbar.service';
         [active]="pk.isActive"
         >Passkeys</a
       >
+      <a
+        mat-tab-link
+        routerLink="memory"
+        routerLinkActive
+        #mem="routerLinkActive"
+        [active]="mem.isActive"
+        >Memory</a
+      >
     </nav>
     <mat-tab-nav-panel #tabPanel>
       <router-outlet></router-outlet>
