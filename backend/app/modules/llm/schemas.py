@@ -19,6 +19,7 @@ class LLMConfigCreate(BaseModel):
     base_url: str | None = None
     temperature: float = Field(0.3, ge=0.0, le=2.0)
     max_tokens_per_request: int = Field(4096, ge=100, le=32000)
+    context_window_tokens: int | None = Field(None, ge=1000, le=2_000_000)
     is_default: bool = False
     enabled: bool = True
     canvas_prompt_tier: str | None = Field(None, pattern=r"^(full|explicit|none)$")
@@ -34,6 +35,7 @@ class LLMConfigUpdate(BaseModel):
     base_url: str | None = None
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens_per_request: int | None = Field(None, ge=100, le=32000)
+    context_window_tokens: int | None = Field(None, ge=1000, le=2_000_000)
     is_default: bool | None = None
     enabled: bool | None = None
     canvas_prompt_tier: str | None = Field(None, pattern=r"^(full|explicit|none)$")
@@ -50,6 +52,8 @@ class LLMConfigResponse(BaseModel):
     base_url: str | None
     temperature: float
     max_tokens_per_request: int
+    context_window_tokens: int | None
+    context_window_effective: int
     is_default: bool
     enabled: bool
     canvas_prompt_tier: str | None

@@ -230,6 +230,15 @@ async def test_llm_connection(_current_user: User = Depends(get_current_user_fro
 
 def _config_to_response(cfg) -> LLMConfigResponse:
     from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
+    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, get_context_window
+
+    # Effective context window: manual override > auto-detected > default
+    effective_ctx = cfg.context_window_tokens
+    if effective_ctx is None and cfg.model:
+        detected = get_context_window(cfg.model)
+        effective_ctx = detected if detected else DEFAULT_CONTEXT_WINDOW
+    if effective_ctx is None:
+        effective_ctx = DEFAULT_CONTEXT_WINDOW
 
     return LLMConfigResponse(
         id=str(cfg.id),
@@ -240,6 +249,8 @@ def _config_to_response(cfg) -> LLMConfigResponse:
         base_url=cfg.base_url,
         temperature=cfg.temperature,
         max_tokens_per_request=cfg.max_tokens_per_request,
+        context_window_tokens=cfg.context_window_tokens,
+        context_window_effective=effective_ctx,
         is_default=cfg.is_default,
         enabled=cfg.enabled,
         canvas_prompt_tier=cfg.canvas_prompt_tier,
@@ -277,6 +288,7 @@ async def create_llm_config(
         base_url=request.base_url,
         temperature=request.temperature,
         max_tokens_per_request=request.max_tokens_per_request,
+        context_window_tokens=request.context_window_tokens,
         is_default=request.is_default,
         enabled=request.enabled,
         canvas_prompt_tier=request.canvas_prompt_tier,
@@ -476,8 +488,10 @@ async def list_config_models(
 
 
 async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> list[dict]:
-    """Fetch available models from a provider. Returns [{id, name}]."""
+    """Fetch available models from a provider. Returns [{id, name, context_window}]."""
     import httpx
+
+    from app.modules.llm.services.token_service import get_context_window
 
     try:
         if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp", "vllm"):
@@ -494,7 +508,7 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
             client = AsyncOpenAI(api_key=api_key, base_url=url)
             try:
                 result = await client.models.list()
-                return [{"id": m.id, "name": m.id} for m in result.data]
+                return [{"id": m.id, "name": m.id, "context_window": get_context_window(m.id)} for m in result.data]
             finally:
                 await client.close()
 
@@ -506,7 +520,14 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                return [{"id": m["id"], "name": m.get("display_name", m["id"])} for m in data.get("data", [])]
+                return [
+                    {
+                        "id": m["id"],
+                        "name": m.get("display_name", m["id"]),
+                        "context_window": get_context_window(f"anthropic/{m['id']}"),
+                    }
+                    for m in data.get("data", [])
+                ]
 
         else:
             # Bedrock, Vertex — hardcoded

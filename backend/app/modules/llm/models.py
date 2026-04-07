@@ -24,6 +24,9 @@ class LLMConfig(TimestampMixin, Document):
     max_tokens_per_request: int = Field(default=4096, description="Max output tokens")
     is_default: bool = Field(default=False, description="Default config for UI features")
     enabled: bool = Field(default=True, description="Whether this config is active")
+    context_window_tokens: int | None = Field(
+        default=None, description="Context window size in tokens (auto-detected or manual override)"
+    )
     canvas_prompt_tier: str | None = Field(
         default=None,
         description="Canvas prompt tier override: full, explicit, none, or None for auto-detect",

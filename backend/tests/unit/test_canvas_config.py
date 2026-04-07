@@ -34,6 +34,8 @@ def test_config_response_includes_canvas_fields():
         base_url=None,
         temperature=0.3,
         max_tokens_per_request=4096,
+        context_window_tokens=None,
+        context_window_effective=20000,
         is_default=True,
         enabled=True,
         canvas_prompt_tier=None,
@@ -41,3 +43,5 @@ def test_config_response_includes_canvas_fields():
     )
     assert resp.canvas_prompt_tier is None
     assert resp.canvas_prompt_tier_effective == "full"
+    assert resp.context_window_tokens is None
+    assert resp.context_window_effective == 20000
