@@ -91,3 +91,84 @@ async def test_compaction_defaults(test_db, test_user):
     assert found.compaction_summary is None
     assert found.compacted_up_to_index is None
     assert found.compaction_in_progress is False
+
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.modules.llm.models import ConversationThread, LLMUsageLog
+
+
+async def test_compact_thread_basic(test_db, test_user):
+    """compact_thread summarizes old messages and stores the summary."""
+    from app.modules.llm.workers.compaction_worker import compact_thread
+
+    thread = ConversationThread(user_id=test_user.id, feature="global_chat")
+    thread.add_message("system", "You are an assistant.")
+    thread.add_message("user", "What is an AP?")
+    thread.add_message("assistant", "An AP is an access point.")
+    thread.add_message("user", "How many APs do I have?")
+    thread.add_message("assistant", "You have 42 APs.")
+    thread.add_message("user", "Tell me more about AP45")
+    await thread.insert()
+
+    mock_response = MagicMock()
+    mock_response.content = "User asked about access points and has 42 APs."
+    mock_response.model = "gpt-4o"
+    mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+    mock_response.duration_ms = 500
+
+    mock_llm = AsyncMock()
+    mock_llm.complete = AsyncMock(return_value=mock_response)
+    mock_llm.provider = "openai"
+    mock_llm.model = "gpt-4o"
+
+    await compact_thread(str(thread.id), mock_llm, context_window=10)
+
+    updated = await ConversationThread.get(thread.id)
+    assert updated.compaction_summary is not None
+    assert "access points" in updated.compaction_summary
+    assert updated.compacted_up_to_index is not None
+    assert updated.compacted_up_to_index > 0
+    assert updated.compaction_in_progress is False
+
+
+async def test_compact_thread_skips_if_in_progress(test_db, test_user):
+    """compact_thread skips if compaction_in_progress is already True."""
+    from app.modules.llm.workers.compaction_worker import compact_thread
+
+    thread = ConversationThread(user_id=test_user.id, feature="global_chat")
+    thread.compaction_in_progress = True
+    thread.add_message("system", "sys")
+    thread.add_message("user", "q")
+    thread.add_message("assistant", "a")
+    await thread.insert()
+
+    mock_llm = AsyncMock()
+    await compact_thread(str(thread.id), mock_llm, context_window=20000)
+
+    # LLM should not have been called
+    mock_llm.complete.assert_not_called()
+
+
+async def test_compact_thread_fallback_on_llm_error(test_db, test_user):
+    """compact_thread clears in_progress flag even if LLM call fails."""
+    from app.modules.llm.workers.compaction_worker import compact_thread
+
+    thread = ConversationThread(user_id=test_user.id, feature="global_chat")
+    thread.add_message("system", "You are an assistant.")
+    for i in range(10):
+        thread.add_message("user", f"Question {i}")
+        thread.add_message("assistant", f"Answer {i}")
+    await thread.insert()
+
+    mock_llm = AsyncMock()
+    mock_llm.complete = AsyncMock(side_effect=Exception("LLM unavailable"))
+    mock_llm.provider = "openai"
+    mock_llm.model = "gpt-4o"
+
+    # Should not raise — errors are caught
+    await compact_thread(str(thread.id), mock_llm, context_window=10)
+
+    updated = await ConversationThread.get(thread.id)
+    assert updated.compaction_in_progress is False
+    assert updated.compaction_summary is None  # No summary on failure
