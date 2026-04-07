@@ -12,6 +12,7 @@ from app.modules.llm.services.prompt_builders import (
     build_debug_prompt,
     build_field_assist_prompt,
     build_global_chat_system_prompt,
+    build_memory_instruction,
     build_webhook_summary_prompt,
 )
 
@@ -191,7 +192,9 @@ class TestBuildGlobalChatSystemPrompt:
         assert "automation" in result
 
     def test_all_known_roles(self):
-        result = build_global_chat_system_prompt(["admin", "automation", "backup", "post_deployment", "impact_analysis"])
+        result = build_global_chat_system_prompt(
+            ["admin", "automation", "backup", "post_deployment", "impact_analysis"]
+        )
         for role in ["admin", "automation", "backup", "post_deployment", "impact_analysis"]:
             assert role in result
 
@@ -374,3 +377,17 @@ class TestBuildWebhookSummaryPrompt:
         result = build_webhook_summary_prompt("events", 1)
         system_content = result[0]["content"]
         assert "network" in system_content.lower() or "Mist" in system_content
+
+
+# ── build_memory_instruction ────────────────────────────────────────────────
+
+
+class TestBuildMemoryInstruction:
+    """Tests for build_memory_instruction."""
+
+    def test_returns_instruction_text(self):
+        result = build_memory_instruction()
+        assert "memory_store" in result
+        assert "memory_recall" in result
+        assert "memory_forget" in result
+        assert "OVERWRITTEN" in result

@@ -51,8 +51,7 @@ def build_backup_summary_prompt(
         "You are a network configuration analyst for Juniper Mist. "
         "Summarize configuration changes concisely and explain their operational impact. "
         "Focus on what changed, why it might matter, and any risks. "
-        "Use short paragraphs. Do not repeat the raw diff data — interpret it."
-        + context_lines
+        "Use short paragraphs. Do not repeat the raw diff data — interpret it." + context_lines
     )
 
     # Truncate diff for very large changes to avoid token overflow
@@ -111,12 +110,26 @@ def build_workflow_editor_context() -> str:
         "- {{ nodes.NodeName.body.field }} — Mist API response body\n"
         "- {{ nodes.NodeName.status_code }} — HTTP status code\n"
         "- {{ results.var_name }} — variables set by set_variable nodes\n"
-        "\nNode names with spaces use underscores: \"Check Status\" → {{ nodes.Check_Status.body }}.\n"
+        '\nNode names with spaces use underscores: "Check Status" → {{ nodes.Check_Status.body }}.\n'
         "ALWAYS use {{ }} Jinja2 syntax. NEVER use payload.* — it does not exist."
     )
 
 
 _KNOWN_ROLES = {"admin", "automation", "backup", "post_deployment", "impact_analysis"}
+
+
+def build_memory_instruction() -> str:
+    """Return the system prompt instruction for memory tools."""
+    return (
+        "You have access to a personal memory store for this user. Use memory_store to save "
+        "important facts, preferences, or context that would be useful in future conversations. "
+        "Use memory_recall to search for relevant memories before answering questions where "
+        "prior context might help. Use memory_forget to remove outdated information. "
+        "Only store information that has long-term value — not transient conversation details. "
+        "When storing memories, choose descriptive unique keys. Storing with an existing key "
+        "replaces the previous value — check with memory_recall first if you want to update "
+        "rather than overwrite. Storing with an existing key will result in the previous value being OVERWRITTEN."
+    )
 
 
 def build_global_chat_system_prompt(user_roles: list[str]) -> str:
@@ -376,10 +389,7 @@ def build_webhook_summary_prompt(
         "Be concise — use bullet points grouped by topic."
     )
 
-    user = (
-        f"Summarize these Mist webhook events from the last {time_range_hours} hours:\n\n"
-        f"{events_summary}"
-    )
+    user = f"Summarize these Mist webhook events from the last {time_range_hours} hours:\n\n" f"{events_summary}"
 
     return [
         {"role": "system", "content": system},

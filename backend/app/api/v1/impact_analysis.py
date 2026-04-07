@@ -575,6 +575,14 @@ async def session_chat(
         f"Session context:\n{_sanitize_for_prompt(_build_session_context(session), max_len=4000)}"
     )
 
+    # Memory instruction (when memory is enabled)
+    from app.models.system import SystemConfig as SysConf
+    from app.modules.llm.services.prompt_builders import build_memory_instruction
+
+    sys_conf = await SysConf.get_config()
+    if getattr(sys_conf, "memory_enabled", True):
+        system_prompt += "\n\n" + build_memory_instruction()
+
     # Get or create conversation thread for this session
     thread = await _load_or_create_thread(session.conversation_thread_id, current_user.id, "impact_analysis_chat", [])
 
@@ -600,7 +608,7 @@ async def session_chat(
     elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
     external = await _load_external_mcp_clients(request.mcp_config_ids or [])
     async with _mcp_user_session(
-        current_user.id, elicitation_channel=elicit_channel, extra_clients=external
+        current_user.id, elicitation_channel=elicit_channel, extra_clients=external, thread_id=str(thread.id)
     ) as mcp_clients:
         # Include conversation history
         history = thread.get_messages_for_llm(max_turns=10)
@@ -801,6 +809,14 @@ async def group_chat(
         f"Change group context:\n{_sanitize_for_prompt(_build_group_context(group), max_len=4000)}"
     )
 
+    # Memory instruction (when memory is enabled)
+    from app.models.system import SystemConfig as SysConf
+    from app.modules.llm.services.prompt_builders import build_memory_instruction
+
+    sys_conf = await SysConf.get_config()
+    if getattr(sys_conf, "memory_enabled", True):
+        system_prompt += "\n\n" + build_memory_instruction()
+
     # Get or create conversation thread for this group
     thread = await _load_or_create_thread(group.conversation_thread_id, current_user.id, "impact_group_chat", [])
 
@@ -826,7 +842,7 @@ async def group_chat(
     elicit_channel = f"llm:{request.stream_id}" if request.stream_id else None
     external = await _load_external_mcp_clients(request.mcp_config_ids or [])
     async with _mcp_user_session(
-        current_user.id, elicitation_channel=elicit_channel, extra_clients=external
+        current_user.id, elicitation_channel=elicit_channel, extra_clients=external, thread_id=str(thread.id)
     ) as mcp_clients:
         # Include conversation history
         history = thread.get_messages_for_llm(max_turns=10)

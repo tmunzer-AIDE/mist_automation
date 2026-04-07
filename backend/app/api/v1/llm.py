@@ -113,7 +113,9 @@ async def _get_canvas_instructions() -> str:
     from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
     from app.modules.llm.services.prompt_builders import build_canvas_instructions
 
-    default_config = await LLMConfigModel.find_one(LLMConfigModel.is_default == True, LLMConfigModel.enabled == True)  # noqa: E712
+    default_config = await LLMConfigModel.find_one(
+        LLMConfigModel.is_default == True, LLMConfigModel.enabled == True
+    )  # noqa: E712
     if not default_config:
         return ""
     return build_canvas_instructions(get_effective_canvas_tier(default_config))
@@ -138,6 +140,7 @@ async def _mcp_user_session(
     user_id: str,
     elicitation_channel: str | None = None,
     extra_clients: list | None = None,
+    thread_id: str | None = None,
 ):
     """Context manager that sets MCP user context, connects clients, and cleans up.
 
@@ -146,10 +149,11 @@ async def _mcp_user_session(
     """
     from app.modules.llm.services.mcp_client import create_local_mcp_client
     from app.modules.mcp_server.helpers import elicitation_channel_var
-    from app.modules.mcp_server.server import mcp_user_id_var
+    from app.modules.mcp_server.server import mcp_thread_id_var, mcp_user_id_var
 
     token_user = mcp_user_id_var.set(str(user_id))
     token_elicit = elicitation_channel_var.set(elicitation_channel)
+    token_thread = mcp_thread_id_var.set(thread_id)
 
     local = create_local_mcp_client()
     all_clients = [local] + (extra_clients or [])
@@ -163,6 +167,7 @@ async def _mcp_user_session(
             await c.disconnect()
         mcp_user_id_var.reset(token_user)
         elicitation_channel_var.reset(token_elicit)
+        mcp_thread_id_var.reset(token_thread)
         raise
     try:
         yield all_clients
@@ -171,6 +176,7 @@ async def _mcp_user_session(
             await c.disconnect()
         mcp_user_id_var.reset(token_user)
         elicitation_channel_var.reset(token_elicit)
+        mcp_thread_id_var.reset(token_thread)
 
 
 # ── Status & Test ─────────────────────────────────────────────────────────────
@@ -730,7 +736,9 @@ async def call_mcp_config_tool(
         result = await client.call_tool(tool_name, request.arguments)
         return {"result": result}
     except BaseException as e:
-        logger.warning("mcp_tool_call_failed", config_id=config_id, tool=tool_name, error=str(e), error_type=type(e).__name__)
+        logger.warning(
+            "mcp_tool_call_failed", config_id=config_id, tool=tool_name, error=str(e), error_type=type(e).__name__
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Tool call failed. Check server connection and arguments.",
@@ -946,12 +954,22 @@ async def _continue_with_mcp(thread, message: str, current_user: User, stream_id
     if len(prior_turns) > 1:
         context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[:-1][-8:])
 
+    # Inject memory instruction for interactive threads
+    if thread.feature in ("global_chat", "impact_analysis_chat"):
+        from app.models.system import SystemConfig as SysConf
+        from app.modules.llm.services.prompt_builders import build_memory_instruction
+
+        sys_conf = await SysConf.get_config()
+        if getattr(sys_conf, "memory_enabled", True) and "memory_store" not in system_prompt:
+            system_prompt += "\n\n" + build_memory_instruction()
+
     external = await _load_external_mcp_clients(thread.mcp_config_ids)
     elicit_channel = f"llm:{stream_id}" if stream_id else None
     async with _mcp_user_session(
         current_user.id,
         elicitation_channel=elicit_channel,
         extra_clients=external,
+        thread_id=str(thread.id),
     ) as all_clients:
         agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=5)
         return await agent.run(
@@ -1537,6 +1555,7 @@ async def global_chat(
     from app.modules.llm.services.prompt_builders import (
         _sanitize_for_prompt,
         build_global_chat_system_prompt,
+        build_memory_instruction,
         build_workflow_editor_context,
     )
     from app.modules.llm.services.skills_service import build_skills_catalog
@@ -1549,6 +1568,14 @@ async def global_chat(
         system_prompt += "\n\n" + canvas_instr
     if skills_catalog:
         system_prompt += "\n\n" + skills_catalog
+
+    # Memory instruction (when memory is enabled)
+    from app.models.system import SystemConfig as SysConf
+
+    sys_conf = await SysConf.get_config()
+    if getattr(sys_conf, "memory_enabled", True):
+        system_prompt += "\n\n" + build_memory_instruction()
+
     safe_ctx = _sanitize_for_prompt(request.page_context, max_len=2000) if request.page_context else None
     if safe_ctx:
         system_prompt += f"\n\nCurrent UI context:\n{safe_ctx}"
@@ -1568,6 +1595,8 @@ async def global_chat(
                 base_prompt += "\n\n" + canvas_instr
             if skills_catalog:
                 base_prompt += "\n\n" + skills_catalog
+            if getattr(sys_conf, "memory_enabled", True):
+                base_prompt += "\n\n" + build_memory_instruction()
             thread.messages[0].content = base_prompt + f"\n\nCurrent UI context:\n{safe_ctx}"
 
     # Add user message
@@ -1587,6 +1616,7 @@ async def global_chat(
         current_user.id,
         elicitation_channel=elicit_channel,
         extra_clients=external,
+        thread_id=str(thread.id),
     ) as all_clients:
         agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=10)
 
