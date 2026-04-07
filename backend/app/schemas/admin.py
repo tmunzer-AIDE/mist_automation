@@ -76,6 +76,13 @@ class SystemSettingsUpdate(BaseModel):
     # LLM (global toggle only — individual configs managed via /llm/configs)
     llm_enabled: bool | None = None
 
+    # LLM Memory
+    memory_enabled: bool | None = None
+    memory_max_entries_per_user: int | None = Field(None, ge=10, le=500)
+    memory_entry_max_length: int | None = Field(None, ge=100, le=2000)
+    memory_consolidation_enabled: bool | None = None
+    memory_consolidation_cron: str | None = None
+
     # Impact Analysis
     impact_analysis_enabled: bool | None = None
     impact_analysis_default_duration_minutes: int | None = Field(None, ge=1, le=360)
@@ -97,7 +104,7 @@ class SystemSettingsUpdate(BaseModel):
                 raise ValueError(f"Invalid IP/CIDR '{entry}': {e}") from e
         return v
 
-    @field_validator("backup_full_schedule_cron")
+    @field_validator("backup_full_schedule_cron", "memory_consolidation_cron")
     @classmethod
     def validate_cron(cls, v: str | None) -> str | None:
         if v is None:

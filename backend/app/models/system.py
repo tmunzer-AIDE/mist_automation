@@ -82,6 +82,13 @@ class SystemConfig(TimestampMixin, Document):
     # LLM Configuration (individual configs stored in LLMConfig collection)
     llm_enabled: bool = Field(default=False, description="Global LLM kill switch")
 
+    # LLM Memory Configuration
+    memory_enabled: bool = Field(default=True, description="Enable LLM memory tools in chat")
+    memory_max_entries_per_user: int = Field(default=100, ge=10, le=500, description="Max memory entries per user")
+    memory_entry_max_length: int = Field(default=500, ge=100, le=2000, description="Max chars per memory value")
+    memory_consolidation_enabled: bool = Field(default=True, description="Enable periodic memory consolidation")
+    memory_consolidation_cron: str = Field(default="0 4 * * 0", description="Consolidation schedule (cron)")
+
     # Impact Analysis Configuration
     impact_analysis_enabled: bool = Field(default=True, description="Enable config change impact analysis")
     impact_analysis_default_duration_minutes: int = Field(

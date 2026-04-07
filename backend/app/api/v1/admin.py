@@ -85,6 +85,12 @@ async def get_system_settings(_current_user: User = Depends(require_admin)):
         "maintenance_mode": config.maintenance_mode,
         # LLM (global toggle — configs managed via /llm/configs)
         "llm_enabled": config.llm_enabled,
+        # LLM Memory
+        "memory_enabled": config.memory_enabled,
+        "memory_max_entries_per_user": config.memory_max_entries_per_user,
+        "memory_entry_max_length": config.memory_entry_max_length,
+        "memory_consolidation_enabled": config.memory_consolidation_enabled,
+        "memory_consolidation_cron": config.memory_consolidation_cron,
         "updated_at": config.updated_at,
     }
 
