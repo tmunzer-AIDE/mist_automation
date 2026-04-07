@@ -691,8 +691,8 @@ function renderMarkdown(md: string): string {
         padding: 6px 12px;
         margin: 4px 0;
         border-radius: 12px;
-        background: var(--app-surface-variant, rgba(0, 0, 0, 0.04));
-        color: var(--app-text-secondary, rgba(0, 0, 0, 0.6));
+        background: var(--app-neutral-bg);
+        color: var(--app-neutral-text);
         font-size: 12px;
 
         mat-icon {

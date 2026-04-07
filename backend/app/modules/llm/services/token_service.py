@@ -50,3 +50,18 @@ def get_context_window(model: str) -> int | None:
         return info.get("max_input_tokens") or info.get("max_tokens") or None
     except Exception:
         return None
+
+
+def resolve_context_window(context_window_tokens: int | None, model: str | None) -> int:
+    """Resolve the effective context window size.
+
+    Priority: manual override > litellm auto-detect > DEFAULT_CONTEXT_WINDOW.
+    Used by both _config_to_response and get_effective_context_window.
+    """
+    if context_window_tokens:
+        return context_window_tokens
+    if model:
+        detected = get_context_window(model)
+        if detected:
+            return detected
+    return DEFAULT_CONTEXT_WINDOW

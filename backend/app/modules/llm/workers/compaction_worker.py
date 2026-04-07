@@ -9,6 +9,7 @@ import structlog
 from beanie import PydanticObjectId
 
 from app.modules.llm.services.llm_service import LLMMessage
+from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, count_message_tokens
 
 logger = structlog.get_logger(__name__)
@@ -69,15 +70,15 @@ async def compact_thread(
 
     if token_count <= threshold:
         logger.debug("compaction_not_needed", thread_id=thread_id, tokens=token_count, threshold=threshold)
-        thread.compaction_in_progress = False
-        await thread.save()
+        await _release_lock(oid)
         return
 
+    summary = None
+    cutoff_index = None
     try:
         # Determine cutoff: keep the last _MIN_RECENT_MESSAGES non-system messages
         non_system_indices = [i for i, m in enumerate(thread.messages) if m.role != "system"]
         if len(non_system_indices) <= _MIN_RECENT_MESSAGES:
-            # Not enough messages to compact
             logger.info("compaction_too_few_messages", thread_id=thread_id)
             return
 
@@ -88,7 +89,7 @@ async def compact_thread(
         messages_to_summarize = []
         for m in thread.messages[1:cutoff_index]:  # Skip system prompt (index 0)
             if m.role != "system":
-                messages_to_summarize.append(f"{m.role}: {m.content}")
+                messages_to_summarize.append(f"{m.role}: {_sanitize_for_prompt(m.content, max_len=500)}")
 
         if not messages_to_summarize:
             return
@@ -106,10 +107,6 @@ async def compact_thread(
         if not summary:
             logger.warning("compaction_empty_summary", thread_id=thread_id)
             return
-
-        # Store compaction result
-        thread.compaction_summary = summary
-        thread.compacted_up_to_index = cutoff_index
 
         # Log LLM usage
         await LLMUsageLog(
@@ -135,6 +132,20 @@ async def compact_thread(
         logger.error("compaction_failed", thread_id=thread_id, error=str(e))
 
     finally:
-        # Always release lock
-        thread.compaction_in_progress = False
-        await thread.save()
+        # Atomic update — never overwrites messages added by concurrent chat requests
+        update: dict = {"compaction_in_progress": False}
+        if summary and cutoff_index is not None:
+            update["compaction_summary"] = summary
+            update["compacted_up_to_index"] = cutoff_index
+        await ConversationThread.get_motor_collection().update_one(
+            {"_id": oid}, {"$set": update}
+        )
+
+
+async def _release_lock(oid: PydanticObjectId) -> None:
+    """Release the compaction lock via atomic $set."""
+    from app.modules.llm.models import ConversationThread
+
+    await ConversationThread.get_motor_collection().update_one(
+        {"_id": oid}, {"$set": {"compaction_in_progress": False}}
+    )

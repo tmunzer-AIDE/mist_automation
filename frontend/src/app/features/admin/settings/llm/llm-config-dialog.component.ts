@@ -206,7 +206,7 @@ const PROVIDER_OPTIONS = [
       .slider-row label { font-size: 14px; color: var(--app-neutral); margin-bottom: 4px; }
       .toggle-row { display: flex; gap: 24px; margin: 8px 0; }
       mat-divider { margin: 8px 0; }
-      .context-window-warning { color: var(--app-warn); font-size: 12px; margin: -8px 0 8px 0; padding: 4px 8px; }
+      .context-window-warning { color: var(--app-warning-text); font-size: 12px; margin: -8px 0 8px 0; padding: 4px 8px; }
     `,
   ],
 })

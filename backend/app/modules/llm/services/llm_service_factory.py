@@ -155,7 +155,7 @@ async def get_effective_context_window(config_id: str | None = None) -> int:
     Priority: manual override > litellm auto-detect > DEFAULT_CONTEXT_WINDOW.
     """
     from app.modules.llm.models import LLMConfig
-    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, get_context_window
+    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, resolve_context_window
 
     if config_id:
         try:
@@ -167,10 +167,4 @@ async def get_effective_context_window(config_id: str | None = None) -> int:
 
     if not cfg:
         return DEFAULT_CONTEXT_WINDOW
-    if cfg.context_window_tokens:
-        return cfg.context_window_tokens
-    if cfg.model:
-        detected = get_context_window(cfg.model)
-        if detected:
-            return detected
-    return DEFAULT_CONTEXT_WINDOW
+    return resolve_context_window(cfg.context_window_tokens, cfg.model)

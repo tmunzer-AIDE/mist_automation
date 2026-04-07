@@ -230,15 +230,7 @@ async def test_llm_connection(_current_user: User = Depends(get_current_user_fro
 
 def _config_to_response(cfg) -> LLMConfigResponse:
     from app.modules.llm.services.llm_service_factory import get_effective_canvas_tier
-    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, get_context_window
-
-    # Effective context window: manual override > auto-detected > default
-    effective_ctx = cfg.context_window_tokens
-    if effective_ctx is None and cfg.model:
-        detected = get_context_window(cfg.model)
-        effective_ctx = detected if detected else DEFAULT_CONTEXT_WINDOW
-    if effective_ctx is None:
-        effective_ctx = DEFAULT_CONTEXT_WINDOW
+    from app.modules.llm.services.token_service import resolve_context_window
 
     return LLMConfigResponse(
         id=str(cfg.id),
@@ -250,7 +242,7 @@ def _config_to_response(cfg) -> LLMConfigResponse:
         temperature=cfg.temperature,
         max_tokens_per_request=cfg.max_tokens_per_request,
         context_window_tokens=cfg.context_window_tokens,
-        context_window_effective=effective_ctx,
+        context_window_effective=resolve_context_window(cfg.context_window_tokens, cfg.model),
         is_default=cfg.is_default,
         enabled=cfg.enabled,
         canvas_prompt_tier=cfg.canvas_prompt_tier,
@@ -1062,15 +1054,16 @@ async def _maybe_trigger_compaction(thread) -> None:
 
     from app.modules.llm.models import LLMConfig
     from app.modules.llm.services.llm_service_factory import _default_model
-    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, count_message_tokens, get_context_window
+    from app.modules.llm.services.token_service import count_message_tokens, resolve_context_window
     from app.modules.llm.workers.compaction_worker import _COMPACTION_THRESHOLD
 
-    # Single DB query for default config — get both model name and context window
+    # NOTE: Uses the default LLM config for token counting. ConversationThread does not
+    # currently store which config was used, so we assume the default context window.
     default_cfg = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
     if not default_cfg:
         return
     model = default_cfg.model or _default_model(default_cfg.provider)
-    ctx_window = default_cfg.context_window_tokens or (get_context_window(model) if model else None) or DEFAULT_CONTEXT_WINDOW
+    ctx_window = resolve_context_window(default_cfg.context_window_tokens, model)
 
     all_msgs = [{"role": m.role, "content": m.content} for m in thread.messages]
     token_count = count_message_tokens(all_msgs, model)
