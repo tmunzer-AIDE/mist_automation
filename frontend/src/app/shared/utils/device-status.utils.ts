@@ -7,7 +7,23 @@ export interface DeviceCheck {
   check: string;
   status: string;
   value: string;
+  expected?: string;
   ports?: WanPort[];
+}
+
+export interface PortOptics {
+  port_id: string;
+  media_type: string;
+  xcvr_model: string;
+  xcvr_serial: string;
+  xcvr_part_number: string;
+  rx_power: number | null;
+  tx_power: number | null;
+  rx_power_status: string;
+  tx_power_status: string;
+  temperature: number | null;
+  bias_current: number | null;
+  voltage: number | null;
 }
 
 export interface WanPort {
@@ -46,11 +62,13 @@ export interface DeviceResult {
 export interface SwitchResult extends DeviceResult {
   virtual_chassis: { status: string; members: VcMember[]; message?: string } | null;
   cable_tests: CableTestResult[];
+  port_optics?: PortOptics[];
 }
 
 export interface GatewayResult extends DeviceResult {
   wan_ports: { interface: string; name: string; up: boolean; wan_type: string }[];
   lan_ports: { interface: string; network: string }[];
+  port_optics?: PortOptics[];
 }
 
 /**

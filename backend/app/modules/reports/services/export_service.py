@@ -3,6 +3,7 @@ Export service for generating PDF and CSV reports from validation results.
 """
 
 import csv
+import datetime as _dt
 import io
 import zipfile
 from xml.sax.saxutils import escape as _html_escape
@@ -80,11 +81,42 @@ def _p_status(status: str) -> Paragraph:
     return Paragraph(str(status), _CELL_BLUE)
 
 
+def _checks_map(device: dict) -> dict:
+    """Convert a device's checks list to a lookup dict keyed by check ID."""
+    return {c["check"]: c for c in device.get("checks", [])}
+
+
+def _p_firmware(check: dict) -> Paragraph:
+    """Render firmware cell with status coloring and recommended version."""
+    fw = check.get("value", "")
+    status = check.get("status", "info")
+    expected = check.get("expected", "")
+    style = {"pass": _CELL_GREEN, "fail": _CELL_RED, "warn": _CELL_ORANGE}.get(status, _CELL_STYLE)
+    text = _esc(fw)
+    if expected and status != "pass":
+        text = f"{_esc(fw)}<br/><font size='5'>rec: {_esc(expected)}</font>"
+    return Paragraph(text, style)
+
+
 def _p_updown(is_up: bool) -> Paragraph:
     """Colored UP/DOWN cell."""
     if is_up:
         return Paragraph("<b>UP</b>", _CELL_GREEN)
     return Paragraph("<b>DOWN</b>", _CELL_RED)
+
+
+def _p_optics_power(value, status: str) -> Paragraph:
+    """Colored optics power value cell."""
+    if value is None:
+        return _p("—")
+    text = f"<b>{value}</b>"
+    if status == "pass":
+        return Paragraph(text, _CELL_GREEN)
+    if status == "warn":
+        return Paragraph(text, _CELL_ORANGE)
+    if status == "fail":
+        return Paragraph(text, _CELL_RED)
+    return _p(str(value))
 
 
 def _lldp_str(item: dict) -> str:
@@ -105,6 +137,54 @@ def _make_table(data: list[list], col_widths: list[float] | None = None) -> Tabl
     table = Table(data, colWidths=col_widths, repeatRows=1)
     table.setStyle(TableStyle(_BASE_TABLE_STYLE))
     return table
+
+
+def _add_optics_table(elements: list, port_optics: list[dict], w: float) -> None:
+    """Add an optics table + legend to the PDF elements list."""
+    cw_op = [w * 0.12, w * 0.2, w * 0.14, w * 0.14, w * 0.14, w * 0.14, w * 0.12]
+    data = [[_ph("Port"), _ph("Model"), _ph("Serial"), _ph("Part Number"), _ph("Rx (dBm)"), _ph("Tx (dBm)"), _ph("Temp (\u00b0C)")]]
+    for o in port_optics:
+        data.append([
+            _p(o.get("port_id", "")),
+            _p(o.get("xcvr_model", "")),
+            _p(o.get("xcvr_serial", "")),
+            _p(o.get("xcvr_part_number", "")),
+            _p_optics_power(o.get("rx_power"), o.get("rx_power_status", "")),
+            _p_optics_power(o.get("tx_power"), o.get("tx_power_status", "")),
+            _p(str(o["temperature"]) if o.get("temperature") is not None else ""),
+        ])
+    elements.append(_make_table(data, cw_op))
+    elements.append(Paragraph(
+        "Rx threshold: warn &lt; -20 dBm, fail &lt; -25 dBm &bull; "
+        "Tx threshold: warn &lt; -8 dBm, fail &lt; -12 dBm",
+        ParagraphStyle("OpticsLegend", fontSize=6, leading=8, textColor=colors.grey),
+    ))
+
+
+def _optics_csv_rows(device_list: list[dict], name_key: str, mac_key: str) -> list[dict]:
+    """Build optics CSV rows for a list of devices (switches or gateways)."""
+    rows: list[dict] = []
+    for dev in device_list:
+        for o in dev.get("port_optics", []):
+            rows.append({
+                name_key: dev.get("name", ""), mac_key: dev.get("mac", ""),
+                "port_id": o.get("port_id", ""), "media_type": o.get("media_type", ""),
+                "xcvr_model": o.get("xcvr_model", ""), "xcvr_serial": o.get("xcvr_serial", ""),
+                "xcvr_part_number": o.get("xcvr_part_number", ""),
+                "rx_power": o.get("rx_power", ""), "rx_power_status": o.get("rx_power_status", ""),
+                "tx_power": o.get("tx_power", ""), "tx_power_status": o.get("tx_power_status", ""),
+                "temperature": o.get("temperature", ""),
+                "bias_current": o.get("bias_current", ""),
+                "voltage": o.get("voltage", ""),
+            })
+    return rows
+
+
+_OPTICS_CSV_FIELDS = [
+    "port_id", "media_type", "xcvr_model", "xcvr_serial", "xcvr_part_number",
+    "rx_power", "rx_power_status", "tx_power", "tx_power_status",
+    "temperature", "bias_current", "voltage",
+]
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────
@@ -257,7 +337,7 @@ def generate_pdf(report) -> bytes:
             ]
         ]
         for ap in aps:
-            checks = {c["check"]: c for c in ap.get("checks", [])}
+            checks = _checks_map(ap)
             lldp = ap.get("lldp_neighbor", {})
             lldp_text = (
                 f"{lldp.get('system_name', '')} ({lldp.get('port_desc', '')})" if lldp.get("system_name") else ""
@@ -273,7 +353,7 @@ def generate_pdf(report) -> bytes:
                         if conn_status != "pass"
                         else _p(checks.get("connection_status", {}).get("value", ""))
                     ),
-                    _p(checks.get("firmware_version", {}).get("value", "")),
+                    _p_firmware(checks.get("firmware_version", {})),
                     _p(checks.get("eth0_port_speed", {}).get("value", "")),
                     Paragraph("<b>Yes</b>", _CELL_ORANGE) if power_status == "warn" else _p("No"),
                     _p(checks.get("config_status", {}).get("value", "")),
@@ -291,7 +371,7 @@ def generate_pdf(report) -> bytes:
         cw = [w * 0.18, w * 0.15, w * 0.1, w * 0.15, w * 0.22, w * 0.2]
         data = [[_ph("Name"), _ph("Model"), _ph("Conn."), _ph("Firmware"), _ph("Config"), _ph("Cable Tests")]]
         for sw in switches:
-            checks = {c["check"]: c for c in sw.get("checks", [])}
+            checks = _checks_map(sw)
             ct_count = len(sw.get("cable_tests", []))
             ct_failed = sum(1 for ct in sw.get("cable_tests", []) if ct.get("status") == "fail")
             ct_text = f"{ct_count} ports" + (f" ({ct_failed} failed)" if ct_failed else "") if ct_count else ""
@@ -301,7 +381,7 @@ def generate_pdf(report) -> bytes:
                     _p(_esc(sw.get("name", ""))),
                     _p(sw.get("model", "")),
                     _p(checks.get("connection_status", {}).get("value", "")),
-                    _p(checks.get("firmware_version", {}).get("value", "")),
+                    _p_firmware(checks.get("firmware_version", {})),
                     _p(checks.get("config_status", {}).get("value", "")),
                     Paragraph(ct_text, ct_style),
                 ]
@@ -311,11 +391,12 @@ def generate_pdf(report) -> bytes:
 
         # Per-switch details
         for sw in switches:
-            checks = {c["check"]: c for c in sw.get("checks", [])}
+            checks = _checks_map(sw)
+            fw_check = checks.get("firmware_version", {})
             elements.append(
                 Paragraph(
                     f"<b>{_esc(sw.get('name', '(unnamed)'))}</b> — {_esc(sw.get('model', ''))} — "
-                    f"Firmware: {_esc(checks.get('firmware_version', {}).get('value', ''))}",
+                    f"Firmware: {_esc(fw_check.get('value', ''))}",
                     normal_style,
                 )
             )
@@ -355,6 +436,10 @@ def generate_pdf(report) -> bytes:
                         ]
                     )
                 elements.append(_make_table(data, cw_ct))
+
+            if sw.get("port_optics"):
+                _add_optics_table(elements, sw["port_optics"], w)
+
             elements.append(Spacer(1, 0.3 * cm))
 
     # ── Gateways ──
@@ -365,7 +450,7 @@ def generate_pdf(report) -> bytes:
         cw = [w * 0.15, w * 0.1, w * 0.1, w * 0.15, w * 0.22, w * 0.14, w * 0.14]
         data = [[_ph("Name"), _ph("Model"), _ph("Conn."), _ph("Firmware"), _ph("Config"), _ph("WAN"), _ph("LAN")]]
         for gw in gateways:
-            checks = {c["check"]: c for c in gw.get("checks", [])}
+            checks = _checks_map(gw)
             wan_s = checks.get("wan_port_status", {}).get("status", "info")
             lan_s = checks.get("lan_port_status", {}).get("status", "info")
             data.append(
@@ -373,7 +458,7 @@ def generate_pdf(report) -> bytes:
                     _p(_esc(gw.get("name", ""))),
                     _p(gw.get("model", "")),
                     _p(checks.get("connection_status", {}).get("value", "")),
-                    _p(checks.get("firmware_version", {}).get("value", "")),
+                    _p_firmware(checks.get("firmware_version", {})),
                     _p(checks.get("config_status", {}).get("value", "")),
                     Paragraph(
                         f"<b>{checks.get('wan_port_status', {}).get('value', '')}</b>",
@@ -476,7 +561,47 @@ def generate_pdf(report) -> bytes:
                     )
                 elements.append(_make_table(data, cw_net))
 
+            if gw.get("port_optics"):
+                _add_optics_table(elements, gw["port_optics"], w)
+
             elements.append(Spacer(1, 0.3 * cm))
+
+    # ── Device Events ──
+    all_events: list[dict] = []
+    for device_type_key in ("aps", "switches", "gateways"):
+        type_label = {"aps": "AP", "switches": "Switch", "gateways": "Gateway"}.get(device_type_key, device_type_key)
+        for dev in result.get(device_type_key, []):
+            for ev in dev.get("events", []):
+                all_events.append({
+                    "device_type": type_label,
+                    "device_name": dev.get("name", ""),
+                    **ev,
+                })
+    if all_events:
+        elements.append(Paragraph(f"Device Events ({len(all_events)})", heading_style))
+        w = _PAGE_WIDTH
+        cw_ev = [w * 0.08, w * 0.14, w * 0.2, w * 0.15, w * 0.1, w * 0.08, w * 0.08, w * 0.17]
+        data = [
+            [_ph("Type"), _ph("Device"), _ph("Event"), _ph("Sub-ID"), _ph("Status"),
+             _ph("Trig."), _ph("Clear"), _ph("Last Change")]
+        ]
+        for ev in all_events:
+            ts = ev.get("last_change", 0)
+            ts_str = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%d %H:%M") if ts else ""
+            ev_status = ev.get("status", "")
+            status_style = _CELL_RED if ev_status == "triggered" else _CELL_GREEN if ev_status == "cleared" else _CELL_STYLE
+            data.append([
+                _p(ev.get("device_type", "")),
+                _p(_esc(ev.get("device_name", ""))),
+                _p(ev.get("display", ev.get("category", ""))),
+                _p(ev.get("sub_id", "")),
+                Paragraph(f"<b>{_esc(ev_status)}</b>", status_style),
+                _p(str(ev.get("trigger_count", 0))),
+                _p(str(ev.get("clear_count", 0))),
+                _p(ts_str),
+            ])
+        elements.append(_make_table(data, cw_ev))
+        elements.append(Spacer(1, 0.3 * cm))
 
     doc.build(elements)
     return buf.getvalue()
@@ -526,7 +651,8 @@ def generate_csv_zip(report) -> bytes:
         if aps:
             ap_rows: list[dict] = []
             for ap in aps:
-                checks = {c["check"]: c.get("value", "") for c in ap.get("checks", [])}
+                checks_m = _checks_map(ap)
+                fw_check = checks_m.get("firmware_version", {})
                 lldp = ap.get("lldp_neighbor", {})
                 ap_rows.append(
                     {
@@ -534,11 +660,13 @@ def generate_csv_zip(report) -> bytes:
                         "device_id": ap.get("device_id", ""),
                         "mac": ap.get("mac", ""),
                         "model": ap.get("model", ""),
-                        "connection_status": checks.get("connection_status", ""),
-                        "firmware_version": checks.get("firmware_version", ""),
-                        "eth0_port_speed": checks.get("eth0_port_speed", ""),
-                        "power_constrained": checks.get("power_constrained", ""),
-                        "config_status": checks.get("config_status", ""),
+                        "connection_status": checks_m.get("connection_status", {}).get("value", ""),
+                        "firmware_version": fw_check.get("value", ""),
+                        "firmware_status": fw_check.get("status", ""),
+                        "firmware_recommended": fw_check.get("expected", ""),
+                        "eth0_port_speed": checks_m.get("eth0_port_speed", {}).get("value", ""),
+                        "power_constrained": checks_m.get("power_constrained", {}).get("value", ""),
+                        "config_status": checks_m.get("config_status", {}).get("value", ""),
                         "lldp_system_name": lldp.get("system_name", ""),
                         "lldp_port_desc": lldp.get("port_desc", ""),
                     }
@@ -554,6 +682,8 @@ def generate_csv_zip(report) -> bytes:
                         "model",
                         "connection_status",
                         "firmware_version",
+                        "firmware_status",
+                        "firmware_recommended",
                         "eth0_port_speed",
                         "power_constrained",
                         "config_status",
@@ -568,16 +698,19 @@ def generate_csv_zip(report) -> bytes:
         if switches:
             sw_rows: list[dict] = []
             for sw in switches:
-                checks = {c["check"]: c.get("value", "") for c in sw.get("checks", [])}
+                checks_m = _checks_map(sw)
+                fw_check = checks_m.get("firmware_version", {})
                 sw_rows.append(
                     {
                         "name": sw.get("name", ""),
                         "device_id": sw.get("device_id", ""),
                         "mac": sw.get("mac", ""),
                         "model": sw.get("model", ""),
-                        "connection_status": checks.get("connection_status", ""),
-                        "firmware_version": checks.get("firmware_version", ""),
-                        "config_status": checks.get("config_status", ""),
+                        "connection_status": checks_m.get("connection_status", {}).get("value", ""),
+                        "firmware_version": fw_check.get("value", ""),
+                        "firmware_status": fw_check.get("status", ""),
+                        "firmware_recommended": fw_check.get("expected", ""),
+                        "config_status": checks_m.get("config_status", {}).get("value", ""),
                     }
                 )
             zf.writestr(
@@ -591,10 +724,20 @@ def generate_csv_zip(report) -> bytes:
                         "model",
                         "connection_status",
                         "firmware_version",
+                        "firmware_status",
+                        "firmware_recommended",
                         "config_status",
                     ],
                 ),
             )
+
+            # Switch port optics CSV
+            sw_optics_rows = _optics_csv_rows(switches, "switch_name", "switch_mac")
+            if sw_optics_rows:
+                zf.writestr(
+                    "switch_port_optics.csv",
+                    _dict_list_to_csv(sw_optics_rows, ["switch_name", "switch_mac"] + _OPTICS_CSV_FIELDS),
+                )
 
             ct_rows: list[dict] = []
             for sw in switches:
@@ -632,18 +775,21 @@ def generate_csv_zip(report) -> bytes:
         if gateways:
             gw_rows: list[dict] = []
             for gw in gateways:
-                checks = {c["check"]: c.get("value", "") for c in gw.get("checks", [])}
+                checks_m = _checks_map(gw)
+                fw_check = checks_m.get("firmware_version", {})
                 gw_rows.append(
                     {
                         "name": gw.get("name", ""),
                         "device_id": gw.get("device_id", ""),
                         "mac": gw.get("mac", ""),
                         "model": gw.get("model", ""),
-                        "connection_status": checks.get("connection_status", ""),
-                        "firmware_version": checks.get("firmware_version", ""),
-                        "config_status": checks.get("config_status", ""),
-                        "wan_port_status": checks.get("wan_port_status", ""),
-                        "lan_port_status": checks.get("lan_port_status", ""),
+                        "connection_status": checks_m.get("connection_status", {}).get("value", ""),
+                        "firmware_version": fw_check.get("value", ""),
+                        "firmware_status": fw_check.get("status", ""),
+                        "firmware_recommended": fw_check.get("expected", ""),
+                        "config_status": checks_m.get("config_status", {}).get("value", ""),
+                        "wan_port_status": checks_m.get("wan_port_status", {}).get("value", ""),
+                        "lan_port_status": checks_m.get("lan_port_status", {}).get("value", ""),
                     }
                 )
             zf.writestr(
@@ -657,12 +803,22 @@ def generate_csv_zip(report) -> bytes:
                         "model",
                         "connection_status",
                         "firmware_version",
+                        "firmware_status",
+                        "firmware_recommended",
                         "config_status",
                         "wan_port_status",
                         "lan_port_status",
                     ],
                 ),
             )
+
+            # Gateway port optics CSV
+            gw_optics_rows = _optics_csv_rows(gateways, "gateway_name", "gateway_mac")
+            if gw_optics_rows:
+                zf.writestr(
+                    "gateway_port_optics.csv",
+                    _dict_list_to_csv(gw_optics_rows, ["gateway_name", "gateway_mac"] + _OPTICS_CSV_FIELDS),
+                )
 
             wan_rows: list[dict] = []
             lan_rows: list[dict] = []
@@ -743,6 +899,10 @@ def generate_csv_zip(report) -> bytes:
                 dev_name = dev.get("name", "")
                 dev_mac = dev.get("mac", "")
                 for ev in dev.get("events", []):
+                    ts = ev.get("last_change", 0)
+                    ts_str = (
+                        _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%d %H:%M") if ts else ""
+                    )
                     event_rows.append(
                         {
                             "device_type": device_type,
@@ -753,6 +913,7 @@ def generate_csv_zip(report) -> bytes:
                             "status": ev.get("status", ""),
                             "trigger_count": ev.get("trigger_count", 0),
                             "clear_count": ev.get("clear_count", 0),
+                            "last_change": ts_str,
                         }
                     )
         if event_rows:
@@ -769,6 +930,7 @@ def generate_csv_zip(report) -> bytes:
                         "status",
                         "trigger_count",
                         "clear_count",
+                        "last_change",
                     ],
                 ),
             )

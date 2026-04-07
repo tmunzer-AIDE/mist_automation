@@ -16,6 +16,9 @@ from mistapi.api.v1.orgs import (
     deviceprofiles as org_deviceprofiles,
 )
 from mistapi.api.v1.orgs import (
+    devices as org_devices,
+)
+from mistapi.api.v1.orgs import (
     gatewaytemplates as org_gatewaytemplates,
 )
 from mistapi.api.v1.orgs import (
@@ -25,10 +28,16 @@ from mistapi.api.v1.orgs import (
     rftemplates as org_rftemplates,
 )
 from mistapi.api.v1.orgs import (
+    setting as org_setting,
+)
+from mistapi.api.v1.orgs import (
     sitegroups as org_sitegroups,
 )
 from mistapi.api.v1.orgs import (
     sitetemplates as org_sitetemplates,
+)
+from mistapi.api.v1.orgs import (
+    ssr as org_ssr,
 )
 from mistapi.api.v1.sites import (
     devices,
@@ -166,10 +175,16 @@ async def run_post_deployment_validation(report_id: str, site_id: str, *, includ
 
         # ── Discovery phase (indeterminate progress bar) ─────────────
 
-        # Step 1: Site info & settings
+        # Step 1: Site info & settings (+ org settings for auto-upgrade config)
         await tracker.start_step("site_info", "Fetching site configuration...")
-        site_setting_resp = await mistapi.arun(setting.getSiteSetting, session, site_id)
-        site_vars = site_setting_resp.data.get("vars", {}) if site_setting_resp.status_code == 200 else {}
+        site_setting_resp, org_setting_resp = await asyncio.gather(
+            mistapi.arun(setting.getSiteSetting, session, site_id),
+            mistapi.arun(org_setting.getOrgSettings, session, mist.org_id),
+        )
+        site_settings = site_setting_resp.data if site_setting_resp.status_code == 200 else {}
+        site_vars = site_settings.get("vars", {})
+        site_auto_upgrade = site_settings.get("auto_upgrade", {})
+        org_settings = org_setting_resp.data if org_setting_resp.status_code == 200 else {}
 
         site_data = await mist.get_site(site_id)
         report.site_name = site_data.get("name", site_id)
@@ -241,26 +256,51 @@ async def run_post_deployment_validation(report_id: str, site_id: str, *, includ
         )
         await tracker.complete_step("variables", f"{len(result['template_variables'])} variables checked")
 
-        # Step 4: Fetch config events for all device types
-        await tracker.start_step("config_events", "Fetching device configuration events...")
-        config_events = await _fetch_config_events(session, site_id)
+        # Step 4+5: Fetch all device events (single API call), partition config vs raw
+        await tracker.start_step("config_events", "Fetching device events...")
+        config_events, raw_device_events = await _fetch_all_device_events(session, site_id)
         await tracker.complete_step("config_events")
 
-        # Step 5: Fetch and correlate device events (trigger/clear pairs)
-        await tracker.start_step("device_events", "Fetching device events (24h)...")
-        raw_device_events = await _fetch_device_events(session, site_id)
+        await tracker.start_step("device_events", "Correlating device events...")
         events_by_mac = _correlate_device_events(raw_device_events)
         total_correlated = sum(len(v) for v in events_by_mac.values())
         await tracker.complete_step("device_events", f"{total_correlated} events correlated")
 
         # ── Execution phase (determinate progress bar) ───────────────
 
-        # Parallel fetch: switch UP ports + switch device stats
-        up_ports_by_mac, sw_stats_resp = await asyncio.gather(
-            _fetch_switch_up_ports(session, site_id),
+        # Parallel fetch: all device stats + switch ports (including optics)
+        (up_ports_by_mac, sw_optics_by_mac), sw_stats_resp, ap_stats_resp, gw_stats_resp = await asyncio.gather(
+            _fetch_switch_ports(session, site_id),
             mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="switch", limit=1000),
+            mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="ap", limit=1000),
+            mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="gateway", limit=1000),
         )
         switch_stats = sw_stats_resp.data if sw_stats_resp.status_code == 200 else []
+        ap_stats = ap_stats_resp.data if ap_stats_resp.status_code == 200 else []
+        gw_stats = gw_stats_resp.data if gw_stats_resp.status_code == 200 else []
+
+        # Collect unique models for firmware version lookup
+        ap_models = {d.get("model", "") for d in ap_stats if d.get("model")}
+        switch_models = {d.get("model", "") for d in switch_stats if d.get("model")}
+        srx_models: set[str] = set()
+        ssr_macs: list[tuple[str, str]] = []
+        for gw in gw_stats:
+            m, gw_mac = gw.get("model", ""), gw.get("mac", "")
+            if m.upper().startswith("SSR"):
+                ssr_macs.append((m, gw_mac))
+            elif m:
+                srx_models.add(m)
+
+        # Fetch recommended firmware versions (3 + N_ssr API calls, all in parallel)
+        fw_versions = await _fetch_firmware_versions(
+            session, mist.org_id, ap_models, switch_models, srx_models, ssr_macs,
+        )
+
+        # Override recommended firmware with auto_upgrade settings
+        effective_ap_upgrade = site_auto_upgrade if site_auto_upgrade.get("enabled") else org_settings.get("auto_upgrade", {})
+        _apply_ap_auto_upgrade(fw_versions, effective_ap_upgrade)
+        _apply_junos_auto_upgrade(fw_versions, "switch", org_settings.get("switch", {}).get("auto_upgrade", {}))
+        _apply_junos_auto_upgrade(fw_versions, "gateway", org_settings.get("juniper_srx", {}).get("auto_upgrade", {}))
 
         if include_cable_tests:
             total_cable_ports = sum(
@@ -275,15 +315,15 @@ async def run_post_deployment_validation(report_id: str, site_id: str, *, includ
 
         # Step 6: AP validation
         await tracker.start_step("aps", "Validating access points...")
-        result["aps"] = await _validate_aps(session, site_id, config_events)
+        result["aps"] = _validate_aps(ap_stats, config_events, fw_versions)
         tracker.update_label("aps", f"Access Points ({len(result['aps'])})")
         await tracker.complete_step("aps", f"{len(result['aps'])} APs validated")
 
         # Step 7: Switch health validation (parallel, no cable tests)
         tracker.update_label("switches", f"Switches ({len(switch_stats)})")
         await tracker.start_step("switches", "Validating switches...")
-        result["switches"] = _validate_switch_health(switch_stats, config_events)
-        # Attach LLDP neighbors from UP ports (available regardless of cable tests)
+        result["switches"] = _validate_switch_health(switch_stats, config_events, fw_versions)
+        # Attach LLDP neighbors and optics from UP ports
         for sw_result in result["switches"]:
             sw_mac = sw_result["mac"]
             up_ports = up_ports_by_mac.get(sw_mac, [])
@@ -298,13 +338,17 @@ async def run_post_deployment_validation(report_id: str, site_id: str, *, includ
                         "neighbor_port_desc": port_desc,
                     })
             sw_result["lldp_neighbors"] = lldp_neighbors
+            # Attach optics data and aggregated check
+            optics = sw_optics_by_mac.get(sw_mac, [])
+            sw_result["port_optics"] = optics
+            sw_result["checks"].append(_build_optics_check(optics))
         await tracker.complete_step("switches", f"{len(result['switches'])} switches validated")
 
         # Step 8: Gateway validation
         tracker.update_label("gateways", "Gateways")
         await tracker.start_step("gateways", "Validating gateways...")
         result["gateways"] = await _validate_gateways(
-            session, mist.org_id, site_id, config_events, site_vars, gw_template_config
+            session, mist.org_id, site_id, gw_stats, config_events, site_vars, gw_template_config, fw_versions,
         )
         tracker.update_label("gateways", f"Gateways ({len(result['gateways'])})")
         await tracker.complete_step("gateways", f"{len(result['gateways'])} gateways validated")
@@ -374,10 +418,39 @@ def _name_check(name: str) -> dict:
     }
 
 
-def _firmware_check(device: dict) -> dict:
-    """Build a firmware_version check dict."""
+def _firmware_check(device: dict, fw_versions: dict | None = None, device_type: str = "ap") -> dict:
+    """Build a firmware_version check dict with validation against recommended version.
+
+    For APs: baseline tag = pass, deprecated/alpha = fail, other = warn.
+    For switches/SRX: junos_suggested tag = pass, other = warn.
+    For SSR: latest stable = pass, other = warn.
+    """
     fw = device.get("version", device.get("fw_version", ""))
-    return {"check": "firmware_version", "status": "info", "value": fw or "unknown"}
+    if not fw:
+        return {"check": "firmware_version", "status": "info", "value": "unknown"}
+
+    model = device.get("model", "")
+    mac = device.get("mac", "")
+
+    version_info = None
+    if fw_versions:
+        if device_type == "ssr":
+            version_info = fw_versions.get("ssr", {}).get(mac)
+        else:
+            version_info = fw_versions.get(device_type, {}).get(model)
+
+    if not version_info or not version_info.get("recommended"):
+        return {"check": "firmware_version", "status": "info", "value": fw}
+
+    recommended = version_info["recommended"]
+    if fw == recommended:
+        status = "pass"
+    elif device_type == "ap" and (fw in version_info.get("deprecated", set()) or fw in version_info.get("alpha", set())):
+        status = "fail"
+    else:
+        status = "warn"
+
+    return {"check": "firmware_version", "status": status, "value": fw, "expected": recommended}
 
 
 def _extract_jinja2_vars(data: object) -> set[str]:
@@ -410,6 +483,172 @@ async def _resolve_sitegroup_names(session, org_id: str, sitegroup_ids: list[str
     except Exception as e:
         logger.warning("sitegroup_resolve_error", error=str(e))
         return [gid[:8] for gid in sitegroup_ids]
+
+
+# ── Firmware version lookup ─────────────────────────────────────────────
+
+
+def _parse_ap_versions(versions: list[dict]) -> dict[str, dict]:
+    """Parse AP version list into per-model lookup with recommended/deprecated/alpha."""
+    by_model: dict[str, list[dict]] = {}
+    for v in versions:
+        model = v.get("model", "")
+        if model:
+            by_model.setdefault(model, []).append(v)
+
+    result: dict[str, dict] = {}
+    for model, vlist in by_model.items():
+        recommended = ""
+        deprecated: set[str] = set()
+        alpha: set[str] = set()
+        for v in vlist:
+            ver = v.get("version", "")
+            tags = v.get("tags", []) or []
+            if not ver:
+                continue
+            if "baseline" in tags:
+                recommended = ver
+            if "deprecated" in tags:
+                deprecated.add(ver)
+            if "alpha" in tags:
+                alpha.add(ver)
+        if not recommended:
+            all_versions = [v.get("version", "") for v in vlist if v.get("version")]
+            if all_versions:
+                all_versions.sort()
+                recommended = all_versions[-1]
+        result[model] = {"recommended": recommended, "deprecated": deprecated, "alpha": alpha}
+    return result
+
+
+def _parse_junos_versions(versions: list[dict]) -> dict[str, dict]:
+    """Parse switch/SRX version list into per-model lookup with junos_suggested."""
+    by_model: dict[str, list[dict]] = {}
+    for v in versions:
+        model = v.get("model", "")
+        if model:
+            by_model.setdefault(model, []).append(v)
+
+    result: dict[str, dict] = {}
+    for model, vlist in by_model.items():
+        recommended = ""
+        for v in vlist:
+            ver = v.get("version", "")
+            tags = v.get("tags", []) or []
+            if ver and "junos_suggested" in tags:
+                recommended = ver
+                break
+        result[model] = {"recommended": recommended}
+    return result
+
+
+def _parse_ssr_versions(versions: list[dict]) -> str:
+    """Pick the latest (first) stable SSR version as recommended."""
+    if not versions:
+        return ""
+    return versions[0].get("version", "") if isinstance(versions[0], dict) else ""
+
+
+async def _fetch_firmware_versions(
+    session,
+    org_id: str,
+    ap_models: set[str],
+    switch_models: set[str],
+    srx_gateway_models: set[str],
+    ssr_macs: list[tuple[str, str]],
+) -> dict:
+    """Fetch recommended firmware versions from Mist API.
+
+    Makes 3 + N_ssr API calls in parallel.
+    Returns a lookup dict keyed by device type → model → version info.
+    """
+    result: dict[str, dict] = {"ap": {}, "switch": {}, "gateway": {}, "ssr": {}}
+
+    async def _fetch_device_versions(device_type: str, models: set[str]) -> tuple[str, list[dict]]:
+        if not models:
+            return device_type, []
+        model_str = ",".join(sorted(models))
+        try:
+            resp = await mistapi.arun(
+                org_devices.listOrgAvailableDeviceVersions,
+                session, org_id, type=device_type, model=model_str,
+            )
+            if resp.status_code == 200 and isinstance(resp.data, list):
+                return device_type, resp.data
+        except Exception as e:
+            logger.warning("firmware_versions_fetch_failed", type=device_type, error=str(e))
+        return device_type, []
+
+    async def _fetch_ssr_version(mac: str) -> tuple[str, str]:
+        try:
+            resp = await mistapi.arun(
+                org_ssr.listOrgAvailableSsrVersions,
+                session, org_id, channel="stable", mac=mac,
+            )
+            if resp.status_code == 200 and isinstance(resp.data, list):
+                return mac, _parse_ssr_versions(resp.data)
+        except Exception as e:
+            logger.warning("ssr_version_fetch_failed", mac=mac, error=str(e))
+        return mac, ""
+
+    tasks: list = [
+        _fetch_device_versions("ap", ap_models),
+        _fetch_device_versions("switch", switch_models),
+        _fetch_device_versions("gateway", srx_gateway_models),
+    ]
+    for _model, mac in ssr_macs:
+        tasks.append(_fetch_ssr_version(mac))
+
+    results = await asyncio.gather(*tasks)
+
+    for dtype, versions in results[:3]:
+        if not versions:
+            continue
+        if dtype == "ap":
+            result["ap"] = _parse_ap_versions(versions)
+        else:
+            result[dtype] = _parse_junos_versions(versions)
+
+    for mac, recommended in results[3:]:
+        if recommended:
+            result["ssr"][mac] = {"recommended": recommended}
+
+    return result
+
+
+def _apply_ap_auto_upgrade(fw_versions: dict, auto_upgrade: dict) -> None:
+    """Override AP recommended firmware based on site auto_upgrade settings."""
+    if not auto_upgrade.get("enabled"):
+        return
+
+    mode = auto_upgrade.get("version", "stable")
+    custom_versions = auto_upgrade.get("custom_versions", {})
+
+    for model, info in fw_versions.get("ap", {}).items():
+        if mode == "beta":
+            alpha_versions = sorted(info.get("alpha", set()))
+            if alpha_versions:
+                info["recommended"] = alpha_versions[-1]
+            info["alpha"] = set()
+        elif mode == "custom":
+            custom_ver = custom_versions.get(model)
+            if custom_ver:
+                info["recommended"] = custom_ver
+
+
+def _apply_junos_auto_upgrade(fw_versions: dict, device_type: str, auto_upgrade: dict) -> None:
+    """Override switch/SRX recommended firmware based on org auto_upgrade settings."""
+    if not auto_upgrade.get("enabled"):
+        return
+
+    blanket_version = auto_upgrade.get("version", "")
+    custom_versions = auto_upgrade.get("custom_versions", {})
+    for model, info in fw_versions.get(device_type, {}).items():
+        custom_ver = custom_versions.get(model)
+        if custom_ver:
+            info["recommended"] = custom_ver
+        elif blanket_version:
+            info["recommended"] = blanket_version
 
 
 # ── Template & WLAN fetching ─────────────────────────────────────────────
@@ -589,39 +828,46 @@ def _validate_template_variables(
     return results
 
 
-# ── Config events ────────────────────────────────────────────────────────
+# ── Device events (single fetch, partitioned) ───────────────────────────
 
 _CONFIG_EVENT_PREFIXES = ("AP_CONFIG", "SW_CONFIG", "GW_CONFIG")
 
 
-async def _fetch_config_events(session, site_id: str) -> dict[str, dict]:
-    """Fetch recent system events and return the latest config event per device MAC.
+async def _fetch_all_device_events(
+    session, site_id: str,
+) -> tuple[dict[str, dict], list[dict]]:
+    """Fetch all device events for the site in the last 24h with a single API call.
 
     Returns:
-        dict mapping device MAC → {"type": event_type, "timestamp": ..., "status": "pass"|"fail"}
+        (config_events, raw_events) where:
+        - config_events: dict mapping device MAC → latest config event summary
+        - raw_events: full list of event dicts for trigger/clear correlation
     """
-    latest_by_mac: dict[str, dict] = {}
+    config_events: dict[str, dict] = {}
+    all_events: list[dict] = []
 
     try:
         resp = await mistapi.arun(
             devices.searchSiteDeviceEvents,
             session,
             site_id,
-            type="AP_CONFIG*,SW_CONFIG*,GW_CONFIG*",
             limit=1000,
             duration="24h",
         )
         if resp.status_code != 200:
-            logger.warning("config_events_fetch_failed", status=resp.status_code)
-            return latest_by_mac
+            logger.warning("device_events_fetch_failed", status=resp.status_code)
+            return config_events, all_events
 
-        all_events = resp.data.get("results", resp.data) if isinstance(resp.data, dict) else resp.data
-        if not isinstance(all_events, list):
-            logger.debug("config_events_unexpected_format", data_type=type(resp.data).__name__)
-            return latest_by_mac
+        data = resp.data
+        if isinstance(data, dict):
+            results = data.get("results")
+            all_events = results if isinstance(results, list) else []
+        elif isinstance(data, list):
+            all_events = data
 
-        logger.debug("config_events_fetched", count=len(all_events))
+        logger.debug("device_events_fetched", count=len(all_events))
 
+        # Partition: extract config events
         for ev in all_events:
             if not isinstance(ev, dict):
                 continue
@@ -634,20 +880,20 @@ async def _fetch_config_events(session, site_id: str) -> dict[str, dict]:
                 continue
 
             timestamp = ev.get("timestamp", 0)
-            existing = latest_by_mac.get(mac)
+            existing = config_events.get(mac)
             if existing and existing["timestamp"] >= timestamp:
                 continue
 
             is_success = ev_type.endswith("_CONFIGURED") or ev_type.endswith("_CONFIG_CHANGED_BY_USER")
-            latest_by_mac[mac] = {
+            config_events[mac] = {
                 "type": ev_type,
                 "timestamp": timestamp,
                 "status": "pass" if is_success else "fail",
             }
     except Exception as e:
-        logger.warning("config_events_fetch_error", error=str(e))
+        logger.warning("device_events_fetch_error", error=str(e))
 
-    return latest_by_mac
+    return config_events, all_events
 
 
 def _add_config_status_check(checks: list[dict], mac: str, config_events: dict[str, dict]) -> None:
@@ -670,36 +916,6 @@ def _add_config_status_check(checks: list[dict], mac: str, config_events: dict[s
             }
         )
 
-
-# ── Device events (trigger/clear correlation) ──────────────────────────
-
-
-async def _fetch_device_events(session, site_id: str) -> list[dict]:
-    """Fetch all device events for the site in the last 24h."""
-    all_events: list[dict] = []
-    try:
-        resp = await mistapi.arun(
-            devices.searchSiteDeviceEvents,
-            session,
-            site_id,
-            limit=1000,
-            duration="24h",
-        )
-        if resp.status_code != 200:
-            logger.warning("device_events_fetch_failed", status=resp.status_code)
-            return all_events
-
-        data = resp.data
-        if isinstance(data, dict):
-            all_events = data.get("results", [])
-        elif isinstance(data, list):
-            all_events = data
-
-        logger.debug("device_events_fetched", count=len(all_events))
-    except Exception as e:
-        logger.warning("device_events_fetch_error", error=str(e))
-
-    return all_events
 
 
 def _correlate_device_events(raw_events: list[dict]) -> dict[str, list[dict]]:
@@ -772,15 +988,12 @@ def _attach_device_events(report_result: dict, events_by_mac: dict[str, list[dic
 # ── AP validation ────────────────────────────────────────────────────────
 
 
-async def _validate_aps(session, site_id: str, config_events: dict[str, dict]) -> list[dict]:
+def _validate_aps(
+    ap_stats: list[dict], config_events: dict[str, dict], fw_versions: dict | None = None,
+) -> list[dict]:
     """Validate all APs at the site."""
-    resp = await mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="ap", limit=1000)
-    if resp.status_code != 200:
-        logger.warning("ap_stats_fetch_failed", status=resp.status_code)
-        return []
-
     results: list[dict] = []
-    for ap in resp.data:
+    for ap in ap_stats:
         checks: list[dict] = []
         mac = ap.get("mac", "")
 
@@ -789,7 +1002,7 @@ async def _validate_aps(session, site_id: str, config_events: dict[str, dict]) -
         checks.append(_name_check(name))
 
         # Firmware version
-        checks.append(_firmware_check(ap))
+        checks.append(_firmware_check(ap, fw_versions, device_type="ap"))
 
         # Eth0 port speed
         port_stat = ap.get("port_stat", {})
@@ -856,6 +1069,71 @@ async def _validate_aps(session, site_id: str, config_events: dict[str, dict]) -
     return results
 
 
+# ── Optics helpers ───────────────────────────────────────────────────────
+
+_RX_POWER_WARN = -20.0  # dBm
+_RX_POWER_FAIL = -25.0
+_TX_POWER_WARN = -8.0
+_TX_POWER_FAIL = -12.0
+
+
+def _optics_power_status(value: float | None, warn_threshold: float, fail_threshold: float) -> str:
+    """Return pass/warn/fail/info for an optics power reading."""
+    if value is None:
+        return "info"
+    if value < fail_threshold:
+        return "fail"
+    if value < warn_threshold:
+        return "warn"
+    return "pass"
+
+
+def _extract_port_optics(port: dict) -> dict | None:
+    """Extract optics info from a port stats entry. Returns None if no transceiver."""
+    xcvr_model = port.get("xcvr_model")
+    if not xcvr_model:
+        return None
+    rx = port.get("optics_rx_power")
+    tx = port.get("optics_tx_power")
+    return {
+        "port_id": port.get("port_id", ""),
+        "media_type": port.get("media_type", ""),
+        "xcvr_model": xcvr_model,
+        "xcvr_serial": port.get("xcvr_serial", ""),
+        "xcvr_part_number": port.get("xcvr_part_number", ""),
+        "rx_power": rx,
+        "tx_power": tx,
+        "rx_power_status": _optics_power_status(rx, _RX_POWER_WARN, _RX_POWER_FAIL),
+        "tx_power_status": _optics_power_status(tx, _TX_POWER_WARN, _TX_POWER_FAIL),
+        "temperature": port.get("optics_module_temperature"),
+        "bias_current": port.get("optics_bias_current"),
+        "voltage": port.get("optics_module_voltage"),
+    }
+
+
+def _build_optics_check(optics: list[dict]) -> dict:
+    """Build aggregated optics_health check from per-port optics list."""
+    if not optics:
+        return {"check": "optics_health", "status": "info", "value": "No optics"}
+    fail_count = sum(1 for o in optics if o["rx_power_status"] == "fail" or o["tx_power_status"] == "fail")
+    warn_count = sum(
+        1 for o in optics
+        if (o["rx_power_status"] == "warn" or o["tx_power_status"] == "warn")
+        and o["rx_power_status"] != "fail" and o["tx_power_status"] != "fail"
+    )
+    label = f"{len(optics)} optics"
+    if fail_count:
+        label += f" ({fail_count} fail)"
+        overall = "fail"
+    elif warn_count:
+        label += f" ({warn_count} warn)"
+        overall = "warn"
+    else:
+        has_reading = any(o["rx_power_status"] == "pass" or o["tx_power_status"] == "pass" for o in optics)
+        overall = "pass" if has_reading else "info"
+    return {"check": "optics_health", "status": overall, "value": label}
+
+
 # ── Switch validation ────────────────────────────────────────────────────
 
 
@@ -868,55 +1146,76 @@ def _is_copper_port(port_id: str) -> bool:
     return port_id.startswith(_COPPER_PORT_PREFIXES)
 
 
-async def _fetch_switch_up_ports(session, site_id: str) -> dict[str, list[dict]]:
-    """Fetch UP copper ports for all switches using the dedicated port search API.
+async def _fetch_switch_ports(
+    session, site_id: str,
+) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+    """Fetch all switch ports in a single API call.
 
-    Only includes physical copper interfaces (ge-*, mge-*, nge-*) suitable for cable tests.
-    Returns a dict mapping device MAC → list of port dicts with LLDP info.
+    Returns a tuple of:
+      - copper_up_ports_by_mac: MAC → list of UP copper port dicts (for cable tests / LLDP)
+      - optics_by_mac: MAC → list of optics entries (ports with a transceiver)
     """
-    ports_by_mac: dict[str, list[dict]] = {}
+    copper_up: dict[str, list[dict]] = {}
+    optics: dict[str, list[dict]] = {}
     try:
         resp = await mistapi.arun(
             stats.searchSiteSwOrGwPorts,
             session,
             site_id,
             device_type="switch",
-            up=True,
             limit=1000,
         )
         if resp.status_code != 200:
             logger.warning("switch_ports_fetch_failed", status=resp.status_code)
-            return ports_by_mac
+            return copper_up, optics
 
         results = resp.data.get("results", resp.data) if isinstance(resp.data, dict) else resp.data
         if not isinstance(results, list):
-            return ports_by_mac
+            return copper_up, optics
 
         for port in results:
             if not isinstance(port, dict):
                 continue
             device_mac = port.get("mac", "")
             port_id = port.get("port_id", "")
-            if device_mac and port_id and _is_copper_port(port_id):
-                ports_by_mac.setdefault(device_mac, []).append(
+            if not device_mac or not port_id:
+                continue
+
+            # Copper UP ports (for cable tests and LLDP neighbors)
+            if port.get("up") and _is_copper_port(port_id):
+                copper_up.setdefault(device_mac, []).append(
                     {
                         "port_id": port_id,
                         "neighbor_system_name": port.get("neighbor_system_name", ""),
                         "neighbor_port_desc": port.get("neighbor_port_desc", ""),
                     }
                 )
+
+            # Optics data (any port with a transceiver)
+            optic = _extract_port_optics(port)
+            if optic:
+                optics.setdefault(device_mac, []).append(optic)
+
+        # Sort per-device optics lists by port_id
+        for mac in optics:
+            optics[mac].sort(key=lambda o: o["port_id"])
+
     except Exception as e:
         logger.warning("switch_ports_fetch_error", error=str(e))
 
-    return ports_by_mac
+    return copper_up, optics
 
 
-def _validate_switch_health(switch_stats: list[dict], config_events: dict[str, dict]) -> list[dict]:
+def _validate_switch_health(
+    switch_stats: list[dict], config_events: dict[str, dict], fw_versions: dict | None = None,
+) -> list[dict]:
     """Validate all switches (health only, no cable tests). Synchronous — no API calls needed."""
-    return [_validate_single_switch(sw, config_events) for sw in switch_stats]
+    return [_validate_single_switch(sw, config_events, fw_versions) for sw in switch_stats]
 
 
-def _validate_single_switch(sw: dict, config_events: dict[str, dict]) -> dict:
+def _validate_single_switch(
+    sw: dict, config_events: dict[str, dict], fw_versions: dict | None = None,
+) -> dict:
     """Validate a single switch: name, firmware, status, VC. No cable tests."""
     checks: list[dict] = []
     device_id = sw.get("id", "")
@@ -925,7 +1224,7 @@ def _validate_single_switch(sw: dict, config_events: dict[str, dict]) -> dict:
 
     checks.append(_name_check(name))
     firmware = sw.get("version", sw.get("fw_version", ""))
-    checks.append(_firmware_check(sw))
+    checks.append(_firmware_check(sw, fw_versions, device_type="switch"))
 
     sw_status = sw.get("status", "unknown")
     checks.append({"check": "connection_status", "status": _device_conn_status(sw_status), "value": sw_status})
@@ -1221,14 +1520,14 @@ async def _validate_gateways(
     session,
     org_id: str,
     site_id: str,
+    gw_stats: list[dict],
     config_events: dict[str, dict],
     site_vars: dict,
     gw_template_config: dict | None = None,
+    fw_versions: dict | None = None,
 ) -> list[dict]:
     """Validate all gateways at the site with port classification and network details."""
-    resp = await mistapi.arun(stats.listSiteDevicesStats, session, site_id, type="gateway", limit=1000)
-    if resp.status_code != 200:
-        logger.warning("gateway_stats_fetch_failed", status=resp.status_code)
+    if not gw_stats:
         return []
 
     if gw_template_config is None:
@@ -1287,8 +1586,9 @@ async def _validate_gateways(
                 port_stats_by_mac.get(gw_stat.get("mac", ""), {}),
                 config_events,
                 site_vars,
+                fw_versions,
             )
-            for gw_stat in resp.data
+            for gw_stat in gw_stats
         ]
     )
     return list(results)
@@ -1323,6 +1623,7 @@ async def _validate_single_gateway(
     port_stats_map: dict[str, dict],
     config_events: dict[str, dict],
     site_vars: dict,
+    fw_versions: dict | None = None,
 ) -> dict:
     """Validate a single gateway: name, firmware, status, ports, networks."""
     device_id = gw_stat.get("id", "")
@@ -1355,7 +1656,10 @@ async def _validate_single_gateway(
     # Basic checks
     checks: list[dict] = []
     checks.append(_name_check(name))
-    checks.append(_firmware_check(gw_stat))
+    # Determine gateway type for firmware check
+    gw_model = gw_stat.get("model", "")
+    gw_device_type = "ssr" if gw_model.upper().startswith("SSR") else "gateway"
+    checks.append(_firmware_check(gw_stat, fw_versions, device_type=gw_device_type))
 
     gw_status = gw_stat.get("status", "unknown")
     checks.append({"check": "connection_status", "status": _device_conn_status(gw_status), "value": gw_status})
@@ -1527,6 +1831,17 @@ async def _validate_single_gateway(
     # Networks with IP and DHCP details (filtered to port-assigned networks)
     gw_networks: list[dict] = _build_network_details(ip_configs, dhcpd_config, networks_list, port_config)  # type: ignore[arg-type]
 
+    # Optics data from port stats
+    port_optics: list[dict] = []
+    for _port_id, pstat in port_stats_map.items():
+        if not isinstance(pstat, dict):
+            continue
+        optic = _extract_port_optics(pstat)
+        if optic:
+            port_optics.append(optic)
+    port_optics.sort(key=lambda o: o["port_id"])
+    checks.append(_build_optics_check(port_optics))
+
     # Cluster / HA detection
     cluster_result = None
     if gw_stat.get("is_ha"):
@@ -1542,6 +1857,7 @@ async def _validate_single_gateway(
         "wan_ports": wan_ports,
         "lan_ports": lan_ports,
         "networks": gw_networks,
+        "port_optics": port_optics,
     }
 
 
@@ -1666,20 +1982,7 @@ def _build_network_details(
 
     # Filter to only networks actually assigned to a port
     if port_config:
-        used_networks: set[str] = set()
-        for cfg in port_config.values():
-            if not isinstance(cfg, dict):
-                continue
-            usage = cfg.get("usage", "")
-            if usage and usage not in ("wan", "lan"):
-                used_networks.add(usage)
-            for net in cfg.get("networks", []):
-                if isinstance(net, str):
-                    used_networks.add(net)
-            pn = cfg.get("port_network", "")
-            if pn:
-                used_networks.add(pn)
-        network_names = network_names & used_networks
+        network_names = network_names & _used_networks_from_port_config(port_config)
 
     results: list[dict] = []
     for net_name in sorted(network_names):

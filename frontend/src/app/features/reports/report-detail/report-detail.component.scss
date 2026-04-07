@@ -206,6 +206,39 @@
   &.info { color: var(--app-info); background: rgba(33, 150, 243, 0.12); }
 }
 
+.event-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--app-error);
+  background: rgba(244, 67, 54, 0.12);
+}
+
+.fw-value {
+  font-family: monospace;
+  font-size: 12px;
+  &.pass { color: var(--app-success); }
+  &.warn { color: var(--app-warning); }
+  &.fail { color: var(--app-error); }
+}
+
+.fw-recommended {
+  font-size: 10px;
+  color: var(--app-neutral);
+  font-family: monospace;
+}
+
+.optics-summary {
+  font-size: 12px;
+  &.pass { color: var(--app-success); }
+  &.warn { color: var(--app-warning); }
+  &.fail { color: var(--app-error); }
+}
+
+.muted { color: var(--app-neutral); }
+
 code {
   padding: 2px 6px;
   background: var(--app-canvas);

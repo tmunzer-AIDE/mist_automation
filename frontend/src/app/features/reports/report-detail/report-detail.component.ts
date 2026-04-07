@@ -345,6 +345,15 @@ export class ReportDetailComponent implements OnInit, OnDestroy {
     return getWanPorts(device);
   }
 
+  getCheckExpected(device: DeviceResult, checkName: string): string {
+    const check = device.checks.find((c) => c.check === checkName);
+    return check?.status !== 'pass' ? (check as any)?.expected ?? '' : '';
+  }
+
+  triggeredEventCount(device: any): number {
+    return (device.events ?? []).filter((e: any) => e.status === 'triggered').length;
+  }
+
   openDeviceDetail(type: 'ap' | 'switch' | 'gateway', device: DeviceResult | SwitchResult | GatewayResult): void {
     import('./device-detail-dialog.component').then((m) => {
       this.dialog.open(m.DeviceDetailDialogComponent, {

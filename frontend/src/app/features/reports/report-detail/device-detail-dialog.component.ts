@@ -1,10 +1,11 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal, computed } from '@angular/core';
 import { UpperCasePipe } from '@angular/common';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 
 @Component({
@@ -17,6 +18,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
     MatIconModule,
     MatButtonModule,
     MatChipsModule,
+    MatSlideToggleModule,
     StatusBadgeComponent,
   ],
   template: `
@@ -108,6 +110,136 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
             <tr mat-row *matRowDef="let ct; columns: ['port', 'neighbor', 'result', 'pairs']"></tr>
           </table>
         </div>
+      }
+
+      <!-- Switch: Port Optics -->
+      @if (data.type === 'switch' && data.device.port_optics?.length) {
+        <h3>Port Optics ({{ data.device.port_optics.length }})</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="sortedOptics('switch')">
+            <ng-container matColumnDef="port_id">
+              <th mat-header-cell *matHeaderCellDef>Port</th>
+              <td mat-cell *matCellDef="let o">{{ o.port_id }}</td>
+            </ng-container>
+            <ng-container matColumnDef="xcvr_model">
+              <th mat-header-cell *matHeaderCellDef>Model</th>
+              <td mat-cell *matCellDef="let o">{{ o.xcvr_model }}</td>
+            </ng-container>
+            <ng-container matColumnDef="rx_power">
+              <th mat-header-cell *matHeaderCellDef>Rx (dBm)</th>
+              <td mat-cell *matCellDef="let o" [class]="'optics-power ' + o.rx_power_status">
+                {{ o.rx_power !== null ? o.rx_power : '—' }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="tx_power">
+              <th mat-header-cell *matHeaderCellDef>Tx (dBm)</th>
+              <td mat-cell *matCellDef="let o" [class]="'optics-power ' + o.tx_power_status">
+                {{ o.tx_power !== null ? o.tx_power : '—' }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="temperature">
+              <th mat-header-cell *matHeaderCellDef>Temp (°C)</th>
+              <td mat-cell *matCellDef="let o">{{ o.temperature !== null ? o.temperature : '' }}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="opticsColumns"></tr>
+            <tr mat-row *matRowDef="let o; columns: opticsColumns"></tr>
+          </table>
+        </div>
+        <div class="optics-legend">Rx: warn &lt; -20, fail &lt; -25 dBm · Tx: warn &lt; -8, fail &lt; -12 dBm</div>
+      }
+
+      <!-- Gateway: Cluster / HA -->
+      @if (data.type === 'gateway' && data.device.cluster?.members?.length) {
+        <h3>HA Cluster</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="data.device.cluster.members">
+            <ng-container matColumnDef="node_name">
+              <th mat-header-cell *matHeaderCellDef>Node</th>
+              <td mat-cell *matCellDef="let m">{{ m.node_name }}</td>
+            </ng-container>
+            <ng-container matColumnDef="model">
+              <th mat-header-cell *matHeaderCellDef>Model</th>
+              <td mat-cell *matCellDef="let m">{{ m.model }}</td>
+            </ng-container>
+            <ng-container matColumnDef="firmware">
+              <th mat-header-cell *matHeaderCellDef>Firmware</th>
+              <td mat-cell *matCellDef="let m">{{ m.firmware }}</td>
+            </ng-container>
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let m">
+                <mat-icon [class]="'status-icon ' + (m.status === 'connected' ? 'pass' : 'fail')">
+                  {{ m.status === 'connected' ? 'check_circle' : 'cancel' }}
+                </mat-icon>
+                {{ m.status }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="ha_state">
+              <th mat-header-cell *matHeaderCellDef>HA State</th>
+              <td mat-cell *matCellDef="let m">{{ m.ha_state || '—' }}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="['node_name', 'model', 'firmware', 'status', 'ha_state']"></tr>
+            <tr mat-row *matRowDef="let m; columns: ['node_name', 'model', 'firmware', 'status', 'ha_state']"></tr>
+          </table>
+        </div>
+
+        @if (data.device.cluster.config; as cfg) {
+          <div class="cluster-details">
+            <div class="info-grid">
+              <div class="info-cell">
+                <label>Configuration</label>
+                <div>{{ cfg.configuration || '—' }}</div>
+              </div>
+              <div class="info-cell">
+                <label>Operational</label>
+                <div>{{ cfg.operational || '—' }}</div>
+              </div>
+              <div class="info-cell">
+                <label>Primary Health</label>
+                <div>{{ cfg.primary_node_health || '—' }}</div>
+              </div>
+              <div class="info-cell">
+                <label>Secondary Health</label>
+                <div>{{ cfg.secondary_node_health || '—' }}</div>
+              </div>
+              @if (cfg.control_link?.name) {
+                <div class="info-cell">
+                  <label>Control Link</label>
+                  <div>{{ cfg.control_link.name }}: {{ cfg.control_link.status || '—' }}</div>
+                </div>
+              }
+              @if (cfg.fabric_link?.Status) {
+                <div class="info-cell">
+                  <label>Fabric Link</label>
+                  <div>{{ cfg.fabric_link.Status }}</div>
+                </div>
+              }
+            </div>
+
+            @if (cfg.reth_interfaces?.length) {
+              <h4>Reth Interfaces</h4>
+              <div class="table-card">
+                <table mat-table [dataSource]="cfg.reth_interfaces">
+                  <ng-container matColumnDef="name">
+                    <th mat-header-cell *matHeaderCellDef>Interface</th>
+                    <td mat-cell *matCellDef="let r">{{ r.name }}</td>
+                  </ng-container>
+                  <ng-container matColumnDef="status">
+                    <th mat-header-cell *matHeaderCellDef>Status</th>
+                    <td mat-cell *matCellDef="let r">
+                      <mat-icon [class]="'status-icon ' + (r.status === 'Up' ? 'pass' : 'fail')">
+                        {{ r.status === 'Up' ? 'check_circle' : 'cancel' }}
+                      </mat-icon>
+                      {{ r.status }}
+                    </td>
+                  </ng-container>
+                  <tr mat-header-row *matHeaderRowDef="['name', 'status']"></tr>
+                  <tr mat-row *matRowDef="let r; columns: ['name', 'status']"></tr>
+                </table>
+              </div>
+            }
+          </div>
+        }
       }
 
       <!-- Gateway: WAN Ports -->
@@ -220,11 +352,52 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
           </table>
         </div>
       }
+      <!-- Gateway: Port Optics -->
+      @if (data.type === 'gateway' && data.device.port_optics?.length) {
+        <h3>Port Optics ({{ data.device.port_optics.length }})</h3>
+        <div class="table-card">
+          <table mat-table [dataSource]="sortedOptics('gateway')">
+            <ng-container matColumnDef="port_id">
+              <th mat-header-cell *matHeaderCellDef>Port</th>
+              <td mat-cell *matCellDef="let o">{{ o.port_id }}</td>
+            </ng-container>
+            <ng-container matColumnDef="xcvr_model">
+              <th mat-header-cell *matHeaderCellDef>Model</th>
+              <td mat-cell *matCellDef="let o">{{ o.xcvr_model }}</td>
+            </ng-container>
+            <ng-container matColumnDef="rx_power">
+              <th mat-header-cell *matHeaderCellDef>Rx (dBm)</th>
+              <td mat-cell *matCellDef="let o" [class]="'optics-power ' + o.rx_power_status">
+                {{ o.rx_power !== null ? o.rx_power : '—' }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="tx_power">
+              <th mat-header-cell *matHeaderCellDef>Tx (dBm)</th>
+              <td mat-cell *matCellDef="let o" [class]="'optics-power ' + o.tx_power_status">
+                {{ o.tx_power !== null ? o.tx_power : '—' }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="temperature">
+              <th mat-header-cell *matHeaderCellDef>Temp (°C)</th>
+              <td mat-cell *matCellDef="let o">{{ o.temperature !== null ? o.temperature : '' }}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="opticsColumns"></tr>
+            <tr mat-row *matRowDef="let o; columns: opticsColumns"></tr>
+          </table>
+        </div>
+        <div class="optics-legend">Rx: warn &lt; -20, fail &lt; -25 dBm · Tx: warn &lt; -8, fail &lt; -12 dBm</div>
+      }
+
       <!-- Device Events -->
       @if (data.device.events?.length) {
-        <h3>Device Events (24h)</h3>
+        <div class="events-header">
+          <h3>Device Events (24h)</h3>
+          <mat-slide-toggle [checked]="showAllEvents()" (change)="showAllEvents.set($event.checked)">
+            Show cleared
+          </mat-slide-toggle>
+        </div>
         <div class="table-card">
-          <table mat-table [dataSource]="data.device.events">
+          <table mat-table [dataSource]="filteredEvents()">
             <ng-container matColumnDef="display">
               <th mat-header-cell *matHeaderCellDef>Event</th>
               <td mat-cell *matCellDef="let ev">{{ ev.display }}</td>
@@ -243,8 +416,12 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
               <th mat-header-cell *matHeaderCellDef>Trigger / Clear</th>
               <td mat-cell *matCellDef="let ev">{{ ev.trigger_count }} / {{ ev.clear_count }}</td>
             </ng-container>
-            <tr mat-header-row *matHeaderRowDef="['display', 'sub_id', 'event_status', 'counts']"></tr>
-            <tr mat-row *matRowDef="let ev; columns: ['display', 'sub_id', 'event_status', 'counts']"></tr>
+            <ng-container matColumnDef="last_change">
+              <th mat-header-cell *matHeaderCellDef>Last Change</th>
+              <td mat-cell *matCellDef="let ev">{{ formatTimestamp(ev.last_change) }}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="['display', 'sub_id', 'event_status', 'counts', 'last_change']"></tr>
+            <tr mat-row *matRowDef="let ev; columns: ['display', 'sub_id', 'event_status', 'counts', 'last_change']"></tr>
           </table>
         </div>
       }
@@ -348,6 +525,55 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
           color: var(--app-success);
         }
       }
+
+      .events-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        h3 { margin-bottom: 0; }
+      }
+
+      .optics-power {
+        font-weight: 500;
+        font-family: monospace;
+        &.pass { color: var(--app-success); }
+        &.warn { color: var(--app-warning); }
+        &.fail { color: var(--app-error); }
+      }
+
+      .optics-legend {
+        font-size: 11px;
+        color: var(--app-neutral);
+        margin: 4px 0 8px;
+      }
+
+      .cluster-details {
+        margin: 8px 0 16px;
+      }
+
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 8px 16px;
+        margin: 8px 0;
+      }
+
+      .info-cell {
+        font-size: 13px;
+        label {
+          font-size: 11px;
+          color: var(--app-neutral);
+          text-transform: uppercase;
+          font-weight: 600;
+        }
+      }
+
+      h4 {
+        margin: 12px 0 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--app-neutral);
+      }
     `,
   ],
 })
@@ -356,6 +582,14 @@ export class DeviceDetailDialogComponent {
 
   readonly flatWanPorts = this._flattenWithMembers(this.data.device.wan_ports ?? []);
   readonly flatLanPorts = this._flattenWithMembers(this.data.device.lan_ports ?? []);
+  readonly opticsColumns = ['port_id', 'xcvr_model', 'rx_power', 'tx_power', 'temperature'];
+
+  readonly showAllEvents = signal(false);
+  readonly filteredEvents = computed(() => {
+    const events = this.data.device.events ?? [];
+    if (this.showAllEvents()) return events;
+    return events.filter((e: any) => e.status === 'triggered');
+  });
 
   overallStatus(): string {
     const dev = this.data.device;
@@ -386,6 +620,36 @@ export class DeviceDetailDialogComponent {
 
   formatCheckName(check: string): string {
     return check.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ':';
+  }
+
+  formatTimestamp(ts: number): string {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return d.toISOString().replace('T', ' ').slice(0, 16);
+  }
+
+  sortedOptics(_type: 'switch' | 'gateway'): any[] {
+    const optics = (this.data.device.port_optics ?? []).slice();
+    return optics.sort((a: any, b: any) => this._comparePortIds(a.port_id, b.port_id));
+  }
+
+  private _comparePortIds(a: string, b: string): number {
+    // Natural sort for Junos port IDs like ge-0/0/1, ge-0/0/11
+    const partsA = a.split(/[/-]/);
+    const partsB = b.split(/[/-]/);
+    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+      const pa = partsA[i] ?? '';
+      const pb = partsB[i] ?? '';
+      const na = parseInt(pa, 10);
+      const nb = parseInt(pb, 10);
+      if (!isNaN(na) && !isNaN(nb)) {
+        if (na !== nb) return na - nb;
+      } else {
+        const cmp = pa.localeCompare(pb);
+        if (cmp !== 0) return cmp;
+      }
+    }
+    return 0;
   }
 
   private _flattenWithMembers(ports: any[]): any[] {
