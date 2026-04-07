@@ -1061,13 +1061,16 @@ async def _maybe_trigger_compaction(thread) -> None:
         return  # Too few messages to bother
 
     from app.modules.llm.models import LLMConfig
-    from app.modules.llm.services.llm_service_factory import _default_model, get_effective_context_window
-    from app.modules.llm.services.token_service import count_message_tokens
+    from app.modules.llm.services.llm_service_factory import _default_model
+    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, count_message_tokens, get_context_window
     from app.modules.llm.workers.compaction_worker import _COMPACTION_THRESHOLD
 
-    ctx_window = await get_effective_context_window()
+    # Single DB query for default config — get both model name and context window
     default_cfg = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
-    model = (default_cfg.model or _default_model(default_cfg.provider)) if default_cfg else "gpt-4o"
+    if not default_cfg:
+        return
+    model = default_cfg.model or _default_model(default_cfg.provider)
+    ctx_window = default_cfg.context_window_tokens or (get_context_window(model) if model else None) or DEFAULT_CONTEXT_WINDOW
 
     all_msgs = [{"role": m.role, "content": m.content} for m in thread.messages]
     token_count = count_message_tokens(all_msgs, model)

@@ -44,17 +44,22 @@ async def compact_thread(
     from app.modules.llm.models import ConversationThread, LLMUsageLog
 
     try:
-        thread = await ConversationThread.get(PydanticObjectId(thread_id))
+        oid = PydanticObjectId(thread_id)
     except Exception:
         logger.warning("compaction_invalid_thread_id", thread_id=thread_id)
         return
 
-    if not thread:
+    # Atomic lock acquisition — prevents concurrent compaction on the same thread
+    result = await ConversationThread.get_motor_collection().find_one_and_update(
+        {"_id": oid, "compaction_in_progress": {"$ne": True}},
+        {"$set": {"compaction_in_progress": True}},
+    )
+    if not result:
+        logger.info("compaction_skipped", thread_id=thread_id)
         return
 
-    # Skip if already in progress
-    if thread.compaction_in_progress:
-        logger.info("compaction_already_in_progress", thread_id=thread_id)
+    thread = await ConversationThread.get(oid)
+    if not thread:
         return
 
     # Check if compaction is actually needed
@@ -64,11 +69,9 @@ async def compact_thread(
 
     if token_count <= threshold:
         logger.debug("compaction_not_needed", thread_id=thread_id, tokens=token_count, threshold=threshold)
+        thread.compaction_in_progress = False
+        await thread.save()
         return
-
-    # Set lock
-    thread.compaction_in_progress = True
-    await thread.save()
 
     try:
         # Determine cutoff: keep the last _MIN_RECENT_MESSAGES non-system messages

@@ -138,10 +138,12 @@ class ConversationThread(Document):
                 result.append({"role": m.role, "content": m.content})
                 break
 
-        # 2. First user message
-        for m in self.messages:
+        # 2. First user message (preserved for context)
+        first_user_idx = None
+        for i, m in enumerate(self.messages):
             if m.role == "user":
                 result.append({"role": m.role, "content": m.content})
+                first_user_idx = i
                 break
 
         # 3. Compaction summary as a system message
@@ -151,10 +153,13 @@ class ConversationThread(Document):
         })
 
         # 4. Recent messages (after compacted_up_to_index), capped by max_turns
+        # Skip the first user message if it falls in the recent range to avoid duplication
+        assert self.compacted_up_to_index is not None  # guaranteed by caller check
+        cutoff = self.compacted_up_to_index
         recent = [
             {"role": m.role, "content": m.content}
-            for m in self.messages[self.compacted_up_to_index:]
-            if m.role != "system"
+            for i, m in enumerate(self.messages[cutoff:], start=cutoff)
+            if m.role != "system" and i != first_user_idx
         ]
         result.extend(recent[-max_turns:])
 
