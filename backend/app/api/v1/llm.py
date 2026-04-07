@@ -958,7 +958,7 @@ async def _continue_with_mcp(thread, message: str, current_user: User, stream_id
         context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[:-1][-8:])
 
     # Inject memory instruction for interactive threads
-    if thread.feature in ("global_chat", "impact_analysis_chat"):
+    if thread.feature in ("global_chat", "impact_analysis_chat", "impact_group_chat"):
         from app.models.system import SystemConfig as SysConf
         from app.modules.llm.services.prompt_builders import build_memory_instruction
 
@@ -2196,10 +2196,14 @@ async def update_memory(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
 
     if request.value is not None:
-        if len(request.value) > 500:
+        from app.models.system import SystemConfig
+
+        config = await SystemConfig.get_config()
+        max_len = config.memory_entry_max_length
+        if len(request.value) > max_len:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Value must be 500 characters or fewer",
+                detail=f"Value must be {max_len} characters or fewer",
             )
         entry.value = request.value
 

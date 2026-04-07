@@ -169,6 +169,20 @@ async def update_system_settings(
         except Exception as e:
             logger.warning("backup_schedule_update_failed", error=str(e))
 
+    # If memory consolidation schedule changed, update the scheduler
+    if "memory_consolidation_enabled" in updates or "memory_consolidation_cron" in updates:
+        try:
+            from app.workers import get_scheduler
+
+            scheduler = get_scheduler()
+            refreshed = await SystemConfig.get_config()
+            if refreshed.memory_consolidation_enabled and refreshed.memory_consolidation_cron:
+                await scheduler.schedule_memory_consolidation(refreshed.memory_consolidation_cron)
+            else:
+                await scheduler.unschedule_memory_consolidation()
+        except Exception as e:
+            logger.warning("memory_consolidation_schedule_update_failed", error=str(e))
+
     # If smee settings changed, notify the backup module
     if "smee_enabled" in updates or "smee_channel_url" in updates:
         from app.core.smee_service import start_smee, stop_smee
@@ -763,13 +777,12 @@ async def list_consolidation_logs(
                 "entries_before": log.entries_before,
                 "entries_after": log.entries_after,
                 "actions_summary": {
-                    action["action"]: sum(
-                        1 for a in log.actions if a.get("action") == action["action"]
-                    )
-                    for action in log.actions
+                    "merged": sum(1 for a in log.actions if a.get("action") == "merge"),
+                    "deleted": sum(1 for a in log.actions if a.get("action") == "delete"),
+                    "kept": sum(1 for a in log.actions if a.get("action") == "keep"),
                 }
                 if log.actions
-                else {},
+                else {"merged": 0, "deleted": 0, "kept": 0},
                 "llm_model": log.llm_model,
                 "llm_tokens_used": log.llm_tokens_used,
             }

@@ -23,20 +23,19 @@ _DEFAULT_MAX_VALUE_LENGTH = 500
 _DEFAULT_MAX_ENTRIES_PER_USER = 100
 
 
-async def _get_memory_config() -> tuple[int, int, int]:
-    """Return (max_key_length, max_value_length, max_entries_per_user) from SystemConfig with defaults."""
+async def _get_memory_config() -> tuple[int, int]:
+    """Return (max_entries_per_user, max_value_length) from SystemConfig with defaults."""
     try:
         from app.models.system import SystemConfig
 
         config = await SystemConfig.get_config()
         return (
-            getattr(config, "memory_max_key_length", _DEFAULT_MAX_KEY_LENGTH) or _DEFAULT_MAX_KEY_LENGTH,
-            getattr(config, "memory_max_value_length", _DEFAULT_MAX_VALUE_LENGTH) or _DEFAULT_MAX_VALUE_LENGTH,
             getattr(config, "memory_max_entries_per_user", _DEFAULT_MAX_ENTRIES_PER_USER)
             or _DEFAULT_MAX_ENTRIES_PER_USER,
+            getattr(config, "memory_entry_max_length", _DEFAULT_MAX_VALUE_LENGTH) or _DEFAULT_MAX_VALUE_LENGTH,
         )
     except Exception:
-        return _DEFAULT_MAX_KEY_LENGTH, _DEFAULT_MAX_VALUE_LENGTH, _DEFAULT_MAX_ENTRIES_PER_USER
+        return _DEFAULT_MAX_ENTRIES_PER_USER, _DEFAULT_MAX_VALUE_LENGTH
 
 
 async def _store_memory(
@@ -49,11 +48,11 @@ async def _store_memory(
     """Store or update a memory entry for the user."""
     from app.modules.llm.models import MemoryEntry
 
-    max_key_len, max_value_len, max_entries = await _get_memory_config()
+    max_entries, max_value_len = await _get_memory_config()
 
-    # Validate key length
-    if len(key) > max_key_len:
-        return f"Key too long: maximum {max_key_len} characters, got {len(key)}."
+    # Validate key length (not admin-configurable, fixed at 100)
+    if len(key) > _DEFAULT_MAX_KEY_LENGTH:
+        return f"Key too long: maximum {_DEFAULT_MAX_KEY_LENGTH} characters, got {len(key)}."
 
     # Validate value length
     if len(value) > max_value_len:

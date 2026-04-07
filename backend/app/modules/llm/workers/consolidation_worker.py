@@ -64,14 +64,14 @@ async def run_consolidation() -> None:
     for entry in user_counts:
         user_id = entry["_id"]
         try:
-            await _consolidate_user(user_id, llm)
+            await _consolidate_user(user_id, llm, config.memory_entry_max_length)
         except Exception as e:
             logger.error("memory_consolidation_user_failed", user_id=str(user_id), error=str(e))
 
     logger.info("memory_consolidation_complete", user_count=len(user_counts))
 
 
-async def _consolidate_user(user_id, llm) -> None:
+async def _consolidate_user(user_id, llm, max_value_length: int = 500) -> None:
     """Consolidate memory entries for a single user."""
     # Load all entries sorted by updated_at
     entries = await MemoryEntry.find(MemoryEntry.user_id == user_id).sort("+updated_at").to_list()
@@ -130,7 +130,7 @@ async def _consolidate_user(user_id, llm) -> None:
 
             elif action_type == "merge":
                 new_key = action.get("new_key", "")
-                new_value = action.get("new_value", "")
+                new_value = action.get("new_value", "")[:max_value_length]
                 if not new_key or not new_value:
                     logger.warning("memory_consolidation_merge_missing_fields", user_id=str(user_id), keys=keys)
                     continue

@@ -427,7 +427,7 @@ class SkillGitRepoResponse(BaseModel):
 class MemoryUpdateRequest(BaseModel):
     """Update a memory entry's value and/or category."""
 
-    value: str | None = Field(None, max_length=500, description="Updated memory value")
+    value: str | None = Field(None, description="Updated memory value")
     category: str | None = Field(None, description="Updated category: general, network, preference, troubleshooting")
 
 
