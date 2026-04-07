@@ -147,3 +147,30 @@ def get_effective_canvas_tier(config) -> str:
     if config.canvas_prompt_tier:
         return config.canvas_prompt_tier
     return _default_canvas_tier(config.provider, config.model)
+
+
+async def get_effective_context_window(config_id: str | None = None) -> int:
+    """Return the effective context window for the given or default LLM config.
+
+    Priority: manual override > litellm auto-detect > DEFAULT_CONTEXT_WINDOW.
+    """
+    from app.modules.llm.models import LLMConfig
+    from app.modules.llm.services.token_service import DEFAULT_CONTEXT_WINDOW, get_context_window
+
+    if config_id:
+        try:
+            cfg = await LLMConfig.get(PydanticObjectId(config_id))
+        except Exception:
+            return DEFAULT_CONTEXT_WINDOW
+    else:
+        cfg = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
+
+    if not cfg:
+        return DEFAULT_CONTEXT_WINDOW
+    if cfg.context_window_tokens:
+        return cfg.context_window_tokens
+    if cfg.model:
+        detected = get_context_window(cfg.model)
+        if detected:
+            return detected
+    return DEFAULT_CONTEXT_WINDOW

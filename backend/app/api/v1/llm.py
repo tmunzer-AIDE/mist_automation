@@ -944,6 +944,9 @@ async def continue_conversation(
     thread.add_message("assistant", reply, metadata=msg_metadata)
     await thread.save()
 
+    # Check if compaction is needed (background task, non-blocking)
+    await _maybe_trigger_compaction(thread)
+
     return ChatResponse(
         reply=reply,
         thread_id=str(thread.id),
@@ -1046,6 +1049,46 @@ def _agent_result_metadata(result) -> dict | None:
         ],
         "thinking_texts": result.thinking_texts,
     }
+
+
+async def _maybe_trigger_compaction(thread) -> None:
+    """Check token budget and schedule background compaction if needed.
+
+    Reads the default LLM config to get model name and context window.
+    Fires a background task if token count exceeds 70% of context window.
+    """
+    if len(thread.messages) < 6:
+        return  # Too few messages to bother
+
+    from app.modules.llm.models import LLMConfig
+    from app.modules.llm.services.llm_service_factory import _default_model, get_effective_context_window
+    from app.modules.llm.services.token_service import count_message_tokens
+    from app.modules.llm.workers.compaction_worker import _COMPACTION_THRESHOLD
+
+    ctx_window = await get_effective_context_window()
+    default_cfg = await LLMConfig.find_one(LLMConfig.is_default == True, LLMConfig.enabled == True)  # noqa: E712
+    model = (default_cfg.model or _default_model(default_cfg.provider)) if default_cfg else "gpt-4o"
+
+    all_msgs = [{"role": m.role, "content": m.content} for m in thread.messages]
+    token_count = count_message_tokens(all_msgs, model)
+    if token_count <= int(ctx_window * _COMPACTION_THRESHOLD):
+        return
+
+    from app.core.tasks import create_background_task
+
+    thread_id = str(thread.id)
+
+    async def _run_compaction():
+        from app.modules.llm.services.llm_service_factory import create_llm_service
+        from app.modules.llm.workers.compaction_worker import compact_thread
+
+        try:
+            llm = await create_llm_service()
+            await compact_thread(thread_id, llm, ctx_window)
+        except Exception as e:
+            logger.error("compaction_trigger_failed", thread_id=thread_id, error=str(e))
+
+    create_background_task(_run_compaction(), name=f"compact-{thread_id}")
 
 
 def _make_tool_notifier(stream_id: str | None):
@@ -1663,6 +1706,9 @@ async def global_chat(
     # Store assistant reply (with tool_calls + thinking metadata if MCP tools were used)
     thread.add_message("assistant", reply, metadata=_agent_result_metadata(result))
     await thread.save()
+
+    # Check if compaction is needed (background task, non-blocking)
+    await _maybe_trigger_compaction(thread)
 
     return GlobalChatResponse(
         reply=reply,
