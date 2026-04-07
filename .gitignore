@@ -1,9 +1,11 @@
-# IDE / Editor
+# IDE / Editor / AI artifacts
 .claude/
 .vscode/
 .idea/
 .angular/
 .superpowers/
+.github/
+docs/superpowers/
 # Python bytecode
 __pycache__/
 *.py[cod]
