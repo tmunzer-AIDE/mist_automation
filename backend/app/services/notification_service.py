@@ -212,7 +212,8 @@ class NotificationService:
 
         except httpx.HTTPError as e:
             logger.error("slack_notification_failed", error=str(e))
-            raise NotificationError(f"Failed to send Slack notification: {str(e)}")
+            status_hint = f" (HTTP {e.response.status_code})" if hasattr(e, "response") and e.response is not None else ""
+            raise NotificationError(f"Failed to send Slack notification{status_hint}") from e
 
     async def send_servicenow_notification(
         self,
@@ -301,7 +302,8 @@ class NotificationService:
 
         except httpx.HTTPError as e:
             logger.error("servicenow_notification_failed", error=str(e))
-            raise NotificationError(f"Failed to create ServiceNow record: {str(e)}")
+            status_hint = f" (HTTP {e.response.status_code})" if hasattr(e, "response") and e.response is not None else ""
+            raise NotificationError(f"Failed to create ServiceNow record{status_hint}") from e
 
     async def send_pagerduty_alert(
         self,
@@ -380,7 +382,8 @@ class NotificationService:
 
         except httpx.HTTPError as e:
             logger.error("pagerduty_alert_failed", error=str(e))
-            raise NotificationError(f"Failed to send PagerDuty alert: {str(e)}")
+            status_hint = f" (HTTP {e.response.status_code})" if hasattr(e, "response") and e.response is not None else ""
+            raise NotificationError(f"Failed to send PagerDuty alert{status_hint}") from e
 
     async def send_webhook(
         self,
@@ -438,7 +441,8 @@ class NotificationService:
 
         except httpx.HTTPError as e:
             logger.error("webhook_failed", url=url, error=str(e))
-            raise NotificationError(f"Failed to send webhook: {str(e)}")
+            status_hint = f" (HTTP {e.response.status_code})" if hasattr(e, "response") and e.response is not None else ""
+            raise NotificationError(f"Failed to send webhook{status_hint}") from e
 
     async def send_email(
         self,
@@ -540,7 +544,7 @@ class NotificationService:
 
         except Exception as e:
             logger.error("template_rendering_failed", error=str(e))
-            raise NotificationError(f"Failed to render template: {str(e)}")
+            raise NotificationError("Failed to render template") from e
 
     async def test_slack_connection(self, webhook_url: str | None = None) -> tuple[bool, str | None]:
         """

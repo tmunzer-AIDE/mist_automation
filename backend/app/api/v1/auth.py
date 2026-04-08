@@ -6,6 +6,7 @@ import random
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -60,10 +61,86 @@ def _user_to_response(user: User) -> UserResponse:
     return user_to_response(user)
 
 
-# ── In-memory rate limiter for login ──────────────────────────────────────────
-_login_attempts: dict[str, list[float]] = defaultdict(list)
+# ── Redis-backed rate limiter for login ───────────────────────────────────────
 _RATE_LIMIT_WINDOW = 300  # 5 minutes
 _RATE_LIMIT_MAX = 5  # max attempts per window
+
+# In-memory fallback used when Redis is unavailable (e.g. tests)
+_login_attempts_fallback: dict[str, list[float]] = defaultdict(list)
+
+_redis_client: Any | None = None
+
+
+async def _get_redis():
+    """Return a shared async Redis client, or None if unavailable."""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    try:
+        from redis.asyncio import from_url
+
+        client = from_url(settings.redis_url, decode_responses=True)
+        await client.ping()
+        _redis_client = client
+        return _redis_client
+    except Exception:
+        return None
+
+
+async def _check_login_rate_limit(key: str) -> None:
+    """Raise 429 if the key has exceeded the login rate limit.
+
+    Uses a Redis sorted-set sliding window so the limit is shared across all
+    worker processes.  Falls back to an in-memory dict when Redis is not
+    reachable (development / testing).
+    """
+    redis = await _get_redis()
+
+    if redis is not None:
+        import time as _time
+
+        now = _time.time()
+        window_start = now - _RATE_LIMIT_WINDOW
+        r_key = f"login_attempts:{key}"
+        try:
+            pipe = redis.pipeline()
+            pipe.zremrangebyscore(r_key, 0, window_start)
+            pipe.zadd(r_key, {str(now): now})
+            pipe.zcount(r_key, window_start, "+inf")
+            pipe.expire(r_key, _RATE_LIMIT_WINDOW)
+            results = await pipe.execute()
+            count = results[2]
+            if count > _RATE_LIMIT_MAX:
+                logger.warning("login_rate_limited", key=key)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many login attempts. Please try again later.",
+                )
+            return
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # Redis error — fall through to in-memory fallback
+
+    # ── In-memory fallback ────────────────────────────────────────────────────
+    now = time.monotonic()
+    recent = [t for t in _login_attempts_fallback[key] if now - t < _RATE_LIMIT_WINDOW]
+    if not recent:
+        _login_attempts_fallback.pop(key, None)
+    else:
+        _login_attempts_fallback[key] = recent
+    if len(recent) >= _RATE_LIMIT_MAX:
+        logger.warning("login_rate_limited", key=key)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+        )
+    _login_attempts_fallback[key].append(now)
+
+    if random.random() < 0.01:
+        stale = [k for k, v in _login_attempts_fallback.items() if now - v[-1] > _RATE_LIMIT_WINDOW]
+        for k in stale:
+            del _login_attempts_fallback[k]
 
 
 def _require_passkey_support():
@@ -84,29 +161,6 @@ async def _get_passkey_service():
     )
 
 
-def _check_login_rate_limit(key: str) -> None:
-    """Raise 429 if the key has exceeded the login rate limit."""
-    now = time.monotonic()
-    # Prune old entries
-    recent = [t for t in _login_attempts[key] if now - t < _RATE_LIMIT_WINDOW]
-    if not recent:
-        # Remove empty keys to prevent unbounded dict growth
-        _login_attempts.pop(key, None)
-    else:
-        _login_attempts[key] = recent
-    if len(recent) >= _RATE_LIMIT_MAX:
-        logger.warning("login_rate_limited", key=key)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts. Please try again later.",
-        )
-    _login_attempts[key].append(now)
-
-    # Probabilistic cleanup of stale entries to prevent memory leak
-    if random.random() < 0.01:
-        stale_keys = [k for k, v in _login_attempts.items() if now - v[-1] > _RATE_LIMIT_WINDOW]
-        for k in stale_keys:
-            del _login_attempts[k]
 
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["Authentication"])
@@ -116,7 +170,7 @@ async def login(request: Request, login_data: LoginRequest):
     """
     # Rate limit by IP + email
     ip = request.client.host if request.client else "unknown"
-    _check_login_rate_limit(f"{ip}:{login_data.email}")
+    await _check_login_rate_limit(f"{ip}:{login_data.email}")
 
     # Find user by email
     user = await User.find_one(User.email == login_data.email)
@@ -494,7 +548,7 @@ async def passkey_register_complete(
 async def passkey_login_begin(request: Request):
     """Begin passkey authentication — returns challenge options (no auth required)."""
     ip = request.client.host if request.client else "unknown"
-    _check_login_rate_limit(f"{ip}:passkey")
+    await _check_login_rate_limit(f"{ip}:passkey")
 
     service = await _get_passkey_service()
     session_id, options = await service.generate_authentication_options()
@@ -511,7 +565,7 @@ async def passkey_login_complete(request: Request, data: PasskeyLoginCompleteReq
     import json as json_mod
 
     ip = request.client.host if request.client else "unknown"
-    _check_login_rate_limit(f"{ip}:passkey")
+    await _check_login_rate_limit(f"{ip}:passkey")
 
     # Extract credential_id from the assertion to find the user
     try:
