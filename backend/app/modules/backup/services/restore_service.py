@@ -13,6 +13,21 @@ from app.core.exceptions import RestoreError, NotFoundError, ValidationError
 
 logger = structlog.get_logger(__name__)
 
+# Singleton object types — API path differs from stored object_type key.
+# These use singular endpoints with no object_id in the URL.
+_SINGLETON_ENDPOINTS: dict[str, dict[str, str]] = {
+    "settings": {
+        "site": "/api/v1/sites/{site_id}/setting",
+        "org": "/api/v1/orgs/{org_id}/setting",
+    },
+    "info": {
+        "site": "/api/v1/sites/{site_id}",
+    },
+    "data": {
+        "org": "/api/v1/orgs/{org_id}",
+    },
+}
+
 
 # ── Helpers for nested config field access ────────────────────────────────────
 
@@ -709,11 +724,8 @@ class RestoreService:
                 object_id,
                 config,
             )
-        elif backup.site_id:
-            endpoint = f"/api/v1/sites/{backup.site_id}/{object_type}/{object_id}"
-            result = await self.mist_service.api_put(endpoint, config)
         else:
-            endpoint = f"/api/v1/orgs/{backup.org_id}/{object_type}/{object_id}"
+            endpoint = self._build_endpoint(object_type, object_id, backup.site_id, backup.org_id)
             result = await self.mist_service.api_put(endpoint, config)
 
         return result
@@ -889,11 +901,10 @@ class RestoreService:
                 child_object_id,
                 put_config,
             )
-        elif child_site_id:
-            endpoint = f"/api/v1/sites/{child_site_id}/{child_object_type}/{child_object_id}"
-            result = await self.mist_service.api_put(endpoint, put_config)
         else:
-            endpoint = f"/api/v1/orgs/{parent_backup.org_id}/{child_object_type}/{child_object_id}"
+            endpoint = self._build_endpoint(
+                child_object_type, child_object_id, child_site_id, parent_backup.org_id
+            )
             result = await self.mist_service.api_put(endpoint, put_config)
 
         # 4. Create a backup record for the updated child
@@ -1048,6 +1059,28 @@ class RestoreService:
 
         return config
 
+    def _build_endpoint(
+        self,
+        object_type: str,
+        object_id: str,
+        site_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+    ) -> str:
+        """Build the correct Mist API endpoint, handling singleton types."""
+        singleton = _SINGLETON_ENDPOINTS.get(object_type)
+        if singleton:
+            scope = "site" if site_id else "org"
+            template = singleton.get(scope)
+            if template:
+                return template.format(
+                    site_id=site_id,
+                    org_id=org_id or self.mist_service.org_id,
+                )
+
+        if site_id:
+            return f"/api/v1/sites/{site_id}/{object_type}/{object_id}"
+        return f"/api/v1/orgs/{org_id or self.mist_service.org_id}/{object_type}/{object_id}"
+
     async def _fetch_current_config(
         self,
         object_type: str,
@@ -1055,11 +1088,7 @@ class RestoreService:
         site_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Fetch current configuration from Mist."""
-        if site_id:
-            endpoint = f"/api/v1/sites/{site_id}/{object_type}/{object_id}"
-        else:
-            endpoint = f"/api/v1/orgs/{self.mist_service.org_id}/{object_type}/{object_id}"
-
+        endpoint = self._build_endpoint(object_type, object_id, site_id)
         return await self.mist_service.api_get(endpoint)
 
     def _find_differences(

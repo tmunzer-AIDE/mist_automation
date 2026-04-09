@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npx ng build --deploy-url static/
 
 # Stage 2: Python runtime
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 WORKDIR /app
 
 # Install system dependencies
