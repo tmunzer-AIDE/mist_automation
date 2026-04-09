@@ -28,9 +28,11 @@ ifeq ($(VERSION),)
 endif
 	@echo "Updating version to $(VERSION)..."
 	sed -i '' 's/^version = ".*"/version = "$(VERSION)"/' $(BACKEND_DIR)/pyproject.toml
-	sed -i '' 's/"version": ".*"/"version": "$(VERSION)"/' $(FRONTEND_DIR)/package.json
+	sed -i '' 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' $(BACKEND_DIR)/app/__init__.py
+	cd $(FRONTEND_DIR) && npm version $(VERSION) --no-git-tag-version --allow-same-version
 	sed -i '' 's/^version: .*/version: $(VERSION)/' helm/mist-automation/Chart.yaml
 	sed -i '' 's/^appVersion: .*/appVersion: "$(VERSION)"/' helm/mist-automation/Chart.yaml
+	sed -i '' 's/^  version: ".*"/  version: "$(VERSION)"/' helm/mist-automation/values.yaml
 	@echo "Version updated to $(VERSION) in all files."
 
 # Push both tags to Docker Hub (requires VERSION parameter)
