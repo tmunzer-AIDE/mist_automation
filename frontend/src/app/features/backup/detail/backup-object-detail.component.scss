@@ -51,7 +51,7 @@
 
 .filter-count { font-weight: 700; font-size: 11px; padding: 0 5px; border-radius: 8px; background: rgba(0, 0, 0, 0.06); line-height: 18px; }
 
-.diff-list { display: flex; flex-direction: column; gap: 4px; max-height: 600px; overflow-y: auto; scrollbar-width: thin; }
+.diff-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; scrollbar-width: thin; }
 
 .diff-group {
   border: 1px solid var(--mat-sys-outline-variant);

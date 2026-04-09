@@ -12,6 +12,61 @@
 }
 
 @if (!loading() && latestVersion(); as latestVersion) {
+  <!-- ── Object Information Card ──────────────────────────────────────── -->
+  <mat-card class="info-card">
+    <mat-card-header>
+      <mat-card-title>Object Information</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Name</span>
+          <span class="info-value">{{ latestVersion.object_name || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Type</span>
+          <code class="info-value">{{ latestVersion.object_type }}</code>
+        </div>
+        <div class="info-item">
+          <span class="info-label">UUID</span>
+          <code class="info-value uuid">{{ objectId }}</code>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Status</span>
+          <app-status-badge
+            [status]="latestVersion.is_deleted ? 'deleted' : 'active'"
+          ></app-status-badge>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Scope</span>
+          <span class="info-value">{{ latestVersion.site_id ? 'Site' : 'Organization' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Total Versions</span>
+          <span class="info-value">{{ versions().length }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">First Created</span>
+          <span class="info-value">
+            {{ oldestVersion()?.backed_up_at | dateTime }}
+            @if (oldestVersion() && oldestVersion()!.backed_up_by) {
+              <span class="info-meta">by {{ oldestVersion()!.backed_up_by }}</span>
+            }
+          </span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Last Modified</span>
+          <span class="info-value">
+            {{ latestVersion.backed_up_at | dateTime }}
+            @if (latestVersion.backed_up_by) {
+              <span class="info-meta">by {{ latestVersion.backed_up_by }}</span>
+            }
+          </span>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
   <!-- ── Compare Mode ───────────────────────────────────────────────── -->
   @if (compareMode()) {
     <section class="compare-section">
@@ -178,61 +233,6 @@
     </section>
   }
 
-  <!-- ── Object Information Card ──────────────────────────────────────── -->
-  <mat-card class="info-card">
-    <mat-card-header>
-      <mat-card-title>Object Information</mat-card-title>
-    </mat-card-header>
-    <mat-card-content>
-      <div class="info-grid">
-        <div class="info-item">
-          <span class="info-label">Name</span>
-          <span class="info-value">{{ latestVersion.object_name || '—' }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Type</span>
-          <code class="info-value">{{ latestVersion.object_type }}</code>
-        </div>
-        <div class="info-item">
-          <span class="info-label">UUID</span>
-          <code class="info-value uuid">{{ objectId }}</code>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Status</span>
-          <app-status-badge
-            [status]="latestVersion.is_deleted ? 'deleted' : 'active'"
-          ></app-status-badge>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Scope</span>
-          <span class="info-value">{{ latestVersion.site_id ? 'Site' : 'Organization' }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Total Versions</span>
-          <span class="info-value">{{ versions().length }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">First Created</span>
-          <span class="info-value">
-            {{ oldestVersion()?.backed_up_at | dateTime }}
-            @if (oldestVersion() && oldestVersion()!.backed_up_by) {
-              <span class="info-meta">by {{ oldestVersion()!.backed_up_by }}</span>
-            }
-          </span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Last Modified</span>
-          <span class="info-value">
-            {{ latestVersion.backed_up_at | dateTime }}
-            @if (latestVersion.backed_up_by) {
-              <span class="info-meta">by {{ latestVersion.backed_up_by }}</span>
-            }
-          </span>
-        </div>
-      </div>
-    </mat-card-content>
-  </mat-card>
-
   <!-- ── References ─────────────────────────────────────────────────── -->
   @if (dependencies(); as dependencies) {
     @if (dependencies.parents.length > 0 || dependencies.children.length > 0) {
@@ -369,7 +369,7 @@
           <th mat-header-cell *matHeaderCellDef></th>
           <td mat-cell *matCellDef="let v">
             <div class="inline-actions">
-              @if (v.event_type && (v.event_type === 'created' || v.event_type === 'updated')) {
+              @if (v.event_type && (v.event_type === 'created' || v.event_type === 'updated' || v.event_type === 'full_backup')) {
                 <button
                   mat-icon-button
                   matTooltip="View JSON"
