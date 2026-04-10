@@ -1336,10 +1336,12 @@ class WorkflowExecutor:
             raise WorkflowExecutionError("LLM module is required for ai_agent nodes but is not available") from e
 
         config = node.config
-        from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
+        from app.modules.llm.services.prompt_builders import _sanitize_for_prompt, build_datetime_context
 
         task = _sanitize_for_prompt(self._render_template(config.get("agent_task", "")), max_len=4000)
         system_prompt = _sanitize_for_prompt(self._render_template(config.get("agent_system_prompt", "")), max_len=2000)
+        datetime_ctx = build_datetime_context()
+        system_prompt = f"{datetime_ctx}\n\n{system_prompt}" if system_prompt else datetime_ctx
         max_iterations = min(int(config.get("max_iterations", 10)), 25)
 
         if not task:
@@ -1691,7 +1693,9 @@ class WorkflowExecutor:
             )
         except Exception as e:
             execution.add_log(f"Sub-flow '{target_workflow.name}' failed: {_sanitize_execution_error(e)}", "error")
-            raise WorkflowExecutionError(f"Sub-flow '{target_workflow.name}' execution failed: {_sanitize_execution_error(e)}") from e
+            raise WorkflowExecutionError(
+                f"Sub-flow '{target_workflow.name}' execution failed: {_sanitize_execution_error(e)}"
+            ) from e
 
         # Link child execution to parent
         execution.child_execution_ids.append(child_execution.id)

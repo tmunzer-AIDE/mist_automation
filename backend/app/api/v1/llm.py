@@ -844,6 +844,7 @@ async def summarize_backup_change(
         version_id_1=request.version_id_1,
         version_id_2=request.version_id_2,
         object_id=ctx.get("object_id", ""),
+        tz_name=current_user.timezone,
     )
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
@@ -1385,7 +1386,7 @@ async def summarize_webhook_events(
     llm = await create_llm_service()
     events_summary, event_count = await get_webhook_summary_context(hours=request.hours)
 
-    prompt_messages = build_webhook_summary_prompt(events_summary, request.hours)
+    prompt_messages = build_webhook_summary_prompt(events_summary, request.hours, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
@@ -1428,7 +1429,7 @@ async def summarize_dashboard(
     llm = await create_llm_service()
     context = await get_dashboard_summary_context()
 
-    prompt_messages = build_dashboard_summary_prompt(context)
+    prompt_messages = build_dashboard_summary_prompt(context, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
@@ -1482,7 +1483,7 @@ async def summarize_audit_logs(
         "start_date": request.start_date,
         "end_date": request.end_date,
     }
-    prompt_messages = build_audit_log_summary_prompt(context, filters)
+    prompt_messages = build_audit_log_summary_prompt(context, filters, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
@@ -1529,7 +1530,7 @@ async def summarize_system_logs(
     )
 
     filters = {"level": request.level, "logger": request.logger}
-    prompt_messages = build_system_log_summary_prompt(context, filters)
+    prompt_messages = build_system_log_summary_prompt(context, filters, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
@@ -1577,7 +1578,7 @@ async def summarize_backups(
     )
 
     filters = {"object_type": request.object_type, "site_id": request.site_id, "scope": request.scope}
-    prompt_messages = build_backup_list_summary_prompt(context, filters)
+    prompt_messages = build_backup_list_summary_prompt(context, filters, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr and prompt_messages and prompt_messages[0]["role"] == "system":
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
@@ -1625,7 +1626,7 @@ async def global_chat(
 
     llm = await create_llm_service()
     skills_catalog = await build_skills_catalog()
-    system_prompt = build_global_chat_system_prompt(current_user.roles)
+    system_prompt = build_global_chat_system_prompt(current_user.roles, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr:
         system_prompt += "\n\n" + canvas_instr
@@ -1653,7 +1654,7 @@ async def global_chat(
     elif safe_ctx:
         # Update system prompt with latest page context for existing threads
         if thread.messages and thread.messages[0].role == "system":
-            base_prompt = build_global_chat_system_prompt(current_user.roles)
+            base_prompt = build_global_chat_system_prompt(current_user.roles, tz_name=current_user.timezone)
             if canvas_instr:
                 base_prompt += "\n\n" + canvas_instr
             if skills_catalog:

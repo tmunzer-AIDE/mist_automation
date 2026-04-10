@@ -6,6 +6,19 @@ Each function returns a list of LLMMessage dicts (role + content) and is pure
 """
 
 import json
+import zoneinfo
+from datetime import datetime, timezone
+
+
+def build_datetime_context(tz_name: str = "UTC") -> str:
+    """Build a short datetime string for LLM temporal awareness."""
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except (KeyError, Exception):
+        tz = timezone.utc
+        tz_name = "UTC"
+    now = datetime.now(tz)
+    return f"Current date/time: {now.strftime('%A, %Y-%m-%d %H:%M %Z')} ({tz_name})"
 
 
 def _sanitize_for_prompt(value: str, max_len: int = 200) -> str:
@@ -34,6 +47,7 @@ def build_backup_summary_prompt(
     version_id_1: str = "",
     version_id_2: str = "",
     object_id: str = "",
+    tz_name: str = "UTC",
 ) -> list[dict[str, str]]:
     """Build prompt for backup change summarization with MCP tool context."""
     context_lines = ""
@@ -48,7 +62,7 @@ def build_backup_summary_prompt(
         )
 
     system = (
-        "You are a network configuration analyst for Juniper Mist. "
+        build_datetime_context(tz_name) + "\n\n" + "You are a network configuration analyst for Juniper Mist. "
         "Summarize configuration changes concisely and explain their operational impact. "
         "Focus on what changed, why it might matter, and any risks. "
         "Use short paragraphs. Do not repeat the raw diff data — interpret it." + context_lines
@@ -132,13 +146,13 @@ def build_memory_instruction() -> str:
     )
 
 
-def build_global_chat_system_prompt(user_roles: list[str]) -> str:
+def build_global_chat_system_prompt(user_roles: list[str], tz_name: str = "UTC") -> str:
     """Build system prompt for the global chat with MCP tools."""
     # Only allow known role names to prevent prompt injection via custom roles
     safe_roles = [r for r in user_roles if r in _KNOWN_ROLES] if user_roles else []
     roles = ", ".join(safe_roles) if safe_roles else "none"
     return (
-        "You are an assistant for the Mist Automation Platform platform. "
+        build_datetime_context(tz_name) + "\n\n" + "You are an assistant for the Mist Automation Platform platform. "
         "You can query backups, workflows, executions, webhook events, reports, and system stats. "
         f"The current user has roles: {roles}. "
         "Use the available tools to look up data before answering. "
@@ -380,10 +394,11 @@ def build_debug_prompt(
 def build_webhook_summary_prompt(
     events_summary: str,
     time_range_hours: int,
+    tz_name: str = "UTC",
 ) -> list[dict[str, str]]:
     """Build prompt for summarizing recent webhook events."""
     system = (
-        "You are a Juniper Mist network operations analyst. "
+        build_datetime_context(tz_name) + "\n\n" + "You are a Juniper Mist network operations analyst. "
         "Summarize the recent webhook events: highlight patterns, anomalies, "
         "devices with repeated issues, and anything that needs attention. "
         "Be concise — use bullet points grouped by topic."
@@ -397,10 +412,10 @@ def build_webhook_summary_prompt(
     ]
 
 
-def build_dashboard_summary_prompt(context: str) -> list[dict[str, str]]:
+def build_dashboard_summary_prompt(context: str, tz_name: str = "UTC") -> list[dict[str, str]]:
     """Build prompt for dashboard state summarization."""
     system = (
-        "You are a Juniper Mist network operations analyst. "
+        build_datetime_context(tz_name) + "\n\n" + "You are a Juniper Mist network operations analyst. "
         "Summarize the current system state: highlight failures, anomalies, "
         "active incidents, and anything that needs attention. "
         "Be concise — use bullet points grouped by priority."
@@ -412,11 +427,13 @@ def build_dashboard_summary_prompt(context: str) -> list[dict[str, str]]:
     ]
 
 
-def build_audit_log_summary_prompt(context: str, filters: dict) -> list[dict[str, str]]:
+def build_audit_log_summary_prompt(context: str, filters: dict, tz_name: str = "UTC") -> list[dict[str, str]]:
     """Build prompt for audit log summarization."""
     filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items() if v) or "last 24 hours"
     system = (
-        "You are a security and operations analyst for a Juniper Mist automation platform. "
+        build_datetime_context(tz_name)
+        + "\n\n"
+        + "You are a security and operations analyst for a Juniper Mist automation platform. "
         "Analyze these audit logs. Identify patterns, anomalies, security concerns, "
         "suspicious activity, and notable operational events. "
         "Be concise — use bullet points grouped by category."
@@ -428,11 +445,13 @@ def build_audit_log_summary_prompt(context: str, filters: dict) -> list[dict[str
     ]
 
 
-def build_system_log_summary_prompt(context: str, filters: dict) -> list[dict[str, str]]:
+def build_system_log_summary_prompt(context: str, filters: dict, tz_name: str = "UTC") -> list[dict[str, str]]:
     """Build prompt for system log summarization."""
     filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items() if v) or "all recent logs"
     system = (
-        "You are a systems engineer analyzing application logs for a Juniper Mist automation platform. "
+        build_datetime_context(tz_name)
+        + "\n\n"
+        + "You are a systems engineer analyzing application logs for a Juniper Mist automation platform. "
         "Identify error patterns, recurring issues, performance concerns, and anything requiring attention. "
         "Be concise — use bullet points grouped by severity."
     )
@@ -443,11 +462,13 @@ def build_system_log_summary_prompt(context: str, filters: dict) -> list[dict[st
     ]
 
 
-def build_backup_list_summary_prompt(context: str, filters: dict) -> list[dict[str, str]]:
+def build_backup_list_summary_prompt(context: str, filters: dict, tz_name: str = "UTC") -> list[dict[str, str]]:
     """Build prompt for backup health and change activity summarization."""
     filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items() if v) or "all objects"
     system = (
-        "You are a network configuration analyst for a Juniper Mist automation platform. "
+        build_datetime_context(tz_name)
+        + "\n\n"
+        + "You are a network configuration analyst for a Juniper Mist automation platform. "
         "Analyze backup health and change activity. Identify objects with stale backups, "
         "repeated job failures, unusual change patterns, and overall backup coverage gaps. "
         "Be concise — use bullet points grouped by concern."
