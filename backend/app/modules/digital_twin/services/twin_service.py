@@ -94,6 +94,16 @@ async def simulate(
     base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
     virtual_state = apply_staged_writes(base_state, staged_writes)
 
+    # Compile effective device configs (template inheritance + variable resolution)
+    from app.modules.digital_twin.services.config_compiler import compile_virtual_state
+
+    virtual_state, all_impacted_sites = await compile_virtual_state(
+        virtual_state, staged_writes, org_id
+    )
+    # Expand affected_sites with template-impacted sites
+    affected_sites = sorted(all_impacted_sites | set(affected_sites))
+    session.affected_sites = affected_sites
+
     session.base_snapshot_refs = refs
     session.live_fetched_at = datetime.now(timezone.utc)
 
