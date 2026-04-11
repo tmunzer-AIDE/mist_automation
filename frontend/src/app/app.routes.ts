@@ -67,6 +67,11 @@ export const routes: Routes = [
         loadChildren: () => import('./features/power-scheduling/power-scheduling.routes'),
       },
       {
+        path: 'digital-twin',
+        loadChildren: () => import('./features/digital-twin/digital-twin.routes'),
+        canActivate: [adminGuard],
+      },
+      {
         path: 'about',
         loadComponent: () => import('./features/about/about.component').then((m) => m.AboutComponent),
       },

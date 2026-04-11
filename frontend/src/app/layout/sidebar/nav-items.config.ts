@@ -12,6 +12,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Backups', icon: 'backup', route: '/backup' },
   { label: 'Reports', icon: 'assessment', route: '/reports', roles: ['post_deployment', 'admin'] },
   { label: 'Impact Analysis', icon: 'analytics', route: '/impact-analysis', roles: ['impact_analysis', 'admin'], },
+  { label: 'Digital Twin', icon: 'science', route: '/digital-twin', roles: ['admin'] },
   {
     label: 'Power Scheduling',
     icon: 'power_settings_new',
