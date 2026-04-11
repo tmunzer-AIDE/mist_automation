@@ -231,45 +231,71 @@ def _extract_lldp_from_stats(device_stats: dict[str, Any]) -> dict[str, str]:
     return neighbors
 
 
-async def _get_lldp_neighbors_for_device(site_id: str, device_mac: str, device_id: str = "") -> dict[str, str]:
-    """Get LLDP neighbors for a device. Tries telemetry cache first, falls back to Mist API.
+async def _fetch_lldp_neighbors_batch(
+    org_id: str,
+    device_macs: set[str],
+) -> dict[str, dict[str, str]]:
+    """Fetch LLDP neighbors for multiple devices. Tries telemetry cache first, falls back to Mist API.
 
-    The Mist WS payload and site-level REST stats often strip `clients[]`.
-    Fallback uses `getSiteDeviceStats` (single device) which includes LLDP data.
+    Returns dict mapping device_mac -> {port_id -> neighbor_mac}.
 
-    Returns dict mapping port_id -> neighbor_mac.
+    The Mist WS payload and site-level REST stats strip ``clients[]``.
+    Fallback uses ``listOrgDevicesStats(mac=..., fields="*")`` (single org-level
+    call for all devices) which includes the full ``clients[]`` with LLDP data.
     """
-    # 1. Try telemetry cache (fast, no API call)
+    if not device_macs:
+        return {}
+
+    result: dict[str, dict[str, str]] = {}
+    remaining_macs: set[str] = set()
+
+    # 1. Try telemetry cache first (fast, no API call)
     try:
         from app.modules.telemetry import _latest_cache
 
         if _latest_cache is not None:
-            for stats in _latest_cache.get_all_for_site(site_id, max_age_seconds=120):
-                if stats.get("mac") == device_mac:
+            for mac in device_macs:
+                stats = _latest_cache.get(mac)
+                if stats:
                     neighbors = _extract_lldp_from_stats(stats)
                     if neighbors:
-                        return neighbors
-                    break  # Found device but no LLDP data — fall through to API
+                        result[mac] = neighbors
+                        continue
+                remaining_macs.add(mac)
+        else:
+            remaining_macs = set(device_macs)
     except Exception:
-        pass
+        remaining_macs = set(device_macs)
 
-    # 2. Fallback: fetch from Mist API (single device stats includes clients[])
-    if device_id and site_id:
+    # 2. Fallback: one org-level API call with mac filter + fields=*
+    if remaining_macs:
         try:
             import mistapi
 
             from app.services.mist_service_factory import create_mist_service
 
             mist = await create_mist_service()
-            from mistapi.api.v1.sites import stats as site_stats
+            from mistapi.api.v1.orgs import stats as org_stats
 
-            resp = await mistapi.arun(site_stats.getSiteDeviceStats, mist.session, site_id, device_id)
-            if resp and hasattr(resp, "data") and isinstance(resp.data, dict):
-                return _extract_lldp_from_stats(resp.data)
+            mac_filter = ",".join(sorted(remaining_macs))
+            resp = await mistapi.arun(
+                org_stats.listOrgDevicesStats,
+                mist.session,
+                org_id,
+                mac=mac_filter,
+                fields="*",
+            )
+            if resp and hasattr(resp, "data") and isinstance(resp.data, list):
+                for device_stats in resp.data:
+                    mac = device_stats.get("mac", "")
+                    if mac:
+                        neighbors = _extract_lldp_from_stats(device_stats)
+                        if neighbors:
+                            result[mac] = neighbors
         except Exception as e:
-            logger.debug("lldp_api_fallback_failed", device_id=device_id, error=str(e))
+            logger.debug("lldp_batch_api_fallback_failed", macs=len(remaining_macs), error=str(e))
 
-    return {}
+    return result
 
 
 _SEVERITY_ORDER = {"pass": 0, "skipped": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
@@ -572,10 +598,24 @@ async def run_layer1_checks(
     else:
         results.append(CheckResult(check_id="L1-10", check_name="DNS/NTP Consistency", layer=1, status="skipped", summary="Not relevant for this change type"))
 
-    # ── Per-write comparison checks (L1-12, L1-13, L1-14) ─────────────
+    # ── Per-write comparison checks (L1-12, L1-13, L1-14, L1-15) ──────
     # Try to load live client/device stats from telemetry cache
     client_cache = _get_client_cache()
     device_cache = _get_device_cache()
+
+    # Pre-fetch LLDP neighbors for all affected devices in one API call
+    device_macs_for_lldp: set[str] = set()
+    for w in staged_writes:
+        if w.object_type == "devices" and w.method == "PUT" and w.object_id:
+            # Load MAC from backup to build the batch query
+            _bk = (
+                await BackupObject.find({"object_type": "devices", "object_id": w.object_id, "is_deleted": False})
+                .sort([("version", -1)])
+                .first_or_none()
+            )
+            if _bk and _bk.configuration.get("mac"):
+                device_macs_for_lldp.add(_bk.configuration["mac"])
+    lldp_batch = await _fetch_lldp_neighbors_batch(org_id, device_macs_for_lldp)
 
     for w in staged_writes:
         if w.method != "PUT" or not w.object_id:
@@ -623,9 +663,7 @@ async def run_layer1_checks(
         elif w.object_type == "devices":
             device_mac = old_config.get("mac", "")
             device_name = old_config.get("name", device_mac or "unknown")
-            lldp_neighbors = await _get_lldp_neighbors_for_device(
-                w.site_id or "", device_mac, device_id=w.object_id or ""
-            )
+            lldp_neighbors = lldp_batch.get(device_mac, {})
 
             # Compile old_config with derived site setting so it has the full
             # inherited port_config (backup stores raw overrides only).
