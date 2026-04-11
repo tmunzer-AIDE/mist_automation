@@ -174,17 +174,29 @@ class TestSkillsToolValidation:
 
 @pytest.mark.unit
 class TestDigitalTwinValidation:
+    CONFIG_ORG = "8aa21779-1178-4357-b3e0-42c02b93b870"
+    ENV_ORG = "3699b3fd-1b63-49f3-98ac-b8502a047b2e"
+
+    def test_prefers_explicit_org_id(self):
+        explicit = "2818e386-8dec-2562-9ede-5b8a0fbbdc71"
+        resolved = resolve_twin_org_id(explicit, self.CONFIG_ORG, self.ENV_ORG)
+        assert resolved == explicit
+
     def test_prefers_system_config_org_id(self):
-        resolved = resolve_twin_org_id("org-from-config", "org-from-env")
-        assert resolved == "org-from-config"
+        resolved = resolve_twin_org_id("", self.CONFIG_ORG, self.ENV_ORG)
+        assert resolved == self.CONFIG_ORG
 
     def test_falls_back_to_env_org_id(self):
-        resolved = resolve_twin_org_id("", "org-from-env")
-        assert resolved == "org-from-env"
+        resolved = resolve_twin_org_id("", "", self.ENV_ORG)
+        assert resolved == self.ENV_ORG
+
+    def test_rejects_invalid_explicit_org_id(self):
+        with pytest.raises(ToolError, match="must be a valid UUID"):
+            resolve_twin_org_id("my-org", self.CONFIG_ORG, self.ENV_ORG)
 
     def test_rejects_missing_org_id(self):
         with pytest.raises(ToolError, match="Mist Organization ID not configured"):
-            resolve_twin_org_id("", "")
+            resolve_twin_org_id("", "", "")
 
     def test_simulate_requires_writes(self):
         with pytest.raises(ToolError, match="No writes provided"):
@@ -196,6 +208,21 @@ class TestDigitalTwinValidation:
                 action="simulate",
                 writes=[{"method": "PUT", "endpoint": "/api/v1/sites/{site_id}/devices/x", "body": {}}],
                 session_id="",
+            )
+
+    def test_rejects_org_endpoint_mismatch(self):
+        with pytest.raises(ToolError, match="does not match resolved org_id"):
+            validate_twin(
+                action="simulate",
+                writes=[
+                    {
+                        "method": "PUT",
+                        "endpoint": "/api/v1/orgs/11111111-1111-1111-1111-111111111111/networks/22222222-2222-2222-2222-222222222222",
+                        "body": {"name": "x"},
+                    }
+                ],
+                session_id="",
+                resolved_org_id="33333333-3333-3333-3333-333333333333",
             )
 
     def test_approve_requires_session_id(self):
