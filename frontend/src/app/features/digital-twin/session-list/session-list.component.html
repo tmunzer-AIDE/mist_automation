@@ -1,0 +1,129 @@
+<!-- Filters toolbar -->
+<div class="filters-toolbar">
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="status-filter">
+    <mat-label>Status</mat-label>
+    <mat-select [formControl]="statusFilter" (selectionChange)="onStatusChange()">
+      <mat-option value="">All</mat-option>
+      @for (opt of statusOptions; track opt.value) {
+        <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="source-filter">
+    <mat-label>Source</mat-label>
+    <mat-select [formControl]="sourceFilter" (selectionChange)="onSourceChange()">
+      <mat-option value="">All</mat-option>
+      @for (opt of sourceOptions; track opt.value) {
+        <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search-field">
+    <mat-label>Search</mat-label>
+    <input matInput [formControl]="searchControl" placeholder="Search sessions…" />
+    <mat-icon matSuffix>search</mat-icon>
+  </mat-form-field>
+
+  <span class="spacer"></span>
+  <span class="total-count">{{ total() }} session{{ total() !== 1 ? 's' : '' }}</span>
+</div>
+
+@if (!loading() && sessions().length === 0) {
+  <app-empty-state
+    icon="science"
+    title="No digital twin sessions"
+    message="Sessions are created when configuration changes are simulated via LLM Chat, Workflows, or Backup Restore."
+  ></app-empty-state>
+} @else {
+  <div class="table-card">
+    @if (loading()) {
+      <app-skeleton-loader [rows]="8" [columns]="6"></app-skeleton-loader>
+    } @else {
+      <table mat-table [dataSource]="sessions()" class="mat-elevation-z0">
+        <!-- Status -->
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let row">
+            <app-status-badge [status]="row.status"></app-status-badge>
+          </td>
+        </ng-container>
+
+        <!-- Source -->
+        <ng-container matColumnDef="source">
+          <th mat-header-cell *matHeaderCellDef>Source</th>
+          <td mat-cell *matCellDef="let row">
+            <div class="source-label">{{ sourceLabel(row.source) }}</div>
+            @if (row.source_ref) {
+              <div
+                class="source-ref"
+                [matTooltip]="row.source_ref"
+                matTooltipShowDelay="400"
+              >
+                {{ row.source_ref }}
+              </div>
+            }
+          </td>
+        </ng-container>
+
+        <!-- Severity -->
+        <ng-container matColumnDef="severity">
+          <th mat-header-cell *matHeaderCellDef>Severity</th>
+          <td mat-cell *matCellDef="let row">
+            <span [class]="'severity-chip ' + severityClass(row.overall_severity)">
+              {{ severityLabel(row.overall_severity) }}
+            </span>
+          </td>
+        </ng-container>
+
+        <!-- Checks -->
+        <ng-container matColumnDef="checks">
+          <th mat-header-cell *matHeaderCellDef>Checks</th>
+          <td mat-cell *matCellDef="let row">
+            @if (row.prediction_report) {
+              <span>{{ row.prediction_report.passed }}/{{ row.prediction_report.total_checks }} passed</span>
+              @if (failedCount(row) > 0) {
+                <span class="failed-count">&nbsp;· {{ failedCount(row) }} failed</span>
+              }
+              @if (warnCount(row) > 0) {
+                <span class="warn-count">&nbsp;· {{ warnCount(row) }} warn</span>
+              }
+            } @else {
+              <span class="muted">—</span>
+            }
+          </td>
+        </ng-container>
+
+        <!-- Writes -->
+        <ng-container matColumnDef="writes">
+          <th mat-header-cell *matHeaderCellDef>Writes</th>
+          <td mat-cell *matCellDef="let row">{{ row.writes_count }}</td>
+        </ng-container>
+
+        <!-- Created At -->
+        <ng-container matColumnDef="created_at">
+          <th mat-header-cell *matHeaderCellDef>Created</th>
+          <td mat-cell *matCellDef="let row">{{ row.created_at | dateTime: 'short' }}</td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: displayedColumns"
+          class="clickable-row"
+          (click)="viewSession(row)"
+        ></tr>
+      </table>
+    }
+
+    <mat-paginator
+      [length]="total()"
+      [pageSize]="pageSize"
+      [pageIndex]="pageIndex"
+      [pageSizeOptions]="[25, 50, 100]"
+      showFirstLastButtons
+      (page)="onPage($event)"
+    ></mat-paginator>
+  </div>
+}
