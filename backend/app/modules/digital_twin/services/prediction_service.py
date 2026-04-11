@@ -219,29 +219,56 @@ def _extract_poe_data_from_cache(site_id: str) -> tuple[dict[str, float], dict[s
     return poe_budgets, active_poe_ports
 
 
-def _get_lldp_neighbors_for_device(site_id: str, device_mac: str) -> dict[str, str]:
-    """Get LLDP neighbors from telemetry cache for a specific device.
+def _extract_lldp_from_stats(device_stats: dict[str, Any]) -> dict[str, str]:
+    """Extract LLDP neighbor map from a device stats payload."""
+    neighbors: dict[str, str] = {}
+    for client in device_stats.get("clients", []):
+        if client.get("source") == "lldp":
+            port_id = client.get("port_id", "")
+            neighbor_mac = client.get("mac", "")
+            if port_id and neighbor_mac:
+                neighbors[port_id] = neighbor_mac
+    return neighbors
+
+
+async def _get_lldp_neighbors_for_device(site_id: str, device_mac: str, device_id: str = "") -> dict[str, str]:
+    """Get LLDP neighbors for a device. Tries telemetry cache first, falls back to Mist API.
+
+    The Mist WS payload and site-level REST stats often strip `clients[]`.
+    Fallback uses `getSiteDeviceStats` (single device) which includes LLDP data.
 
     Returns dict mapping port_id -> neighbor_mac.
     """
+    # 1. Try telemetry cache (fast, no API call)
     try:
         from app.modules.telemetry import _latest_cache
 
-        if _latest_cache is None:
-            return {}
-
-        for device_stats in _latest_cache.get_all_for_site(site_id, max_age_seconds=120):
-            if device_stats.get("mac") == device_mac:
-                neighbors: dict[str, str] = {}
-                for client in device_stats.get("clients", []):
-                    if client.get("source") == "lldp":
-                        port_id = client.get("port_id", "")
-                        neighbor_mac = client.get("mac", "")
-                        if port_id and neighbor_mac:
-                            neighbors[port_id] = neighbor_mac
-                return neighbors
+        if _latest_cache is not None:
+            for stats in _latest_cache.get_all_for_site(site_id, max_age_seconds=120):
+                if stats.get("mac") == device_mac:
+                    neighbors = _extract_lldp_from_stats(stats)
+                    if neighbors:
+                        return neighbors
+                    break  # Found device but no LLDP data — fall through to API
     except Exception:
         pass
+
+    # 2. Fallback: fetch from Mist API (single device stats includes clients[])
+    if device_id and site_id:
+        try:
+            import mistapi
+
+            from app.services.mist_service_factory import create_mist_service
+
+            mist = await create_mist_service()
+            from mistapi.api.v1.sites import stats as site_stats
+
+            resp = await mistapi.arun(site_stats.getSiteDeviceStats, mist.session, site_id, device_id)
+            if resp and hasattr(resp, "data") and isinstance(resp.data, dict):
+                return _extract_lldp_from_stats(resp.data)
+        except Exception as e:
+            logger.debug("lldp_api_fallback_failed", device_id=device_id, error=str(e))
+
     return {}
 
 
@@ -596,7 +623,9 @@ async def run_layer1_checks(
         elif w.object_type == "devices":
             device_mac = old_config.get("mac", "")
             device_name = old_config.get("name", device_mac or "unknown")
-            lldp_neighbors = _get_lldp_neighbors_for_device(w.site_id or "", device_mac)
+            lldp_neighbors = await _get_lldp_neighbors_for_device(
+                w.site_id or "", device_mac, device_id=w.object_id or ""
+            )
 
             # Compile old_config with derived site setting so it has the full
             # inherited port_config (backup stores raw overrides only).
