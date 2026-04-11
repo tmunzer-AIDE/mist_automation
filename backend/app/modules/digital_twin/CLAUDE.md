@@ -35,6 +35,8 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 | `predicted_topology.py` | Build synthetic `RawSiteData` from virtual state for topology builder |
 | `template_resolver.py` | Resolve Mist template inheritance chain for L1-06/L1-07 |
 | `config_compiler.py` | Derive effective per-device config from Mist template inheritance chain |
+| `twin_ia_bridge.py` | Create IA monitoring sessions after Twin deployment (prediction vs reality) |
+| `prediction_comparison.py` | Compare Twin predictions with IA actual findings (accuracy tracking) |
 | `endpoint_parser.py` | Extract (object_type, site_id, object_id) from Mist API URLs |
 
 ### Data Model
@@ -113,6 +115,20 @@ When a template is modified, the config compiler:
 6. Updated virtual state feeds into all 37 checks
 
 Uses telemetry `LatestValueCache` for live LLDP/port data in topology prediction.
+
+### Twin-to-IA Bridge (Phase 4)
+
+After successful deployment (`approve_and_execute()`):
+1. `twin_ia_bridge.create_ia_sessions_for_deployment()` finds devices at each affected site (telemetry cache -> backup fallback)
+2. Creates `MonitoringSession` per device via `session_manager.create_or_merge_session()` with `twin_session_id` and frozen `twin_prediction`
+3. Spawns `run_monitoring_pipeline()` background task for each new session
+4. Populates `TwinSession.ia_session_ids` with created IA session IDs
+
+After IA completes, `prediction_comparison.compare_prediction_vs_reality()` classifies accuracy:
+- `correct`: predicted and actual severity match
+- `over_predicted`: Twin flagged issues that didn't materialize (false positive)
+- `under_predicted`: IA found issues Twin didn't catch (gap in checks)
+- `unknown`: no prediction available
 
 ### Dependencies
 
