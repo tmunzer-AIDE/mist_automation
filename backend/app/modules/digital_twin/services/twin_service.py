@@ -100,6 +100,13 @@ async def simulate(
     # Run Layer 1 checks
     check_results = await run_layer1_checks(virtual_state, staged_writes, org_id)
 
+    # Run Layer 2 checks if any sites are affected
+    if affected_sites:
+        from app.modules.digital_twin.services.prediction_service import run_layer2_checks
+
+        l2_results = await run_layer2_checks(virtual_state, staged_writes, org_id, set(affected_sites))
+        check_results.extend(l2_results)
+
     # Build report
     report = build_prediction_report(check_results)
 
@@ -222,3 +229,38 @@ async def list_sessions(
     if status:
         query["status"] = status
     return await TwinSession.find(query).sort([("created_at", -1)]).limit(limit).to_list()
+
+
+async def intercept_write(
+    session_id: str,
+    method: str,
+    endpoint: str,
+    body: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Intercept a Mist API write and stage it in the Twin session.
+
+    Called from MistService._api_call() when twin_session_var is set.
+    Returns a synthetic response so the caller can continue.
+    """
+    session = await TwinSession.get(PydanticObjectId(session_id))
+    if not session:
+        raise ValueError(f"Twin session {session_id} not found")
+
+    parsed = parse_endpoint(method.upper(), endpoint)
+    write = StagedWrite(
+        sequence=len(session.staged_writes),
+        method=method.upper(),
+        endpoint=endpoint,
+        body=body,
+        object_type=parsed.object_type,
+        site_id=parsed.site_id,
+        object_id=parsed.object_id,
+    )
+    session.staged_writes.append(write)
+    session.update_timestamp()
+    await session.save()
+
+    logger.info("twin_write_intercepted", session_id=session_id, method=method, endpoint=endpoint)
+
+    # Return synthetic response so caller can continue
+    return body or {}

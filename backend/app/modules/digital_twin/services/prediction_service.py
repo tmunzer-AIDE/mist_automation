@@ -353,3 +353,59 @@ async def run_layer1_checks(
             results.append(check_rf_template_impact(old_config, new_config, affected_ap_count))
 
     return results
+
+
+async def run_layer2_checks(
+    virtual_state: dict[tuple, dict[str, Any]],
+    staged_writes: list,
+    org_id: str,
+    affected_site_ids: set[str],
+) -> list[CheckResult]:
+    """Run Layer 2 topology prediction checks for each affected site."""
+    from app.modules.digital_twin.services.predicted_topology import build_predicted_topology
+    from app.modules.digital_twin.services.topology_checks import (
+        check_connectivity_loss,
+        check_lacp_misconfiguration,
+        check_lag_mclag_integrity,
+        check_mtu_mismatch,
+        check_poe_budget_overrun,
+        check_poe_disable_on_active,
+        check_port_capacity_saturation,
+        check_vc_integrity,
+        check_vlan_black_hole,
+    )
+    from app.modules.impact_analysis.services.topology_service import (
+        build_site_topology,
+        capture_topology_snapshot,
+    )
+
+    results: list[CheckResult] = []
+
+    for site_id in affected_site_ids:
+        try:
+            # Build baseline topology (current live state)
+            baseline_topo = await build_site_topology(site_id, org_id)
+            if not baseline_topo:
+                continue
+            baseline_snapshot = capture_topology_snapshot(baseline_topo)
+
+            # Build predicted topology (after changes applied)
+            predicted_topo = await build_predicted_topology(site_id, org_id, virtual_state)
+            if not predicted_topo:
+                continue
+            predicted_snapshot = capture_topology_snapshot(predicted_topo)
+
+            # Run all L2 checks
+            results.append(check_connectivity_loss(baseline_snapshot, predicted_snapshot))
+            results.append(check_vlan_black_hole(predicted_snapshot))
+            results.append(check_lag_mclag_integrity(baseline_snapshot, predicted_snapshot))
+            results.append(check_vc_integrity(baseline_snapshot, predicted_snapshot))
+            results.append(check_poe_budget_overrun(predicted_snapshot, {}))
+            results.append(check_poe_disable_on_active(baseline_snapshot, predicted_snapshot, {}))
+            results.append(check_port_capacity_saturation(predicted_snapshot, {}))
+            results.append(check_lacp_misconfiguration(predicted_snapshot))
+            results.append(check_mtu_mismatch(predicted_snapshot))
+        except Exception as e:
+            logger.warning("l2_checks_failed", site_id=site_id, error=str(e))
+
+    return results
