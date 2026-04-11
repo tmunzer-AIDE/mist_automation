@@ -27,6 +27,7 @@ mcp = FastMCP(
 from app.modules.mcp_server.tools import (  # noqa: E402, F401
     backup,
     details,
+    digital_twin,
     impact_analysis,
     memory,
     search,
