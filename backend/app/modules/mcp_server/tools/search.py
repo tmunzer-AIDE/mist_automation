@@ -20,6 +20,12 @@ _SORT_FIELDS: dict[str, dict[str, str]] = {
         "status": "is_deleted",
         "type": "object_type",
     },
+    "backup_jobs": {
+        "name": "org_name",
+        "date": "created_at",
+        "status": "status",
+        "type": "backup_type",
+    },
     "workflows": {
         "name": "name",
         "date": "updated_at",
@@ -73,7 +79,8 @@ async def search(
         Field(
             description=(
                 "What to search for. "
-                "One of: 'backup_objects' (Mist config snapshots), 'workflows' (automation workflows), "
+                "One of: 'backup_objects' (Mist config snapshots), 'backup_jobs' (backup run history — list jobs with status/type/date filters), "
+                "'workflows' (automation workflows), "
                 "'executions' (workflow execution history), 'webhook_events' (received Mist webhooks), "
                 "'reports' (post-deployment validation reports)."
             ),
@@ -146,6 +153,7 @@ async def search(
 
     dispatchers = {
         "backup_objects": _search_backup_objects,
+        "backup_jobs": _search_backup_jobs,
         "workflows": _search_workflows,
         "executions": _search_executions,
         "webhook_events": _search_webhook_events,
@@ -168,6 +176,45 @@ async def search(
         skip=skip,
         limit=limit,
         sort=sort,
+    )
+
+
+async def _search_backup_jobs(*, query: str, status: str, hours: int, sort: dict[str, int], **_kwargs) -> str:
+    from app.modules.backup.models import BackupJob
+
+    match: dict = {}
+    if status:
+        match["status"] = status
+    if query:
+        match["$or"] = [
+            {"org_name": {"$regex": re.escape(query), "$options": "i"}},
+            {"backup_type": {"$regex": re.escape(query), "$options": "i"}},
+        ]
+    if hours > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        match["created_at"] = {"$gte": cutoff}
+
+    skip = _kwargs.get("skip", 0)
+    limit = _kwargs.get("limit", 10)
+    pipeline = [{"$match": match}, {"$sort": sort}]
+    total, items = await _paginated_query(BackupJob, pipeline, skip, limit)
+
+    return to_json(
+        {
+            "results": [
+                {
+                    "id": str(item["_id"]),
+                    "name": item.get("org_name", item.get("org_id", "")),
+                    "type": item.get("backup_type", ""),
+                    "status": item.get("status", ""),
+                    "summary": f"{item.get('object_count', 0)} objects"
+                    + (f", error: {item['error']}" if item.get("error") else ""),
+                    "date": item.get("created_at"),
+                }
+                for item in items
+            ],
+            "total": total,
+        }
     )
 
 

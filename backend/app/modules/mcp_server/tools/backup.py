@@ -45,7 +45,13 @@ async def backup(
                 "- 'restore': Restore an object to a specific backup version. "
                 "Automatically shows the user a diff of what will change and asks for confirmation. "
                 "Requires: version_id (MongoDB document ID or version number). "
-                "If using a version number, also provide object_id (Mist UUID)."
+                "If using a version number, also provide object_id (Mist UUID).\n"
+                "- 'job_detail': Get backup job metadata and aggregated failure/warning counts from "
+                "execution logs, broken down by phase and object type. Use this to drill into a "
+                "specific backup run after finding it via search(type='backup_jobs'). Requires: backup_id.\n"
+                "- 'job_logs': Browse execution log entries for a specific backup job, useful for "
+                "reading exact error messages. Requires: backup_id. "
+                "Optional: level ('info'|'warning'|'error'), skip, limit (default 25, max 50)."
             ),
         ),
     ],
@@ -91,6 +97,26 @@ async def backup(
         list[str] | None,
         Field(description="Specific Mist object UUIDs to back up. Used by action='trigger' with backup_type='manual'."),
     ] = None,
+    backup_id: Annotated[
+        str,
+        Field(
+            description="BackupJob MongoDB document ID. Required for action='job_detail' and action='job_logs'. Get this from search(type='backup_jobs') results."
+        ),
+    ] = "",
+    level: Annotated[
+        str,
+        Field(
+            description="Log level filter for action='job_logs'. One of: 'info', 'warning', 'error'. Omit to return all levels."
+        ),
+    ] = "",
+    skip: Annotated[
+        int,
+        Field(description="Pagination offset for action='job_logs'.", ge=0),
+    ] = 0,
+    limit: Annotated[
+        int,
+        Field(description="Max log entries to return for action='job_logs' (1-50).", ge=1, le=50),
+    ] = 25,
 ) -> str:
     """Manage Mist configuration backups: inspect versioned config snapshots, compare changes between versions, or trigger new backups.
 
@@ -103,6 +129,8 @@ async def backup(
         "compare": _compare,
         "trigger": _trigger,
         "restore": _restore,
+        "job_detail": _job_detail,
+        "job_logs": _job_logs,
     }
 
     handler = dispatchers.get(action)
@@ -120,12 +148,15 @@ async def backup(
         object_type=object_type,
         site_id=site_id,
         object_ids=object_ids,
+        backup_id=backup_id,
+        level=level,
+        skip=skip,
+        limit=limit,
     )
 
 
 async def _object_info(*, object_id: str, **_kwargs) -> str:
     """Get backup object metadata, version history, and dependencies."""
-    from beanie import PydanticObjectId
 
     from app.modules.backup.models import BackupObject
 
@@ -473,3 +504,118 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
     except Exception as exc:
         logger.error("mcp_restore_failed", error=str(exc))
         return to_json({"error": "Restore operation failed"})
+
+
+async def _job_detail(*, backup_id: str, **_kwargs) -> str:
+    """Get backup job metadata and aggregated failure/warning summary from execution logs."""
+    from beanie import PydanticObjectId
+
+    from app.modules.backup.models import BackupJob, BackupLogEntry
+
+    if not backup_id:
+        return to_json({"error": "backup_id is required for action=job_detail"})
+    try:
+        job = await BackupJob.get(PydanticObjectId(backup_id))
+    except Exception:
+        return to_json({"error": f"Invalid backup_id '{backup_id}'"})
+    if not job:
+        return to_json({"error": f"Backup job '{backup_id}' not found"})
+
+    job_oid = job.id
+    agg = await BackupLogEntry.aggregate(
+        [
+            {"$match": {"backup_job_id": job_oid, "level": {"$in": ["error", "warning"]}}},
+            {
+                "$facet": {
+                    "by_level": [{"$group": {"_id": "$level", "count": {"$sum": 1}}}],
+                    "by_phase": [
+                        {"$match": {"level": "error"}},
+                        {"$group": {"_id": "$phase", "count": {"$sum": 1}}},
+                    ],
+                    "by_object_type": [
+                        {"$match": {"level": "error", "object_type": {"$ne": None}}},
+                        {"$group": {"_id": "$object_type", "count": {"$sum": 1}}},
+                    ],
+                }
+            },
+        ]
+    ).to_list()
+
+    row = agg[0] if agg else {}
+    level_counts = {r["_id"]: r["count"] for r in row.get("by_level", [])}
+    phase_counts = {r["_id"]: r["count"] for r in row.get("by_phase", [])}
+    type_counts = {r["_id"]: r["count"] for r in row.get("by_object_type", [])}
+
+    return to_json(
+        {
+            "job_id": str(job.id),
+            "backup_type": job.backup_type.value if hasattr(job.backup_type, "value") else str(job.backup_type),
+            "status": job.status.value if hasattr(job.status, "value") else str(job.status),
+            "org_name": job.org_name,
+            "site_name": job.site_name,
+            "object_count": job.object_count,
+            "error": job.error,
+            "started_at": job.started_at,
+            "completed_at": job.completed_at,
+            "failure_summary": {
+                "errors": level_counts.get("error", 0),
+                "warnings": level_counts.get("warning", 0),
+                "errors_by_phase": phase_counts,
+                "errors_by_object_type": type_counts,
+            },
+        }
+    )
+
+
+async def _job_logs(*, backup_id: str, level: str, skip: int, limit: int, **_kwargs) -> str:
+    """Browse execution log entries for a specific backup job."""
+    from beanie import PydanticObjectId
+
+    from app.modules.backup.models import BackupLogEntry
+
+    if not backup_id:
+        return to_json({"error": "backup_id is required for action=job_logs"})
+    try:
+        job_oid = PydanticObjectId(backup_id)
+    except Exception:
+        return to_json({"error": f"Invalid backup_id '{backup_id}'"})
+
+    match: dict = {"backup_job_id": job_oid}
+    if level:
+        match["level"] = level
+
+    limit = min(limit, 50)
+    results = await BackupLogEntry.aggregate(
+        [
+            {"$match": match},
+            {
+                "$facet": {
+                    "total": [{"$count": "n"}],
+                    "entries": [{"$sort": {"timestamp": 1}}, {"$skip": skip}, {"$limit": limit}],
+                }
+            },
+        ]
+    ).to_list()
+
+    row = results[0] if results else {}
+    total = row.get("total", [{}])[0].get("n", 0) if row.get("total") else 0
+
+    return to_json(
+        {
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "entries": [
+                {
+                    "timestamp": e.get("timestamp"),
+                    "level": e.get("level"),
+                    "phase": e.get("phase"),
+                    "message": e.get("message"),
+                    "object_type": e.get("object_type"),
+                    "object_id": e.get("object_id"),
+                    "object_name": e.get("object_name"),
+                }
+                for e in row.get("entries", [])
+            ],
+        }
+    )

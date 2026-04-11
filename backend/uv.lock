@@ -2107,7 +2107,7 @@ wheels = [
 
 [[package]]
 name = "mist-automation-backend"
-version = "0.1.9"
+version = "0.1.13"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
