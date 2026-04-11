@@ -414,3 +414,219 @@ async def run_layer2_checks(
             logger.warning("l2_checks_failed", site_id=site_id, error=str(e))
 
     return results
+
+
+async def run_layer3_checks(
+    virtual_state: dict[tuple, dict[str, Any]],
+    staged_writes: list,
+    org_id: str,
+    affected_site_ids: set[str],
+) -> list[CheckResult]:
+    """Run Layer 3 routing prediction checks."""
+    from app.modules.digital_twin.services.routing_checks import (
+        check_bgp_peer_break,
+        check_default_gateway_gap,
+        check_ospf_adjacency_break,
+        check_vrf_consistency,
+        check_wan_failover_impact,
+    )
+    from app.modules.impact_analysis.services.topology_service import (
+        build_site_topology,
+        capture_topology_snapshot,
+    )
+
+    results: list[CheckResult] = []
+
+    # Build device configs and routing data from virtual state
+    device_configs: dict[str, dict[str, Any]] = {}
+    baseline_routing: dict[str, dict[str, Any]] = {}
+
+    for (obj_type, _site_id, obj_id), config in virtual_state.items():
+        if obj_type == "devices" and obj_id:
+            device_configs[obj_id] = dict(config)
+
+    # Load baseline routing from backup (OSPF/BGP peers)
+    from app.modules.backup.models import BackupObject
+
+    for dev_id, cfg in device_configs.items():
+        if cfg.get("routing") or cfg.get("ospf") or cfg.get("bgp_peers"):
+            baseline_routing[dev_id] = {
+                "ospf_peers": cfg.get("routing", {}).get("ospf_peers", []),
+                "bgp_peers": cfg.get("routing", {}).get("bgp_peers", []),
+            }
+
+    for site_id in affected_site_ids:
+        try:
+            topo = await build_site_topology(site_id, org_id)
+            if topo:
+                snapshot = capture_topology_snapshot(topo)
+                results.append(check_default_gateway_gap(snapshot, device_configs))
+        except Exception as e:
+            logger.warning("l3_topology_check_failed", site_id=site_id, error=str(e))
+
+    results.append(check_ospf_adjacency_break(baseline_routing, device_configs))
+    results.append(check_bgp_peer_break(baseline_routing, device_configs))
+    results.append(check_vrf_consistency(device_configs))
+
+    # Baseline configs for WAN failover comparison
+    baseline_configs: dict[str, dict[str, Any]] = {}
+    for dev_id in device_configs:
+        backup = (
+            await BackupObject.find({"object_type": "devices", "object_id": dev_id, "is_deleted": False})
+            .sort([("version", -1)])
+            .first_or_none()
+        )
+        if backup:
+            baseline_configs[dev_id] = backup.configuration
+
+    results.append(check_wan_failover_impact(baseline_configs, device_configs))
+
+    return results
+
+
+async def run_layer4_checks(
+    virtual_state: dict[tuple, dict[str, Any]],
+    staged_writes: list,
+    org_id: str,
+) -> list[CheckResult]:
+    """Run Layer 4 security policy checks."""
+    from app.modules.digital_twin.services.security_checks import (
+        check_firewall_rule_shadow,
+        check_guest_ssid_security,
+        check_nac_auth_server_dependency,
+        check_nac_vlan_conflict,
+        check_service_policy_references,
+        check_unreachable_destination,
+    )
+    from app.modules.digital_twin.services.state_resolver import load_all_objects_of_type
+
+    results: list[CheckResult] = []
+
+    # Collect WLANs from virtual state
+    all_wlans: list[dict[str, Any]] = []
+    for (obj_type, site_id, _obj_id), config in virtual_state.items():
+        if obj_type == "wlans":
+            wlan_copy = dict(config)
+            wlan_copy["_site_id"] = site_id
+            all_wlans.append(wlan_copy)
+
+    # Also include existing WLANs from backup
+    existing_wlans = await load_all_objects_of_type(org_id, "wlans")
+    for w in existing_wlans:
+        w_copy = dict(w)
+        w_copy.setdefault("_site_id", w.get("site_id"))
+        all_wlans.append(w_copy)
+
+    results.append(check_guest_ssid_security(all_wlans))
+
+    # NAC rules and auth servers
+    nac_rules: list[dict[str, Any]] = []
+    for (obj_type, _site_id, _obj_id), config in virtual_state.items():
+        if obj_type == "nacrules":
+            nac_rules.append(dict(config))
+    existing_nac = await load_all_objects_of_type(org_id, "nacrules")
+    nac_rules.extend(existing_nac)
+
+    auth_servers: list[dict[str, Any]] = []
+    for (obj_type, _site_id, _obj_id), config in virtual_state.items():
+        if obj_type in ("nacportals", "ssos"):
+            auth_servers.append(dict(config))
+
+    results.append(check_nac_auth_server_dependency(nac_rules, auth_servers))
+    results.append(check_nac_vlan_conflict(nac_rules))
+
+    # Security policies, networks, services
+    security_policies: list[dict[str, Any]] = []
+    for (obj_type, _site_id, _obj_id), config in virtual_state.items():
+        if obj_type == "secpolicies":
+            security_policies.append(dict(config))
+    existing_sec = await load_all_objects_of_type(org_id, "secpolicies")
+    security_policies.extend(existing_sec)
+
+    networks: list[dict[str, Any]] = []
+    for (obj_type, _site_id, _obj_id), config in virtual_state.items():
+        if obj_type == "networks":
+            networks.append(dict(config))
+    existing_nets = await load_all_objects_of_type(org_id, "networks")
+    networks.extend(existing_nets)
+
+    services: list[dict[str, Any]] = []
+    for (obj_type, _site_id, _obj_id), config in virtual_state.items():
+        if obj_type == "services":
+            services.append(dict(config))
+    existing_svcs = await load_all_objects_of_type(org_id, "services")
+    services.extend(existing_svcs)
+
+    results.append(check_unreachable_destination(security_policies, networks, services))
+
+    service_policies: list[dict[str, Any]] = []
+    for (obj_type, _site_id, _obj_id), config in virtual_state.items():
+        if obj_type == "servicepolicies":
+            service_policies.append(dict(config))
+    existing_sps = await load_all_objects_of_type(org_id, "servicepolicies")
+    service_policies.extend(existing_sps)
+
+    results.append(check_service_policy_references(service_policies, services))
+    results.append(check_firewall_rule_shadow(security_policies))
+
+    return results
+
+
+async def run_layer5_checks(
+    virtual_state: dict[tuple, dict[str, Any]],
+    staged_writes: list,
+    org_id: str,
+    affected_site_ids: set[str],
+) -> list[CheckResult]:
+    """Run Layer 5 L2/STP prediction checks."""
+    from app.modules.backup.models import BackupObject
+    from app.modules.digital_twin.services.l2_checks import (
+        check_bpdu_filter_on_trunk,
+        check_l2_loop_risk,
+        check_stp_root_bridge_shift,
+    )
+    from app.modules.digital_twin.services.predicted_topology import build_predicted_topology
+    from app.modules.impact_analysis.services.topology_service import (
+        build_site_topology,
+        capture_topology_snapshot,
+    )
+
+    results: list[CheckResult] = []
+
+    # Build device configs for STP checks
+    predicted_configs: dict[str, dict[str, Any]] = {}
+    for (obj_type, _site_id, obj_id), config in virtual_state.items():
+        if obj_type == "devices" and obj_id:
+            predicted_configs[obj_id] = dict(config)
+
+    # Load baseline configs from backup
+    baseline_configs: dict[str, dict[str, Any]] = {}
+    for dev_id in predicted_configs:
+        backup = (
+            await BackupObject.find({"object_type": "devices", "object_id": dev_id, "is_deleted": False})
+            .sort([("version", -1)])
+            .first_or_none()
+        )
+        if backup:
+            baseline_configs[dev_id] = backup.configuration
+
+    for site_id in affected_site_ids:
+        try:
+            baseline_topo = await build_site_topology(site_id, org_id)
+            if not baseline_topo:
+                continue
+            baseline_snapshot = capture_topology_snapshot(baseline_topo)
+
+            predicted_topo = await build_predicted_topology(site_id, org_id, virtual_state)
+            if not predicted_topo:
+                continue
+            predicted_snapshot = capture_topology_snapshot(predicted_topo)
+
+            results.append(check_l2_loop_risk(baseline_snapshot, predicted_snapshot))
+        except Exception as e:
+            logger.warning("l5_topology_check_failed", site_id=site_id, error=str(e))
+
+    results.append(check_bpdu_filter_on_trunk(predicted_configs))
+    results.append(check_stp_root_bridge_shift(baseline_configs, predicted_configs))
+
+    return results

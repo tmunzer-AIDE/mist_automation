@@ -107,6 +107,21 @@ async def simulate(
         l2_results = await run_layer2_checks(virtual_state, staged_writes, org_id, set(affected_sites))
         check_results.extend(l2_results)
 
+        from app.modules.digital_twin.services.prediction_service import (
+            run_layer3_checks,
+            run_layer4_checks,
+            run_layer5_checks,
+        )
+
+        l3_results = await run_layer3_checks(virtual_state, staged_writes, org_id, set(affected_sites))
+        check_results.extend(l3_results)
+
+        l4_results = await run_layer4_checks(virtual_state, staged_writes, org_id)
+        check_results.extend(l4_results)
+
+        l5_results = await run_layer5_checks(virtual_state, staged_writes, org_id, set(affected_sites))
+        check_results.extend(l5_results)
+
     # Build report
     report = build_prediction_report(check_results)
 
