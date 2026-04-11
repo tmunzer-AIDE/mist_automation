@@ -462,7 +462,8 @@ export class TwinResultCardComponent {
 
   severityClass = computed(() => {
     const s = this.data().overall_severity;
-    if (s === 'critical' || s === 'error') return 'error';
+    if (s === 'critical') return 'critical';
+    if (s === 'error') return 'error';
     if (s === 'warning') return 'warning';
     return 'success';
   });
