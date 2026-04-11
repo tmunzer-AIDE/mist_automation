@@ -36,7 +36,9 @@ import { Component, Input } from '@angular/core';
       .badge-healthy,
       .badge-enabled,
       .badge-active,
-      .badge-none {
+      .badge-none,
+      .badge-deployed,
+      .badge-approved {
         background: var(--app-success-bg);
         color: var(--app-success);
         .dot {
@@ -49,7 +51,8 @@ import { Component, Input } from '@angular/core';
       .badge-running,
       .badge-warning,
       .badge-baseline_capture,
-      .badge-awaiting_config {
+      .badge-awaiting_config,
+      .badge-awaiting_approval {
         background: var(--app-warning-bg);
         color: var(--app-warning);
         .dot {
@@ -63,7 +66,8 @@ import { Component, Input } from '@angular/core';
       .badge-inactive,
       .badge-stopped,
       .badge-deleted,
-      .badge-critical {
+      .badge-critical,
+      .badge-rejected {
         background: var(--app-error-status-bg);
         color: var(--app-error-status);
         .dot {
@@ -76,7 +80,8 @@ import { Component, Input } from '@angular/core';
       .badge-scheduled,
       .badge-monitoring,
       .badge-validating,
-      .badge-analyzing {
+      .badge-analyzing,
+      .badge-executing {
         background: var(--app-info-bg);
         color: var(--app-info-chip);
         .dot {
