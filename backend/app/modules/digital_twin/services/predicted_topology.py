@@ -18,6 +18,47 @@ logger = structlog.get_logger(__name__)
 StateKey = tuple[str, str | None, str | None]
 
 
+def _get_port_stats_from_cache(site_id: str) -> list[dict[str, Any]]:
+    """Extract port stats from the telemetry cache for a site.
+
+    Returns [] if telemetry is not active or cache has no fresh data.
+    """
+    try:
+        from app.modules.telemetry import _latest_cache
+
+        if _latest_cache is None:
+            return []
+
+        port_stats: list[dict[str, Any]] = []
+        for device_stats in _latest_cache.get_all_for_site(site_id, max_age_seconds=120):
+            mac = device_stats.get("mac", "")
+            if not mac:
+                continue
+            # LLDP neighbors from clients[] where source == "lldp"
+            for client in device_stats.get("clients", []):
+                if client.get("source") == "lldp":
+                    port_stats.append(
+                        {
+                            "mac": mac,
+                            "port_id": client.get("port_id", ""),
+                            "neighbor_mac": client.get("mac", ""),
+                            "up": True,
+                        }
+                    )
+            # Port up/down state from if_stat
+            for port_id, if_stat in (device_stats.get("if_stat") or {}).items():
+                port_stats.append(
+                    {
+                        "mac": mac,
+                        "port_id": port_id,
+                        "up": bool(if_stat.get("up", False)),
+                    }
+                )
+        return port_stats
+    except Exception:
+        return []
+
+
 def build_synthetic_raw_data(
     site_id: str,
     virtual_state: dict[StateKey, dict[str, Any]],
@@ -39,7 +80,7 @@ def build_synthetic_raw_data(
                 org_networks.append(dict(config))
 
     return RawSiteData(
-        port_stats=[],
+        port_stats=_get_port_stats_from_cache(site_id),
         devices=devices,
         devices_stats=devices_stats,
         site_setting=site_setting,
