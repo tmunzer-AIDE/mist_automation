@@ -66,6 +66,10 @@ export const routes: Routes = [
         path: 'power-scheduling',
         loadChildren: () => import('./features/power-scheduling/power-scheduling.routes'),
       },
+      {
+        path: 'about',
+        loadComponent: () => import('./features/about/about.component').then((m) => m.AboutComponent),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },
