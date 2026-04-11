@@ -34,6 +34,7 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 | `topology_checks.py` | 9 Layer 2 topology prediction checks (pure functions, uses networkx) |
 | `predicted_topology.py` | Build synthetic `RawSiteData` from virtual state for topology builder |
 | `template_resolver.py` | Resolve Mist template inheritance chain for L1-06/L1-07 |
+| `config_compiler.py` | Derive effective per-device config from Mist template inheritance chain |
 | `endpoint_parser.py` | Extract (object_type, site_id, object_id) from Mist API URLs |
 
 ### Data Model
@@ -100,6 +101,18 @@ When `workflow.twin_validation = True`:
 5. ContextVar is reset in `finally` block to prevent leaking to other requests
 
 **Key file**: `app/services/mist_service.py` — `twin_session_var` ContextVar + interception at top of `_api_call()`
+
+### Config Compilation
+
+When a template is modified, the config compiler:
+1. Detects template changes in staged writes (`detect_template_changes`)
+2. Finds all sites referencing changed templates via backup data (`find_impacted_sites`)
+3. For each site, fetches derived site setting and compiles per-device configs
+4. Switch: `derived_setting + device.port_config` (shallow merge, vars resolved)
+5. Gateway: `gw_template + device_profile + device.port_config` (deep merge for port_config)
+6. Updated virtual state feeds into all 37 checks
+
+Uses telemetry `LatestValueCache` for live LLDP/port data in topology prediction.
 
 ### Dependencies
 

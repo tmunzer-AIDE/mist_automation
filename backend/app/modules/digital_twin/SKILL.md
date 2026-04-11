@@ -13,6 +13,7 @@ You have access to the `digital_twin` MCP tool. Use it to validate proposed Mist
 - User wants to create/modify WLANs, networks, VLANs, or device configs
 - User wants to change PSKs, RF templates, DHCP settings, or security policies
 - User wants to assign templates to sites
+- User wants to change an org-level template (network, gateway, site, RF) — the Twin automatically finds all affected sites and validates the impact on each
 - Any configuration change that could affect the production network
 
 ## How to Use
