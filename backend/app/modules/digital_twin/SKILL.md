@@ -18,6 +18,25 @@ You have access to the `digital_twin` MCP tool. Use it to validate proposed Mist
 
 ## How to Use
 
+### Step 0: Get Object Schema First
+
+Before building a create/update payload, call:
+
+```text
+get_configuration_object_schema(
+  object_type="site_wlans",
+  org_id="<org_uuid>",
+  site_id="<site_uuid>",
+  verbose=false
+)
+```
+
+Use:
+
+- `schema.required` for mandatory fields
+- `example_payload` as the base payload template
+- `usage_notes` to guide safe simulation flow
+
 ### Step 1: Translate Intent to Strict Change Inputs
 
 Convert the user's request into the strict Digital Twin change contract:
