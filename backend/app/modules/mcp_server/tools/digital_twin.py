@@ -55,6 +55,8 @@ async def digital_twin(
                 '- Create WLAN: {"method": "POST", "endpoint": "/api/v1/sites/{site_id}/wlans", "body": {"ssid": "Guest", "auth": {"type": "open"}}}\n'
                 '- Update network: {"method": "PUT", "endpoint": "/api/v1/orgs/{org_id}/networks/{network_id}", "body": {"vlan_id": 100, "subnet": "10.1.0.0/24"}}\n'
                 '- Update site setting: {"method": "PUT", "endpoint": "/api/v1/sites/{site_id}/setting", "body": {"vars": {"vlan_guest": "200"}}}\n'
+                '- Change switch port profile: {"method": "PUT", "endpoint": "/api/v1/sites/{site_id}/devices/{device_id}", '
+                '"body": {"port_config": {"ge-0/0/9": {"usage": "disabled", "port_network": "disabled"}}}}\n'
                 '- Delete WLAN: {"method": "DELETE", "endpoint": "/api/v1/sites/{site_id}/wlans/{wlan_id}"}'
             ),
         ),
