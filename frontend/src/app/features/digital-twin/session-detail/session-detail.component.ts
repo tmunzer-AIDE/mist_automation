@@ -81,6 +81,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     const checks = this.session()?.prediction_report?.check_results ?? [];
     const map = new Map<number, CheckResultModel[]>();
     for (const c of checks) {
+      if (c.status === 'skipped') continue;
       const list = map.get(c.layer) ?? [];
       list.push(c);
       map.set(c.layer, list);

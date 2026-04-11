@@ -251,7 +251,7 @@ def build_prediction_report(results: list[CheckResult]) -> PredictionReport:
     summary = ", ".join(parts) if parts else "All checks passed"
 
     return PredictionReport(
-        total_checks=len(results),
+        total_checks=len(results) - skipped,
         passed=passed,
         warnings=warnings,
         errors=errors,
