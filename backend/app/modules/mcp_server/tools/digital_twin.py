@@ -30,15 +30,15 @@ async def digital_twin(
         ),
     ],
     writes: Annotated[
-        str,
+        list[dict[str, Any]] | None,
         Field(
             description=(
-                "JSON array of proposed writes for 'simulate' action. "
+                "Array of proposed writes for 'simulate' action. "
                 'Each write: {"method": "POST|PUT|DELETE", "endpoint": "/api/v1/...", "body": {...}}. '
                 'Example: [{"method": "PUT", "endpoint": "/api/v1/sites/abc/setting", "body": {"vars": {"vlan": "100"}}}]'
             ),
         ),
-    ] = "[]",
+    ] = None,
     session_id: Annotated[
         str,
         Field(description="Twin session ID for approve/reject/status actions."),
@@ -56,8 +56,6 @@ async def digital_twin(
     3. Re-simulate with corrected writes if needed
     4. Call action='approve' to deploy (user confirmation required)
     """
-    import json as json_mod
-
     from app.config import settings
     from app.modules.digital_twin.services import twin_service
 
@@ -68,11 +66,7 @@ async def digital_twin(
     org_id = settings.mist_org_id or ""
 
     if action == "simulate":
-        try:
-            write_list = json_mod.loads(writes) if isinstance(writes, str) else writes
-        except json_mod.JSONDecodeError:
-            return to_json({"error": "Invalid JSON in writes parameter"})
-
+        write_list = writes or []
         if not write_list:
             return to_json({"error": "No writes provided. Provide a JSON array of {method, endpoint, body} objects."})
 
