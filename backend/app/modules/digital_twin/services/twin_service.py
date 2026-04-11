@@ -101,12 +101,21 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
         if site_id in site_cache:
             return site_cache[site_id]
 
+        # Site records can exist in different shapes depending on backup history:
+        # - site-level singleton: object_type="info", site_id=<site_id>
+        # - legacy site-level singleton: object_type="site", object_id=<site_id>
+        # - org-level sites list: object_type="sites", object_id=<site_id>
+        # - any site-scoped object carrying site_id=<site_id>
         doc = await BackupObject.find(
             {
-                "object_type": "info",
                 "org_id": org_id,
-                "site_id": site_id,
                 "is_deleted": False,
+                "$or": [
+                    {"object_type": "info", "site_id": site_id},
+                    {"object_type": "site", "object_id": site_id},
+                    {"object_type": "sites", "object_id": site_id},
+                    {"site_id": site_id},
+                ],
             }
         ).first_or_none()
         site_cache[site_id] = doc is not None
@@ -127,6 +136,19 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
             query["site_id"] = site_id
 
         doc = await BackupObject.find(query).first_or_none()
+
+        # Fallback: tolerate legacy/mismatched object_type labels in older backups
+        # as long as the target object_id exists within the same org/site scope.
+        if doc is None:
+            fallback_query: dict[str, Any] = {
+                "org_id": org_id,
+                "object_id": object_id,
+                "is_deleted": False,
+            }
+            if site_id:
+                fallback_query["site_id"] = site_id
+            doc = await BackupObject.find(fallback_query).first_or_none()
+
         object_cache[cache_key] = doc is not None
         return object_cache[cache_key]
 
@@ -145,10 +167,10 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
                     ),
                     details=[
                         f"Endpoint: {write.endpoint}",
-                        "Simulation requires real site UUIDs that exist in backup snapshots.",
+                        "Simulation requires site context in backup snapshots for the selected org.",
                     ],
                     remediation_hint=(
-                        "Replace placeholder/name values with a real site UUID before simulating."
+                        "Verify org/site selection and run a backup for this site if snapshots are missing."
                     ),
                 )
             )
