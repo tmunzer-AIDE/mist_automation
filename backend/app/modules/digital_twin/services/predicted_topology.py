@@ -35,16 +35,20 @@ def _get_port_stats_from_cache(site_id: str) -> list[dict[str, Any]]:
             if not mac:
                 continue
             # LLDP neighbors from clients[] where source == "lldp"
+            # Mist uses "port_ids" (plural, list) not "port_id" (singular)
             for client in device_stats.get("clients", []):
                 if client.get("source") == "lldp":
-                    port_stats.append(
-                        {
-                            "mac": mac,
-                            "port_id": client.get("port_id", ""),
-                            "neighbor_mac": client.get("mac", ""),
-                            "up": True,
-                        }
-                    )
+                    neighbor_mac = client.get("mac", "")
+                    for port_id in client.get("port_ids", []):
+                        if port_id and neighbor_mac:
+                            port_stats.append(
+                                {
+                                    "mac": mac,
+                                    "port_id": port_id,
+                                    "neighbor_mac": neighbor_mac,
+                                    "up": True,
+                                }
+                            )
             # Port up/down state from if_stat
             for port_id, if_stat in (device_stats.get("if_stat") or {}).items():
                 port_stats.append(
