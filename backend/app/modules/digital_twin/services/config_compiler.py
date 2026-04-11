@@ -278,7 +278,7 @@ async def _get_derived_site_setting(site_id: str, org_id: str) -> dict[str, Any]
     backup = (
         await BackupObject.find(
             {
-                "object_type": "setting",
+                "object_type": "settings",
                 "site_id": site_id,
                 "org_id": org_id,
                 "is_deleted": False,

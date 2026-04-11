@@ -44,6 +44,9 @@ CHECK_RELEVANCE: dict[str, set[str]] = {
         "L1-01", "L1-02", "L1-03", "L1-06", "L1-07", "L1-08", "L1-09", "L1-10",
         "L2-02",
     },
+    "sitetemplates": {
+        "L1-06", "L1-07",  # Template override, unresolved vars
+    },
     "rftemplates": {
         "L1-13",  # RF template impact
     },
@@ -220,14 +223,21 @@ def _extract_poe_data_from_cache(site_id: str) -> tuple[dict[str, float], dict[s
 
 
 def _extract_lldp_from_stats(device_stats: dict[str, Any]) -> dict[str, str]:
-    """Extract LLDP neighbor map from a device stats payload."""
+    """Extract LLDP neighbor map from a device stats payload.
+
+    Mist ``clients[]`` entries with ``source == "lldp"`` have a ``port_ids``
+    field (plural, list of port names) — NOT ``port_id`` (singular).
+    """
     neighbors: dict[str, str] = {}
     for client in device_stats.get("clients", []):
         if client.get("source") == "lldp":
-            port_id = client.get("port_id", "")
             neighbor_mac = client.get("mac", "")
-            if port_id and neighbor_mac:
-                neighbors[port_id] = neighbor_mac
+            if not neighbor_mac:
+                continue
+            # port_ids is a list of port names (e.g., ["ge-0/0/9"])
+            for port_id in client.get("port_ids", []):
+                if port_id:
+                    neighbors[port_id] = neighbor_mac
     return neighbors
 
 
@@ -286,7 +296,6 @@ async def _fetch_lldp_neighbors_batch(
                 org_stats.listOrgDevicesStats,
                 mist.get_session(),
                 org_id,
-                type="switch",
                 mac=mac_filter,
                 fields="*",
             )
@@ -540,11 +549,11 @@ async def run_layer1_checks(
 
     for site_id in affected_site_ids:
         try:
-            ctx = await get_site_template_context(org_id, site_id, virtual_state)
-            site_vars = ctx["site_vars"]
-            site_name = ctx["site_name"]
+            tmpl_ctx = await get_site_template_context(org_id, site_id, virtual_state)
+            site_vars = tmpl_ctx["site_vars"]
+            site_name = tmpl_ctx["site_name"]
 
-            for tmpl in ctx["assigned_templates"]:
+            for tmpl in tmpl_ctx["assigned_templates"]:
                 tmpl_config = tmpl["config"]
                 tmpl_name = tmpl["template_name"]
 

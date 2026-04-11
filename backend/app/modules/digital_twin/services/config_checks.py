@@ -14,8 +14,10 @@ import netaddr
 
 from app.modules.digital_twin.models import CheckResult
 
-# Regex to find Jinja2-style template variables: {{ var_name }}
-_VAR_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+# Regex to find Jinja2-style template variables.
+# Captures the base variable name from patterns like:
+#   {{ var }}, {{ var | default('x') }}, {{ var.nested }}, {{- var }}
+_VAR_RE = re.compile(r"\{\{-?\s*(\w+)")
 
 
 # ---------------------------------------------------------------------------
@@ -888,9 +890,9 @@ def check_port_profile_disconnect_risk(
         is_disabling = False
         change_desc = ""
 
-        if new_usage == "" and old_usage != "":
+        if new_usage == "disabled" or (new_usage == "" and old_usage != ""):
             is_disabling = True
-            change_desc = f"usage cleared (was '{old_usage}')"
+            change_desc = f"port disabled (usage='{new_usage}', was '{old_usage}')"
         elif new_profile_name and "disabled" in new_profile_name.lower():
             is_disabling = True
             change_desc = f"profile changed to '{new_profile_name}'"

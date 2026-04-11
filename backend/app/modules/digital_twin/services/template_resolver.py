@@ -73,7 +73,7 @@ async def get_site_template_context(
         )
         site_setting = backup.configuration if backup else {}
 
-    site_vars = site_setting.get("vars", {})
+    site_vars = site_setting.get("vars") or {}
 
     # Resolve assigned templates
     assigned_templates = []
