@@ -6,13 +6,24 @@ from pathlib import Path
 from typing import Annotated
 from xml.sax.saxutils import escape
 
-import structlog
 from fastmcp.exceptions import ToolError
 from pydantic import Field
+import structlog
 
 from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.tools.utils import is_placeholder
 
 logger = structlog.get_logger(__name__)
+
+
+def _validate_skill_name(name: str) -> str:
+    """Validate and normalize skill name input."""
+    skill_name = name.strip()
+    if not skill_name:
+        raise ToolError("name is required")
+    if is_placeholder(skill_name):
+        raise ToolError("name must be a real skill name, not a placeholder")
+    return skill_name
 
 
 @mcp.tool()
@@ -38,11 +49,7 @@ async def activate_skill(
     from app.modules.llm.models import Skill
     from app.modules.llm.services.skills_service import list_skill_resources, parse_skill_md
 
-    skill_name = name.strip()
-    if not skill_name:
-        raise ToolError("name is required")
-    if skill_name.startswith("{") or skill_name.startswith("<") or skill_name.startswith(":"):
-        raise ToolError("name must be a real skill name, not a placeholder")
+    skill_name = _validate_skill_name(name)
 
     skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
     if not skill:

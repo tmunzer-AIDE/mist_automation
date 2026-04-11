@@ -7,12 +7,15 @@ from app.modules.mcp_server.tools import backup as backup_tool
 from app.modules.mcp_server.tools import details as details_tool
 from app.modules.mcp_server.tools import digital_twin as twin_tool
 from app.modules.mcp_server.tools import impact_analysis as impact_tool
+from app.modules.mcp_server.tools import skills as skills_tool
 from app.modules.mcp_server.tools import workflow as workflow_tool
 
 validate_backup = getattr(backup_tool, "_validate_backup_inputs")
 validate_details = getattr(details_tool, "_validate_details_inputs")
 validate_twin = getattr(twin_tool, "_validate_twin_inputs")
+resolve_twin_org_id = getattr(twin_tool, "_resolve_twin_org_id")
 validate_impact = getattr(impact_tool, "_validate_session_search_inputs")
+validate_skill_name = getattr(skills_tool, "_validate_skill_name")
 validate_workflow = getattr(workflow_tool, "_validate_workflow_inputs")
 
 
@@ -156,7 +159,33 @@ class TestWorkflowToolValidation:
 
 
 @pytest.mark.unit
+class TestSkillsToolValidation:
+    def test_rejects_curly_placeholder(self):
+        with pytest.raises(ToolError, match="real skill name"):
+            validate_skill_name("{{skill_name}}")
+
+    def test_rejects_url_encoded_placeholder(self):
+        with pytest.raises(ToolError, match="real skill name"):
+            validate_skill_name("%7Bskill_name%7D")
+
+    def test_accepts_real_skill_name(self):
+        assert validate_skill_name("mist-sle") == "mist-sle"
+
+
+@pytest.mark.unit
 class TestDigitalTwinValidation:
+    def test_prefers_system_config_org_id(self):
+        resolved = resolve_twin_org_id("org-from-config", "org-from-env")
+        assert resolved == "org-from-config"
+
+    def test_falls_back_to_env_org_id(self):
+        resolved = resolve_twin_org_id("", "org-from-env")
+        assert resolved == "org-from-env"
+
+    def test_rejects_missing_org_id(self):
+        with pytest.raises(ToolError, match="Mist Organization ID not configured"):
+            resolve_twin_org_id("", "")
+
     def test_simulate_requires_writes(self):
         with pytest.raises(ToolError, match="No writes provided"):
             validate_twin(action="simulate", writes=None, session_id="")

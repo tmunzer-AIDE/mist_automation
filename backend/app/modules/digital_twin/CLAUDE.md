@@ -38,9 +38,12 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 
 - `endpoint_parser.py` rejects unresolved placeholders in path segments (e.g. `{site_id}`, `<device_id>`, `:site_id`) and marks them as parse errors.
 - `twin_service.simulate()` runs target validation before snapshot analysis:
-	- site-scoped writes must reference a real site present in backup snapshots (`object_type=info`)
+	- site-scoped writes must reference a real site present in backup snapshots (supports `info`, legacy `site`, org-level `sites`, or any site-scoped backup record)
 	- `PUT`/`DELETE` writes for non-singleton resources must reference an existing backup object
-- If preflight validation fails, simulation returns an error report (`SYS-01`/`SYS-02`/`SYS-03`) and does not run topology/config checks on invalid targets.
+- If preflight validation fails, simulation returns an error report (`SYS-00`/`SYS-01`/`SYS-02`/`SYS-03`) and does not run topology/config checks on invalid targets.
+- Sessions with blocking preflight errors (`layer=0`, `check_id` prefixed `SYS-`, status `error|critical`) are marked `failed` instead of `awaiting_approval`.
+- `approve_and_execute()` enforces server-side safety: approval is rejected when `prediction_report.execution_safe` is false or blocking preflight errors are present.
+- Snapshot analysis fan-out is concurrency-limited (semaphore) to avoid unbounded per-site parallelism on large affected-site sets.
 
 ### Key Services
 

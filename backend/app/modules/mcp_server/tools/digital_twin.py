@@ -18,6 +18,17 @@ _TWIN_ACTIONS: set[str] = {"simulate", "approve", "reject", "status", "history"}
 _WRITE_METHODS: set[str] = {"POST", "PUT", "DELETE"}
 
 
+def _resolve_twin_org_id(config_org_id: str | None, env_org_id: str | None) -> str:
+    """Resolve Mist org ID for Digital Twin operations.
+
+    Preference order: SystemConfig value first, then environment fallback.
+    """
+    resolved = (config_org_id or "").strip() or (env_org_id or "").strip()
+    if not resolved:
+        raise ToolError("Mist Organization ID not configured. Set it in Admin Settings before simulation")
+    return resolved
+
+
 def _validate_twin_inputs(
     *,
     action: str,
@@ -120,7 +131,7 @@ async def digital_twin(
                 "- Use real UUIDs for site_id, org_id, and object_id; never send names or unresolved variables.\n"
                 "\n"
                 "VALID SITE RESOURCES: wlans, networks, devices, maps, zones, rssizones, psks, assets, "
-                "beacons, vbeacons, wxrules, wxtags, webhooks, evpn_topologies. Singletons: setting, info.\n"
+                "beacons, vbeacons, wxrules, wxtags, webhooks, evpn_topologies. Singletons: setting.\n"
                 "\n"
                 "VALID ORG RESOURCES: wlans, networks, networktemplates, rftemplates, deviceprofiles, "
                 "gatewaytemplates, aptemplates, sitetemplates, templates, vpns, psks, pskportals, nacrules, "
@@ -159,6 +170,7 @@ async def digital_twin(
     _ = ctx
 
     from app.config import settings
+    from app.models.system import SystemConfig
     from app.modules.digital_twin.services import twin_service
 
     validated = _validate_twin_inputs(action=action, writes=writes, session_id=session_id)
@@ -167,7 +179,9 @@ async def digital_twin(
     if not user_id:
         raise ToolError("User context not available")
 
-    org_id = settings.mist_org_id or ""
+    config = await SystemConfig.get_config()
+    config_org_id = config.mist_org_id if config else None
+    org_id = _resolve_twin_org_id(config_org_id, settings.mist_org_id)
     action_value = validated["action"]
     session_id_value = validated["session_id"]
 

@@ -1,6 +1,12 @@
 <ng-template #actionsTemplate>
   @if (isAwaitingApproval()) {
-    <button mat-flat-button class="approve-btn" (click)="approve()" [disabled]="loading()">
+    <button
+      mat-flat-button
+      class="approve-btn"
+      (click)="approve()"
+      [disabled]="loading() || !canApprove()"
+      [matTooltip]="!canApprove() ? 'Fix blocking validation issues before deploy' : ''"
+    >
       <mat-icon>check_circle</mat-icon>
       Approve &amp; Deploy
     </button>

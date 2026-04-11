@@ -77,6 +77,10 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   expandedLayers = signal<Set<number>>(new Set([1, 2, 3, 4, 5]));
 
   isAwaitingApproval = computed(() => this.session()?.status === 'awaiting_approval');
+  canApprove = computed(() => {
+    const s = this.session();
+    return !!s && s.status === 'awaiting_approval' && s.execution_safe && !this.hasBlockingPreflightErrors(s);
+  });
 
   checksByLayer = computed(() => {
     const checks = this.session()?.prediction_report?.check_results ?? [];
@@ -203,9 +207,25 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     }
   }
 
+  private hasBlockingPreflightErrors(session: TwinSessionDetail): boolean {
+    return (session.prediction_report?.check_results ?? []).some(
+      (check) =>
+        check.layer === 0 &&
+        check.check_id.startsWith('SYS-') &&
+        (check.status === 'error' || check.status === 'critical'),
+    );
+  }
+
   approve(): void {
     const s = this.session();
     if (!s) return;
+    if (!this.canApprove()) {
+      const message = this.hasBlockingPreflightErrors(s)
+        ? 'Cannot deploy: preflight validation failed. Fix SYS checks and re-simulate.'
+        : 'Cannot deploy: session has blocking validation issues.';
+      this.snackBar.open(message, 'Dismiss', { duration: 5000 });
+      return;
+    }
     const writesCount = s.staged_writes.length;
     this.dialog
       .open(ConfirmDialogComponent, {

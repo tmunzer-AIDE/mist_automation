@@ -3,10 +3,12 @@
 import pytest
 
 import app.modules.backup.models as backup_models
+from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.models import StagedWrite
 from app.modules.digital_twin.services import twin_service
 
 validate_write_targets = getattr(twin_service, "_validate_write_targets")
+has_blocking_preflight_errors = getattr(twin_service, "_has_blocking_preflight_errors")
 
 
 def _matches(doc: dict, query: dict) -> bool:
@@ -42,6 +44,58 @@ class _FakeBackupObject:
 
 @pytest.mark.unit
 class TestTwinServicePreflight:
+    def test_blocking_preflight_detected_for_sys_error(self):
+        checks = [
+            CheckResult(
+                check_id="SYS-02-0",
+                check_name="Write Target Validation",
+                layer=0,
+                status="error",
+                summary="x",
+            )
+        ]
+        assert has_blocking_preflight_errors(checks) is True
+
+    def test_non_sys_or_non_layer0_does_not_block_preflight(self):
+        checks = [
+            CheckResult(
+                check_id="CFG-VLAN",
+                check_name="Config",
+                layer=1,
+                status="error",
+                summary="x",
+            ),
+            CheckResult(
+                check_id="SYS-01-0",
+                check_name="Endpoint Validation",
+                layer=0,
+                status="warning",
+                summary="x",
+            ),
+        ]
+        assert has_blocking_preflight_errors(checks) is False
+
+    async def test_missing_org_id_emits_sys_00_context_error(self, monkeypatch):
+        _FakeBackupObject.docs = []
+        monkeypatch.setattr(backup_models, "BackupObject", _FakeBackupObject)
+
+        writes = [
+            StagedWrite(
+                sequence=0,
+                method="PUT",
+                endpoint="/api/v1/sites/site-1/devices/dev-1",
+                body={"name": "x"},
+                object_type="devices",
+                site_id="site-1",
+                object_id="dev-1",
+            )
+        ]
+
+        errors = await validate_write_targets("", writes)
+        assert len(errors) == 1
+        assert errors[0].check_id == "SYS-00"
+        assert "org context" in errors[0].summary.lower()
+
     async def test_accepts_site_when_present_in_org_sites_backup(self, monkeypatch):
         _FakeBackupObject.docs = [
             {

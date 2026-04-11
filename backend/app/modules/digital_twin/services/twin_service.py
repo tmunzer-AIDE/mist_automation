@@ -37,6 +37,16 @@ from app.modules.digital_twin.services.state_resolver import (
 
 logger = structlog.get_logger(__name__)
 
+_SITE_ANALYSIS_CONCURRENCY = 8
+
+
+def _has_blocking_preflight_errors(check_results: list[CheckResult]) -> bool:
+    """Return True when Layer-0 SYS checks report blocking errors."""
+    return any(
+        r.layer == 0 and r.check_id.startswith("SYS-") and r.status in ("error", "critical")
+        for r in check_results
+    )
+
 
 def _parse_and_enrich_writes(
     writes: list[dict[str, Any]],
@@ -93,6 +103,22 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
 
     errors: list[CheckResult] = []
     singleton_types = {"settings", "info", "data"}
+
+    if not (org_id or "").strip():
+        return [
+            CheckResult(
+                check_id="SYS-00",
+                check_name="Simulation Context Validation",
+                layer=0,
+                status="error",
+                summary="Simulation org context is missing (org_id is empty)",
+                details=[
+                    "Digital Twin preflight cannot validate targets without an organization scope.",
+                    "Current request resolved org_id to an empty value.",
+                ],
+                remediation_hint="Configure Mist Organization ID in settings, then re-run simulation.",
+            )
+        ]
 
     site_cache: dict[str, bool] = {}
     object_cache: dict[tuple[str, str | None, str], bool] = {}
@@ -272,11 +298,14 @@ async def simulate(
 
         # ── Snapshot-based analysis ──
         # For each affected site: build baseline + predicted snapshots, run all checks
+        semaphore = asyncio.Semaphore(min(_SITE_ANALYSIS_CONCURRENCY, len(affected_sites)))
+
         async def _analyze_one_site(sid: str) -> list:
-            live_data = await fetch_live_data(sid, org_id)
-            baseline_snap = await build_site_snapshot(sid, org_id, live_data)
-            predicted_snap = await build_site_snapshot(sid, org_id, live_data, state_overrides=virtual_state)
-            return analyze_site(baseline_snap, predicted_snap)
+            async with semaphore:
+                live_data = await fetch_live_data(sid, org_id)
+                baseline_snap = await build_site_snapshot(sid, org_id, live_data)
+                predicted_snap = await build_site_snapshot(sid, org_id, live_data, state_overrides=virtual_state)
+                return analyze_site(baseline_snap, predicted_snap)
 
         if affected_sites:
             site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
@@ -307,7 +336,12 @@ async def simulate(
 
     session.prediction_report = report
     session.overall_severity = report.overall_severity
-    session.status = TwinSessionStatus.AWAITING_APPROVAL
+    if _has_blocking_preflight_errors(check_results):
+        session.status = TwinSessionStatus.FAILED
+        session.ai_assessment = "Preflight validation failed. Fix endpoint/target issues and re-run simulation."
+    else:
+        session.status = TwinSessionStatus.AWAITING_APPROVAL
+        session.ai_assessment = None
     session.update_timestamp()
     await session.save()
 
@@ -333,6 +367,12 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
         raise ValueError("Session not found")
     if session.status != TwinSessionStatus.AWAITING_APPROVAL:
         raise ValueError(f"Session is in '{session.status.value}' state, not awaiting_approval")
+    if not session.prediction_report:
+        raise ValueError("Session has no validation report")
+    if not session.prediction_report.execution_safe:
+        raise ValueError("Session has blocking validation issues and cannot be approved")
+    if _has_blocking_preflight_errors(session.prediction_report.check_results):
+        raise ValueError("Session has preflight validation errors and cannot be approved")
 
     session.status = TwinSessionStatus.APPROVED
     session.update_timestamp()
@@ -428,7 +468,9 @@ async def list_sessions(
     if source:
         query["source"] = source
     if search:
-        query["source_ref"] = {"$regex": re.escape(search), "$options": "i"}
+        search_value = search.strip()
+        if search_value:
+            query["source_ref"] = {"$regex": f"^{re.escape(search_value)}", "$options": "i"}
     total = await TwinSession.find(query).count()
     sessions = await TwinSession.find(query).sort([("created_at", -1)]).skip(skip).limit(limit).to_list()
     return sessions, total
