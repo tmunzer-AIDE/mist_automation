@@ -35,6 +35,7 @@ CHECK_RELEVANCE: dict[str, set[str]] = {
     },
     "devices": {
         "L1-05",  # Port profile conflict
+        "L1-15",  # Port profile disconnect risk (LLDP neighbors)
         "L2-01", "L2-03", "L2-04", "L2-05", "L2-06", "L2-07", "L2-08", "L2-09",  # Topology checks
         "L3-02", "L3-03", "L3-04", "L3-05",  # Routing checks
         "L5-01", "L5-02", "L5-03",  # L2 loop checks
@@ -218,6 +219,32 @@ def _extract_poe_data_from_cache(site_id: str) -> tuple[dict[str, float], dict[s
     return poe_budgets, active_poe_ports
 
 
+def _get_lldp_neighbors_for_device(site_id: str, device_mac: str) -> dict[str, str]:
+    """Get LLDP neighbors from telemetry cache for a specific device.
+
+    Returns dict mapping port_id -> neighbor_mac.
+    """
+    try:
+        from app.modules.telemetry import _latest_cache
+
+        if _latest_cache is None:
+            return {}
+
+        for device_stats in _latest_cache.get_all_for_site(site_id, max_age_seconds=120):
+            if device_stats.get("mac") == device_mac:
+                neighbors: dict[str, str] = {}
+                for client in device_stats.get("clients", []):
+                    if client.get("source") == "lldp":
+                        port_id = client.get("port_id", "")
+                        neighbor_mac = client.get("mac", "")
+                        if port_id and neighbor_mac:
+                            neighbors[port_id] = neighbor_mac
+                return neighbors
+    except Exception:
+        pass
+    return {}
+
+
 _SEVERITY_ORDER = {"pass": 0, "skipped": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
 _SEVERITY_LABELS = {0: "clean", 1: "info", 2: "warning", 3: "error", 4: "critical"}
 
@@ -281,6 +308,7 @@ async def run_layer1_checks(
         check_duplicate_ssid,
         check_ip_subnet_overlap,
         check_port_profile_conflict,
+        check_port_profile_disconnect_risk,
         check_psk_rotation_impact,
         check_rf_template_impact,
         check_ssid_airtime_overhead,
@@ -564,6 +592,27 @@ async def run_layer1_checks(
                 results.append(check_rf_template_impact(old_config, new_config, affected_ap_count))
             else:
                 results.append(CheckResult(check_id="L1-13", check_name="RF Template Impact", layer=1, status="skipped", summary="Not relevant for this change type"))
+
+        elif w.object_type == "devices":
+            device_mac = old_config.get("mac", "")
+            device_name = old_config.get("name", device_mac or "unknown")
+            lldp_neighbors = _get_lldp_neighbors_for_device(w.site_id or "", device_mac)
+
+            # L1-15: Port profile disconnect risk
+            if relevant_checks is None or "L1-15" in relevant_checks:
+                results.append(
+                    check_port_profile_disconnect_risk(old_config, new_config, lldp_neighbors, device_name, site_name)
+                )
+            else:
+                results.append(
+                    CheckResult(
+                        check_id="L1-15",
+                        check_name="Port Profile Disconnect Risk",
+                        layer=1,
+                        status="skipped",
+                        summary="Not relevant for this change type",
+                    )
+                )
 
     return results
 

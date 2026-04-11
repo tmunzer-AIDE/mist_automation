@@ -11,6 +11,7 @@ from app.modules.digital_twin.services.config_checks import (
     check_duplicate_ssid,
     check_ip_subnet_overlap,
     check_port_profile_conflict,
+    check_port_profile_disconnect_risk,
     check_psk_rotation_impact,
     check_rf_template_impact,
     check_ssid_airtime_overhead,
@@ -623,3 +624,82 @@ class TestL1_14:
         result = check_client_capacity_impact(old_wlan, new_wlan, current_clients=50, site_name="Site A")
         # Exactly at limit — warn
         assert result.status in ("warning", "error")
+
+
+# ---------------------------------------------------------------------------
+# L1-15: Port profile disconnect risk
+# ---------------------------------------------------------------------------
+
+
+class TestCheckPortProfileDisconnectRisk:
+    def test_no_lldp_data_passes(self):
+        result = check_port_profile_disconnect_risk({}, {}, {}, "SW-01", "site1")
+        assert result.status == "pass"
+        assert result.check_id == "L1-15"
+
+    def test_disabling_port_with_active_neighbor_is_critical(self):
+        old = {"port_config": {"ge-0/0/9": {"usage": "ap", "port_network": "ap"}}}
+        new = {"port_config": {"ge-0/0/9": {"usage": "", "port_network": "disabled"}}}
+        lldp = {"ge-0/0/9": "aa:bb:cc:dd:ee:ff"}
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        assert result.status == "critical"
+        assert "ge-0/0/9" in result.details[0]
+
+    def test_usage_change_with_neighbor_is_critical(self):
+        old = {"port_config": {"ge-0/0/5": {"usage": "ap"}}}
+        new = {"port_config": {"ge-0/0/5": {"usage": "trunk"}}}
+        lldp = {"ge-0/0/5": "11:22:33:44:55:66"}
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        assert result.status == "critical"
+
+    def test_no_change_passes(self):
+        old = {"port_config": {"ge-0/0/9": {"usage": "ap"}}}
+        new = {"port_config": {"ge-0/0/9": {"usage": "ap"}}}
+        lldp = {"ge-0/0/9": "aa:bb:cc:dd:ee:ff"}
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        assert result.status == "pass"
+
+    def test_port_removed_with_neighbor_is_critical(self):
+        old = {"port_config": {"ge-0/0/9": {"usage": "ap"}}}
+        new = {"port_config": {}}  # port config removed
+        lldp = {"ge-0/0/9": "aa:bb:cc:dd:ee:ff"}
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        assert result.status == "critical"
+
+    def test_disabled_profile_name_is_critical(self):
+        old = {"port_config": {"ge-0/0/2": {"usage": "ap", "port_network": "ap-vlan"}}}
+        new = {"port_config": {"ge-0/0/2": {"usage": "ap", "port_network": "disabled"}}}
+        lldp = {"ge-0/0/2": "de:ad:be:ef:00:01"}
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        assert result.status == "critical"
+        assert "site1" in result.affected_sites
+
+    def test_neighbor_on_unaffected_port_passes(self):
+        # LLDP neighbor on ge-0/0/1, but change is on ge-0/0/2
+        old = {"port_config": {"ge-0/0/2": {"usage": "ap"}}}
+        new = {"port_config": {"ge-0/0/2": {"usage": "trunk"}}}
+        lldp = {"ge-0/0/1": "aa:bb:cc:dd:ee:ff"}  # different port
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        # ge-0/0/1 has no config change, so no conflict
+        assert result.status == "pass"
+
+    def test_multiple_conflicts_counted(self):
+        old = {
+            "port_config": {
+                "ge-0/0/1": {"usage": "ap"},
+                "ge-0/0/2": {"usage": "ap"},
+            }
+        }
+        new = {
+            "port_config": {
+                "ge-0/0/1": {"usage": "trunk"},
+                "ge-0/0/2": {"usage": ""},
+            }
+        }
+        lldp = {
+            "ge-0/0/1": "aa:bb:cc:dd:ee:01",
+            "ge-0/0/2": "aa:bb:cc:dd:ee:02",
+        }
+        result = check_port_profile_disconnect_risk(old, new, lldp, "SW-01", "site1")
+        assert result.status == "critical"
+        assert len(result.affected_objects) == 2

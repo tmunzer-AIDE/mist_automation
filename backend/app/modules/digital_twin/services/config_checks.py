@@ -835,3 +835,93 @@ def check_client_capacity_impact(old_wlan: dict, new_wlan: dict, current_clients
         status="pass",
         summary=f"Client capacity change on '{ssid}' is within acceptable bounds",
     )
+
+
+# ---------------------------------------------------------------------------
+# L1-15: Port profile disconnect risk
+# ---------------------------------------------------------------------------
+
+
+def check_port_profile_disconnect_risk(
+    old_device_config: dict[str, Any],
+    new_device_config: dict[str, Any],
+    lldp_neighbors: dict[str, str],
+    device_name: str,
+    site_name: str,
+) -> CheckResult:
+    """Detect port profile changes that would disconnect active LLDP neighbors."""
+    if not lldp_neighbors:
+        return CheckResult(
+            check_id="L1-15",
+            check_name="Port Profile Disconnect Risk",
+            layer=1,
+            status="pass",
+            summary="No LLDP neighbor data available for comparison.",
+        )
+
+    old_port_config = old_device_config.get("port_config", {}) or {}
+    new_port_config = new_device_config.get("port_config", {}) or {}
+
+    conflicts: list[str] = []
+    details: list[str] = []
+    affected_objects: list[str] = []
+
+    for port_id, neighbor_mac in lldp_neighbors.items():
+        old_profile = old_port_config.get(port_id, {})
+        new_profile = new_port_config.get(port_id, {})
+
+        if not new_profile and old_profile:
+            # Port config removed entirely — device loses connectivity
+            details.append(
+                f"{device_name} port {port_id}: config removed, active neighbor {neighbor_mac} will be disconnected"
+            )
+            conflicts.append(port_id)
+            affected_objects.append(f"{device_name}:{port_id}")
+            continue
+
+        old_usage = old_profile.get("usage", "")
+        new_usage = new_profile.get("usage", "")
+        new_profile_name = new_profile.get("port_network", new_profile.get("profile", ""))
+
+        # Detect disabling changes
+        is_disabling = False
+        change_desc = ""
+
+        if new_usage == "" and old_usage != "":
+            is_disabling = True
+            change_desc = f"usage cleared (was '{old_usage}')"
+        elif new_profile_name and "disabled" in new_profile_name.lower():
+            is_disabling = True
+            change_desc = f"profile changed to '{new_profile_name}'"
+        elif old_usage and new_usage and old_usage != new_usage:
+            # Usage changed (e.g., "ap" -> something else) — flag as critical
+            is_disabling = True
+            change_desc = f"usage changed from '{old_usage}' to '{new_usage}'"
+
+        if is_disabling:
+            details.append(
+                f"{device_name} port {port_id}: {change_desc}, active neighbor {neighbor_mac} will be disconnected"
+            )
+            conflicts.append(port_id)
+            affected_objects.append(f"{device_name}:{port_id}")
+
+    if conflicts:
+        return CheckResult(
+            check_id="L1-15",
+            check_name="Port Profile Disconnect Risk",
+            layer=1,
+            status="critical",
+            summary=f"{len(conflicts)} port(s) on {device_name} with active neighbors will be affected by profile changes",
+            details=details,
+            affected_objects=affected_objects,
+            affected_sites=[site_name],
+            remediation_hint="These ports have active LLDP neighbors (APs, switches). Changing the port profile will disconnect them. Verify this is intentional.",
+        )
+
+    return CheckResult(
+        check_id="L1-15",
+        check_name="Port Profile Disconnect Risk",
+        layer=1,
+        status="pass",
+        summary="No active neighbors affected by port profile changes.",
+    )
