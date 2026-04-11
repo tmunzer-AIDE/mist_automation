@@ -15,6 +15,55 @@ from app.modules.digital_twin.models import CheckResult, PredictionReport
 
 logger = structlog.get_logger(__name__)
 
+
+# ── Telemetry cache helpers (graceful when telemetry is not running) ────
+
+
+def _get_client_cache():
+    """Get the telemetry client cache, or None if telemetry is not active."""
+    try:
+        from app.modules.telemetry import _client_cache
+
+        return _client_cache
+    except ImportError:
+        return None
+
+
+def _get_device_cache():
+    """Get the telemetry device cache, or None if telemetry is not active."""
+    try:
+        from app.modules.telemetry import _latest_cache
+
+        return _latest_cache
+    except ImportError:
+        return None
+
+
+def _count_clients_on_ssid(client_cache, site_id: str | None, ssid: str) -> int:
+    """Count active clients on a specific SSID from the telemetry client cache."""
+    if not client_cache or not site_id or not ssid:
+        return 0
+    try:
+        entries = client_cache.get_all_for_site(site_id, max_age_seconds=120)
+        return sum(1 for e in entries if e.get("ssid") == ssid)
+    except Exception:
+        return 0
+
+
+def _count_aps_at_sites(device_cache, site_ids: set[str]) -> int:
+    """Count APs across affected sites from the telemetry device cache."""
+    if not device_cache or not site_ids:
+        return 0
+    total = 0
+    try:
+        for site_id in site_ids:
+            devices = device_cache.get_all_for_site(site_id, max_age_seconds=60)
+            total += sum(1 for d in devices if d.get("type") == "ap" or d.get("device_type") == "ap")
+    except Exception:
+        pass
+    return total
+
+
 _SEVERITY_ORDER = {"pass": 0, "skipped": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
 _SEVERITY_LABELS = {0: "clean", 1: "info", 2: "warning", 3: "error", 4: "critical"}
 
@@ -265,6 +314,10 @@ async def run_layer1_checks(
     results.append(check_dns_ntp_consistency(device_dns_configs))
 
     # ── Per-write comparison checks (L1-12, L1-13, L1-14) ─────────────
+    # Try to load live client/device stats from telemetry cache
+    client_cache = _get_client_cache()
+    device_cache = _get_device_cache()
+
     for w in staged_writes:
         if w.method != "PUT" or not w.object_id:
             continue
@@ -283,16 +336,20 @@ async def run_layer1_checks(
         site_name = w.site_id or "org"
 
         if w.object_type == "wlans":
+            # Count active clients on this SSID from telemetry cache
+            active_clients = _count_clients_on_ssid(client_cache, w.site_id, old_config.get("ssid", ""))
+
             # L1-12: PSK rotation impact
-            # Phase 1: active_clients=0 (live stats not available yet)
-            results.append(check_psk_rotation_impact(old_config, new_config, 0, site_name))
+            results.append(check_psk_rotation_impact(old_config, new_config, active_clients, site_name))
 
             # L1-14: Client capacity impact
-            results.append(check_client_capacity_impact(old_config, new_config, 0, site_name))
+            results.append(check_client_capacity_impact(old_config, new_config, active_clients, site_name))
 
         elif w.object_type == "rftemplates":
+            # Count APs at affected sites from telemetry cache
+            affected_ap_count = _count_aps_at_sites(device_cache, affected_site_ids)
+
             # L1-13: RF template impact
-            # Phase 1: affected_ap_count=0 (live stats not available yet)
-            results.append(check_rf_template_impact(old_config, new_config, 0))
+            results.append(check_rf_template_impact(old_config, new_config, affected_ap_count))
 
     return results
