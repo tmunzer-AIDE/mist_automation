@@ -119,6 +119,10 @@ class TwinSession(TimestampMixin, Document):
     ai_assessment: str | None = None
     ia_session_ids: list[str] = Field(default_factory=list)
 
+    # Timestamps (required by TimestampMixin.update_timestamp())
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
     class Settings:
         name = "twin_sessions"
         indexes = [
