@@ -106,9 +106,6 @@ def _ip_in_allowlist(client_ip: str, allowlist: list[str]) -> bool:
     """Check if client IP matches any entry in the allowlist (supports CIDR)."""
     try:
         addr = ipaddress.ip_address(client_ip)
-        # Unwrap IPv4-mapped IPv6 (::ffff:x.x.x.x) so it matches IPv4 CIDR entries
-        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
-            addr = addr.ipv4_mapped
         return any(addr in ipaddress.ip_network(entry, strict=False) for entry in allowlist)
     except ValueError:
         return False

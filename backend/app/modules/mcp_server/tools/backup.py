@@ -163,7 +163,7 @@ async def _object_info(*, object_id: str, **_kwargs) -> str:
     if not object_id:
         return to_json({"error": "object_id is required for action=object_info"})
 
-    versions = await BackupObject.find(BackupObject.object_id == object_id).sort(-BackupObject.version).to_list()
+    versions = await BackupObject.find(BackupObject.object_id == object_id).sort("-version").to_list()
     if not versions:
         return to_json({"error": f"No backup found for object_id '{object_id}'"})
 
@@ -189,7 +189,7 @@ async def _object_info(*, object_id: str, **_kwargs) -> str:
     # Reverse-lookup children: objects that reference this object
     children_cursor = BackupObject.find(
         {"references.target_id": object_id, "is_deleted": False},
-    ).sort(-BackupObject.version)
+    ).sort("-version")
     child_docs = await children_cursor.to_list()
     seen_children: set[str] = set()
     children = []
@@ -399,7 +399,7 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
             BackupObject.object_id == target.object_id,
             BackupObject.is_deleted == False,  # noqa: E712
         )
-        .sort(-BackupObject.version)
+        .sort("-version")
         .first_or_none()
     )
 
@@ -428,6 +428,7 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
     from app.services.mist_service_factory import create_mist_service
 
     restore_service = RestoreService(await create_mist_service())
+    assert target.id is not None  # always set on fetched documents
 
     # Run dry-run validation for warnings
     warnings: list[str] = []

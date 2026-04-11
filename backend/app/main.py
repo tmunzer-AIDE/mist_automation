@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -239,28 +239,40 @@ def _passkey_available() -> bool:
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint."""
+    """Readiness-style health check endpoint for critical dependencies."""
+    from fastapi.responses import JSONResponse
+
     from app.models.user import User
+
+    checks: dict[str, dict[str, str | bool]] = {
+        "database": {"ok": True},
+        "system_config": {"ok": True},
+    }
+    is_initialized = False
+    maintenance = False
 
     try:
         user_count = await User.find().count()
         is_initialized = user_count > 0
-    except Exception:
-        is_initialized = False
+    except Exception as exc:
+        checks["database"] = {"ok": False, "error": type(exc).__name__}
 
     try:
         from app.models.system import SystemConfig
 
         sys_config = await SystemConfig.get_config()
-        maintenance = sys_config.maintenance_mode
-    except Exception:
-        maintenance = False
+        maintenance = bool(sys_config.maintenance_mode)
+    except Exception as exc:
+        checks["system_config"] = {"ok": False, "error": type(exc).__name__}
 
-    return {
-        "status": "healthy",
+    healthy = bool(checks["database"]["ok"] and checks["system_config"]["ok"])
+
+    payload = {
+        "status": "healthy" if healthy else "unhealthy",
         "app": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
+        "checks": checks,
         "is_initialized": is_initialized,
         "maintenance_mode": maintenance,
         "passkey_support": _passkey_available(),
@@ -272,6 +284,14 @@ async def health_check():
             "require_special_chars": settings.require_special_chars,
         },
     }
+
+    if not healthy:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=payload,
+        )
+
+    return payload
 
 
 _FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
@@ -317,7 +337,8 @@ try:
     app.mount("/mcp", MCPAuthMiddleware(_mcp_server.http_app(path="/")))
     logger.info("mcp_server_mounted", path="/mcp", auth="jwt")
 except Exception as e:
-    logger.warning("mcp_server_mount_failed", error=str(e))
+    logger.error("mcp_server_mount_failed", error=str(e))
+    raise RuntimeError("MCP server mount failed; aborting startup") from e
 
 
 # Serve Angular frontend static files and SPA catch-all

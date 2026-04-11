@@ -33,6 +33,8 @@ See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for build, test, and lint comma
 - Mist API integration via `mistapi` library; use `create_mist_service()` from `app.services.mist_service_factory` to instantiate
 - Template rendering uses Jinja2 `SandboxedEnvironment` with a safe env var allowlist (no `os.environ` exposure)
 - Models use `TimestampMixin` for `created_at`/`updated_at`
+- Main app MCP mount (`/mcp`) is mandatory: startup fails if MCP mounting fails
+- `/health` is readiness-style: returns HTTP 503 when critical dependencies are unavailable
 
 ### Frontend (Angular 21 + Material)
 
@@ -74,6 +76,7 @@ See `frontend/CLAUDE.md` for detailed frontend guidance.
 - `routed_to` field on `WebhookEvent` documents records which modules received the event (audit trail)
 - Replay endpoint (`POST /webhooks/events/{id}/replay`) re-dispatches to automation only
 - Adding a new consumer currently requires editing `webhooks.py` — a pub/sub event bus is planned to decouple this (see `docs/superpowers/specs/2026-03-26-webhook-event-bus-design.md`)
+- IP allowlist checks are strict by address family; IPv4-mapped IPv6 addresses do not match IPv4 CIDR entries
 
 ### Reports Module
 

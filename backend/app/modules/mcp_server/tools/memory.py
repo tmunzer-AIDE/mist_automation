@@ -11,11 +11,10 @@ import structlog
 from beanie import PydanticObjectId
 from pydantic import Field
 
+from app.modules.llm.memory_constants import VALID_MEMORY_CATEGORIES
 from app.modules.mcp_server.server import mcp, mcp_thread_id_var, mcp_user_id_var
 
 logger = structlog.get_logger(__name__)
-
-VALID_CATEGORIES = {"general", "network", "preference", "troubleshooting"}
 
 # Defaults — overridden by SystemConfig when memory settings exist (Task 4)
 _DEFAULT_MAX_KEY_LENGTH = 100
@@ -59,7 +58,7 @@ async def _store_memory(
         return f"Value too long: maximum {max_value_len} characters, got {len(value)}."
 
     # Normalize category
-    if category not in VALID_CATEGORIES:
+    if category not in VALID_MEMORY_CATEGORIES:
         category = "general"
 
     uid = PydanticObjectId(user_id)
@@ -108,22 +107,28 @@ async def _recall_memory(
     if query:
         # MongoDB text search on key+value, filtered by user_id
         filters: dict = {"user_id": uid, "$text": {"$search": query}}
-        if category and category in VALID_CATEGORIES:
+        if category and category in VALID_MEMORY_CATEGORIES:
             filters["category"] = category
-        entries = await MemoryEntry.find(filters).sort([("score", {"$meta": "textScore"})]).limit(max_results).to_list()
-    elif category and category in VALID_CATEGORIES:
+        pipeline = [
+            {"$match": filters},
+            {"$addFields": {"score": {"$meta": "textScore"}}},
+            {"$sort": {"score": -1}},
+            {"$limit": max_results},
+        ]
+        entries = await MemoryEntry.aggregate(pipeline, projection_model=MemoryEntry).to_list()
+    elif category and category in VALID_MEMORY_CATEGORIES:
         entries = (
             await MemoryEntry.find(
                 MemoryEntry.user_id == uid,
                 MemoryEntry.category == category,
             )
-            .sort(-MemoryEntry.updated_at)
+            .sort("-updated_at")
             .limit(max_results)
             .to_list()
         )
     else:
         # Most recent 20 entries
-        entries = await MemoryEntry.find(MemoryEntry.user_id == uid).sort(-MemoryEntry.updated_at).limit(20).to_list()
+        entries = await MemoryEntry.find(MemoryEntry.user_id == uid).sort("-updated_at").limit(20).to_list()
 
     if not entries:
         return "No memories found."

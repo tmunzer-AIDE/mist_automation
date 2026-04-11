@@ -37,6 +37,10 @@ The app uses FastAPI's `lifespan` context manager:
 1. **Startup**: `Database.connect_db()` → `start_smee()` (if enabled) → `start_scheduler()`
 2. **Shutdown**: `stop_scheduler()` → `stop_smee()` → `Database.close_db()`
 
+MCP is a required core feature in the main app: `/mcp` mount failures are fatal and abort startup.
+
+`GET /health` is readiness-style (dependency-aware), not liveness-only. It returns HTTP 503 with `status: "unhealthy"` if critical dependencies (MongoDB or `SystemConfig`) are unavailable.
+
 Modules are registered via `MODULES` list in `app/modules/__init__.py` — each `AppModule` declares its router import path (in `app/api/v1/`) and model classes. All route handlers live in `app/api/v1/`; module internals (models, services, schemas, workers) live in `app/modules/<name>/`. `get_all_document_models()` collects models for Beanie initialization.
 
 ### Configuration Cascade
@@ -63,6 +67,8 @@ All custom exceptions inherit from `MistAutomationException(message, status_code
 Single entry point `POST /webhooks/mist` receives all Mist webhooks. See root `CLAUDE.md` → "Webhook Event Routing" for the full routing architecture (dispatch modes, consumer handler signatures, fan-out behavior).
 
 Current limitation: routing is hardcoded — adding a new consumer requires editing `webhooks.py`. A pub/sub event bus design exists at `docs/superpowers/specs/2026-03-26-webhook-event-bus-design.md`.
+
+IP allowlist checks are strict by address family: IPv4-mapped IPv6 addresses (for example `::ffff:10.0.0.1`) are treated as IPv6 and do not match IPv4 CIDR allowlist entries.
 
 Smee.io forwarding (`app/core/smee_service.py`) connects to a Smee SSE channel and replays events to the local webhook endpoint for development. It bypasses signature verification. Target URL is configurable via `settings.smee_target_url` (defaults to `http://127.0.0.1:8000/api/v1/webhooks/mist`).
 

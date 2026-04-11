@@ -2221,7 +2221,7 @@ async def list_memories(
     if search:
         filters["$text"] = {"$search": search}
 
-    entries = await MemoryEntry.find(filters).sort(-MemoryEntry.updated_at).to_list()
+    entries = await MemoryEntry.find(filters).sort("-updated_at").to_list()
 
     return MemoryListResponse(
         entries=[_memory_to_response(e) for e in entries],
@@ -2253,8 +2253,8 @@ async def update_memory(
     """Update a memory entry's value and/or category."""
     from datetime import datetime, timezone
 
+    from app.modules.llm.memory_constants import VALID_MEMORY_CATEGORIES
     from app.modules.llm.models import MemoryEntry
-    from app.modules.mcp_server.tools.memory import VALID_CATEGORIES
 
     entry = await MemoryEntry.get(_parse_oid(memory_id, "memory ID"))
     if not entry or entry.user_id != current_user.id:
@@ -2273,10 +2273,10 @@ async def update_memory(
         entry.value = request.value
 
     if request.category is not None:
-        if request.category not in VALID_CATEGORIES:
+        if request.category not in VALID_MEMORY_CATEGORIES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid category. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}",
+                detail=f"Invalid category. Must be one of: {', '.join(sorted(VALID_MEMORY_CATEGORIES))}",
             )
         entry.category = request.category
 

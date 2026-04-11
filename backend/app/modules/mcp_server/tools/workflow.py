@@ -156,7 +156,7 @@ async def _detail(*, workflow_id: str, **_kwargs) -> str:
             WorkflowExecution.workflow_id == wf.id,
             WorkflowExecution.is_simulation == False,  # noqa: E712
         )
-        .sort(-WorkflowExecution.started_at)
+        .sort("-started_at")
         .limit(5)
         .to_list()
     )
@@ -308,7 +308,7 @@ async def _create(
         name=name,
         description=description or "",
         workflow_type=workflow_type,
-        created_by=user_id,
+        created_by=PydanticObjectId(user_id),
         status=WorkflowStatus.DRAFT,
         nodes=parsed_nodes,
         edges=parsed_edges,
@@ -351,7 +351,6 @@ async def _update(
 
     # Enforce ownership/permission check (mirrors REST API)
     from app.models.user import User
-    from app.modules.mcp_server.server import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
     if user_id:
