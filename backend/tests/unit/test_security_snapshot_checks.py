@@ -69,6 +69,7 @@ class TestSecGuest:
         assert len(r.details) == 1
         assert "Guest-WiFi" in r.details[0]
         assert "open without client isolation" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_open_ssid_with_isolation_passes(self):
         """An open SSID with client isolation enabled should pass."""
@@ -203,6 +204,7 @@ class TestSecPolicy:
         assert r.status == "warning"
         assert any("Modified" in d for d in r.details)
         assert any("BlockSSH" in d for d in r.details)
+        assert r.affected_sites == ["site-1"]
 
     def test_added_policy_warning(self):
         """Added security policy should produce a warning."""
@@ -287,6 +289,7 @@ class TestSecNac:
         assert r.status == "warning"
         assert "1" in r.details[0]  # from 1
         assert "2" in r.details[0]  # to 2
+        assert r.affected_sites == ["site-1"]
 
     def test_no_change_passes(self):
         """Identical NAC rules should pass."""

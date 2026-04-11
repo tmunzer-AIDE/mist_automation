@@ -110,6 +110,7 @@ class TestRouteGw:
         assert len(r.details) == 1
         assert "Corp" in r.details[0]
         assert "no gateway L3 interface" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_all_networks_have_gateway_passes(self):
         """All networks covered by gateway ip_config should pass."""
@@ -220,6 +221,7 @@ class TestRouteOspf:
         assert r.status == "critical"
         assert len(r.details) == 1
         assert "10.0.0.2" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_no_peers_passes(self):
         """No OSPF peers in baseline should produce a pass."""
@@ -300,6 +302,7 @@ class TestRouteBgp:
         assert r is not None
         assert r.status == "critical"
         assert "203.0.113.2" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_no_bgp_peers_passes(self):
         """No BGP peers in baseline should produce a pass."""
@@ -385,6 +388,7 @@ class TestRouteWan:
         assert len(r.details) == 1
         assert "ge-0/0/1" in r.details[0]
         assert "lte" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_multiple_wan_removed_error(self):
         """Removing multiple WAN links should produce an error."""

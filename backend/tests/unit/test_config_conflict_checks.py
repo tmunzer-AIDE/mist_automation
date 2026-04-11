@@ -92,6 +92,7 @@ class TestCfgSubnet:
         assert len(r.details) == 1
         assert "Corp" in r.details[0]
         assert "Guest" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_no_overlap_passes(self):
         """Non-overlapping subnets should pass."""
@@ -153,6 +154,7 @@ class TestCfgVlan:
         assert "VLAN 100" in r.details[0]
         assert "Corp" in r.details[0]
         assert "Guest" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_no_collision_passes(self):
         """Different VLAN IDs should pass."""
@@ -200,6 +202,7 @@ class TestCfgSsid:
         assert r is not None
         assert r.status == "error"
         assert "Corporate" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_disabled_wlan_ignored(self):
         """A disabled WLAN should not count toward duplicates."""
@@ -286,6 +289,7 @@ class TestCfgDhcp:
         assert len(r.details) == 1
         assert "SW-1" in r.details[0]
         assert "SW-2" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_non_overlapping_ranges_pass(self):
         """Non-overlapping DHCP ranges should pass."""
@@ -414,6 +418,7 @@ class TestCfgDhcp:
         assert r.status == "error"
         assert "gateway" in r.details[0]
         assert "outside" in r.details[0]
+        assert r.affected_sites == ["site-1"]
 
     def test_dhcp_misconfiguration_range_outside_subnet(self):
         """ip_start or ip_end outside the network subnet should be flagged."""

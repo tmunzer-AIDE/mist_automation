@@ -59,7 +59,7 @@ def _check_guest_ssid(predicted: SiteSnapshot) -> CheckResult:
             summary=f"{len(issues)} open SSID(s) without client isolation",
             details=issues,
             affected_objects=affected,
-            affected_sites=[predicted.site_name or predicted.site_id],
+            affected_sites=[predicted.site_id],
             remediation_hint="Enable client isolation on open/guest SSIDs to prevent lateral traffic.",
         )
 
@@ -121,7 +121,7 @@ def _check_security_policies(baseline: SiteSnapshot, predicted: SiteSnapshot) ->
             status="warning",
             summary=f"Security policy changes detected: {len(added)} added, {len(removed)} removed, {len(modified)} modified",
             details=details,
-            affected_sites=[predicted.site_name or predicted.site_id],
+            affected_sites=[predicted.site_id],
             remediation_hint="Review security policy changes to ensure they align with organizational requirements.",
         )
 
@@ -156,7 +156,7 @@ def _check_nac_rules(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             status="warning",
             summary=f"NAC rule count changed from {base_count} to {pred_count}",
             details=details,
-            affected_sites=[predicted.site_name or predicted.site_id],
+            affected_sites=[predicted.site_id],
             remediation_hint="Review NAC rule changes to ensure network access control remains correct.",
         )
 

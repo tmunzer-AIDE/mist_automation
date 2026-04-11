@@ -44,7 +44,8 @@ def _parse_and_enrich_writes(
     """Parse raw write dicts into StagedWrite objects with endpoint metadata.
 
     Returns (staged_writes, parse_errors). Parse errors are CheckResult objects
-    with check_id="SYS-01" that should be included in the PredictionReport.
+    in the SYS-01 family, using check_id="SYS-01-{i}" where ``i`` is the
+    write sequence, and should be included in the PredictionReport.
     """
     staged: list[StagedWrite] = []
     parse_errors: list[CheckResult] = []

@@ -67,7 +67,7 @@ def _check_subnet_overlap(snap: SiteSnapshot) -> CheckResult:
             summary=f"Found {len(conflicts)} subnet overlap(s)",
             details=conflicts,
             affected_objects=affected_objects,
-            affected_sites=[snap.site_name or snap.site_id],
+            affected_sites=[snap.site_id],
             remediation_hint="Assign non-overlapping subnets to each network.",
         )
 
@@ -121,7 +121,7 @@ def _check_vlan_collision(snap: SiteSnapshot) -> CheckResult:
             summary=f"Found {len(conflicts)} VLAN ID collision(s)",
             details=conflicts,
             affected_objects=affected_objects,
-            affected_sites=[snap.site_name or snap.site_id],
+            affected_sites=[snap.site_id],
             remediation_hint="Assign unique VLAN IDs to each network, or merge networks that share the same VLAN.",
         )
 
@@ -169,7 +169,7 @@ def _check_duplicate_ssid(snap: SiteSnapshot) -> CheckResult:
             summary=f"Found {len(conflicts)} duplicate SSID(s)",
             details=conflicts,
             affected_objects=affected_objects,
-            affected_sites=[snap.site_name or snap.site_id],
+            affected_sites=[snap.site_id],
             remediation_hint="Remove or rename duplicate SSIDs. Each SSID should be unique within a site.",
         )
 
@@ -266,7 +266,7 @@ def _check_dhcp_scope_overlap(snap: SiteSnapshot) -> CheckResult:
             summary=f"Found {len(conflicts)} overlapping DHCP scope(s)",
             details=conflicts,
             affected_objects=affected_objects,
-            affected_sites=[snap.site_name or snap.site_id],
+            affected_sites=[snap.site_id],
             remediation_hint="Ensure DHCP ranges do not overlap across devices.",
         )
 
@@ -353,7 +353,7 @@ def _check_dhcp_misconfiguration(snap: SiteSnapshot) -> CheckResult:
             summary=f"Found {len(errors)} DHCP misconfiguration(s)",
             details=errors,
             affected_objects=affected_objects,
-            affected_sites=[snap.site_name or snap.site_id],
+            affected_sites=[snap.site_id],
             remediation_hint="Ensure DHCP gateway and address range are within the network's subnet.",
         )
 

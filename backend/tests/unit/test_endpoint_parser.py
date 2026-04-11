@@ -197,6 +197,33 @@ class TestParseEndpoint:
         assert result.scope == "site"
         assert result.error is not None
 
+    def test_put_collection_requires_object_id(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/site-789/wlans")
+        assert result.object_type == "wlans"
+        assert result.object_id is None
+        assert result.error is not None
+        assert "requires object_id" in result.error
+
+    def test_delete_org_collection_requires_object_id(self):
+        result = parse_endpoint("DELETE", "/api/v1/orgs/org-123/networks")
+        assert result.object_type == "networks"
+        assert result.object_id is None
+        assert result.error is not None
+        assert "requires object_id" in result.error
+
+    def test_post_collection_with_object_id_rejected(self):
+        result = parse_endpoint("POST", "/api/v1/sites/site-789/wlans/wlan-abc")
+        assert result.object_type == "wlans"
+        assert result.object_id == "wlan-abc"
+        assert result.error is not None
+        assert "must target a collection endpoint without object_id" in result.error
+
+    def test_singleton_with_object_id_rejected(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/site-789/setting/extra")
+        assert result.object_type == "settings"
+        assert result.error is not None
+        assert "does not accept object_id" in result.error
+
     # --- Placeholder validation tests ---
 
     def test_rejects_placeholder_site_id(self):

@@ -146,6 +146,37 @@ def _validate_segments(result: ParsedEndpoint, **segments: str | None) -> bool:
     return True
 
 
+def _validate_method_target_shape(
+    result: ParsedEndpoint,
+    *,
+    method: str,
+    resource: str,
+    object_id: str | None,
+    is_singleton: bool,
+) -> bool:
+    """Validate method/resource/object_id coherence for parsed endpoints."""
+    verb = (method or "").upper()
+
+    if is_singleton and object_id:
+        result.error = f"Singleton resource '{resource}' does not accept object_id in the endpoint path"
+        return False
+
+    if verb in {"PUT", "DELETE"} and not is_singleton and not object_id:
+        result.error = (
+            f"Method '{verb}' requires object_id for collection resource '{resource}'. "
+            f"Use /.../{resource}/{{object_id}}"
+        )
+        return False
+
+    if verb == "POST" and object_id:
+        result.error = (
+            f"Method 'POST' must target a collection endpoint without object_id for resource '{resource}'"
+        )
+        return False
+
+    return True
+
+
 @dataclass
 class ParsedEndpoint:
     """Structured metadata extracted from a Mist API endpoint."""
@@ -166,7 +197,8 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
     # Strip query/fragment/trailing slash before matching path segments.
     endpoint = endpoint.split("?", 1)[0].split("#", 1)[0].rstrip("/")
 
-    result = ParsedEndpoint(method=method, endpoint=endpoint)
+    normalized_method = (method or "").upper()
+    result = ParsedEndpoint(method=normalized_method, endpoint=endpoint)
 
     m = _SITE_PATTERN.match(endpoint)
     if m:
@@ -182,6 +214,13 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
             # /api/v1/sites/{site_id} — site info
             result.object_type = "info"
             result.is_singleton = True
+            _validate_method_target_shape(
+                result,
+                method=result.method,
+                resource=result.object_type,
+                object_id=obj_id,
+                is_singleton=True,
+            )
             return result
 
         # Normalize common LLM mistakes (singular → plural)
@@ -190,11 +229,25 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
         if resource in _SITE_SINGLETONS:
             result.object_type = resource
             result.is_singleton = True
+            _validate_method_target_shape(
+                result,
+                method=result.method,
+                resource=result.object_type,
+                object_id=obj_id,
+                is_singleton=True,
+            )
             return result
 
         if resource in _SITE_RESOURCES:
             result.object_type = resource
             result.object_id = obj_id
+            _validate_method_target_shape(
+                result,
+                method=result.method,
+                resource=result.object_type,
+                object_id=result.object_id,
+                is_singleton=False,
+            )
             return result
 
         # Unknown resource — set error but still populate site_id/scope
@@ -218,6 +271,13 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
             # /api/v1/orgs/{org_id} — org info
             result.object_type = "data"
             result.is_singleton = True
+            _validate_method_target_shape(
+                result,
+                method=result.method,
+                resource=result.object_type,
+                object_id=obj_id,
+                is_singleton=True,
+            )
             return result
 
         # Normalize common LLM mistakes (singular → plural)
@@ -226,11 +286,25 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
         if resource in _ORG_SINGLETONS:
             result.object_type = resource
             result.is_singleton = True
+            _validate_method_target_shape(
+                result,
+                method=result.method,
+                resource=result.object_type,
+                object_id=obj_id,
+                is_singleton=True,
+            )
             return result
 
         if resource in _ORG_RESOURCES:
             result.object_type = resource
             result.object_id = obj_id
+            _validate_method_target_shape(
+                result,
+                method=result.method,
+                resource=result.object_type,
+                object_id=result.object_id,
+                is_singleton=False,
+            )
             return result
 
         # Unknown resource — set error but still populate org_id/scope

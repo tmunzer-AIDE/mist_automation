@@ -123,7 +123,7 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
         summary=f"{len(missing)} network(s) missing a gateway L3 interface.",
         details=details,
         affected_objects=affected_objects,
-        affected_sites=[predicted.site_name or predicted.site_id],
+        affected_sites=[predicted.site_id],
         remediation_hint="Add ip_config entries on a gateway device for each network that requires L3 routing.",
     )
 
@@ -183,7 +183,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
         summary=f"{len(breaks)} OSPF adjacency break(s) detected.",
         details=breaks,
         affected_objects=affected_objects,
-        affected_sites=[baseline.site_name or baseline.site_id],
+        affected_sites=[baseline.site_id],
         remediation_hint="Verify that interface IP changes do not remove subnets used by OSPF peers.",
     )
 
@@ -241,7 +241,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
         summary=f"{len(breaks)} BGP adjacency break(s) detected.",
         details=breaks,
         affected_objects=affected_objects,
-        affected_sites=[baseline.site_name or baseline.site_id],
+        affected_sites=[baseline.site_id],
         remediation_hint="Verify that interface IP changes do not remove subnets used by BGP peers.",
     )
 
@@ -312,7 +312,7 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
         summary=f"{len(removed_details)} WAN link(s) removed from gateway device(s).",
         details=removed_details,
         affected_objects=affected_objects,
-        affected_sites=[baseline.site_name or baseline.site_id],
+        affected_sites=[baseline.site_id],
         remediation_hint="Verify that remaining WAN links provide sufficient redundancy and bandwidth.",
     )
 
