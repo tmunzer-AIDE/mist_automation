@@ -3,6 +3,7 @@ Mist API service wrapper using the mistapi package.
 Provides abstraction layer for all Mist API interactions.
 """
 
+from contextvars import ContextVar
 from typing import Any
 
 import mistapi
@@ -19,6 +20,8 @@ from app.config import settings
 from app.core.exceptions import ConfigurationError, MistAPIError
 
 logger = structlog.get_logger(__name__)
+
+twin_session_var: ContextVar[str | None] = ContextVar("twin_session_id", default=None)
 
 
 class MistService:
@@ -368,6 +371,13 @@ class MistService:
         **kwargs: Any,
     ) -> Any:
         """Execute a Mist API call with common error handling."""
+        # Digital Twin interception: capture writes instead of executing
+        twin_id = twin_session_var.get()
+        if twin_id and method in ("post", "put", "delete"):
+            from app.modules.digital_twin.services.twin_service import intercept_write
+
+            return await intercept_write(twin_id, method, endpoint, kwargs.get("body"))
+
         endpoint = endpoint.replace("{org_id}", self.org_id)
         session_method = getattr(self.session, f"mist_{method}")
 
