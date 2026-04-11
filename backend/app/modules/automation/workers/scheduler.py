@@ -72,6 +72,9 @@ class WorkflowScheduler:
         # Load impact analysis session cleanup schedule
         await self._load_impact_cleanup_schedule()
 
+        # Load digital twin session cleanup schedule
+        await self._load_twin_cleanup_schedule()
+
         # Load memory consolidation schedule
         await self._load_memory_consolidation_schedule()
 
@@ -289,6 +292,29 @@ class WorkflowScheduler:
             await cleanup_old_sessions()
         except Exception as e:
             logger.error("impact_session_cleanup_failed", error=str(e))
+
+    async def _load_twin_cleanup_schedule(self):
+        """Register the nightly Digital Twin session cleanup job."""
+        try:
+            self.scheduler.add_job(
+                self._run_twin_cleanup,
+                trigger=CronTrigger(hour=4, minute=0, timezone="UTC"),
+                id="twin_session_cleanup_daily",
+                name="Nightly Twin Session Cleanup",
+                replace_existing=True,
+            )
+            logger.info("twin_session_cleanup_scheduled")
+        except Exception as e:
+            logger.error("failed_to_load_twin_cleanup_schedule", error=str(e))
+
+    async def _run_twin_cleanup(self):
+        """Execute the nightly Digital Twin session cleanup."""
+        from app.modules.digital_twin.workers.cleanup_worker import cleanup_old_twin_sessions
+
+        try:
+            await cleanup_old_twin_sessions()
+        except Exception as e:
+            logger.error("twin_session_cleanup_failed", error=str(e))
 
     async def _load_memory_consolidation_schedule(self):
         """Register the weekly memory consolidation job."""
