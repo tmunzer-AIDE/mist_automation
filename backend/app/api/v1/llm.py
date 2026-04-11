@@ -486,18 +486,17 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
     from app.modules.llm.services.token_service import get_context_window
 
     try:
-        if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp", "vllm"):
+        if provider in ("openai", "azure_openai", "lm_studio", "ollama", "llama_cpp", "vllm", "mistral"):
             from openai import AsyncOpenAI
+            from app.modules.llm.services.llm_service import _build_openai_client_kwargs
 
             url = base_url
             if provider == "lm_studio" and not url:
                 url = "http://localhost:1234/v1"
             if provider == "llama_cpp" and not url:
                 url = "http://localhost:8080/v1"
-            if url and not url.rstrip("/").endswith("/v1"):
-                url = f"{url.rstrip('/')}/v1"
 
-            client = AsyncOpenAI(api_key=api_key, base_url=url)
+            client = AsyncOpenAI(**_build_openai_client_kwargs(provider, api_key, url))
             try:
                 result = await client.models.list()
                 return [{"id": m.id, "name": m.id, "context_window": get_context_window(m.id)} for m in result.data]

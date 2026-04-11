@@ -2,13 +2,15 @@
 Provider-agnostic LLM service.
 
 Uses the ``openai`` SDK directly for OpenAI-compatible providers (openai,
-lm_studio, azure_openai) and ``litellm`` for everything else (anthropic,
-ollama, bedrock, vertex).  This avoids litellm response-parsing issues with
+lm_studio, azure_openai, mistral) and ``litellm`` for everything else
+(anthropic, ollama, bedrock, vertex).  This avoids litellm response-parsing issues with
 non-standard OpenAI-compatible servers such as LM Studio.
 """
 
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
+import os
+import ssl
 from time import monotonic
 
 import structlog
@@ -16,7 +18,76 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # Providers that speak the OpenAI chat-completions protocol natively.
-_OPENAI_COMPAT_PROVIDERS = {"openai", "lm_studio", "azure_openai", "llama_cpp", "vllm", "openai_compatible"}
+_OPENAI_COMPAT_PROVIDERS = {"openai", "lm_studio", "azure_openai", "mistral", "llama_cpp", "vllm", "openai_compatible"}
+
+_FALSEY = {"0", "false", "no", "off"}
+
+
+def _normalize_openai_base_url(provider: str, base_url: str | None) -> str | None:
+    """Normalize OpenAI-compatible base URLs and apply provider defaults."""
+    base = base_url
+    if provider == "mistral" and not base:
+        base = "https://api.mistral.ai/v1"
+    if not base:
+        return None
+
+    normalized = base.rstrip("/")
+    if not normalized.endswith("/v1"):
+        normalized = f"{normalized}/v1"
+    return normalized
+
+
+def _resolve_openai_ssl_verify() -> bool | str | ssl.SSLContext:
+    """Resolve TLS verification strategy for OpenAI-compatible HTTP clients.
+
+    Priority:
+    1) Explicit disable via MIST_LLM_SSL_VERIFY=false (debug only)
+    2) Explicit CA bundle path via env var
+    3) System trust store via truststore package (best for corporate MITM proxies)
+    4) Library default verification behavior
+    """
+    if os.getenv("MIST_LLM_SSL_VERIFY", "true").strip().lower() in _FALSEY:
+        logger.warning("llm_ssl_verification_disabled")
+        return False
+
+    ca_bundle = (
+        os.getenv("MIST_LLM_CA_BUNDLE")
+        or os.getenv("SSL_CERT_FILE")
+        or os.getenv("REQUESTS_CA_BUNDLE")
+        or os.getenv("CURL_CA_BUNDLE")
+    )
+    if ca_bundle:
+        return ca_bundle
+
+    if os.getenv("MIST_LLM_USE_SYSTEM_CERTS", "true").strip().lower() not in _FALSEY:
+        try:
+            import truststore
+
+            return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        except Exception:
+            logger.debug("llm_system_truststore_unavailable")
+
+    return True
+
+
+def _build_openai_client_kwargs(provider: str, api_key: str, base_url: str | None) -> dict:
+    """Build kwargs for openai.AsyncOpenAI with shared TLS/base-url behavior."""
+    import httpx
+
+    kwargs: dict = {"api_key": api_key}
+    normalized_base_url = _normalize_openai_base_url(provider, base_url)
+    if normalized_base_url:
+        kwargs["base_url"] = normalized_base_url
+
+    verify = _resolve_openai_ssl_verify()
+    if verify is not True:
+        kwargs["http_client"] = httpx.AsyncClient(
+            verify=verify,
+            timeout=httpx.Timeout(60.0, connect=15.0),
+            trust_env=True,
+        )
+
+    return kwargs
 
 
 @dataclass
@@ -70,22 +141,14 @@ class LLMService:
         self.max_tokens = max_tokens
 
     # ------------------------------------------------------------------
-    # OpenAI SDK path (openai, lm_studio, azure_openai)
+    # OpenAI SDK path (openai, lm_studio, azure_openai, mistral)
     # ------------------------------------------------------------------
 
     def _get_openai_client(self):
         """Create an ``openai.AsyncOpenAI`` client for OpenAI-compatible providers."""
         from openai import AsyncOpenAI
 
-        kwargs: dict = {"api_key": self.api_key}
-        if self.base_url:
-            # Ensure the base URL ends with /v1 — LM Studio and other
-            # OpenAI-compatible servers expose /v1/chat/completions, but
-            # users often enter just http://localhost:1234.
-            base = self.base_url.rstrip("/")
-            if not base.endswith("/v1"):
-                base = f"{base}/v1"
-            kwargs["base_url"] = base
+        kwargs = _build_openai_client_kwargs(self.provider, self.api_key, self.base_url)
         return AsyncOpenAI(**kwargs)
 
     @staticmethod

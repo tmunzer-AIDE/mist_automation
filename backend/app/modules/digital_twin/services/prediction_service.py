@@ -598,10 +598,25 @@ async def run_layer1_checks(
             device_name = old_config.get("name", device_mac or "unknown")
             lldp_neighbors = _get_lldp_neighbors_for_device(w.site_id or "", device_mac)
 
+            # Compile old_config with derived site setting so it has the full
+            # inherited port_config (backup stores raw overrides only).
+            # new_config from virtual_state is already compiled.
+            old_for_check = old_config
+            if old_config.get("type") == "switch" and w.site_id:
+                from app.modules.digital_twin.services.config_compiler import (
+                    _get_derived_site_setting,
+                    compile_switch_config,
+                )
+
+                derived = await _get_derived_site_setting(w.site_id, org_id)
+                site_vars = {str(k): str(v) for k, v in derived.get("vars", {}).items()}
+                old_compiled = compile_switch_config(derived, old_config, site_vars)
+                old_for_check = {**old_config, **old_compiled}
+
             # L1-15: Port profile disconnect risk
             if relevant_checks is None or "L1-15" in relevant_checks:
                 results.append(
-                    check_port_profile_disconnect_risk(old_config, new_config, lldp_neighbors, device_name, site_name)
+                    check_port_profile_disconnect_risk(old_for_check, new_config, lldp_neighbors, device_name, site_name)
                 )
             else:
                 results.append(

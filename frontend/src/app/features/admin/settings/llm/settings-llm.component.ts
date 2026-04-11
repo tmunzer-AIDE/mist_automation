@@ -247,6 +247,7 @@ export class SettingsLlmComponent implements OnInit {
   private static readonly PROVIDER_LABELS: Record<string, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
+    mistral: 'Mistral',
     azure_openai: 'Azure OpenAI',
     bedrock: 'AWS Bedrock',
     vertex: 'Google Vertex AI',

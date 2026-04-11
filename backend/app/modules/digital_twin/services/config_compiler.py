@@ -177,7 +177,11 @@ def compile_switch_config(
         },
         site_vars,
     )
-    port_config = dict(device_config.get("port_config") or {})
+    # Port config: site setting provides the base, device overrides per-port
+    port_config = {
+        **dict(derived_setting.get("port_config") or {}),
+        **dict(device_config.get("port_config") or {}),
+    }
 
     return {
         "port_usages": port_usages,
