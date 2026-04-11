@@ -66,7 +66,7 @@ def _parse_and_enrich_writes(
             )
             parse_errors.append(
                 CheckResult(
-                    check_id="SYS-01",
+                    check_id=f"SYS-01-{i}",
                     check_name="Endpoint Validation",
                     layer=0,
                     status="error",

@@ -211,7 +211,7 @@ async def digital_twin(
         )
 
     elif action == "history":
-        sessions = await twin_service.list_sessions(user_id, limit=10)
+        sessions, _total = await twin_service.list_sessions(user_id, limit=10)
         return to_json(
             {
                 "sessions": [

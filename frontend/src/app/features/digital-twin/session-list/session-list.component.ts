@@ -90,16 +90,22 @@ export class SessionListComponent implements OnInit, OnDestroy {
 
   loadSessions(): void {
     this.loading.set(true);
-    const params: Record<string, string | number> = {
+    const params: {
+      skip: number;
+      limit: number;
+      status?: string;
+      source?: string;
+      search?: string;
+    } = {
       skip: this.pageIndex * this.pageSize,
       limit: this.pageSize,
     };
     const status = this.statusFilter.value;
-    if (status) params['status'] = status;
+    if (status) params.status = status;
     const source = this.sourceFilter.value;
-    if (source) params['source'] = source;
+    if (source) params.source = source;
     const search = this.searchControl.value?.trim();
-    if (search) params['search'] = search;
+    if (search) params.search = search;
 
     this.service.listSessions(params).subscribe({
       next: (res) => {

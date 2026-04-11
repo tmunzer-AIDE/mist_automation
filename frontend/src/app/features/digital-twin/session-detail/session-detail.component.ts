@@ -33,6 +33,7 @@ interface LayerInfo {
 }
 
 const LAYERS: LayerInfo[] = [
+  { number: 0, name: 'Input Validation' },
   { number: 1, name: 'Config Conflicts' },
   { number: 2, name: 'Topology' },
   { number: 3, name: 'Routing' },

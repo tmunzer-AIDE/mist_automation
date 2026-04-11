@@ -55,7 +55,7 @@ class TestBuildPredictionReport:
             CheckResult(check_id="L1-05", check_name="e", layer=1, status="skipped", summary="s"),
         ]
         report = build_prediction_report(results)
-        assert report.total_checks == 5
+        assert report.total_checks == 4  # excludes skipped
         assert report.passed == 1
         assert report.warnings == 1
         assert report.errors == 1
