@@ -20,13 +20,10 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
-  { value: 'ollama', label: 'Ollama (Local)' },
-  { value: 'lm_studio', label: 'LM Studio (Local)' },
   { value: 'azure_openai', label: 'Azure OpenAI' },
   { value: 'bedrock', label: 'AWS Bedrock' },
   { value: 'vertex', label: 'Google Vertex AI' },
-  { value: 'llama_cpp', label: 'llama.cpp (Local)' },
-  { value: 'vllm', label: 'vLLM (Self-hosted)' },
+  { value: 'openai_compatible', label: 'OpenAI Compatible (Local)' },
 ];
 
 @Component({
@@ -286,7 +283,9 @@ export class LlmConfigDialogComponent implements OnInit {
 
   showBaseUrl(): boolean {
     const p = this.form.get('provider')?.value;
-    return ['ollama', 'lm_studio', 'azure_openai', 'bedrock', 'llama_cpp', 'vllm'].includes(p || '');
+    return ['openai_compatible', 'azure_openai', 'bedrock', 'ollama', 'lm_studio', 'llama_cpp', 'vllm'].includes(
+      p || '',
+    );
   }
 
   private buildConnectionPayload(): Record<string, string | undefined> {

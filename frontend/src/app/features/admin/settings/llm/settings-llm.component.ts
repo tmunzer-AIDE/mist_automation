@@ -79,7 +79,7 @@ import { SkillsAdminComponent } from './skills-admin.component';
                   </ng-container>
                   <ng-container matColumnDef="provider">
                     <th mat-header-cell *matHeaderCellDef>Provider</th>
-                    <td mat-cell *matCellDef="let c">{{ c.provider }}</td>
+                    <td mat-cell *matCellDef="let c">{{ providerLabel(c.provider) }}</td>
                   </ng-container>
                   <ng-container matColumnDef="model">
                     <th mat-header-cell *matHeaderCellDef>Model</th>
@@ -242,6 +242,24 @@ export class SettingsLlmComponent implements OnInit {
       },
       error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
     });
+  }
+
+  private static readonly PROVIDER_LABELS: Record<string, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    azure_openai: 'Azure OpenAI',
+    bedrock: 'AWS Bedrock',
+    vertex: 'Google Vertex AI',
+    openai_compatible: 'OpenAI Compatible (Local)',
+    // Legacy labels (existing configs)
+    ollama: 'Ollama (Local)',
+    lm_studio: 'LM Studio (Local)',
+    llama_cpp: 'llama.cpp (Local)',
+    vllm: 'vLLM (Self-hosted)',
+  };
+
+  providerLabel(provider: string): string {
+    return SettingsLlmComponent.PROVIDER_LABELS[provider] ?? provider;
   }
 
   deleteConfig(config: LlmConfig): void {
