@@ -143,8 +143,11 @@ async def simulate(
     # Include parse errors as check results (so they appear in the report)
     check_results: list[CheckResult] = list(parse_errors)
 
-    # Run Layer 1 checks
-    check_results.extend(await run_layer1_checks(virtual_state, staged_writes, org_id, ctx=ctx, relevant_checks=relevant_checks))
+    # Run Layer 1 checks (pass affected_sites so L1-06/L1-07 can check template-impacted sites)
+    check_results.extend(await run_layer1_checks(
+        virtual_state, staged_writes, org_id, ctx=ctx,
+        relevant_checks=relevant_checks, affected_site_ids=set(affected_sites),
+    ))
 
     # Run Layer 2 checks if any sites are affected
     if affected_sites:

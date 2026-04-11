@@ -855,8 +855,9 @@ def check_port_profile_disconnect_risk(
             check_id="L1-15",
             check_name="Port Profile Disconnect Risk",
             layer=1,
-            status="pass",
-            summary="No LLDP neighbor data available for comparison.",
+            status="warning",
+            summary=f"Cannot verify port connections for {device_name}: LLDP neighbor data unavailable.",
+            remediation_hint="LLDP data could not be retrieved from telemetry or Mist API. Manually verify no active devices are connected to ports being changed.",
         )
 
     old_port_config = old_device_config.get("port_config", {}) or {}

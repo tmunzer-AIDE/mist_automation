@@ -632,10 +632,11 @@ class TestL1_14:
 
 
 class TestCheckPortProfileDisconnectRisk:
-    def test_no_lldp_data_passes(self):
+    def test_no_lldp_data_warns(self):
         result = check_port_profile_disconnect_risk({}, {}, {}, "SW-01", "site1")
-        assert result.status == "pass"
+        assert result.status == "warning"
         assert result.check_id == "L1-15"
+        assert "LLDP" in result.summary
 
     def test_disabling_port_with_active_neighbor_is_critical(self):
         old = {"port_config": {"ge-0/0/9": {"usage": "ap", "port_network": "ap"}}}

@@ -219,8 +219,11 @@ class AIAgentService:
                     try:
                         result_text, tool_is_error = await client.call_tool(tool_name, arguments)
                     except Exception as e:
-                        logger.warning("agent_tool_call_failed", tool=tool_name, error=str(e))
-                        result_text = f"Error: tool '{tool_name}' failed to execute"
+                        error_msg = str(e)
+                        logger.warning("agent_tool_call_failed", tool=tool_name, error=error_msg)
+                        # Include the error detail so the LLM can self-correct
+                        # (e.g., fix invalid arguments and retry)
+                        result_text = f"Error: tool '{tool_name}' failed: {error_msg}"
                         tool_is_error = True
 
                 if on_tool_call:

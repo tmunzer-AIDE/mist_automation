@@ -264,10 +264,12 @@ async def _fetch_lldp_neighbors_batch(
                 remaining_macs.add(mac)
         else:
             remaining_macs = set(device_macs)
-    except Exception:
+    except Exception as e:
+        logger.debug("lldp_cache_lookup_failed", error=str(e))
         remaining_macs = set(device_macs)
 
     # 2. Fallback: one org-level API call with mac filter + fields=*
+    # Uses the same pattern as IA monitoring_worker._fetch_device_clients()
     if remaining_macs:
         try:
             import mistapi
@@ -278,23 +280,42 @@ async def _fetch_lldp_neighbors_batch(
             from mistapi.api.v1.orgs import stats as org_stats
 
             mac_filter = ",".join(sorted(remaining_macs))
+            logger.info("lldp_batch_api_fetch", org_id=org_id, macs=mac_filter)
+
             resp = await mistapi.arun(
                 org_stats.listOrgDevicesStats,
-                mist.session,
+                mist.get_session(),
                 org_id,
+                type="switch",
                 mac=mac_filter,
                 fields="*",
             )
-            if resp and hasattr(resp, "data") and isinstance(resp.data, list):
-                for device_stats in resp.data:
+
+            if resp.status_code != 200:
+                logger.warning("lldp_batch_api_http_error", status=resp.status_code)
+            elif resp.data:
+                # Response can be a list or a dict with "results" key
+                devices_list = resp.data if isinstance(resp.data, list) else resp.data.get("results", [])
+                logger.info("lldp_batch_api_response", devices=len(devices_list))
+                for device_stats in devices_list:
                     mac = device_stats.get("mac", "")
+                    clients = device_stats.get("clients", [])
                     if mac:
                         neighbors = _extract_lldp_from_stats(device_stats)
+                        logger.debug(
+                            "lldp_device_parsed",
+                            mac=mac,
+                            clients_count=len(clients),
+                            lldp_neighbors=len(neighbors),
+                        )
                         if neighbors:
                             result[mac] = neighbors
+            else:
+                logger.warning("lldp_batch_api_empty_response", macs=len(remaining_macs))
         except Exception as e:
-            logger.debug("lldp_batch_api_fallback_failed", macs=len(remaining_macs), error=str(e))
+            logger.warning("lldp_batch_api_fallback_failed", macs=len(remaining_macs), error=str(e))
 
+    logger.info("lldp_batch_result", requested=len(device_macs), resolved=len(result))
     return result
 
 
@@ -350,8 +371,9 @@ async def run_layer1_checks(
     org_id: str,
     ctx: SimulationContext | None = None,
     relevant_checks: set[str] | None = None,
+    affected_site_ids: set[str] | None = None,
 ) -> list[CheckResult]:
-    """Run all 14 Layer 1 config conflict checks against the virtual state."""
+    """Run all Layer 1 config conflict checks against the virtual state."""
     from app.modules.backup.models import BackupObject
     from app.modules.digital_twin.services.config_checks import (
         check_client_capacity_impact,
@@ -501,10 +523,13 @@ async def run_layer1_checks(
         results.append(CheckResult(check_id="L1-05", check_name="Port Profile Conflict", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # ── L1-06 & L1-07: Template checks ────────────────────────────────
-    affected_site_ids: set[str] = set()
-    for w in staged_writes:
-        if w.site_id:
-            affected_site_ids.add(w.site_id)
+    # Use passed-in affected_site_ids (includes template-impacted sites from
+    # compile_virtual_state). Fall back to extracting from staged writes.
+    if not affected_site_ids:
+        affected_site_ids = set()
+        for w in staged_writes:
+            if w.site_id:
+                affected_site_ids.add(w.site_id)
 
     _run_l106 = relevant_checks is None or "L1-06" in relevant_checks
     _run_l107 = relevant_checks is None or "L1-07" in relevant_checks
