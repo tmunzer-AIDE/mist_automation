@@ -15,6 +15,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import {
@@ -50,6 +51,7 @@ const LAYERS: LayerInfo[] = [
     MatIconModule,
     MatProgressBarModule,
     MatTabsModule,
+    MatSnackBarModule,
     MatTooltipModule,
     StatusBadgeComponent,
     DateTimePipe,
@@ -65,6 +67,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   private readonly service = inject(DigitalTwinService);
   private readonly topbarService = inject(TopbarService);
   private readonly dialog = inject(MatDialog);
+  private readonly snackBar = inject(MatSnackBar);
 
   session = signal<TwinSessionDetail | null>(null);
   loading = signal(true);
@@ -209,7 +212,10 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
             this.session.set(updated);
             this.loading.set(false);
           },
-          error: () => this.loading.set(false),
+          error: () => {
+            this.loading.set(false);
+            this.snackBar.open('Failed to approve session', 'Dismiss', { duration: 5000 });
+          },
         });
       });
   }
@@ -233,7 +239,10 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
             this.loading.set(false);
             this.router.navigate(['/digital-twin']);
           },
-          error: () => this.loading.set(false),
+          error: () => {
+            this.loading.set(false);
+            this.snackBar.open('Failed to reject session', 'Dismiss', { duration: 5000 });
+          },
         });
       });
   }

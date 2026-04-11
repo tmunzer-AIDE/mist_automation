@@ -40,7 +40,7 @@ export interface RemediationAttemptModel {
   new_severity: string;
   fixed_checks: string[];
   introduced_checks: string[];
-  timestamp: string;
+  timestamp: string | null;
 }
 
 export interface TwinSessionSummary {

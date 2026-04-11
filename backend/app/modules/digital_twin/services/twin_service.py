@@ -4,6 +4,7 @@ Core Digital Twin service: create sessions, run simulations, approve/execute.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -279,7 +280,7 @@ async def list_sessions(
     if source:
         query["source"] = source
     if search:
-        query["source_ref"] = {"$regex": search, "$options": "i"}
+        query["source_ref"] = {"$regex": re.escape(search), "$options": "i"}
     total = await TwinSession.find(query).count()
     sessions = await TwinSession.find(query).sort([("created_at", -1)]).skip(skip).limit(limit).to_list()
     return sessions, total
