@@ -56,7 +56,7 @@ async def cancel_twin_session(
 ):
     """Cancel/reject a Digital Twin session."""
     try:
-        session = await twin_service.reject_session(session_id)
+        session = await twin_service.reject_session(session_id, user_id=str(current_user.id))
         return {"status": session.status.value, "session_id": str(session.id)}
     except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found") from None

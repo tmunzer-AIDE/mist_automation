@@ -531,6 +531,10 @@ async def run_layer4_checks(
     for (obj_type, _site_id, _obj_id), config in virtual_state.items():
         if obj_type in ("nacportals", "ssos"):
             auth_servers.append(dict(config))
+    existing_nacportals = await load_all_objects_of_type(org_id, "nacportals")
+    auth_servers.extend(existing_nacportals)
+    existing_ssos = await load_all_objects_of_type(org_id, "ssos")
+    auth_servers.extend(existing_ssos)
 
     results.append(check_nac_auth_server_dependency(nac_rules, auth_servers))
     results.append(check_nac_vlan_conflict(nac_rules))
