@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from app.modules.mcp_server.helpers import elicit_confirmation, to_json
+from app.modules.mcp_server.helpers import _elicit, to_json
 from app.modules.mcp_server.server import mcp, mcp_user_id_var
 
 
@@ -136,7 +136,27 @@ async def digital_twin(
             summary_parts.append(f"{session.remediation_count} fix iteration(s) applied")
 
         description = f"Digital Twin deployment: {', '.join(summary_parts)}"
-        await elicit_confirmation(ctx, description)
+
+        approval_data = {
+            "session_id": str(session.id),
+            "writes_count": write_count,
+            "overall_severity": session.overall_severity,
+            "summary": report.summary if report else "No validation report",
+            "execution_safe": report.execution_safe if report else True,
+            "affected_sites": session.affected_sites,
+            "remediation_count": session.remediation_count,
+        }
+
+        await _elicit(
+            {
+                "type": "elicitation",
+                "description": description,
+                "elicitation_type": "twin_approve",
+                "data": approval_data,
+            },
+            description,
+            120.0,
+        )
 
         session = await twin_service.approve_and_execute(session_id)
         return to_json(
