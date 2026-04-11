@@ -214,6 +214,20 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
     else:
         session.status = TwinSessionStatus.DEPLOYED
 
+        # Create IA monitoring sessions for post-deployment validation
+        try:
+            from app.modules.digital_twin.services.twin_ia_bridge import create_ia_sessions_for_deployment
+
+            ia_ids = await create_ia_sessions_for_deployment(session)
+            session.ia_session_ids = ia_ids
+            logger.info(
+                "twin_ia_bridge_complete",
+                session_id=str(session.id),
+                ia_sessions=len(ia_ids),
+            )
+        except Exception as e:
+            logger.warning("twin_ia_bridge_failed", session_id=str(session.id), error=str(e))
+
     session.update_timestamp()
     await session.save()
 
