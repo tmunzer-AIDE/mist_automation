@@ -34,8 +34,28 @@ async def digital_twin(
         Field(
             description=(
                 "Array of proposed writes for 'simulate' action. "
-                'Each write: {"method": "POST|PUT|DELETE", "endpoint": "/api/v1/...", "body": {...}}. '
-                'Example: [{"method": "PUT", "endpoint": "/api/v1/sites/abc/setting", "body": {"vars": {"vlan": "100"}}}]'
+                'Each write: {"method": "POST|PUT|DELETE", "endpoint": "/api/v1/...", "body": {...}}.\n'
+                "\n"
+                "ENDPOINT FORMAT RULES:\n"
+                "- Site-level: /api/v1/sites/{site_id}/{resource} (POST) or /api/v1/sites/{site_id}/{resource}/{object_id} (PUT/DELETE)\n"
+                "- Org-level: /api/v1/orgs/{org_id}/{resource} (POST) or /api/v1/orgs/{org_id}/{resource}/{object_id} (PUT/DELETE)\n"
+                "- Singletons (no object_id): /api/v1/sites/{site_id}/setting, /api/v1/orgs/{org_id}/setting\n"
+                "- Use real UUIDs for site_id, org_id, and object_id — never use names.\n"
+                "\n"
+                "VALID SITE RESOURCES: wlans, networks, devices, maps, zones, rssizones, psks, assets, "
+                "beacons, vbeacons, wxrules, wxtags, webhooks, evpn_topologies. Singletons: setting, info.\n"
+                "\n"
+                "VALID ORG RESOURCES: wlans, networks, networktemplates, rftemplates, deviceprofiles, "
+                "gatewaytemplates, aptemplates, sitetemplates, templates, vpns, psks, pskportals, nacrules, "
+                "nactags, nacportals, services, servicepolicies, secpolicies, wxrules, alarmtemplates, webhooks, "
+                "sites, sitegroups, mxtunnels, mxclusters, mxedges, avprofiles, idpprofiles, secintelprofiles, "
+                "ssos, ssoroles, usermacs, assets, assetfilters, evpn_topologies, inventory. Singleton: setting.\n"
+                "\n"
+                "EXAMPLES:\n"
+                '- Create WLAN: {"method": "POST", "endpoint": "/api/v1/sites/{site_id}/wlans", "body": {"ssid": "Guest", "auth": {"type": "open"}}}\n'
+                '- Update network: {"method": "PUT", "endpoint": "/api/v1/orgs/{org_id}/networks/{network_id}", "body": {"vlan_id": 100, "subnet": "10.1.0.0/24"}}\n'
+                '- Update site setting: {"method": "PUT", "endpoint": "/api/v1/sites/{site_id}/setting", "body": {"vars": {"vlan_guest": "200"}}}\n'
+                '- Delete WLAN: {"method": "DELETE", "endpoint": "/api/v1/sites/{site_id}/wlans/{wlan_id}"}'
             ),
         ),
     ] = None,
