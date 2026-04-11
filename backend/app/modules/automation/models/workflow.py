@@ -167,6 +167,9 @@ class Workflow(TimestampMixin, Document):
         default=None, description="Notification config for failed executions"
     )
 
+    # Digital Twin pre-deployment validation
+    twin_validation: bool = Field(default=False, description="Run Digital Twin validation before Mist API writes")
+
     # Statistics
     execution_count: int = Field(default=0, description="Total number of executions")
     success_count: int = Field(default=0, description="Number of successful executions")

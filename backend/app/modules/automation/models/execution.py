@@ -21,6 +21,7 @@ class ExecutionStatus(str, Enum):
     FILTERED = "filtered"
     PARTIAL = "partial"
     WAITING = "waiting"
+    AWAITING_TWIN = "awaiting_twin"  # Paused for Digital Twin approval
 
 
 class NodeExecutionResult(BaseModel):
