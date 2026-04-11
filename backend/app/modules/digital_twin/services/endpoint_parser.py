@@ -11,7 +11,104 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_SINGLETON_TYPES = {"setting", "info"}
+# Valid org-level resource names (collections)
+_ORG_RESOURCES: frozenset[str] = frozenset(
+    {
+        "sites",
+        "sitegroups",
+        "sitetemplates",
+        "templates",
+        "wlans",
+        "networks",
+        "networktemplates",
+        "rftemplates",
+        "deviceprofiles",
+        "aptemplates",
+        "gatewaytemplates",
+        "vpns",
+        "psks",
+        "pskportals",
+        "nacrules",
+        "nactags",
+        "nacportals",
+        "services",
+        "servicepolicies",
+        "secpolicies",
+        "wxrules",
+        "alarmtemplates",
+        "webhooks",
+        "mxtunnels",
+        "mxclusters",
+        "mxedges",
+        "avprofiles",
+        "idpprofiles",
+        "secintelprofiles",
+        "ssos",
+        "ssoroles",
+        "usermacs",
+        "assets",
+        "assetfilters",
+        "evpn_topologies",
+        "inventory",
+    }
+)
+
+# Org-level singletons (no object_id)
+_ORG_SINGLETONS: frozenset[str] = frozenset({"setting"})
+
+# Valid site-level resource names (collections)
+_SITE_RESOURCES: frozenset[str] = frozenset(
+    {
+        "wlans",
+        "networks",
+        "devices",
+        "maps",
+        "zones",
+        "rssizones",
+        "psks",
+        "assets",
+        "beacons",
+        "vbeacons",
+        "wxrules",
+        "wxtags",
+        "webhooks",
+        "evpn_topologies",
+    }
+)
+
+# Site-level singletons (no object_id)
+_SITE_SINGLETONS: frozenset[str] = frozenset({"setting", "info"})
+
+# Normalization: singular or common LLM mistakes → correct plural form
+_NORMALIZATION_MAP: dict[str, str] = {
+    "wlan": "wlans",
+    "network": "networks",
+    "device": "devices",
+    "map": "maps",
+    "zone": "zones",
+    "psk": "psks",
+    "beacon": "beacons",
+    "asset": "assets",
+    "webhook": "webhooks",
+    "service": "services",
+    "vpn": "vpns",
+    "site": "sites",
+    "sitegroup": "sitegroups",
+    "rftemplate": "rftemplates",
+    "networktemplate": "networktemplates",
+    "sitetemplate": "sitetemplates",
+    "template": "templates",
+    "aptemplate": "aptemplates",
+    "gatewaytemplate": "gatewaytemplates",
+    "deviceprofile": "deviceprofiles",
+    "nacrule": "nacrules",
+    "nactag": "nactags",
+    "nacportal": "nacportals",
+    "secpolicy": "secpolicies",
+    "servicepolicy": "servicepolicies",
+    "wxrule": "wxrules",
+    "wxtag": "wxtags",
+}
 
 _ORG_PATTERN = re.compile(r"^/api/v1/orgs/(?P<org_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$")
 _SITE_PATTERN = re.compile(r"^/api/v1/sites/(?P<site_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$")
@@ -29,10 +126,14 @@ class ParsedEndpoint:
     object_id: str | None = None
     scope: str | None = None
     is_singleton: bool = False
+    error: str | None = None  # set when endpoint is invalid or resource unknown
 
 
 def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
     """Parse a Mist API endpoint URL into structured metadata."""
+    # Strip trailing slash before matching
+    endpoint = endpoint.rstrip("/")
+
     result = ParsedEndpoint(method=method, endpoint=endpoint)
 
     m = _SITE_PATTERN.match(endpoint)
@@ -43,14 +144,29 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
         obj_id = m.group("object_id")
 
         if resource is None:
+            # /api/v1/sites/{site_id} — site info
             result.object_type = "info"
             result.is_singleton = True
-        elif resource in _SINGLETON_TYPES:
+            return result
+
+        # Normalize common LLM mistakes (singular → plural)
+        resource = _NORMALIZATION_MAP.get(resource, resource)
+
+        if resource in _SITE_SINGLETONS:
             result.object_type = resource
             result.is_singleton = True
-        else:
+            return result
+
+        if resource in _SITE_RESOURCES:
             result.object_type = resource
             result.object_id = obj_id
+            return result
+
+        # Unknown resource — set error but still populate site_id/scope
+        result.error = (
+            f"Unknown site resource '{resource}'. "
+            f"Valid: {', '.join(sorted(_SITE_RESOURCES | _SITE_SINGLETONS))}"
+        )
         return result
 
     m = _ORG_PATTERN.match(endpoint)
@@ -61,14 +177,34 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
         obj_id = m.group("object_id")
 
         if resource is None:
+            # /api/v1/orgs/{org_id} — org info
             result.object_type = "info"
             result.is_singleton = True
-        elif resource in _SINGLETON_TYPES:
+            return result
+
+        # Normalize common LLM mistakes (singular → plural)
+        resource = _NORMALIZATION_MAP.get(resource, resource)
+
+        if resource in _ORG_SINGLETONS:
             result.object_type = resource
             result.is_singleton = True
-        else:
+            return result
+
+        if resource in _ORG_RESOURCES:
             result.object_type = resource
             result.object_id = obj_id
+            return result
+
+        # Unknown resource — set error but still populate org_id/scope
+        result.error = (
+            f"Unknown org resource '{resource}'. "
+            f"Valid: {', '.join(sorted(_ORG_RESOURCES | _ORG_SINGLETONS))}"
+        )
         return result
 
+    # Neither pattern matched
+    result.error = (
+        "Endpoint does not match Mist API pattern "
+        "(/api/v1/sites/{site_id}/... or /api/v1/orgs/{org_id}/...)"
+    )
     return result
