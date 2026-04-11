@@ -8,8 +8,8 @@ Mist merge order:
   Switch:  derived_site_setting (base) → device config
   Gateway: gateway_template → device_profile → device config
 
-Port config uses deep per-port merging for gateways so template fields
-(e.g. wan_type) are preserved while device fields win on conflict.
+Port config uses deep per-port merging for both switches and gateways so
+inherited template fields are preserved while device fields win on conflict.
 """
 
 from __future__ import annotations
@@ -157,6 +157,8 @@ def compile_switch_config(
     """Compile effective switch configuration.
 
     Mist merge order: derived_setting (site-level, already template-merged) → device.
+    - port_usages, networks, dhcpd_config: shallow merge (device wins)
+    - port_config: deep merge per port (inherited fields preserved, device overrides)
 
     Returns compiled config dict with resolved variables.
     """

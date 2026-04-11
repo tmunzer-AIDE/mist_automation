@@ -89,6 +89,7 @@
 .check-row {
   border-radius: 6px;
   &.check-passed { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; color: var(--mat-sys-on-surface-variant); }
+  &.check-info { background: var(--app-info-bg); border: 1px solid transparent; }
   &.check-failed { border: 1px solid transparent; cursor: pointer;
     &:hover { background: var(--mat-sys-surface-container-low); }
     &.check-expanded { border-color: var(--mat-sys-outline-variant); background: var(--mat-sys-surface-container-low); }
@@ -97,12 +98,14 @@
 .check-summary-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 13px; }
 .check-icon { font-size: 16px; width: 16px; height: 16px; flex-shrink: 0;
   &.icon-pass { color: var(--app-success); }
+  &.icon-info { color: var(--app-info); }
   &.icon-fail { color: var(--app-error-status); }
 }
 .check-id { font-family: monospace; font-size: 12px; color: var(--mat-sys-on-surface-variant); }
 .check-name { flex: 1; font-size: 13px; }
 .check-severity {
   margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  &.severity-info { background: var(--app-info-bg); color: var(--app-info-chip); }
   &.severity-warning { background: var(--app-warning-bg); color: var(--app-warning); }
   &.severity-error { background: var(--app-error-status-bg); color: var(--app-error-status); }
   &.severity-critical { background: var(--app-error-status-bg); color: var(--app-spinner-disconnected); }

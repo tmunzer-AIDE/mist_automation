@@ -129,7 +129,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
 
   issueCountForLayer(layer: number): number {
     return this.checksForLayer(layer).filter(
-      (c) => c.status !== 'pass' && c.status !== 'skipped',
+      (c) => c.status === 'warning' || c.status === 'error' || c.status === 'critical',
     ).length;
   }
 

@@ -298,9 +298,15 @@ export class LlmConfigDialogComponent implements OnInit {
     );
   }
 
+  private normalizeBaseUrl(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+
   private buildConnectionPayload(): Record<string, string | undefined> {
     const v = this.form.getRawValue();
-    const baseUrl = this.showBaseUrl() ? (v.base_url || undefined) : undefined;
+    const baseUrl = this.normalizeBaseUrl(v.base_url);
     return {
       provider: v.provider || 'openai',
       api_key: v.api_key || undefined,
@@ -353,7 +359,12 @@ export class LlmConfigDialogComponent implements OnInit {
     for (const [k, v] of Object.entries(values)) {
       if (k === 'api_key' && !v) continue;
       if (k === 'base_url' && !allowBaseUrl) {
-        payload[k] = null;
+        const normalized = this.normalizeBaseUrl(v);
+        if (normalized) payload[k] = normalized;
+        continue;
+      }
+      if (k === 'base_url') {
+        payload[k] = this.normalizeBaseUrl(v) ?? null;
         continue;
       }
       // canvas_prompt_tier: null means "auto-detect" and must be sent explicitly

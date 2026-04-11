@@ -2,7 +2,7 @@ export interface CheckResultModel {
   check_id: string;
   check_name: string;
   layer: number;
-  status: 'pass' | 'warning' | 'error' | 'critical' | 'skipped';
+  status: 'pass' | 'info' | 'warning' | 'error' | 'critical' | 'skipped';
   summary: string;
   details: string[];
   affected_objects: string[];

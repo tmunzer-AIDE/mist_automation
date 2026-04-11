@@ -109,11 +109,18 @@
                 @if (isLayerExpanded(layer.number)) {
                   <div class="layer-checks">
                     @for (check of checksForLayer(layer.number); track check.check_id) {
-                      @if (check.status === 'pass' || check.status === 'skipped') {
-                        <div class="check-row check-passed">
-                          <mat-icon class="check-icon icon-pass">check_circle</mat-icon>
+                      @if (check.status === 'pass' || check.status === 'skipped' || check.status === 'info') {
+                        <div class="check-row check-passed" [class.check-info]="check.status === 'info'">
+                          @if (check.status === 'info') {
+                            <mat-icon class="check-icon icon-info">info</mat-icon>
+                          } @else {
+                            <mat-icon class="check-icon icon-pass">check_circle</mat-icon>
+                          }
                           <span class="check-id">{{ check.check_id }}</span>
                           <span class="check-name">{{ check.check_name }}</span>
+                          @if (check.status === 'info') {
+                            <span class="check-severity severity-info">Info</span>
+                          }
                         </div>
                       } @else {
                         <div
