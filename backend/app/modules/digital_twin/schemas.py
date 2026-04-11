@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from app.modules.digital_twin.models import TwinSession
 
 
 class CheckResultResponse(BaseModel):
@@ -79,7 +82,7 @@ class TwinSessionListResponse(BaseModel):
     total: int
 
 
-def _build_report_response(session) -> PredictionReportResponse | None:
+def _build_report_response(session: TwinSession) -> PredictionReportResponse | None:
     """Build a PredictionReportResponse from a session's prediction_report."""
     if not session.prediction_report:
         return None
@@ -98,7 +101,7 @@ def _build_report_response(session) -> PredictionReportResponse | None:
     )
 
 
-def session_to_response(session) -> TwinSessionResponse:
+def session_to_response(session: TwinSession) -> TwinSessionResponse:
     """Convert a TwinSession document to a response DTO."""
     return TwinSessionResponse(
         id=str(session.id),
@@ -115,46 +118,35 @@ def session_to_response(session) -> TwinSessionResponse:
     )
 
 
-def session_to_detail_response(session) -> TwinSessionDetailResponse:
+def session_to_detail_response(session: TwinSession) -> TwinSessionDetailResponse:
     """Convert a TwinSession document to a detail response DTO with full write and remediation history."""
-    staged_writes = [
-        StagedWriteResponse(
-            sequence=w.sequence,
-            method=w.method,
-            endpoint=w.endpoint,
-            body=w.body,
-            object_type=w.object_type,
-            site_id=w.site_id,
-            object_id=w.object_id,
-        )
-        for w in session.staged_writes
-    ]
-    remediation_history = [
-        RemediationAttemptResponse(
-            attempt=r.attempt,
-            changed_writes=r.changed_writes,
-            previous_severity=r.previous_severity,
-            new_severity=r.new_severity,
-            fixed_checks=r.fixed_checks,
-            introduced_checks=r.introduced_checks,
-            timestamp=r.timestamp,
-        )
-        for r in session.remediation_history
-    ]
+    base = session_to_response(session)
     return TwinSessionDetailResponse(
-        id=str(session.id),
-        status=session.status.value,
-        source=session.source,
-        source_ref=session.source_ref,
-        overall_severity=session.overall_severity,
-        writes_count=len(session.staged_writes),
-        affected_sites=session.affected_sites,
-        remediation_count=session.remediation_count,
-        prediction_report=_build_report_response(session),
-        created_at=session.created_at,
-        updated_at=session.updated_at,
+        **base.model_dump(),
         ai_assessment=session.ai_assessment,
         execution_safe=session.prediction_report.execution_safe if session.prediction_report else True,
-        staged_writes=staged_writes,
-        remediation_history=remediation_history,
+        staged_writes=[
+            StagedWriteResponse(
+                sequence=w.sequence,
+                method=w.method,
+                endpoint=w.endpoint,
+                body=w.body,
+                object_type=w.object_type,
+                site_id=w.site_id,
+                object_id=w.object_id,
+            )
+            for w in session.staged_writes
+        ],
+        remediation_history=[
+            RemediationAttemptResponse(
+                attempt=r.attempt,
+                changed_writes=r.changed_writes,
+                previous_severity=r.previous_severity,
+                new_severity=r.new_severity,
+                fixed_checks=r.fixed_checks,
+                introduced_checks=r.introduced_checks,
+                timestamp=r.timestamp,
+            )
+            for r in session.remediation_history
+        ],
     )
