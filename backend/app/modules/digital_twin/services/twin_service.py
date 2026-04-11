@@ -4,6 +4,7 @@ Core Digital Twin service: create sessions, run simulations, approve/execute.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -19,11 +20,13 @@ from app.modules.digital_twin.models import (
     TwinSessionStatus,
 )
 from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
-from app.modules.digital_twin.services.prediction_service import (
-    _build_simulation_context,
+from app.modules.digital_twin.services.snapshot_analyzer import (
+    analyze_site,
     build_prediction_report,
-    compute_relevant_checks,
-    run_layer1_checks,
+)
+from app.modules.digital_twin.services.site_snapshot import (
+    build_site_snapshot,
+    fetch_live_data,
 )
 from app.modules.digital_twin.services.state_resolver import (
     apply_staged_writes,
@@ -134,42 +137,21 @@ async def simulate(
     session.base_snapshot_refs = refs
     session.live_fetched_at = datetime.now(timezone.utc)
 
-    # Pre-fetch shared backup data once for all check layers
-    ctx = await _build_simulation_context(org_id)
-
-    # Compute relevant checks based on staged write object types
-    relevant_checks = compute_relevant_checks(staged_writes)
-
     # Include parse errors as check results (so they appear in the report)
     check_results: list[CheckResult] = list(parse_errors)
 
-    # Run Layer 1 checks (pass affected_sites so L1-06/L1-07 can check template-impacted sites)
-    check_results.extend(await run_layer1_checks(
-        virtual_state, staged_writes, org_id, ctx=ctx,
-        relevant_checks=relevant_checks, affected_site_ids=set(affected_sites),
-    ))
+    # ── Snapshot-based analysis ──
+    # For each affected site: build baseline + predicted snapshots, run all checks
+    async def _analyze_one_site(sid: str) -> list:
+        live_data = await fetch_live_data(sid, org_id)
+        baseline_snap = await build_site_snapshot(sid, org_id, live_data)
+        predicted_snap = await build_site_snapshot(sid, org_id, live_data, state_overrides=virtual_state)
+        return analyze_site(baseline_snap, predicted_snap)
 
-    # Run Layer 2 checks if any sites are affected
     if affected_sites:
-        from app.modules.digital_twin.services.prediction_service import run_layer2_checks
-
-        l2_results = await run_layer2_checks(virtual_state, staged_writes, org_id, set(affected_sites), relevant_checks=relevant_checks)
-        check_results.extend(l2_results)
-
-        from app.modules.digital_twin.services.prediction_service import (
-            run_layer3_checks,
-            run_layer4_checks,
-            run_layer5_checks,
-        )
-
-        l3_results = await run_layer3_checks(virtual_state, staged_writes, org_id, set(affected_sites), relevant_checks=relevant_checks)
-        check_results.extend(l3_results)
-
-        l4_results = await run_layer4_checks(virtual_state, staged_writes, org_id, ctx=ctx, relevant_checks=relevant_checks)
-        check_results.extend(l4_results)
-
-        l5_results = await run_layer5_checks(virtual_state, staged_writes, org_id, set(affected_sites), relevant_checks=relevant_checks)
-        check_results.extend(l5_results)
+        site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
+        for site_result in site_results:
+            check_results.extend(site_result)
 
     # Build report
     report = build_prediction_report(check_results)
