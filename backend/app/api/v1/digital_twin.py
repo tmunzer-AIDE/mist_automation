@@ -18,6 +18,24 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["Digital Twin"])
 
 
+def _approve_error_response(error_msg: str) -> tuple[int, str]:
+    """Map service ValueError messages to safe, actionable API responses."""
+    msg = (error_msg or "").lower()
+
+    if "not found" in msg:
+        return status.HTTP_404_NOT_FOUND, "Session not found"
+    if "not awaiting_approval" in msg:
+        return status.HTTP_400_BAD_REQUEST, "Session is not awaiting approval"
+    if "no validation report" in msg:
+        return status.HTTP_400_BAD_REQUEST, "Session has no validation report"
+    if "blocking validation issues" in msg:
+        return status.HTTP_400_BAD_REQUEST, "Session has blocking validation issues"
+    if "preflight validation errors" in msg:
+        return status.HTTP_400_BAD_REQUEST, "Session has preflight validation errors"
+
+    return status.HTTP_400_BAD_REQUEST, "Session cannot be approved"
+
+
 @router.get("/digital-twin/sessions", response_model=TwinSessionListResponse)
 async def list_twin_sessions(
     current_user: User = Depends(require_admin),
@@ -81,11 +99,5 @@ async def approve_twin_session(
         )
         return session_to_detail_response(session)
     except ValueError as e:
-        error_msg = str(e)
-        if "not found" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
-            ) from None
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Session cannot be approved"
-        ) from None
+        status_code, detail = _approve_error_response(str(e))
+        raise HTTPException(status_code=status_code, detail=detail) from None

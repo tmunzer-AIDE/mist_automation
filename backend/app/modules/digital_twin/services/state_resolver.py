@@ -30,7 +30,9 @@ _OBJECT_TYPE_ALIASES: dict[str, str] = {
 
 _SINGLETON_OBJECT_TYPES: set[str] = {"settings", "info", "data"}
 
-_DELETED_SENTINEL_KEY = "__twin_deleted__"
+DELETED_SENTINEL_KEY = "__twin_deleted__"
+# Backward-compatible alias for internal callers/tests that still reference the private name.
+_DELETED_SENTINEL_KEY = DELETED_SENTINEL_KEY
 
 
 def canonicalize_object_type(object_type: str | None) -> str | None:
@@ -38,6 +40,28 @@ def canonicalize_object_type(object_type: str | None) -> str | None:
     if object_type is None:
         return None
     return _OBJECT_TYPE_ALIASES.get(object_type, object_type)
+
+
+def object_type_query_values(object_type: str | None) -> list[str]:
+    """Return canonical + legacy object_type labels for backward-compatible queries."""
+    canonical = canonicalize_object_type(object_type)
+    if canonical is None:
+        return []
+
+    values: list[str] = [canonical]
+    if object_type and object_type not in values:
+        values.append(object_type)
+
+    for alias, mapped in _OBJECT_TYPE_ALIASES.items():
+        if mapped == canonical and alias not in values:
+            values.append(alias)
+
+    return values
+
+
+def is_twin_deleted(config: dict[str, Any] | None) -> bool:
+    """Return True when an object config is marked with the Twin deletion sentinel."""
+    return bool(config and config.get(DELETED_SENTINEL_KEY))
 
 
 def merge_write_into_state(
@@ -51,7 +75,7 @@ def merge_write_into_state(
     if write.method == "DELETE":
         # Keep an explicit tombstone so downstream snapshot builders can remove
         # objects from the predicted state instead of silently falling back.
-        state[key] = {_DELETED_SENTINEL_KEY: True}
+        state[key] = {DELETED_SENTINEL_KEY: True}
         return
 
     if write.method == "POST":
@@ -63,7 +87,7 @@ def merge_write_into_state(
 
     # PUT — merge into existing or create
     existing = state.get(key, {})
-    if existing.get(_DELETED_SENTINEL_KEY):
+    if existing.get(DELETED_SENTINEL_KEY):
         existing = {}
     if write.body:
         existing.update(write.body)

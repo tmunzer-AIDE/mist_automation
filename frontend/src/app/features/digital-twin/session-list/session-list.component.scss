@@ -89,3 +89,12 @@
 .muted {
   color: var(--mat-sys-on-surface-variant);
 }
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:focus-visible {
+  outline: 2px solid var(--app-info);
+  outline-offset: -2px;
+}

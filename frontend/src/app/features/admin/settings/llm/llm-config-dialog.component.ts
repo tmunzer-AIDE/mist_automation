@@ -306,7 +306,7 @@ export class LlmConfigDialogComponent implements OnInit {
 
   private buildConnectionPayload(): Record<string, string | undefined> {
     const v = this.form.getRawValue();
-    const baseUrl = this.normalizeBaseUrl(v.base_url);
+    const baseUrl = this.showBaseUrl() ? this.normalizeBaseUrl(v.base_url) : undefined;
     return {
       provider: v.provider || 'openai',
       api_key: v.api_key || undefined,
@@ -359,8 +359,7 @@ export class LlmConfigDialogComponent implements OnInit {
     for (const [k, v] of Object.entries(values)) {
       if (k === 'api_key' && !v) continue;
       if (k === 'base_url' && !allowBaseUrl) {
-        const normalized = this.normalizeBaseUrl(v);
-        if (normalized) payload[k] = normalized;
+        payload[k] = null;
         continue;
       }
       if (k === 'base_url') {

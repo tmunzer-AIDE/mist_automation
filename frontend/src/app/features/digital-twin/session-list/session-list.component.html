@@ -112,7 +112,12 @@
           mat-row
           *matRowDef="let row; columns: displayedColumns"
           class="clickable-row"
+          tabindex="0"
+          role="button"
+          [attr.aria-label]="'View session ' + (row.source_ref || row.id) + ' details'"
           (click)="viewSession(row)"
+          (keydown.enter)="viewSession(row)"
+          (keydown.space)="viewSession(row); $event.preventDefault()"
         ></tr>
       </table>
     }

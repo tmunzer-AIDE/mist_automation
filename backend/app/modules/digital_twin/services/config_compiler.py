@@ -21,7 +21,7 @@ from typing import Any
 import structlog
 
 from app.modules.digital_twin.models import StagedWrite
-from app.modules.digital_twin.services.state_resolver import _DELETED_SENTINEL_KEY
+from app.modules.digital_twin.services.state_resolver import is_twin_deleted
 
 logger = structlog.get_logger(__name__)
 
@@ -298,7 +298,7 @@ async def _get_site_info(site_id: str, org_id: str, state: dict[tuple, dict[str,
     from app.modules.backup.models import BackupObject
 
     site_info = state.get(("info", site_id, None), {})
-    if site_info and not site_info.get(_DELETED_SENTINEL_KEY):
+    if site_info and not is_twin_deleted(site_info):
         return site_info
 
     backup = (
@@ -341,7 +341,7 @@ async def _compile_site_devices(
 
     # Apply staged site setting changes (singleton /sites/{site_id}/setting)
     staged_site_setting = state.get(("settings", site_id, None), {})
-    if staged_site_setting and not staged_site_setting.get(_DELETED_SENTINEL_KEY):
+    if staged_site_setting and not is_twin_deleted(staged_site_setting):
         derived_setting = {**derived_setting, **staged_site_setting}
 
     # Apply template changes that affect this site
@@ -353,7 +353,7 @@ async def _compile_site_devices(
             if tmpl_key in state:
                 # Template is in virtual state (i.e. being modified by this session)
                 tmpl_config = state[tmpl_key]
-                if tmpl_config.get(_DELETED_SENTINEL_KEY):
+                if is_twin_deleted(tmpl_config):
                     continue
                 if change["template_type"] == "networktemplates":
                     derived_setting = {**derived_setting, **tmpl_config}
@@ -367,7 +367,7 @@ async def _compile_site_devices(
         gw_key = ("gatewaytemplates", None, gw_template_id)
         if gw_key in state:
             gw_template = state[gw_key]
-            if gw_template.get(_DELETED_SENTINEL_KEY):
+            if is_twin_deleted(gw_template):
                 gw_template = {}
         else:
             backup = (
@@ -395,7 +395,7 @@ async def _compile_site_devices(
             continue
         key = ("devices", site_id, dev_id)
         staged_config = state.get(key)
-        if staged_config and staged_config.get(_DELETED_SENTINEL_KEY):
+        if staged_config and is_twin_deleted(staged_config):
             continue
         devices_to_compile[key] = staged_config or device_config
 
@@ -404,7 +404,7 @@ async def _compile_site_devices(
         obj_type, obj_site, _obj_id = key
         if obj_type != "devices" or obj_site != site_id:
             continue
-        if config.get(_DELETED_SENTINEL_KEY):
+        if is_twin_deleted(config):
             continue
         devices_to_compile[key] = config
 

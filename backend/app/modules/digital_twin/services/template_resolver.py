@@ -50,12 +50,19 @@ async def get_site_template_context(
         }
     """
     from app.modules.backup.models import BackupObject
+    from app.modules.digital_twin.services.state_resolver import object_type_query_values
 
     # Get site info (may be in virtual state if being modified)
     site_info = virtual_state.get(("info", site_id, None), {})
     if not site_info:
         backup = (
-            await BackupObject.find({"object_type": "info", "site_id": site_id, "is_deleted": False})
+            await BackupObject.find(
+                {
+                    "object_type": {"$in": object_type_query_values("info")},
+                    "site_id": site_id,
+                    "is_deleted": False,
+                }
+            )
             .sort([("version", -1)])
             .first_or_none()
         )
@@ -68,7 +75,12 @@ async def get_site_template_context(
     if not site_setting:
         backup = (
             await BackupObject.find(
-                {"object_type": "settings", "site_id": site_id, "org_id": org_id, "is_deleted": False}
+                {
+                    "object_type": {"$in": object_type_query_values("settings")},
+                    "site_id": site_id,
+                    "org_id": org_id,
+                    "is_deleted": False,
+                }
             )
             .sort([("version", -1)])
             .first_or_none()
@@ -88,7 +100,13 @@ async def get_site_template_context(
         tmpl_config = virtual_state.get((tmpl_type, None, tmpl_id), {})
         if not tmpl_config:
             backup = (
-                await BackupObject.find({"object_type": tmpl_type, "object_id": tmpl_id, "is_deleted": False})
+                await BackupObject.find(
+                    {
+                        "object_type": {"$in": object_type_query_values(tmpl_type)},
+                        "object_id": tmpl_id,
+                        "is_deleted": False,
+                    }
+                )
                 .sort([("version", -1)])
                 .first_or_none()
             )

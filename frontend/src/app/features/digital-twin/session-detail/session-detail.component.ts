@@ -127,8 +127,8 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     return this.checksByLayer().get(layer) ?? [];
   }
 
-  issueCountForLayer(layer: number): number {
-    return this.checksForLayer(layer).filter(
+  issueCountForChecks(checks: CheckResultModel[]): number {
+    return checks.filter(
       (c) => c.status === 'warning' || c.status === 'error' || c.status === 'critical',
     ).length;
   }
