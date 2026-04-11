@@ -1,2 +1,0 @@
-[console_scripts]
-mist-automation = app.main:main
