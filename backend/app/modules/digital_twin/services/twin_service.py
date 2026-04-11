@@ -30,6 +30,7 @@ from app.modules.digital_twin.services.site_snapshot import (
 )
 from app.modules.digital_twin.services.state_resolver import (
     apply_staged_writes,
+    canonicalize_object_type,
     collect_affected_metadata,
     load_base_state_from_backup,
 )
@@ -81,6 +82,107 @@ def _parse_and_enrich_writes(
     return staged, parse_errors
 
 
+async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite]) -> list[CheckResult]:
+    """Validate write targets exist in backup state for trustworthy simulation.
+
+    This guards against LLM placeholder endpoints (caught by parser) and
+    unresolved IDs that do not exist in backup snapshots.
+    """
+    from app.modules.backup.models import BackupObject
+
+    errors: list[CheckResult] = []
+    singleton_types = {"settings", "info", "data"}
+
+    site_cache: dict[str, bool] = {}
+    object_cache: dict[tuple[str, str | None, str], bool] = {}
+
+    async def _site_exists(site_id: str) -> bool:
+        if site_id in site_cache:
+            return site_cache[site_id]
+
+        doc = await BackupObject.find(
+            {
+                "object_type": "info",
+                "org_id": org_id,
+                "site_id": site_id,
+                "is_deleted": False,
+            }
+        ).first_or_none()
+        site_cache[site_id] = doc is not None
+        return site_cache[site_id]
+
+    async def _object_exists(object_type: str, site_id: str | None, object_id: str) -> bool:
+        cache_key = (object_type, site_id, object_id)
+        if cache_key in object_cache:
+            return object_cache[cache_key]
+
+        query: dict[str, Any] = {
+            "object_type": object_type,
+            "org_id": org_id,
+            "object_id": object_id,
+            "is_deleted": False,
+        }
+        if site_id:
+            query["site_id"] = site_id
+
+        doc = await BackupObject.find(query).first_or_none()
+        object_cache[cache_key] = doc is not None
+        return object_cache[cache_key]
+
+    for write in staged_writes:
+        canonical_type = canonicalize_object_type(write.object_type) if write.object_type else None
+
+        if write.site_id and not await _site_exists(write.site_id):
+            errors.append(
+                CheckResult(
+                    check_id=f"SYS-02-{write.sequence}",
+                    check_name="Write Target Validation",
+                    layer=0,
+                    status="error",
+                    summary=(
+                        f"Write #{write.sequence}: site_id '{write.site_id}' was not found in backup data"
+                    ),
+                    details=[
+                        f"Endpoint: {write.endpoint}",
+                        "Simulation requires real site UUIDs that exist in backup snapshots.",
+                    ],
+                    remediation_hint=(
+                        "Replace placeholder/name values with a real site UUID before simulating."
+                    ),
+                )
+            )
+            continue
+
+        if (
+            write.method in ("PUT", "DELETE")
+            and canonical_type
+            and canonical_type not in singleton_types
+            and write.object_id
+        ):
+            if not await _object_exists(canonical_type, write.site_id, write.object_id):
+                errors.append(
+                    CheckResult(
+                        check_id=f"SYS-03-{write.sequence}",
+                        check_name="Write Target Validation",
+                        layer=0,
+                        status="error",
+                        summary=(
+                            f"Write #{write.sequence}: target object '{write.object_id}' "
+                            f"for type '{canonical_type}' was not found in backup data"
+                        ),
+                        details=[
+                            f"Endpoint: {write.endpoint}",
+                            "PUT/DELETE simulations require existing object IDs to build baseline state.",
+                        ],
+                        remediation_hint=(
+                            "Use a real object UUID for the target resource (or POST for new objects)."
+                        ),
+                    )
+                )
+
+    return errors
+
+
 async def simulate(
     user_id: str,
     org_id: str,
@@ -95,6 +197,8 @@ async def simulate(
     Otherwise creates a new TwinSession.
     """
     staged_writes, parse_errors = _parse_and_enrich_writes(writes)
+    target_errors = await _validate_write_targets(org_id, staged_writes)
+    preflight_errors = bool(parse_errors or target_errors)
     affected_sites, affected_types = collect_affected_metadata(staged_writes)
 
     old_severity = "clean"
@@ -119,39 +223,42 @@ async def simulate(
         )
 
     session.status = TwinSessionStatus.VALIDATING
+    session.base_snapshot_refs = []
+    session.live_fetched_at = None
     session.update_timestamp()
     await session.save()
 
-    # Resolve virtual state
-    base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
-    virtual_state = apply_staged_writes(base_state, staged_writes)
+    # Include parser/target validation errors in the report.
+    check_results: list[CheckResult] = [*parse_errors, *target_errors]
 
-    # Compile effective device configs (template inheritance + variable resolution)
-    from app.modules.digital_twin.services.config_compiler import compile_virtual_state
+    if not preflight_errors:
+        # Resolve virtual state
+        base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
+        virtual_state = apply_staged_writes(base_state, staged_writes)
 
-    virtual_state, all_impacted_sites = await compile_virtual_state(virtual_state, staged_writes, org_id)
-    # Expand affected_sites with template-impacted sites
-    affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
-    session.affected_sites = affected_sites
+        # Compile effective device configs (template inheritance + variable resolution)
+        from app.modules.digital_twin.services.config_compiler import compile_virtual_state
 
-    session.base_snapshot_refs = refs
-    session.live_fetched_at = datetime.now(timezone.utc)
+        virtual_state, all_impacted_sites = await compile_virtual_state(virtual_state, staged_writes, org_id)
+        # Expand affected_sites with template-impacted sites
+        affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
+        session.affected_sites = affected_sites
 
-    # Include parse errors as check results (so they appear in the report)
-    check_results: list[CheckResult] = list(parse_errors)
+        session.base_snapshot_refs = refs
+        session.live_fetched_at = datetime.now(timezone.utc)
 
-    # ── Snapshot-based analysis ──
-    # For each affected site: build baseline + predicted snapshots, run all checks
-    async def _analyze_one_site(sid: str) -> list:
-        live_data = await fetch_live_data(sid, org_id)
-        baseline_snap = await build_site_snapshot(sid, org_id, live_data)
-        predicted_snap = await build_site_snapshot(sid, org_id, live_data, state_overrides=virtual_state)
-        return analyze_site(baseline_snap, predicted_snap)
+        # ── Snapshot-based analysis ──
+        # For each affected site: build baseline + predicted snapshots, run all checks
+        async def _analyze_one_site(sid: str) -> list:
+            live_data = await fetch_live_data(sid, org_id)
+            baseline_snap = await build_site_snapshot(sid, org_id, live_data)
+            predicted_snap = await build_site_snapshot(sid, org_id, live_data, state_overrides=virtual_state)
+            return analyze_site(baseline_snap, predicted_snap)
 
-    if affected_sites:
-        site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
-        for site_result in site_results:
-            check_results.extend(site_result)
+        if affected_sites:
+            site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
+            for site_result in site_results:
+                check_results.extend(site_result)
 
     # Build report
     report = build_prediction_report(check_results)

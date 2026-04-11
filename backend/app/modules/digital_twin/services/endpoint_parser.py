@@ -115,6 +115,37 @@ _ORG_PATTERN = re.compile(r"^/api/v1/orgs/(?P<org_id>[^/]+)(?:/(?P<resource>[^/]
 _SITE_PATTERN = re.compile(r"^/api/v1/sites/(?P<site_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$")
 
 
+def _is_unresolved_placeholder(value: str | None) -> bool:
+    """Return True when a path segment appears to be an unresolved template token."""
+    if not value:
+        return False
+
+    lowered = value.lower()
+    if "%7b" in lowered and "%7d" in lowered:
+        return True
+    if "{{" in value or "}}" in value:
+        return True
+    if value.startswith("{") and value.endswith("}"):
+        return True
+    if value.startswith("<") and value.endswith(">"):
+        return True
+    if value.startswith(":"):
+        return True
+    return False
+
+
+def _validate_segments(result: ParsedEndpoint, **segments: str | None) -> bool:
+    """Validate parsed path segments do not contain unresolved template placeholders."""
+    for segment_name, segment_value in segments.items():
+        if _is_unresolved_placeholder(segment_value):
+            result.error = (
+                f"Unresolved path placeholder for '{segment_name}': '{segment_value}'. "
+                "Replace placeholders with real UUID values before simulation."
+            )
+            return False
+    return True
+
+
 @dataclass
 class ParsedEndpoint:
     """Structured metadata extracted from a Mist API endpoint."""
@@ -132,8 +163,8 @@ class ParsedEndpoint:
 
 def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
     """Parse a Mist API endpoint URL into structured metadata."""
-    # Strip trailing slash before matching
-    endpoint = endpoint.rstrip("/")
+    # Strip query/fragment/trailing slash before matching path segments.
+    endpoint = endpoint.split("?", 1)[0].split("#", 1)[0].rstrip("/")
 
     result = ParsedEndpoint(method=method, endpoint=endpoint)
 
@@ -143,6 +174,9 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
         result.scope = "site"
         resource = m.group("resource")
         obj_id = m.group("object_id")
+
+        if not _validate_segments(result, site_id=result.site_id, resource=resource, object_id=obj_id):
+            return result
 
         if resource is None:
             # /api/v1/sites/{site_id} — site info
@@ -176,6 +210,9 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
         result.scope = "org"
         resource = m.group("resource")
         obj_id = m.group("object_id")
+
+        if not _validate_segments(result, org_id=result.org_id, resource=resource, object_id=obj_id):
+            return result
 
         if resource is None:
             # /api/v1/orgs/{org_id} — org info

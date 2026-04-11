@@ -197,6 +197,28 @@ class TestParseEndpoint:
         assert result.scope == "site"
         assert result.error is not None
 
+    # --- Placeholder validation tests ---
+
+    def test_rejects_placeholder_site_id(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/{site_id}/devices/dev-1")
+        assert result.error is not None
+        assert "Unresolved path placeholder" in result.error
+
+    def test_rejects_placeholder_object_id(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/site-1/devices/{device_id}")
+        assert result.error is not None
+        assert "Unresolved path placeholder" in result.error
+
+    def test_rejects_placeholder_org_id(self):
+        result = parse_endpoint("PUT", "/api/v1/orgs/{org_id}/networktemplates/nt-1")
+        assert result.error is not None
+        assert "Unresolved path placeholder" in result.error
+
+    def test_rejects_angle_bracket_placeholder(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/<site_id>/devices/dev-1")
+        assert result.error is not None
+        assert "Unresolved path placeholder" in result.error
+
     # --- Trailing slash stripping ---
 
     def test_trailing_slash_site_wlans(self):

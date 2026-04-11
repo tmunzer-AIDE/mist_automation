@@ -34,6 +34,14 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 - Singleton writes use `object_id=None`; base-state loading handles singleton lookups by `(object_type, site_id/org scope)` without requiring an explicit object ID.
 - `site_snapshot.py` loads inherited org networks with an org-level-only filter (`site_id == null`) to avoid leaking other sites' network backups into a single-site snapshot.
 
+### Simulation Preflight Validation
+
+- `endpoint_parser.py` rejects unresolved placeholders in path segments (e.g. `{site_id}`, `<device_id>`, `:site_id`) and marks them as parse errors.
+- `twin_service.simulate()` runs target validation before snapshot analysis:
+	- site-scoped writes must reference a real site present in backup snapshots (`object_type=info`)
+	- `PUT`/`DELETE` writes for non-singleton resources must reference an existing backup object
+- If preflight validation fails, simulation returns an error report (`SYS-01`/`SYS-02`/`SYS-03`) and does not run topology/config checks on invalid targets.
+
 ### Key Services
 
 | Service | Responsibility |
