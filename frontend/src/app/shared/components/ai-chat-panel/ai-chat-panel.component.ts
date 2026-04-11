@@ -452,6 +452,17 @@ function renderMarkdown(md: string): string {
           border-radius: 18px 18px 18px 4px;
           padding: 10px 16px;
         }
+
+        /* Full-bleed: let prose sections control their own padding so artifact cards
+           can extend edge-to-edge within the bubble. overflow:hidden + border-radius
+           on the parent clips everything to the bubble's rounded corners. */
+        .assistant &.has-artifacts {
+          padding: 0;
+        }
+      }
+
+      .has-artifacts .message-content {
+        padding: 10px 16px;
       }
 
       .message-content {
@@ -645,7 +656,7 @@ function renderMarkdown(md: string): string {
       }
 
       .has-artifacts app-artifact-card {
-        margin: 8px 0;
+        display: block;
       }
 
       :host ::ng-deep .markdown-body {

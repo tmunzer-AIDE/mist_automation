@@ -1,17 +1,9 @@
-import {
-  Component,
-  DestroyRef,
-  OnDestroy,
-  OnInit,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
+import { Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DecimalPipe, DatePipe } from '@angular/common';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subscription, debounceTime, forkJoin } from 'rxjs';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Subscription, debounceTime, forkJoin, skip } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -23,10 +15,9 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
-import { TopbarService } from '../../../core/services/topbar.service';
+import { TelemetryNavService } from '../telemetry-nav.service';
 import { getChartColor } from '../../../shared/utils/chart-defaults';
 import type {
-  TimeRange,
   ClientListResponse,
   ClientSiteSummary,
   ClientStatRecord,
@@ -43,7 +34,6 @@ Chart.register(...registerables);
     DecimalPipe,
     DatePipe,
     ReactiveFormsModule,
-    RouterModule,
     MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
@@ -60,11 +50,11 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
-  private readonly topbarService = inject(TopbarService);
+  readonly nav = inject(TelemetryNavService);
+  private readonly navTimeRange$ = toObservable(this.nav.timeRange);
 
   readonly siteId = signal('');
   readonly siteName = signal('');
-  readonly timeRange = signal<TimeRange>('1h');
   readonly loading = signal(false);
   readonly summary = signal<ClientSiteSummary | null>(null);
   readonly clientsResponse = signal<ClientListResponse | null>(null);
@@ -72,7 +62,6 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   readonly searchCtrl = new FormControl('');
   private readonly searchTerm = signal('');
 
-  readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
   readonly clientColumns = [
     'hostname',
     'mac',
@@ -131,7 +120,6 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   private wsSub?: Subscription;
 
   ngOnInit(): void {
-    this.topbarService.setTitle('Telemetry');
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const id = params.get('id') ?? '';
       this.siteId.set(id);
@@ -142,15 +130,15 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
     this.searchCtrl.valueChanges
       .pipe(debounceTime(200), takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => this.searchTerm.set(v ?? ''));
+
+    // React to time range changes from nav service
+    this.navTimeRange$
+      .pipe(skip(1), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this._loadCharts());
   }
 
   ngOnDestroy(): void {
     this.wsSub?.unsubscribe();
-  }
-
-  setTimeRange(tr: TimeRange): void {
-    this.timeRange.set(tr);
-    this._loadCharts();
   }
 
   toggleAuthType(auth: string): void {
@@ -188,7 +176,7 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   private _loadCharts(): void {
     const siteId = this.siteId();
     if (!siteId) return;
-    const tr = this.timeRange();
+    const tr = this.nav.timeRange();
 
     forkJoin({
       count: this.telemetryService.queryAggregate({
@@ -237,11 +225,9 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: { duration: 0 },
         plugins: { legend: { display: false } },
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: false },
-        },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: false } },
       },
     };
   }

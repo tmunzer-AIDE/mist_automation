@@ -1,17 +1,4 @@
 <div class="telemetry-device-page">
-  <!-- Breadcrumb -->
-  <div class="page-header">
-    <div class="breadcrumb">
-      <a routerLink="/telemetry">Telemetry</a>
-      <span class="separator">&rsaquo;</span>
-      @if (siteId()) {
-        <a [routerLink]="['/telemetry/site', siteId()]">{{ siteName() || 'Site' }}</a>
-        <span class="separator">&rsaquo;</span>
-      }
-      <span>{{ deviceName() }}</span>
-    </div>
-  </div>
-
   @if (loading()) {
     <section class="kpi-row">
       @for (_ of [1,2,3,4]; track $index) {
@@ -31,51 +18,82 @@
     </div>
   } @else {
     @if (latestStats()?.stats) {
-      <!-- KPI cards row -->
-      <section class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">CPU</div>
-          <div class="kpi-value">{{ cpuUtil() | number: '1.0-0' }}%</div>
+
+      <!-- ── AP Identity ───────────────────────────────────────────────── -->
+      @if (isAP()) {
+        <div class="ap-identity">
+          <span class="device-name">{{ deviceName() }}</span>
+          @if (apModel()) {
+            <span class="identity-chip model-chip">{{ apModel() }}</span>
+          }
+          @if (apIp()) {
+            <span class="identity-chip ip-chip">
+              <mat-icon>lan</mat-icon>{{ apIp() }}
+            </span>
+          }
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Memory</div>
-          <div class="kpi-value">{{ memUsage() | number: '1.0-0' }}%</div>
-        </div>
-        @if (!isGateway()) {
+      }
+
+      <!-- ── KPI cards ─────────────────────────────────────────────────── -->
+      @if (isAP()) {
+        <section class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">CPU</div>
+            <div class="kpi-value">{{ cpuUtil() | number: '1.0-0' }}%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Memory</div>
+            <div class="kpi-value">{{ memUsage() | number: '1.0-0' }}%</div>
+          </div>
           <div class="kpi-card">
             <div class="kpi-label">Clients</div>
             <div class="kpi-value">{{ numClients() }}</div>
           </div>
-        }
-        <div class="kpi-card">
-          <div class="kpi-label">Uptime</div>
-          <div class="kpi-value">{{ uptime() | number: '1.0-0' }}s</div>
-        </div>
-        @if (isGateway()) {
           <div class="kpi-card">
-            <div class="kpi-label">HA State</div>
-            <div class="kpi-value">{{ haState() }}</div>
+            <div class="kpi-label">WLANs</div>
+            <div class="kpi-value">{{ apNumWlans() }}</div>
           </div>
-        }
-        @if (isSwitch()) {
           <div class="kpi-card">
-            <div class="kpi-label">PoE</div>
-            <div class="kpi-value">{{ poeTotalDraw() | number: '1.0-0' }}W</div>
+            <div class="kpi-label">Uptime</div>
+            <div class="kpi-value">{{ uptime() | number: '1.0-0' }}s</div>
           </div>
-        }
-      </section>
+        </section>
+      } @else {
+        <section class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">CPU</div>
+            <div class="kpi-value">{{ cpuUtil() | number: '1.0-0' }}%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Memory</div>
+            <div class="kpi-value">{{ memUsage() | number: '1.0-0' }}%</div>
+          </div>
+          @if (!isGateway()) {
+            <div class="kpi-card">
+              <div class="kpi-label">Clients</div>
+              <div class="kpi-value">{{ numClients() }}</div>
+            </div>
+          }
+          <div class="kpi-card">
+            <div class="kpi-label">Uptime</div>
+            <div class="kpi-value">{{ uptime() | number: '1.0-0' }}s</div>
+          </div>
+          @if (isGateway()) {
+            <div class="kpi-card">
+              <div class="kpi-label">HA State</div>
+              <div class="kpi-value">{{ haState() }}</div>
+            </div>
+          }
+          @if (isSwitch()) {
+            <div class="kpi-card">
+              <div class="kpi-label">PoE</div>
+              <div class="kpi-value">{{ poeTotalDraw() | number: '1.0-0' }}W</div>
+            </div>
+          }
+        </section>
+      }
 
-      <!-- Time range picker -->
-      <div class="time-range-picker">
-        <span class="label">Time range:</span>
-        @for (tr of timeRanges; track tr) {
-          <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
-            {{ tr }}
-          </button>
-        }
-      </div>
-
-      <!-- Charts -->
+      <!-- CPU & Memory chart (all device types) -->
       <div class="chart-row">
         @if (cpuMemChart()) {
           <div class="chart-container">
@@ -88,11 +106,39 @@
             ></canvas>
           </div>
         }
-        @if (chart2()) {
-          <div class="chart-container">
-            <div class="chart-title">
-              {{ isAP() ? 'Clients' : isSwitch() ? 'Clients' : 'WAN Traffic' }}
+        <!-- SW/GW extra charts -->
+        @if (!isAP()) {
+          @if (chart2()) {
+            <div class="chart-container">
+              <div class="chart-title">
+                {{ isSwitch() ? 'Clients' : 'WAN Traffic' }}
+              </div>
+              <canvas
+                baseChart
+                [data]="chart2()!.data"
+                [options]="chart2()!.options"
+                type="line"
+              ></canvas>
             </div>
+          }
+          @if (chart3()) {
+            <div class="chart-container">
+              <div class="chart-title">
+                {{ isSwitch() ? 'PoE Draw' : 'SPU Stats' }}
+              </div>
+              <canvas
+                baseChart
+                [data]="chart3()!.data"
+                [options]="chart3()!.options"
+                type="line"
+              ></canvas>
+            </div>
+          }
+        }
+        <!-- AP: Clients chart alongside CPU/Memory -->
+        @if (isAP() && chart2()) {
+          <div class="chart-container">
+            <div class="chart-title">Clients</div>
             <canvas
               baseChart
               [data]="chart2()!.data"
@@ -101,22 +147,178 @@
             ></canvas>
           </div>
         }
-        @if (chart3()) {
-          <div class="chart-container">
-            <div class="chart-title">
-              {{ isAP() ? 'Band Utilization' : isSwitch() ? 'PoE Draw' : 'SPU Stats' }}
-            </div>
-            <canvas
-              baseChart
-              [data]="chart3()!.data"
-              [options]="chart3()!.options"
-              type="line"
-            ></canvas>
-          </div>
-        }
       </div>
 
-      <!-- Switch port table -->
+      <!-- ── AP: Per-radio sections ─────────────────────────────────────── -->
+      @if (isAP()) {
+        @if (apRadios().length > 0) {
+          <section class="radios-section">
+            <h3 class="section-title">Radio Details</h3>
+            @for (radio of apRadios(); track radio.band) {
+              <div class="radio-card" [attr.data-band]="radio.band">
+                <!-- Radio header -->
+                <div class="radio-header">
+                  <span class="radio-band-label">{{ radio.label }}</span>
+                  <div class="radio-stats-inline">
+                    <span class="radio-stat">
+                      <span class="radio-stat-label">Ch</span>
+                      <span class="radio-stat-value">{{ radio.channel }}</span>
+                    </span>
+                    <span class="radio-stat">
+                      <span class="radio-stat-label">BW</span>
+                      <span class="radio-stat-value">{{ radio.bandwidth }} MHz</span>
+                    </span>
+                    <span class="radio-stat">
+                      <span class="radio-stat-label">Pwr</span>
+                      <span class="radio-stat-value">{{ radio.power }} dBm</span>
+                    </span>
+                    <span class="radio-stat">
+                      <span class="radio-stat-label">Clients</span>
+                      <span class="radio-stat-value">{{ radio.num_clients }}</span>
+                    </span>
+                    <span class="radio-stat">
+                      <span class="radio-stat-label">WLANs</span>
+                      <span class="radio-stat-value">{{ radio.num_wlans }}</span>
+                    </span>
+                    <span class="radio-stat">
+                      <span class="radio-stat-label">Util</span>
+                      <span class="radio-stat-value">{{ radio.util_all }}%</span>
+                    </span>
+                  </div>
+                  <!-- Utilization bar -->
+                  <div class="util-bar-wrap">
+                    <div class="util-bar-fill" [style.width.%]="radio.util_all"></div>
+                  </div>
+                </div>
+
+                <!-- Per-radio charts -->
+                <div class="radio-charts">
+                  @if (radioCharts()[radio.band]?.traffic) {
+                    <div class="radio-chart-container">
+                      <div class="chart-title">Traffic</div>
+                      <canvas
+                        baseChart
+                        [data]="radioCharts()[radio.band].traffic!.data"
+                        [options]="radioCharts()[radio.band].traffic!.options"
+                        type="line"
+                      ></canvas>
+                    </div>
+                  } @else {
+                    <div class="radio-chart-container chart-placeholder">
+                      <span>No traffic data yet</span>
+                    </div>
+                  }
+                  @if (radioCharts()[radio.band]?.util) {
+                    <div class="radio-chart-container">
+                      <div class="chart-title">Utilization Breakdown</div>
+                      <canvas
+                        baseChart
+                        [data]="radioCharts()[radio.band].util!.data"
+                        [options]="radioCharts()[radio.band].util!.options"
+                        type="line"
+                      ></canvas>
+                    </div>
+                  } @else {
+                    <div class="radio-chart-container chart-placeholder">
+                      <span>No utilization data yet</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          </section>
+        }
+
+        <!-- ── AP: Infrastructure ─────────────────────────────────────── -->
+        @if (apPortStats().length > 0 || apPoeInfo()) {
+          <section class="infra-section">
+            <h3 class="section-title">Infrastructure</h3>
+
+            <!-- Port cards -->
+            @if (apPortStats().length > 0) {
+              <div class="port-grid">
+                @for (port of apPortStats(); track port.port_id) {
+                  <div class="port-card" [class.port-up]="port.up" [class.port-down]="!port.up">
+                    <div class="port-header">
+                      <span class="port-id">{{ port.port_id }}</span>
+                      <span class="port-status-badge" [class.badge-up]="port.up" [class.badge-down]="!port.up">
+                        {{ port.up ? 'UP' : 'DOWN' }}
+                      </span>
+                      @if (port.up && port.speed) {
+                        <span class="port-speed">{{ port.speed | number }} Mbps</span>
+                      }
+                    </div>
+                    @if (port.up) {
+                      <div class="port-counters">
+                        <div class="port-counter-row">
+                          <span class="port-counter-label">TX</span>
+                          <span>{{ port.tx_bytes | number }} B</span>
+                          <span class="port-counter-sep">/</span>
+                          <span>{{ port.tx_pkts | number }} pkts</span>
+                        </div>
+                        <div class="port-counter-row">
+                          <span class="port-counter-label">RX</span>
+                          <span>{{ port.rx_bytes | number }} B</span>
+                          <span class="port-counter-sep">/</span>
+                          <span>{{ port.rx_pkts | number }} pkts</span>
+                        </div>
+                        @if (port.tx_errors || port.rx_errors) {
+                          <div class="port-counter-row port-errors">
+                            <span class="port-counter-label">Errors</span>
+                            <span>TX {{ port.tx_errors | number }}</span>
+                            <span class="port-counter-sep">/</span>
+                            <span>RX {{ port.rx_errors | number }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+                    @if (port.lldp_system_name) {
+                      <div class="lldp-neighbor">
+                        <mat-icon>device_hub</mat-icon>
+                        <span class="lldp-name">{{ port.lldp_system_name }}</span>
+                        @if (port.lldp_port_desc) {
+                          <span class="lldp-port">{{ port.lldp_port_desc }}</span>
+                        }
+                        @if (port.poe_allocated) {
+                          <span class="lldp-poe">{{ port.poe_allocated / 1000 | number: '1.0-1' }} W PoE</span>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- PoE info -->
+            @if (apPoeInfo()) {
+              <div class="poe-info">
+                <span class="poe-label">PoE</span>
+                <div class="poe-stats">
+                  <span class="poe-stat">
+                    <span class="poe-stat-label">Source</span>
+                    <span class="poe-stat-value">{{ apPoeInfo()!.power_src }}</span>
+                  </span>
+                  <span class="poe-stat">
+                    <span class="poe-stat-label">Available</span>
+                    <span class="poe-stat-value">{{ apPoeInfo()!.power_avail / 1000 | number: '1.0-1' }} W</span>
+                  </span>
+                  <span class="poe-stat">
+                    <span class="poe-stat-label">Needed</span>
+                    <span class="poe-stat-value">{{ apPoeInfo()!.power_needed / 1000 | number: '1.0-1' }} W</span>
+                  </span>
+                  @if (apPoeInfo()!.power_constrained) {
+                    <span class="poe-constrained">
+                      <mat-icon>warning</mat-icon>Power constrained
+                    </span>
+                  }
+                </div>
+              </div>
+            }
+          </section>
+        }
+      }
+
+      <!-- ── Switch sections (unchanged) ───────────────────────────────── -->
       @if (isSwitch() && portRows().length > 0) {
         <section class="table-section">
           <h3 class="section-title">UP Ports</h3>
@@ -145,7 +347,6 @@
         </section>
       }
 
-      <!-- Switch VC module table -->
       @if (isSwitch() && moduleRows().length > 0) {
         <section class="table-section">
           <h3 class="section-title">VC Members</h3>
@@ -182,7 +383,6 @@
         </section>
       }
 
-      <!-- DHCP table (switch + gateway) -->
       @if ((isSwitch() || isGateway()) && dhcpRows().length > 0) {
         <section class="table-section">
           <h3 class="section-title">DHCP Pools</h3>
@@ -207,7 +407,7 @@
         </section>
       }
 
-      <!-- WAN Interfaces (gateway) -->
+      <!-- ── Gateway sections (unchanged) ──────────────────────────────── -->
       @if (isGateway() && wanRows().length > 0) {
         <section class="table-section">
           <h3 class="section-title">WAN Interfaces</h3>
@@ -252,7 +452,6 @@
         </section>
       }
 
-      <!-- SPU Stats (gateway SRX) -->
       @if (isGateway() && spuRow()) {
         <section class="table-section">
           <h3 class="section-title">SPU Stats</h3>
@@ -281,7 +480,6 @@
         </section>
       }
 
-      <!-- Cluster Stats (gateway cluster) -->
       @if (isGateway() && clusterRow()) {
         <section class="table-section">
           <h3 class="section-title">Cluster</h3>
@@ -326,7 +524,6 @@
         </section>
       }
 
-      <!-- Network Resources (gateway SSR) -->
       @if (isGateway() && resourceRows().length > 0) {
         <section class="table-section">
           <h3 class="section-title">Network Resources</h3>

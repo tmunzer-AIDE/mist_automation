@@ -58,6 +58,14 @@
         <span class="dtype" [class]="'badge-' + entry.device_type">{{
           entry.device_type | uppercase
         }}</span>
+        <button
+          mat-icon-button
+          class="copy-btn"
+          [title]="copiedIndex() === i ? 'Copied!' : 'Copy JSON'"
+          (click)="copyJson(entry, i, $event)"
+        >
+          <mat-icon>{{ copiedIndex() === i ? 'check' : 'content_copy' }}</mat-icon>
+        </button>
         <span class="expand-hint">{{ isExpanded(i) ? '▼ collapse' : '▶ expand' }}</span>
       </div>
       @if (isExpanded(i)) {

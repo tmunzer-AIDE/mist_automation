@@ -10,6 +10,8 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DecimalPipe, DatePipe, UpperCasePipe } from '@angular/common';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatIconButton } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 import { Subscription } from 'rxjs';
 import { TelemetryService } from '../../../telemetry.service';
 import { DeviceLiveEvent } from '../../../models';
@@ -19,7 +21,7 @@ const MAX_LOG_ROWS = 100;
 @Component({
   selector: 'app-device-live-log',
   standalone: true,
-  imports: [DecimalPipe, DatePipe, UpperCasePipe, MatButtonToggleModule],
+  imports: [DecimalPipe, DatePipe, UpperCasePipe, MatButtonToggleModule, MatIconButton, MatIconModule],
   templateUrl: './device-live-log.component.html',
   styleUrl: './device-live-log.component.scss',
 })
@@ -32,6 +34,7 @@ export class DeviceLiveLogComponent implements OnChanges {
   readonly entries = signal<DeviceLiveEvent[]>([]);
   readonly viewMode = signal<'formatted' | 'raw'>('formatted');
   readonly expandedRows = signal<Set<number>>(new Set());
+  readonly copiedIndex = signal<number | null>(null);
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['mac'] && this.mac) {
@@ -73,5 +76,13 @@ export class DeviceLiveLogComponent implements OnChanges {
 
   formatJson(obj: Record<string, unknown> | undefined): string {
     return obj ? JSON.stringify(obj, null, 2) : '{}';
+  }
+
+  copyJson(entry: DeviceLiveEvent, index: number, event: MouseEvent): void {
+    event.stopPropagation();
+    navigator.clipboard.writeText(this.formatJson(entry.raw)).then(() => {
+      this.copiedIndex.set(index);
+      setTimeout(() => this.copiedIndex.set(null), 2000);
+    });
   }
 }

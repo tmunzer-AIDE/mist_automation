@@ -1,16 +1,8 @@
-import {
-  Component,
-  DestroyRef,
-  OnDestroy,
-  OnInit,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
+import { Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DecimalPipe, DatePipe } from '@angular/common';
-import { ActivatedRoute, RouterModule } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subscription, forkJoin } from 'rxjs';
+import { ActivatedRoute } from '@angular/router';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Subscription, forkJoin, skip } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
@@ -19,9 +11,9 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService, TIME_RANGE_MAP } from '../telemetry.service';
-import { TopbarService } from '../../../core/services/topbar.service';
+import { TelemetryNavService } from '../telemetry-nav.service';
 import { getChartColor } from '../../../shared/utils/chart-defaults';
-import type { ClientStatRecord, ClientLiveEvent, RangeResult, ScopeSite, TimeRange } from '../models';
+import type { ClientStatRecord, ClientLiveEvent, RangeResult } from '../models';
 
 Chart.register(...registerables);
 
@@ -31,7 +23,6 @@ Chart.register(...registerables);
   imports: [
     DecimalPipe,
     DatePipe,
-    RouterModule,
     MatButtonModule,
     MatButtonToggleModule,
     MatIconModule,
@@ -44,21 +35,18 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
-  private readonly topbarService = inject(TopbarService);
+  readonly nav = inject(TelemetryNavService);
+  private readonly navTimeRange$ = toObservable(this.nav.timeRange);
 
   readonly mac = signal('');
   readonly siteId = signal('');
-  readonly siteName = signal('');
   readonly loading = signal(false);
   readonly client = signal<ClientStatRecord | null>(null);
-  readonly timeRange = signal<TimeRange>('1h');
   readonly rssiChart = signal<ChartConfiguration<'line'> | null>(null);
   readonly bpsChart = signal<ChartConfiguration<'line'> | null>(null);
   readonly liveEvents = signal<ClientLiveEvent[]>([]);
   readonly viewMode = signal<'formatted' | 'raw'>('formatted');
   readonly expandedRows = signal<Set<number>>(new Set());
-
-  readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
 
   readonly displayName = computed(() => this.client()?.hostname || this.mac());
   readonly bandLabel = computed(() => {
@@ -75,7 +63,6 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
   private wsSub?: Subscription;
 
   ngOnInit(): void {
-    this.topbarService.setTitle('Telemetry');
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const mac = params.get('mac') ?? '';
       const siteId = params.get('id') ?? '';
@@ -84,15 +71,15 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
       this._loadClient();
       this._subscribeClientWs(mac);
     });
+
+    // React to time range changes from nav service
+    this.navTimeRange$
+      .pipe(skip(1), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this._loadCharts());
   }
 
   ngOnDestroy(): void {
     this.wsSub?.unsubscribe();
-  }
-
-  setTimeRange(tr: TimeRange): void {
-    this.timeRange.set(tr);
-    this._loadCharts();
   }
 
   setViewMode(mode: 'formatted' | 'raw'): void {
@@ -132,10 +119,8 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ client, sites }) => {
+        next: ({ client, sites: _ }) => {
           this.client.set(client);
-          const site = sites.sites.find((s: ScopeSite) => s.site_id === siteId);
-          if (site) this.siteName.set(site.site_name);
           this.loading.set(false);
           this._loadCharts();
         },
@@ -148,7 +133,7 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
     const siteId = this.siteId();
     if (!mac || !siteId) return;
 
-    const tr = this.timeRange();
+    const tr = this.nav.timeRange();
     const start = TIME_RANGE_MAP[tr];
     const end = 'now()';
 
@@ -189,11 +174,9 @@ export class TelemetryClientDetailComponent implements OnInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: { duration: 0 },
         plugins: { legend: { display: false } },
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: false },
-        },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: false } },
       },
     };
   }

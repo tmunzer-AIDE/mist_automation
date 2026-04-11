@@ -2,8 +2,8 @@ import { Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } fr
 import { DecimalPipe, DatePipe, TitleCasePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, debounceTime, Subscription } from 'rxjs';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { forkJoin, debounceTime, skip, Subscription } from 'rxjs';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -16,10 +16,9 @@ import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
-import { TopbarService } from '../../../core/services/topbar.service';
+import { TelemetryNavService } from '../telemetry-nav.service';
 import { getTopicColors } from '../../../shared/utils/chart-defaults';
 import {
-  TimeRange,
   ScopeSummary,
   ScopeDevices,
   DeviceSummaryRecord,
@@ -59,11 +58,11 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
-  private readonly topbarService = inject(TopbarService);
+  readonly nav = inject(TelemetryNavService);
+  private readonly navTimeRange$ = toObservable(this.nav.timeRange);
 
   readonly siteId = signal('');
   readonly siteName = signal('');
-  readonly timeRange = signal<TimeRange>('6h');
   readonly loading = signal(false);
   readonly summary = signal<ScopeSummary | null>(null);
   readonly devices = signal<ScopeDevices | null>(null);
@@ -75,11 +74,8 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   readonly deviceSearchCtrl = new FormControl('');
   private readonly searchTerm = signal('');
 
-  readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
-
   readonly deviceColumns = ['name', 'device_type', 'model', 'cpu_util', 'num_clients', 'last_seen'];
 
-  // Chart signals
   readonly cpuChart = signal<ChartConfiguration<'line'> | null>(null);
   readonly chart2 = signal<ChartConfiguration<'line'> | null>(null);
   readonly chart3 = signal<ChartConfiguration<'line'> | null>(null);
@@ -135,7 +131,10 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     const labels: Record<string, string> = { '24': '2.4G', '5': '5G', '6': '6G' };
     const entries = order.filter((k) => k in s.band_counts);
     if (!entries.length) return null;
-    return this._buildDoughnutConfig(entries.map((k) => labels[k]), entries.map((k) => s.band_counts[k]));
+    return this._buildDoughnutConfig(
+      entries.map((k) => labels[k]),
+      entries.map((k) => s.band_counts[k]),
+    );
   });
 
   readonly clientProtoChart = computed((): ChartConfiguration<'doughnut'> | null => {
@@ -143,15 +142,23 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     if (!s) return null;
     const entries = Object.entries(s.proto_counts ?? {}).sort((a, b) => b[1] - a[1]);
     if (!entries.length) return null;
-    return this._buildDoughnutConfig(entries.map((e) => e[0].toUpperCase()), entries.map((e) => e[1]));
+    return this._buildDoughnutConfig(
+      entries.map((e) => e[0].toUpperCase()),
+      entries.map((e) => e[1]),
+    );
   });
 
   readonly clientChannelChart = computed((): ChartConfiguration<'doughnut'> | null => {
     const s = this.clientSummary();
     if (!s) return null;
-    const entries = Object.entries(s.channel_counts ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+    const entries = Object.entries(s.channel_counts ?? {}).sort(
+      (a, b) => Number(a[0]) - Number(b[0]),
+    );
     if (!entries.length) return null;
-    return this._buildDoughnutConfig(entries.map((e) => `Ch ${e[0]}`), entries.map((e) => e[1]));
+    return this._buildDoughnutConfig(
+      entries.map((e) => `Ch ${e[0]}`),
+      entries.map((e) => e[1]),
+    );
   });
 
   readonly clientAuthChart = computed((): ChartConfiguration<'doughnut'> | null => {
@@ -183,7 +190,6 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.topbarService.setTitle('Telemetry');
     this.deviceSearchCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));
@@ -200,6 +206,11 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
           .subscribe(() => this.refreshSummary(id));
       }
     });
+
+    // React to time range changes from nav service
+    this.navTimeRange$
+      .pipe(skip(1), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadCharts());
   }
 
   private refreshSummary(siteId: string): void {
@@ -242,11 +253,6 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     this.loadCharts();
   }
 
-  setTimeRange(tr: TimeRange): void {
-    this.timeRange.set(tr);
-    this.loadCharts();
-  }
-
   navigateToDevice(mac: string): void {
     this.router.navigate(['/telemetry/device', mac]);
   }
@@ -277,11 +283,10 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   }
 
   loadCharts(): void {
-    const tr = this.timeRange();
+    const tr = this.nav.timeRange();
     const siteId = this.siteId();
     const active = this.activeDeviceType();
 
-    // Determine which type to chart: explicit selection, or first available
     const chartType =
       active || (this.hasAP() ? 'ap' : this.hasSwitch() ? 'switch' : this.hasGateway() ? 'gateway' : '');
 
@@ -315,14 +320,7 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
         this.cpuChart,
       );
       this.loadSingleChart(
-        {
-          measurement: 'device_summary',
-          field: 'poe_draw_total',
-          agg: 'sum',
-          timeRange: tr,
-          siteId,
-          deviceType: 'switch',
-        },
+        { measurement: 'device_summary', field: 'poe_draw_total', agg: 'sum', timeRange: tr, siteId, deviceType: 'switch' },
         'PoE Draw (W)',
         this.chart2,
       );
@@ -357,15 +355,15 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   }
 
   private loadLineChart(
-    params1: { measurement: string; field: string; agg: string; timeRange: TimeRange; siteId: string; deviceType?: string },
-    params2: { measurement: string; field: string; agg: string; timeRange: TimeRange; siteId: string; deviceType?: string },
+    params1: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; deviceType?: string },
+    params2: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; deviceType?: string },
     label1: string,
     label2: string,
     target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
   ): void {
     forkJoin({
-      d1: this.telemetryService.queryAggregate(params1),
-      d2: this.telemetryService.queryAggregate(params2),
+      d1: this.telemetryService.queryAggregate(params1 as Parameters<typeof this.telemetryService.queryAggregate>[0]),
+      d2: this.telemetryService.queryAggregate(params2 as Parameters<typeof this.telemetryService.queryAggregate>[0]),
     }).subscribe({
       next: ({ d1, d2 }) => target.set(this.buildDualLineConfig(d1, d2, label1, label2)),
       error: () => target.set(null),
@@ -373,24 +371,28 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   }
 
   private loadSingleChart(
-    params: { measurement: string; field: string; agg: string; timeRange: TimeRange; siteId: string; deviceType?: string },
+    params: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; deviceType?: string },
     label: string,
     target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
   ): void {
-    this.telemetryService.queryAggregate(params).subscribe({
-      next: (result) => target.set(this.buildSingleLineConfig(result, label)),
-      error: () => target.set(null),
-    });
+    this.telemetryService
+      .queryAggregate(params as Parameters<typeof this.telemetryService.queryAggregate>[0])
+      .subscribe({
+        next: (result) => target.set(this.buildSingleLineConfig(result, label)),
+        error: () => target.set(null),
+      });
   }
 
   private loadBandChart(
-    params: { measurement: string; field: string; agg: string; timeRange: TimeRange; siteId: string; groupBy: string },
+    params: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; groupBy: string },
     target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
   ): void {
-    this.telemetryService.queryAggregate(params).subscribe({
-      next: (result) => target.set(this.buildBandLineConfig(result)),
-      error: () => target.set(null),
-    });
+    this.telemetryService
+      .queryAggregate(params as Parameters<typeof this.telemetryService.queryAggregate>[0])
+      .subscribe({
+        next: (result) => target.set(this.buildBandLineConfig(result)),
+        error: () => target.set(null),
+      });
   }
 
   private buildDualLineConfig(
@@ -423,21 +425,14 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: true },
-        },
-        plugins: {
-          legend: { position: 'bottom' },
-        },
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } },
       },
     };
   }
 
-  private buildSingleLineConfig(
-    result: AggregateResult,
-    label: string,
-  ): ChartConfiguration<'line'> {
+  private buildSingleLineConfig(result: AggregateResult, label: string): ChartConfiguration<'line'> {
     return {
       type: 'line',
       data: {
@@ -455,13 +450,9 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: true },
-        },
-        plugins: {
-          legend: { position: 'bottom' },
-        },
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } },
       },
     };
   }
@@ -488,10 +479,8 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: true },
-        },
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
         plugins: { legend: { position: 'bottom' } },
       },
     };

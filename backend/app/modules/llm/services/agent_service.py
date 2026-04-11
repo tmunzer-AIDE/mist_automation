@@ -7,8 +7,11 @@ limit is reached.
 """
 
 import json
+import re
+import uuid
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import structlog
@@ -132,8 +135,20 @@ class AIAgentService:
             if not raw_tool_calls:
                 content = response.content or ""
 
+                # Try to recover tool calls from special-token format used by some local LLMs
+                # e.g. <|tool_call>call:func{key:<|"|>val<|"|>}<tool_call|>
+                recovered = _try_parse_special_token_tool_calls(content)
+                if recovered:
+                    logger.info(
+                        "llm_special_token_tool_calls_recovered",
+                        count=len(recovered),
+                        iteration=iteration + 1,
+                    )
+                    raw_tool_calls = recovered
+                    response.content = _strip_tool_call_tokens(content).strip()
+
                 # Detect XML tool_call format — LLM failed to use function calling API
-                if "<tool_call>" in content or "<function=" in content:
+                elif "<tool_call>" in content or "<function=" in content:
                     logger.warning("llm_xml_tool_call_detected", iteration=iteration + 1)
                     return AgentResult(
                         status="error",
@@ -149,14 +164,15 @@ class AIAgentService:
                         thinking_texts=thinking_texts,
                     )
 
-                # No tool calls — agent is done
-                return AgentResult(
-                    status="completed",
-                    result=content,
-                    tool_calls=tool_calls,
-                    iterations=iteration + 1,
-                    thinking_texts=thinking_texts,
-                )
+                else:
+                    # No tool calls — agent is done
+                    return AgentResult(
+                        status="completed",
+                        result=content,
+                        tool_calls=tool_calls,
+                        iterations=iteration + 1,
+                        thinking_texts=thinking_texts,
+                    )
 
             # Collect intermediate thinking text before tool execution
             if response.content:
@@ -164,7 +180,11 @@ class AIAgentService:
 
             # Append the assistant message preserving raw tool_calls for the API protocol
             raw_tc_dicts = [
-                {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
                 for tc in raw_tool_calls
             ]
             messages.append(LLMMessage(role="assistant", content=response.content or "", tool_calls=raw_tc_dicts))
@@ -176,11 +196,13 @@ class AIAgentService:
                 try:
                     arguments = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
                 except json.JSONDecodeError:
-                    messages.append(LLMMessage(
-                        role="tool",
-                        content="Error: tool arguments were not valid JSON",
-                        tool_call_id=tc.id,
-                    ))
+                    messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content="Error: tool arguments were not valid JSON",
+                            tool_call_id=tc.id,
+                        )
+                    )
                     continue
 
                 client = tool_server_map.get(tool_name)
@@ -202,26 +224,33 @@ class AIAgentService:
                         tool_is_error = True
 
                 if on_tool_call:
-                    await on_tool_call("tool_end", {
-                        "tool": tool_name,
-                        "server": server_name,
-                        "status": "error" if tool_is_error else "success",
-                        "result_preview": result_text[:2000],
-                    })
+                    await on_tool_call(
+                        "tool_end",
+                        {
+                            "tool": tool_name,
+                            "server": server_name,
+                            "status": "error" if tool_is_error else "success",
+                            "result_preview": result_text[:2000],
+                        },
+                    )
 
-                tool_calls.append(ToolCallRecord(
-                    tool=tool_name,
-                    arguments=arguments,
-                    result=result_text[:2000],
-                    server=client.config.name if client else "unknown",
-                    is_error=tool_is_error,
-                ))
+                tool_calls.append(
+                    ToolCallRecord(
+                        tool=tool_name,
+                        arguments=arguments,
+                        result=result_text[:2000],
+                        server=client.config.name if client else "unknown",
+                        is_error=tool_is_error,
+                    )
+                )
 
-                messages.append(LLMMessage(
-                    role="tool",
-                    content=result_text[:2000],
-                    tool_call_id=tc.id,
-                ))
+                messages.append(
+                    LLMMessage(
+                        role="tool",
+                        content=result_text[:2000],
+                        tool_call_id=tc.id,
+                    )
+                )
 
         # Iteration limit reached — get final response without tools
         response = await self.llm.complete(messages)
@@ -244,3 +273,52 @@ def _mcp_tool_to_openai(tool: MCPTool) -> dict:
             "parameters": tool.input_schema or {"type": "object", "properties": {}},
         },
     }
+
+
+# Regex matching the special-token tool call format produced by some local LLMs:
+#   <|tool_call>call:func_name{key:val,key:<|"|>string<|"|>}<tool_call|>
+_SPECIAL_TOKEN_TC_RE = re.compile(
+    r"<\|tool_call>call:(\w+)\{(.*?)\}<tool_call\|>",
+    re.DOTALL,
+)
+
+
+def _try_parse_special_token_tool_calls(content: str) -> list | None:
+    """Attempt to parse the special-token tool call format used by some local LLMs.
+
+    Converts <|tool_call>call:func{key:<|"|>val<|"|>}<tool_call|> into a list of
+    SimpleNamespace objects that match the OpenAI tool_calls structure so the normal
+    agent loop can execute them without modification.
+
+    Returns None if no matches are found or if argument parsing fails.
+    """
+    matches = _SPECIAL_TOKEN_TC_RE.findall(content)
+    if not matches:
+        return None
+
+    result = []
+    for func_name, raw_args in matches:
+        try:
+            # Replace <|"|> string delimiters with standard JSON quotes
+            normalized = raw_args.replace('<|"|>', '"')
+            # Quote any unquoted object keys (word chars followed by colon)
+            normalized = re.sub(r"(\w+)\s*:", r'"\1":', normalized)
+            args_dict = json.loads("{" + normalized + "}")
+        except Exception:
+            logger.warning("special_token_tool_call_parse_failed", func=func_name, raw_args=raw_args[:200])
+            return None
+
+        result.append(
+            SimpleNamespace(
+                id=f"call_{func_name}_{uuid.uuid4().hex[:8]}",
+                type="function",
+                function=SimpleNamespace(name=func_name, arguments=json.dumps(args_dict)),
+            )
+        )
+
+    return result or None
+
+
+def _strip_tool_call_tokens(content: str) -> str:
+    """Remove special-token tool call patterns from response content."""
+    return _SPECIAL_TOKEN_TC_RE.sub("", content)

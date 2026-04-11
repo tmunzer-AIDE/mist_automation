@@ -1,21 +1,4 @@
 <div class="clients-page">
-  <div class="page-header">
-    <div class="breadcrumb">
-      <a routerLink="/telemetry">Telemetry</a>
-      <mat-icon class="sep">chevron_right</mat-icon>
-      <a [routerLink]="['/telemetry/site', siteId()]">{{ siteName() }}</a>
-      <mat-icon class="sep">chevron_right</mat-icon>
-      <span>Clients</span>
-    </div>
-    <div class="time-range-picker">
-      @for (tr of timeRanges; track tr) {
-        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
-          {{ tr }}
-        </button>
-      }
-    </div>
-  </div>
-
   @if (loading()) {
     <div class="kpi-row">
       @for (_ of [1,2,3,4,5]; track $index) {

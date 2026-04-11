@@ -77,10 +77,22 @@
   cursor: pointer;
 }
 
+.copy-btn {
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  margin-left: auto;
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+}
+
 .expand-hint {
   font-size: var(--app-text-xs);
   color: var(--mat-sys-primary);
-  margin-left: auto;
 }
 
 .raw-json {

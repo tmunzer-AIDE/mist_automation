@@ -1,13 +1,4 @@
 <div class="telemetry-site-page">
-  <!-- Breadcrumb -->
-  <div class="page-header">
-    <div class="breadcrumb">
-      <a routerLink="/telemetry">Telemetry</a>
-      <mat-icon class="sep">chevron_right</mat-icon>
-      <span>{{ siteName() }}</span>
-    </div>
-  </div>
-
   <!-- Filter row: device type chips + device search (always shown) -->
   <div class="filter-row">
     <div class="chip-row">
@@ -60,16 +51,6 @@
         }
       </mat-autocomplete>
     </mat-form-field>
-  </div>
-
-  <!-- Time range picker -->
-  <div class="time-range-picker">
-    <span class="label">Time range:</span>
-    @for (tr of timeRanges; track tr) {
-      <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
-        {{ tr }}
-      </button>
-    }
   </div>
 
   @if (loading()) {

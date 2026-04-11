@@ -1,25 +1,16 @@
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { Router } from '@angular/router';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { EMPTY, Observable, Subject, debounceTime, forkJoin, map, switchMap, tap } from 'rxjs';
-import { MatAutocompleteModule } from '@angular/material/autocomplete';
-import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { EMPTY, Observable, Subject, debounceTime, forkJoin, map, skip, switchMap, tap } from 'rxjs';
 import { BaseChartDirective } from 'ng2-charts';
 import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
-import { TopbarService } from '../../../core/services/topbar.service';
+import { TelemetryNavService } from '../telemetry-nav.service';
 import { getTopicColors } from '../../../shared/utils/chart-defaults';
 import {
-  TimeRange,
   ScopeSummary,
-  ScopeSite,
   APScopeSummary,
   SwitchScopeSummary,
   GatewayScopeSummary,
@@ -33,39 +24,19 @@ Chart.register(...registerables);
 @Component({
   selector: 'app-telemetry-scope',
   standalone: true,
-  imports: [
-    DecimalPipe,
-    ReactiveFormsModule,
-    MatAutocompleteModule,
-    MatButtonModule,
-    MatFormFieldModule,
-    MatIconModule,
-    MatInputModule,
-    BaseChartDirective,
-  ],
+  imports: [DecimalPipe, BaseChartDirective],
   templateUrl: './telemetry-scope.component.html',
   styleUrl: './telemetry-scope.component.scss',
 })
 export class TelemetryScopeComponent implements OnInit {
-  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
-  private readonly topbarService = inject(TopbarService);
+  readonly nav = inject(TelemetryNavService);
+  private readonly navTimeRange$ = toObservable(this.nav.timeRange);
 
-  readonly timeRange = signal<TimeRange>('6h');
   readonly loading = signal(false);
   readonly summary = signal<ScopeSummary | null>(null);
-  readonly sites = signal<ScopeSite[]>([]);
   readonly clientSummary = signal<ClientSiteSummary | null>(null);
-
-  readonly siteSearchCtrl = new FormControl('');
-  private readonly searchTerm = signal('');
-  readonly filteredSites = computed(() => {
-    const term = this.searchTerm().toLowerCase();
-    const all = this.sites();
-    if (!term) return all;
-    return all.filter((s) => s.site_name.toLowerCase().includes(term));
-  });
 
   readonly hasAP = computed(() => !!this.summary()?.ap);
   readonly hasSwitch = computed(() => !!this.summary()?.switch);
@@ -81,9 +52,6 @@ export class TelemetryScopeComponent implements OnInit {
       }));
   });
 
-  readonly timeRanges: TimeRange[] = ['1h', '6h', '24h'];
-
-  // Client distribution charts (computed from clientSummary)
   readonly clientBandChart = computed((): ChartConfiguration<'doughnut'> | null => {
     const s = this.clientSummary();
     if (!s) return null;
@@ -91,7 +59,10 @@ export class TelemetryScopeComponent implements OnInit {
     const labels: Record<string, string> = { '24': '2.4G', '5': '5G', '6': '6G' };
     const entries = order.filter((k) => k in s.band_counts);
     if (!entries.length) return null;
-    return this._buildDoughnutConfig(entries.map((k) => labels[k]), entries.map((k) => s.band_counts[k]));
+    return this._buildDoughnutConfig(
+      entries.map((k) => labels[k]),
+      entries.map((k) => s.band_counts[k]),
+    );
   });
 
   readonly clientProtoChart = computed((): ChartConfiguration<'doughnut'> | null => {
@@ -99,15 +70,23 @@ export class TelemetryScopeComponent implements OnInit {
     if (!s) return null;
     const entries = Object.entries(s.proto_counts ?? {}).sort((a, b) => b[1] - a[1]);
     if (!entries.length) return null;
-    return this._buildDoughnutConfig(entries.map((e) => e[0].toUpperCase()), entries.map((e) => e[1]));
+    return this._buildDoughnutConfig(
+      entries.map((e) => e[0].toUpperCase()),
+      entries.map((e) => e[1]),
+    );
   });
 
   readonly clientChannelChart = computed((): ChartConfiguration<'doughnut'> | null => {
     const s = this.clientSummary();
     if (!s) return null;
-    const entries = Object.entries(s.channel_counts ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+    const entries = Object.entries(s.channel_counts ?? {}).sort(
+      (a, b) => Number(a[0]) - Number(b[0]),
+    );
     if (!entries.length) return null;
-    return this._buildDoughnutConfig(entries.map((e) => `Ch ${e[0]}`), entries.map((e) => e[1]));
+    return this._buildDoughnutConfig(
+      entries.map((e) => `Ch ${e[0]}`),
+      entries.map((e) => e[1]),
+    );
   });
 
   readonly clientAuthChart = computed((): ChartConfiguration<'doughnut'> | null => {
@@ -152,34 +131,33 @@ export class TelemetryScopeComponent implements OnInit {
   private readonly chartLoad$ = new Subject<void>();
 
   ngOnInit(): void {
-    this.topbarService.setTitle('Telemetry');
-    this.siteSearchCtrl.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));
-
     this.chartLoad$
       .pipe(switchMap(() => this.buildChartsObservable()), takeUntilDestroyed(this.destroyRef))
       .subscribe();
 
     this.loadData();
+
     this.telemetryService
       .subscribeToOrg()
       .pipe(debounceTime(5000), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refreshSummary());
+
+    // React to time range changes from nav service
+    this.navTimeRange$
+      .pipe(skip(1), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.chartLoad$.next());
   }
 
   loadData(): void {
     this.loading.set(true);
     forkJoin({
       summary: this.telemetryService.getScopeSummary(),
-      sites: this.telemetryService.getScopeSites(),
       clientSummary: this.telemetryService.getSiteClientsSummary(),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ summary, sites, clientSummary }) => {
+        next: ({ summary, clientSummary }) => {
           this.summary.set(summary);
-          this.sites.set(sites.sites);
           this.clientSummary.set(clientSummary);
           this.loading.set(false);
           this.chartLoad$.next();
@@ -191,33 +169,16 @@ export class TelemetryScopeComponent implements OnInit {
   private refreshSummary(): void {
     forkJoin({
       summary: this.telemetryService.getScopeSummary(),
-      sites: this.telemetryService.getScopeSites(),
       clientSummary: this.telemetryService.getSiteClientsSummary(),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ summary, sites, clientSummary }) => {
+        next: ({ summary, clientSummary }) => {
           this.summary.set(summary);
-          this.sites.set(sites.sites);
           this.clientSummary.set(clientSummary);
         },
         error: (err) => console.error('Failed to refresh telemetry scope summary:', err),
       });
-  }
-
-  setTimeRange(tr: TimeRange): void {
-    this.timeRange.set(tr);
-    this.chartLoad$.next();
-  }
-
-  selectSite(site: ScopeSite): void {
-    this.router.navigate(['/telemetry/site', site.site_id]);
-  }
-
-  displaySiteName(site: ScopeSite | string): string {
-    if (!site) return '';
-    if (typeof site === 'string') return site;
-    return site.site_name;
   }
 
   bandEntries(
@@ -236,7 +197,7 @@ export class TelemetryScopeComponent implements OnInit {
   }
 
   private buildChartsObservable(): Observable<void> {
-    const tr = this.timeRange();
+    const tr = this.nav.timeRange();
     const tasks: Observable<unknown>[] = [];
 
     if (this.hasAP()) {
@@ -256,7 +217,9 @@ export class TelemetryScopeComponent implements OnInit {
             timeRange: tr,
             deviceType: 'ap',
           }),
-        }).pipe(tap(({ d1, d2 }) => this.apCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU %', 'Avg Memory %')))),
+        }).pipe(
+          tap(({ d1, d2 }) => this.apCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU %', 'Avg Memory %'))),
+        ),
         this.telemetryService
           .queryAggregate({
             measurement: 'device_summary',
@@ -295,7 +258,9 @@ export class TelemetryScopeComponent implements OnInit {
             timeRange: tr,
             deviceType: 'switch',
           }),
-        }).pipe(tap(({ d1, d2 }) => this.swCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU %', 'Avg Memory %')))),
+        }).pipe(
+          tap(({ d1, d2 }) => this.swCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU %', 'Avg Memory %'))),
+        ),
         this.telemetryService
           .queryAggregate({
             measurement: 'device_summary',
@@ -333,7 +298,9 @@ export class TelemetryScopeComponent implements OnInit {
             timeRange: tr,
           }),
         }).pipe(
-          tap(({ d1, d2 }) => this.gwCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU Idle %', 'Avg Memory %'))),
+          tap(({ d1, d2 }) =>
+            this.gwCpuChart.set(this.buildDualLineConfig(d1, d2, 'Avg CPU Idle %', 'Avg Memory %')),
+          ),
         ),
         forkJoin({
           d1: this.telemetryService.queryAggregate({
@@ -348,7 +315,9 @@ export class TelemetryScopeComponent implements OnInit {
             agg: 'mean',
             timeRange: tr,
           }),
-        }).pipe(tap(({ d1, d2 }) => this.gwSpuChart.set(this.buildDualLineConfig(d1, d2, 'SPU CPU %', 'SPU Sessions')))),
+        }).pipe(
+          tap(({ d1, d2 }) => this.gwSpuChart.set(this.buildDualLineConfig(d1, d2, 'SPU CPU %', 'SPU Sessions'))),
+        ),
         forkJoin({
           d1: this.telemetryService.queryAggregate({
             measurement: 'gateway_wan',
@@ -362,7 +331,9 @@ export class TelemetryScopeComponent implements OnInit {
             agg: 'sum',
             timeRange: tr,
           }),
-        }).pipe(tap(({ d1, d2 }) => this.gwWanChart.set(this.buildDualLineConfig(d1, d2, 'TX Bytes', 'RX Bytes')))),
+        }).pipe(
+          tap(({ d1, d2 }) => this.gwWanChart.set(this.buildDualLineConfig(d1, d2, 'TX Bytes', 'RX Bytes'))),
+        ),
       );
     }
 
@@ -403,21 +374,14 @@ export class TelemetryScopeComponent implements OnInit {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: true },
-        },
-        plugins: {
-          legend: { position: 'bottom' },
-        },
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } },
       },
     };
   }
 
-  private buildSingleLineConfig(
-    result: AggregateResult,
-    label: string,
-  ): ChartConfiguration<'line'> {
+  private buildSingleLineConfig(result: AggregateResult, label: string): ChartConfiguration<'line'> {
     return {
       type: 'line',
       data: {
@@ -435,13 +399,9 @@ export class TelemetryScopeComponent implements OnInit {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: true },
-        },
-        plugins: {
-          legend: { position: 'bottom' },
-        },
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } },
       },
     };
   }
@@ -468,10 +428,8 @@ export class TelemetryScopeComponent implements OnInit {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          x: { type: 'time', display: true },
-          y: { beginAtZero: true },
-        },
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
         plugins: { legend: { position: 'bottom' } },
       },
     };

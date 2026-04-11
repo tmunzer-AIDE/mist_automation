@@ -2,7 +2,9 @@
 
 Produces:
 - device_summary: cpu_util, mem_usage, num_clients, uptime (always written)
-- radio_stats: per-band channel, power, bandwidth, util_all, noise_floor, num_clients (CoV filtered)
+- radio_stats: per-band channel, power, bandwidth, util_all, util_tx, util_rx_in_bss,
+  util_rx_other_bss, util_unknown_wifi, util_non_wifi, util_undecodable_wifi,
+  noise_floor, num_clients, tx_bytes, rx_bytes, tx_pkts, rx_pkts (CoV filtered)
 """
 
 from __future__ import annotations
@@ -66,8 +68,18 @@ def _extract_radio_stats(payload: dict, org_id: str, site_id: str, timestamp: in
                     "power": band_data.get("power", 0),
                     "bandwidth": band_data.get("bandwidth", 0),
                     "util_all": band_data.get("util_all", 0),
+                    "util_tx": band_data.get("util_tx", 0),
+                    "util_rx_in_bss": band_data.get("util_rx_in_bss", 0),
+                    "util_rx_other_bss": band_data.get("util_rx_other_bss", 0),
+                    "util_unknown_wifi": band_data.get("util_unknown_wifi", 0),
+                    "util_non_wifi": band_data.get("util_non_wifi", 0),
+                    "util_undecodable_wifi": band_data.get("util_undecodable_wifi", 0),
                     "noise_floor": band_data.get("noise_floor", 0),
                     "num_clients": band_data.get("num_clients", 0),
+                    "tx_bytes": band_data.get("tx_bytes", 0),
+                    "rx_bytes": band_data.get("rx_bytes", 0),
+                    "tx_pkts": band_data.get("tx_pkts", 0),
+                    "rx_pkts": band_data.get("rx_pkts", 0),
                 },
                 "time": timestamp,
             }

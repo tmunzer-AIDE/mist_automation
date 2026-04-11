@@ -35,6 +35,48 @@
   }
 }
 
+// ── AP Identity row ────────────────────────────────────────────────────────
+
+.ap-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  .device-name {
+    font-size: var(--app-text-2xl);
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .identity-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: var(--app-text-sm);
+    font-weight: 500;
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface-variant);
+    white-space: nowrap;
+
+    mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+    }
+  }
+
+  .model-chip {
+    background: var(--mat-sys-primary-container);
+    color: var(--mat-sys-on-primary-container);
+    font-family: monospace;
+  }
+}
+
+// ── KPI cards ──────────────────────────────────────────────────────────────
+
 .time-range-picker {
   display: flex;
   align-items: center;
@@ -81,6 +123,8 @@
     line-height: 1.2;
   }
 }
+
+// ── Generic sections & tables ──────────────────────────────────────────────
 
 .device-section,
 .table-section {
@@ -140,4 +184,323 @@
 .wan-down {
   color: var(--app-error);
   font-weight: 600;
+}
+
+// ── AP Radio section ───────────────────────────────────────────────────────
+
+.radios-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.radio-card {
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  border-left-width: 4px;
+  padding: 16px;
+
+  // Band-specific accent colors
+  &[data-band='band_6'] {
+    border-left-color: var(--app-success);
+  }
+  &[data-band='band_5'] {
+    border-left-color: var(--app-primary);
+  }
+  &[data-band='band_24'] {
+    border-left-color: var(--app-warning);
+  }
+}
+
+.radio-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.radio-band-label {
+  font-size: var(--app-text-xl);
+  font-weight: 700;
+  white-space: nowrap;
+  min-width: 64px;
+}
+
+.radio-stats-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  flex: 1;
+}
+
+.radio-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+
+  .radio-stat-label {
+    font-size: var(--app-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .radio-stat-value {
+    font-size: var(--app-text-sm);
+    font-weight: 600;
+  }
+}
+
+.util-bar-wrap {
+  width: 80px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--mat-sys-outline-variant);
+  overflow: hidden;
+  align-self: center;
+
+  .util-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--app-primary);
+    max-width: 100%;
+    transition: width 0.3s ease;
+  }
+}
+
+.radio-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.radio-chart-container {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  padding: 10px;
+  background: var(--mat-sys-surface-container);
+
+  .chart-title {
+    font-size: var(--app-text-xs);
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  canvas {
+    max-height: 180px;
+  }
+}
+
+.chart-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: var(--app-text-sm);
+}
+
+// ── AP Infrastructure section ──────────────────────────────────────────────
+
+.infra-section {
+  background: var(--mat-sys-surface-container);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// Port cards
+
+.port-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.port-card {
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-left-width: 4px;
+  border-radius: var(--app-radius-sm);
+  padding: 12px 14px;
+
+  &.port-up {
+    border-left-color: var(--app-success);
+  }
+
+  &.port-down {
+    border-left-color: var(--app-error);
+    opacity: 0.7;
+  }
+}
+
+.port-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+
+  .port-id {
+    font-size: var(--app-text-base);
+    font-weight: 700;
+    font-family: monospace;
+  }
+
+  .port-speed {
+    font-size: var(--app-text-xs);
+    color: var(--mat-sys-on-surface-variant);
+    margin-left: auto;
+  }
+}
+
+.port-status-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+
+  &.badge-up {
+    background: color-mix(in srgb, var(--app-success) 15%, transparent);
+    color: var(--app-success);
+  }
+
+  &.badge-down {
+    background: color-mix(in srgb, var(--app-error) 15%, transparent);
+    color: var(--app-error);
+  }
+}
+
+.port-counters {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.port-counter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--app-text-xs);
+  color: var(--mat-sys-on-surface-variant);
+
+  .port-counter-label {
+    font-weight: 600;
+    min-width: 20px;
+    color: var(--mat-sys-on-surface);
+  }
+
+  .port-counter-sep {
+    opacity: 0.4;
+  }
+
+  &.port-errors {
+    color: var(--app-error);
+  }
+}
+
+.lldp-neighbor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--app-text-xs);
+  color: var(--mat-sys-on-surface-variant);
+  border-top: 1px solid var(--mat-sys-outline-variant);
+  padding-top: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+
+  mat-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    opacity: 0.6;
+  }
+
+  .lldp-name {
+    font-weight: 600;
+    color: var(--mat-sys-on-surface);
+  }
+
+  .lldp-port {
+    font-family: monospace;
+  }
+
+  .lldp-poe {
+    margin-left: auto;
+    font-weight: 500;
+    color: var(--app-primary);
+  }
+}
+
+// PoE info
+
+.poe-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  flex-wrap: wrap;
+
+  .poe-label {
+    font-size: var(--app-text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mat-sys-on-surface-variant);
+    min-width: 32px;
+  }
+
+  .poe-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .poe-stat {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+
+    .poe-stat-label {
+      font-size: var(--app-text-xs);
+      color: var(--mat-sys-on-surface-variant);
+    }
+
+    .poe-stat-value {
+      font-size: var(--app-text-sm);
+      font-weight: 600;
+    }
+  }
+
+  .poe-constrained {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--app-warning);
+    font-size: var(--app-text-xs);
+    font-weight: 600;
+
+    mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+    }
+  }
 }

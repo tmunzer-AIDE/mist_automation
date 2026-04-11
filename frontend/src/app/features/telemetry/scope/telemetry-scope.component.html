@@ -1,33 +1,4 @@
 <div class="telemetry-scope-page">
-  <!-- Header row: title + site autocomplete -->
-  <div class="page-header">
-
-    <!-- Time range picker -->
-    <div class="time-range-picker">
-      <span class="label">Time range:</span>
-      @for (tr of timeRanges; track tr) {
-        <button mat-stroked-button [class.active]="timeRange() === tr" (click)="setTimeRange(tr)">
-          {{ tr }}
-        </button>
-      }
-    </div>
-    <span class="spacer"></span>
-    <mat-form-field appearance="outline" class="site-autocomplete">
-      <mat-label>Select site</mat-label>
-      <input matInput [formControl]="siteSearchCtrl" [matAutocomplete]="siteAuto" />
-      <mat-autocomplete
-        #siteAuto="matAutocomplete"
-        [displayWith]="displaySiteName"
-        (optionSelected)="selectSite($event.option.value)"
-      >
-        @for (site of filteredSites(); track site.site_id) {
-          <mat-option [value]="site">{{ site.site_name }}</mat-option>
-        }
-      </mat-autocomplete>
-    </mat-form-field>
-
-  </div>
-
   @if (loading()) {
     <div class="kpi-row">
       @for (_ of [1,2,3,4]; track $index) {

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-11T00:14:21Z",
+  "generated_at": "2026-04-11T10:45:52Z",
   "backend": [
     {
       "name": "aiocsv",
@@ -86,13 +86,6 @@
       "author": "Hsiaoming Yang <me@lepture.com>"
     },
     {
-      "name": "bandit",
-      "version": "1.9.4",
-      "license": "Apache-2.0",
-      "url": "https://bandit.readthedocs.io/",
-      "author": "PyCQA"
-    },
-    {
       "name": "bcrypt",
       "version": "5.0.0",
       "license": "Apache Software License",
@@ -122,7 +115,7 @@
     },
     {
       "name": "black",
-      "version": "26.3.0",
+      "version": "26.3.1",
       "license": "MIT",
       "url": "https://github.com/psf/black",
       "author": "\u0141ukasz Langa <lukasz@langa.pl>"
@@ -206,17 +199,17 @@
     },
     {
       "name": "coverage",
-      "version": "7.13.4",
+      "version": "7.13.5",
       "license": "Apache-2.0",
       "url": "https://github.com/coveragepy/coveragepy",
-      "author": "Ned Batchelder and 252 others"
+      "author": "Ned Batchelder and 253 others"
     },
     {
       "name": "croniter",
-      "version": "6.0.0",
-      "license": "MIT License",
-      "url": "http://github.com/kiorky/croniter",
-      "author": "Matsumoto Taichi, kiorky"
+      "version": "6.2.2",
+      "license": "MIT",
+      "url": "https://github.com/pallets-eco/croniter",
+      "author": "Matsumoto Taichi <taichino@gmail.com>, kiorky <kiorky@cryptelium.net>, Ash Berlin-Taylor <ash@apache.org>, Jarek Potiuk <jarek@potiuk.com>"
     },
     {
       "name": "cryptography",
@@ -227,7 +220,7 @@
     },
     {
       "name": "cyclopts",
-      "version": "4.10.0",
+      "version": "4.10.1",
       "license": "Apache-2.0",
       "url": "https://github.com/BrianPugh/cyclopts",
       "author": "Brian Pugh"
@@ -297,7 +290,7 @@
     },
     {
       "name": "fastmcp",
-      "version": "3.1.1",
+      "version": "3.2.0",
       "license": "Apache-2.0",
       "url": "https://gofastmcp.com",
       "author": "Jeremiah Lowin"
@@ -317,13 +310,6 @@
       "author": "UNKNOWN"
     },
     {
-      "name": "flake8",
-      "version": "7.3.0",
-      "license": "MIT License",
-      "url": "https://github.com/pycqa/flake8",
-      "author": "Tarek Ziade"
-    },
-    {
       "name": "frozenlist",
       "version": "1.8.0",
       "license": "Apache-2.0",
@@ -332,7 +318,7 @@
     },
     {
       "name": "fsspec",
-      "version": "2026.2.0",
+      "version": "2026.3.0",
       "license": "BSD-3-Clause",
       "url": "https://github.com/fsspec/filesystem_spec",
       "author": "UNKNOWN"
@@ -360,7 +346,7 @@
     },
     {
       "name": "hf-xet",
-      "version": "1.4.2",
+      "version": "1.4.3",
       "license": "Apache-2.0",
       "url": "https://github.com/huggingface/xet-core",
       "author": "UNKNOWN"
@@ -395,7 +381,7 @@
     },
     {
       "name": "huggingface_hub",
-      "version": "1.7.2",
+      "version": "1.9.1",
       "license": "Apache Software License",
       "url": "https://github.com/huggingface/huggingface_hub",
       "author": "Hugging Face, Inc."
@@ -520,15 +506,8 @@
       "author": "Roman Right"
     },
     {
-      "name": "librt",
-      "version": "0.8.1",
-      "license": "MIT License",
-      "url": "https://github.com/mypyc/librt",
-      "author": "Jukka Lehtosalo <jukka.lehtosalo@iki.fi>, Ivan Levkivskyi <levkivskyi@gmail.com>"
-    },
-    {
       "name": "litellm",
-      "version": "1.82.4",
+      "version": "1.83.0",
       "license": "MIT License",
       "url": "https://litellm.ai",
       "author": "BerriAI"
@@ -548,15 +527,8 @@
       "author": "UNKNOWN"
     },
     {
-      "name": "mccabe",
-      "version": "0.7.0",
-      "license": "MIT License",
-      "url": "https://github.com/pycqa/mccabe",
-      "author": "Tarek Ziade"
-    },
-    {
       "name": "mcp",
-      "version": "1.26.0",
+      "version": "1.27.0",
       "license": "MIT License",
       "url": "https://modelcontextprotocol.io",
       "author": "Anthropic, PBC."
@@ -570,7 +542,7 @@
     },
     {
       "name": "mistapi",
-      "version": "0.61.3",
+      "version": "0.61.4",
       "license": "MIT License",
       "url": "https://github.com/tmunzer/mistapi_python",
       "author": "Thomas Munzer <tmunzer@juniper.net>"
@@ -597,13 +569,6 @@
       "author": "Andrew Svetlov"
     },
     {
-      "name": "mypy",
-      "version": "1.19.1",
-      "license": "MIT License",
-      "url": "https://www.mypy-lang.org/",
-      "author": "Jukka Lehtosalo <jukka.lehtosalo@iki.fi>"
-    },
-    {
       "name": "mypy_extensions",
       "version": "1.1.0",
       "license": "MIT",
@@ -618,8 +583,15 @@
       "author": "\"David P. D. Moss\" <josiah_carberry@brown.edu>, Stefan Nordhausen <stefan.nordhausen@immobilienscout24.de>"
     },
     {
+      "name": "networkx",
+      "version": "3.6.1",
+      "license": "BSD-3-Clause",
+      "url": "https://networkx.org/",
+      "author": "Aric Hagberg <hagberg@lanl.gov>"
+    },
+    {
       "name": "openai",
-      "version": "2.29.0",
+      "version": "2.30.0",
       "license": "Apache Software License",
       "url": "https://github.com/openai/openai-python",
       "author": "OpenAI <support@openai.com>"
@@ -668,10 +640,10 @@
     },
     {
       "name": "pillow",
-      "version": "12.1.1",
+      "version": "12.2.0",
       "license": "MIT-CMU",
       "url": "https://python-pillow.github.io",
-      "author": "\"Jeffrey A. Clark\" <aclark@aclark.net>"
+      "author": "Jeffrey 'Alex' Clark <aclark@aclark.net>"
     },
     {
       "name": "platformdirs",
@@ -709,25 +681,11 @@
       "author": "UNKNOWN"
     },
     {
-      "name": "py_mini_racer",
-      "version": "0.6.0",
-      "license": "ISC License (ISCL)",
-      "url": "https://github.com/sqreen/PyMiniRacer",
-      "author": "Sqreen"
-    },
-    {
       "name": "pyasn1",
       "version": "0.6.2",
       "license": "BSD-2-Clause",
       "url": "https://github.com/pyasn1/pyasn1",
       "author": "Ilya Etingof <etingof@gmail.com>"
-    },
-    {
-      "name": "pycodestyle",
-      "version": "2.14.0",
-      "license": "MIT",
-      "url": "https://pycodestyle.pycqa.org/",
-      "author": "Johann C. Rocholl"
     },
     {
       "name": "pycparser",
@@ -756,13 +714,6 @@
       "license": "MIT",
       "url": "https://github.com/pydantic/pydantic-core",
       "author": "Samuel Colvin <s@muelcolvin.com>, Adrian Garcia Badaracco <1755071+adriangb@users.noreply.github.com>, David Montague <david@pydantic.dev>, David Hewitt <mail@davidhewitt.dev>, Sydney Runkle <sydneymarierunkle@gmail.com>, Victorien Plot <contact@vctrn.dev>"
-    },
-    {
-      "name": "pyflakes",
-      "version": "3.4.0",
-      "license": "MIT License",
-      "url": "https://github.com/PyCQA/pyflakes",
-      "author": "A lot of people"
     },
     {
       "name": "Pygments",
@@ -808,10 +759,10 @@
     },
     {
       "name": "pytest",
-      "version": "9.0.2",
+      "version": "9.0.3",
       "license": "MIT",
       "url": "https://docs.pytest.org/en/latest/",
-      "author": "Holger Krekel, Bruno Oliveira, Ronny Pfannschmidt, Floris Bruynooghe, Brianna Laugher, Florian Bruhin, Others (See AUTHORS)"
+      "author": "Holger Krekel, Bruno Oliveira, Ronny Pfannschmidt, Floris Bruynooghe, Brianna Laugher, Freya Bruhin, Others (See AUTHORS)"
     },
     {
       "name": "pytest-asyncio",
@@ -822,24 +773,10 @@
     },
     {
       "name": "pytest-cov",
-      "version": "7.0.0",
+      "version": "7.1.0",
       "license": "MIT",
       "url": "https://pytest-cov.readthedocs.io/en/latest/changelog.html",
       "author": "Marc Schlaich <marc.schlaich@gmail.com>"
-    },
-    {
-      "name": "pytest-httpx",
-      "version": "0.36.0",
-      "license": "MIT License",
-      "url": "https://github.com/Colin-b/pytest_httpx",
-      "author": "Colin Bounouar <colin.bounouar.dev@gmail.com>"
-    },
-    {
-      "name": "pytest-mock",
-      "version": "3.15.1",
-      "license": "MIT License",
-      "url": "https://github.com/pytest-dev/pytest-mock/",
-      "author": "Bruno Oliveira <nicoddemus@gmail.com>"
     },
     {
       "name": "python-dateutil",
@@ -927,7 +864,7 @@
     },
     {
       "name": "regex",
-      "version": "2026.2.28",
+      "version": "2026.4.4",
       "license": "Apache-2.0 AND CNRI-Python",
       "url": "https://github.com/mrabarnett/mrab-regex",
       "author": "Matthew Barnett <regex@mrabarnett.plus.com>"
@@ -976,8 +913,8 @@
     },
     {
       "name": "ruff",
-      "version": "0.15.5",
-      "license": "MIT License",
+      "version": "0.15.10",
+      "license": "MIT",
       "url": "https://docs.astral.sh/ruff",
       "author": "\"Astral Software Inc.\" <hey@astral.sh>"
     },
@@ -1011,7 +948,7 @@
     },
     {
       "name": "sse-starlette",
-      "version": "3.3.3",
+      "version": "3.3.4",
       "license": "BSD-3-Clause",
       "url": "https://github.com/sysid/sse-starlette",
       "author": "sysid <sysid@gmx.de>"
@@ -1029,13 +966,6 @@
       "license": "BSD-3-Clause",
       "url": "https://github.com/Kludex/starlette",
       "author": "Tom Christie <tom@tomchristie.com>"
-    },
-    {
-      "name": "stevedore",
-      "version": "5.7.0",
-      "license": "Apache Software License",
-      "url": "https://docs.openstack.org/stevedore",
-      "author": "OpenStack <openstack-discuss@lists.openstack.org>"
     },
     {
       "name": "structlog",
@@ -1109,7 +1039,7 @@
     },
     {
       "name": "uncalled-for",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "license": "MIT License",
       "url": "https://github.com/chrisguidry/uncalled-for",
       "author": "Chris Guidry <guid@omg.lol>"

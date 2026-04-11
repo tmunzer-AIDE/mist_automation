@@ -75,6 +75,14 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   styles: `
     :host { display: block; }
 
+    /* When inside a message bubble with artifacts (full-bleed mode), remove the side
+       borders and corner radius — the bubble's overflow:hidden clips to its own radius. */
+    :host-context(.has-artifacts) .artifact-card {
+      border-left: none;
+      border-right: none;
+      border-radius: 0;
+    }
+
     .artifact-card {
       border: 1px solid var(--mat-sys-outline-variant);
       border-radius: 8px;
@@ -133,9 +141,22 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
     }
 
     .artifact-preview {
+      position: relative;
       padding: 8px 12px;
       cursor: pointer;
       background: var(--mat-sys-surface-container-low);
+      overflow: hidden;
+    }
+
+    .artifact-preview::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 24px;
+      background: linear-gradient(to bottom, transparent, var(--mat-sys-surface-container-low));
+      pointer-events: none;
     }
 
     .artifact-preview pre {
@@ -143,7 +164,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
       font-size: 11px;
       color: var(--mat-sys-on-surface-variant);
       overflow: hidden;
-      max-height: 48px;
+      max-height: 52px;
       white-space: pre-wrap;
       word-break: break-all;
     }
