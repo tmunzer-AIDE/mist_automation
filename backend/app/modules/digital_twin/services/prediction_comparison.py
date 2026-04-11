@@ -77,9 +77,7 @@ def compare_prediction_vs_reality(
     # Check for specific IA incidents vs Twin predictions
     if ia_validation_results:
         actual_failures = [
-            k
-            for k, v in ia_validation_results.items()
-            if isinstance(v, dict) and v.get("status") in ("warn", "fail")
+            k for k, v in ia_validation_results.items() if isinstance(v, dict) and v.get("status") in ("warn", "fail")
         ]
         if actual_failures and pred_level == 0:
             details.append(

@@ -27,11 +27,7 @@ async def create_ia_sessions_for_deployment(session: TwinSession) -> list[str]:
 
     Returns list of created IA session IDs.
     """
-    from app.modules.impact_analysis.models import (
-        ConfigChangeEvent,
-        DeviceType,
-        MonitoringSession,
-    )
+    from app.modules.impact_analysis.models import ConfigChangeEvent
     from app.modules.impact_analysis.services.session_manager import create_or_merge_session
     from app.modules.impact_analysis.workers.monitoring_worker import run_monitoring_pipeline
 
