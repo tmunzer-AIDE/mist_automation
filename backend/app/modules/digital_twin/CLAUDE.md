@@ -11,7 +11,7 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 ### Entry Points
 
 - **LLM Chat**: `digital_twin` MCP tool (`mcp_server/tools/digital_twin.py`) — LLM calls simulate/approve/reject
-- **Workflow Executor** (Phase 2): `twin_session_var` ContextVar in `MistService._api_call()`
+- **Workflow Executor**: `twin_session_var` ContextVar in `MistService._api_call()` intercepts writes when `workflow.twin_validation=True`. Set in `executor_service.py` before `_execute_graph()`, reset in `finally`.
 - **Backup Restore** (Phase 3): Twin intercepts restore writes
 
 ### Core Flow
@@ -31,6 +31,9 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 | `state_resolver.py` | Build virtual state from backup snapshots + staged writes |
 | `prediction_service.py` | Run checks, build PredictionReport |
 | `config_checks.py` | 14 Layer 1 config conflict checks (pure functions) |
+| `topology_checks.py` | 9 Layer 2 topology prediction checks (pure functions, uses networkx) |
+| `predicted_topology.py` | Build synthetic `RawSiteData` from virtual state for topology builder |
+| `template_resolver.py` | Resolve Mist template inheritance chain for L1-06/L1-07 |
 | `endpoint_parser.py` | Extract (object_type, site_id, object_id) from Mist API URLs |
 
 ### Data Model
@@ -48,8 +51,8 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 
 | Layer | Count | Description | Status |
 |-------|-------|-------------|--------|
-| L1 | 14 | Config conflicts: IP overlap, VLAN collision, SSID dupes, template vars, DHCP, etc. | Phase 1 |
-| L2 | 9 | Topology: connectivity, VLAN black holes, LAG/VC, PoE | Phase 2 |
+| L1 | 14 | Config conflicts: IP overlap, VLAN collision, SSID dupes, template vars, DHCP, etc. | Done |
+| L2 | 9 | Topology: connectivity, VLAN black holes, LAG/VC, PoE | Done |
 | L3 | 5 | Routing: OSPF/BGP adjacency, default gateway gap | Phase 3 |
 | L4 | 6 | Security: firewall rules, NAC conflicts, guest SSID | Phase 3 |
 | L5 | 3 | L2 loops: STP root shift, BPDU filter, loop detection | Phase 3 |
@@ -73,7 +76,32 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 | L1-13 | RF template impact | Warning | `check_rf_template_impact()` |
 | L1-14 | Client capacity impact | Warning/Error | `check_client_capacity_impact()` |
 
+### L2 Check Catalog (Phase 2)
+
+| ID | Check | Severity | Function |
+|----|-------|----------|----------|
+| L2-01 | Connectivity loss (BFS to gateways) | Critical | `check_connectivity_loss()` |
+| L2-02 | VLAN black hole (networkx subgraph) | Error | `check_vlan_black_hole()` |
+| L2-03 | LAG/MCLAG integrity | Error | `check_lag_mclag_integrity()` |
+| L2-04 | VC integrity | Critical | `check_vc_integrity()` |
+| L2-05 | PoE budget overrun | Error | `check_poe_budget_overrun()` |
+| L2-06 | PoE disable on active port | Critical | `check_poe_disable_on_active()` |
+| L2-07 | Port capacity saturation | Error/Warning | `check_port_capacity_saturation()` |
+| L2-08 | LACP misconfiguration | Warning | `check_lacp_misconfiguration()` |
+| L2-09 | MTU mismatch | Warning | `check_mtu_mismatch()` |
+
+### Workflow Integration
+
+When `workflow.twin_validation = True`:
+1. `executor_service.execute_workflow()` creates a `TwinSession` before graph execution
+2. Sets `twin_session_var` ContextVar so `MistService._api_call()` intercepts POST/PUT/DELETE
+3. Intercepted writes are staged in the `TwinSession` via `intercept_write()`
+4. After graph execution, the session contains all staged writes for validation
+5. ContextVar is reset in `finally` block to prevent leaking to other requests
+
+**Key file**: `app/services/mist_service.py` — `twin_session_var` ContextVar + interception at top of `_api_call()`
+
 ### Dependencies
 
 - `netaddr` — IP/subnet math for overlap detection (L1-01, L1-02, L1-08, L1-09)
-- `networkx` — Graph algorithms for L2 cycle detection (Phase 2)
+- `networkx` — Graph algorithms for VLAN black hole detection (L2-02)
