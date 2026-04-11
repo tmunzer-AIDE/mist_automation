@@ -15,9 +15,15 @@ from typing import Any
 
 import structlog
 
-from app.modules.digital_twin.services.state_resolver import StateKey, load_all_objects_of_type
+from app.modules.digital_twin.services.state_resolver import (
+    StateKey,
+    canonicalize_object_type,
+    load_all_objects_of_type,
+)
 
 logger = structlog.get_logger(__name__)
+
+_DELETED_SENTINEL_KEY = "__twin_deleted__"
 
 
 # ---------------------------------------------------------------------------
@@ -113,12 +119,25 @@ def _extract_port_status(device_stats: dict[str, Any]) -> dict[str, bool]:
 
 
 def _extract_client_count(device_stats: dict[str, Any]) -> int:
-    """Extract wireless client count from ``num_clients``.
+    """Extract wireless client count from ``clients_stats.total`` or ``num_clients``.
 
     Returns:
         Client count (0 when missing).
     """
-    return device_stats.get("num_clients", 0) or 0
+    clients_stats = device_stats.get("clients_stats")
+    if isinstance(clients_stats, dict):
+        total = clients_stats.get("total")
+        if total is not None:
+            try:
+                return int(total)
+            except (TypeError, ValueError):
+                pass
+
+    num_clients = device_stats.get("num_clients", 0) or 0
+    try:
+        return int(num_clients)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _extract_port_devices(device_stats: dict[str, Any]) -> dict[str, str]:
@@ -225,7 +244,17 @@ async def _load_site_objects(
     site_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Thin wrapper around state_resolver.load_all_objects_of_type()."""
-    return await load_all_objects_of_type(org_id, object_type, site_id=site_id)
+    canonical_type = canonicalize_object_type(object_type) or object_type
+
+    # For inherited networks, only include org-scoped networks. Without this
+    # filter, site-scoped network backups from other sites pollute the snapshot.
+    org_level_only = canonical_type == "networks" and site_id is None
+    return await load_all_objects_of_type(
+        org_id,
+        canonical_type,
+        site_id=site_id,
+        org_level_only=org_level_only,
+    )
 
 
 def _build_device_snapshot(config: dict[str, Any]) -> DeviceSnapshot:
@@ -289,26 +318,74 @@ async def build_site_snapshot(
         _load_site_objects(org_id, "networks", site_id=site_id),
         _load_site_objects(org_id, "networks"),  # org-level (inherited)
         _load_site_objects(org_id, "wlans", site_id=site_id),
-        _load_site_objects(org_id, "site_setting", site_id=site_id),
-        _load_site_objects(org_id, "site", site_id=site_id),
+        _load_site_objects(org_id, "settings", site_id=site_id),
+        _load_site_objects(org_id, "info", site_id=site_id),
     )
 
-    # Apply state overrides — replace backup objects with override values
-    def _apply_overrides(objects: list[dict[str, Any]], object_type: str) -> list[dict[str, Any]]:
-        result = []
-        for obj in objects:
-            obj_id = obj.get("id", "")
-            key: StateKey = (object_type, site_id, obj_id)
-            if key in overrides:
-                result.append(overrides[key])
-            else:
-                result.append(obj)
-        return result
+    def _iter_overrides(
+        object_type: str,
+        scope_site_id: str | None,
+    ) -> list[tuple[str | None, dict[str, Any]]]:
+        canonical_target = canonicalize_object_type(object_type) or object_type
+        matched: list[tuple[str | None, dict[str, Any]]] = []
 
-    site_devices = _apply_overrides(site_devices, "devices")
-    site_networks = _apply_overrides(site_networks, "networks")
-    site_wlans = _apply_overrides(site_wlans, "wlans")
-    site_settings_list = _apply_overrides(site_settings_list, "site_setting")
+        for (ov_type, ov_site_id, ov_object_id), ov_config in overrides.items():
+            canonical_override = canonicalize_object_type(ov_type) or ov_type
+            if canonical_override != canonical_target:
+                continue
+            if ov_site_id != scope_site_id:
+                continue
+            matched.append((ov_object_id, ov_config))
+
+        return matched
+
+    # Apply state overrides to collection objects (devices/networks/wlans):
+    # replace changed objects, append new ones (POST), and remove deleted ones.
+    def _apply_overrides(
+        objects: list[dict[str, Any]],
+        object_type: str,
+        scope_site_id: str | None,
+    ) -> list[dict[str, Any]]:
+        by_id: dict[str, dict[str, Any]] = {}
+        for obj in objects:
+            obj_id = obj.get("id")
+            if obj_id:
+                by_id[obj_id] = obj
+
+        for ov_object_id, ov_config in _iter_overrides(object_type, scope_site_id):
+            if not ov_object_id:
+                continue
+            if ov_config.get(_DELETED_SENTINEL_KEY):
+                by_id.pop(ov_object_id, None)
+            else:
+                by_id[ov_object_id] = ov_config
+
+        return list(by_id.values())
+
+    # Apply state override to singleton objects (settings/info).
+    def _apply_singleton_override(
+        objects: list[dict[str, Any]],
+        object_type: str,
+        scope_site_id: str | None,
+    ) -> list[dict[str, Any]]:
+        singleton_override: dict[str, Any] | None = None
+
+        for ov_object_id, ov_config in _iter_overrides(object_type, scope_site_id):
+            if ov_object_id is None:
+                singleton_override = ov_config
+
+        if singleton_override is None:
+            return objects
+        if singleton_override.get(_DELETED_SENTINEL_KEY):
+            return []
+        return [singleton_override]
+
+    site_devices = _apply_overrides(site_devices, "devices", site_id)
+    site_networks = _apply_overrides(site_networks, "networks", site_id)
+    org_networks = _apply_overrides(org_networks, "networks", None)
+    site_wlans = _apply_overrides(site_wlans, "wlans", site_id)
+    site_settings_list = _apply_singleton_override(site_settings_list, "settings", site_id)
+    site_info_list = _apply_singleton_override(site_info_list, "info", site_id)
 
     # Extract site info
     site_name = ""

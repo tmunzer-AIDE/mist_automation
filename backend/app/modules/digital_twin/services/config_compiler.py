@@ -24,6 +24,8 @@ from app.modules.digital_twin.models import StagedWrite
 
 logger = structlog.get_logger(__name__)
 
+_DELETED_SENTINEL_KEY = "__twin_deleted__"
+
 # ---------------------------------------------------------------------------
 # Template type mapping
 # ---------------------------------------------------------------------------
@@ -290,6 +292,29 @@ async def _get_derived_site_setting(site_id: str, org_id: str) -> dict[str, Any]
     return backup.configuration if backup else {}
 
 
+async def _get_site_info(site_id: str, org_id: str, state: dict[tuple, dict[str, Any]]) -> dict[str, Any]:
+    """Load site info from virtual state, with backup fallback."""
+    from app.modules.backup.models import BackupObject
+
+    site_info = state.get(("info", site_id, None), {})
+    if site_info and not site_info.get(_DELETED_SENTINEL_KEY):
+        return site_info
+
+    backup = (
+        await BackupObject.find(
+            {
+                "object_type": "info",
+                "site_id": site_id,
+                "org_id": org_id,
+                "is_deleted": False,
+            }
+        )
+        .sort([("version", -1)])
+        .first_or_none()
+    )
+    return backup.configuration if backup else {}
+
+
 # ---------------------------------------------------------------------------
 # 7. _compile_site_devices
 # ---------------------------------------------------------------------------
@@ -307,47 +332,83 @@ async def _compile_site_devices(
     each device's config with the compiled effective config.
     """
     from app.modules.backup.models import BackupObject
+    from app.modules.digital_twin.services.state_resolver import load_all_objects_of_type
 
-    # Load derived site setting (base for switches)
+    # Load site context (assignments + site-level overrides)
+    site_info = await _get_site_info(site_id, org_id, state)
     derived_setting = await _get_derived_site_setting(site_id, org_id)
+
+    # Apply staged site setting changes (singleton /sites/{site_id}/setting)
+    staged_site_setting = state.get(("settings", site_id, None), {})
+    if staged_site_setting and not staged_site_setting.get(_DELETED_SENTINEL_KEY):
+        derived_setting = {**derived_setting, **staged_site_setting}
 
     # Apply template changes that affect this site
     for change in template_changes:
         assignment_field = change["assignment_field"]
-        site_info = state.get(("info", site_id, None), {})
         if site_info.get(assignment_field) == change["template_id"]:
             # The template being changed is assigned to this site — load new version
             tmpl_key = (change["template_type"], None, change["template_id"])
             if tmpl_key in state:
                 # Template is in virtual state (i.e. being modified by this session)
                 tmpl_config = state[tmpl_key]
+                if tmpl_config.get(_DELETED_SENTINEL_KEY):
+                    continue
                 if change["template_type"] == "networktemplates":
                     derived_setting = {**derived_setting, **tmpl_config}
 
     site_vars: dict[str, Any] = {str(k): str(v) for k, v in derived_setting.get("vars", {}).items()}
 
     # Load gateway template if any site device is a gateway
-    gw_template_id = state.get(("info", site_id, None), {}).get("gatewaytemplate_id")
+    gw_template_id = site_info.get("gatewaytemplate_id")
     gw_template: dict[str, Any] = {}
     if gw_template_id:
         gw_key = ("gatewaytemplates", None, gw_template_id)
         if gw_key in state:
             gw_template = state[gw_key]
+            if gw_template.get(_DELETED_SENTINEL_KEY):
+                gw_template = {}
         else:
             backup = (
                 await BackupObject.find(
-                    {"object_type": "gatewaytemplates", "object_id": gw_template_id, "is_deleted": False}
+                    {
+                        "object_type": "gatewaytemplates",
+                        "object_id": gw_template_id,
+                        "org_id": org_id,
+                        "is_deleted": False,
+                    }
                 )
                 .sort([("version", -1)])
                 .first_or_none()
             )
             gw_template = backup.configuration if backup else {}
 
-    # Compile each device
+    # Build the device set for this site from backup + staged virtual overrides.
+    # This ensures template-only changes still produce compiled per-device state.
+    devices_to_compile: dict[tuple, dict[str, Any]] = {}
+
+    backup_devices = await load_all_objects_of_type(org_id, "devices", site_id=site_id)
+    for device_config in backup_devices:
+        dev_id = device_config.get("id")
+        if not dev_id:
+            continue
+        key = ("devices", site_id, dev_id)
+        staged_config = state.get(key)
+        if staged_config and staged_config.get(_DELETED_SENTINEL_KEY):
+            continue
+        devices_to_compile[key] = staged_config or device_config
+
+    # Include newly created devices that exist only in virtual_state (e.g. POST).
     for key, config in list(state.items()):
-        obj_type, obj_site, obj_id = key
+        obj_type, obj_site, _obj_id = key
         if obj_type != "devices" or obj_site != site_id:
             continue
+        if config.get(_DELETED_SENTINEL_KEY):
+            continue
+        devices_to_compile[key] = config
+
+    # Compile each device
+    for key, config in devices_to_compile.items():
 
         device_type = config.get("type", "")
         if device_type == "switch":
@@ -358,7 +419,14 @@ async def _compile_site_devices(
             dp_id = config.get("deviceprofile_id")
             if dp_id:
                 dp_backup = (
-                    await BackupObject.find({"object_type": "deviceprofiles", "object_id": dp_id, "is_deleted": False})
+                    await BackupObject.find(
+                        {
+                            "object_type": "deviceprofiles",
+                            "object_id": dp_id,
+                            "org_id": org_id,
+                            "is_deleted": False,
+                        }
+                    )
                     .sort([("version", -1)])
                     .first_or_none()
                 )

@@ -45,7 +45,7 @@ class TestMergeWriteIntoState:
         obj = state[keys[0]]
         assert obj["ssid"] == "Guest"
 
-    def test_delete_removes_object(self):
+    def test_delete_marks_object_tombstone(self):
         state = {("wlans", "site-1", "wlan-1"): {"ssid": "Old", "vlan_id": "100"}}
         write = StagedWrite(
             sequence=0,
@@ -56,7 +56,7 @@ class TestMergeWriteIntoState:
             object_id="wlan-1",
         )
         merge_write_into_state(state, write)
-        assert ("wlans", "site-1", "wlan-1") not in state
+        assert state[("wlans", "site-1", "wlan-1")]["__twin_deleted__"] is True
 
     def test_put_creates_if_missing(self):
         state: dict = {}
@@ -69,7 +69,7 @@ class TestMergeWriteIntoState:
             site_id="site-1",
         )
         merge_write_into_state(state, write)
-        assert ("setting", "site-1", None) in state
+        assert ("settings", "site-1", None) in state
 
 
 class TestApplyStagedWrites:

@@ -17,6 +17,7 @@ from app.modules.digital_twin.services.site_snapshot import (
     _extract_lldp_from_stats,
     _extract_port_devices,
     _extract_port_status,
+    _load_site_objects,
     build_site_snapshot,
 )
 
@@ -207,6 +208,9 @@ class TestExtractPortStatus:
 
 
 class TestExtractClientCount:
+    def test_from_clients_stats_total(self):
+        assert _extract_client_count({"clients_stats": {"total": 17}}) == 17
+
     def test_from_num_clients(self):
         assert _extract_client_count({"num_clients": 42}) == 42
 
@@ -304,6 +308,55 @@ class TestBuildDeviceSnapshot:
 
 
 # ---------------------------------------------------------------------------
+# TestLoadSiteObjects
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSiteObjects:
+    async def test_org_networks_use_org_level_only_filter(self):
+        captured: dict[str, object] = {}
+
+        async def fake_loader(org_id, object_type, site_id=None, org_level_only=False):
+            captured["org_id"] = org_id
+            captured["object_type"] = object_type
+            captured["site_id"] = site_id
+            captured["org_level_only"] = org_level_only
+            return []
+
+        with patch(
+            "app.modules.digital_twin.services.site_snapshot.load_all_objects_of_type",
+            side_effect=fake_loader,
+        ):
+            await _load_site_objects("org-1", "networks")
+
+        assert captured["org_id"] == "org-1"
+        assert captured["object_type"] == "networks"
+        assert captured["site_id"] is None
+        assert captured["org_level_only"] is True
+
+    async def test_site_scoped_networks_do_not_use_org_only_filter(self):
+        captured: dict[str, object] = {}
+
+        async def fake_loader(org_id, object_type, site_id=None, org_level_only=False):
+            captured["org_id"] = org_id
+            captured["object_type"] = object_type
+            captured["site_id"] = site_id
+            captured["org_level_only"] = org_level_only
+            return []
+
+        with patch(
+            "app.modules.digital_twin.services.site_snapshot.load_all_objects_of_type",
+            side_effect=fake_loader,
+        ):
+            await _load_site_objects("org-1", "networks", site_id="site-1")
+
+        assert captured["org_id"] == "org-1"
+        assert captured["object_type"] == "networks"
+        assert captured["site_id"] == "site-1"
+        assert captured["org_level_only"] is False
+
+
+# ---------------------------------------------------------------------------
 # TestBuildSiteSnapshot
 # ---------------------------------------------------------------------------
 
@@ -341,16 +394,16 @@ class TestBuildSiteSnapshot:
             ("networks", None): [{"id": "org-net-1", "name": "corp", "vlan_id": 200}],
             # wlans
             ("wlans", "site-1"): [{"id": "wlan-1", "ssid": "Corp"}],
-            # site_setting
-            ("site_setting", "site-1"): [
+            # settings
+            ("settings", "site-1"): [
                 {"port_usages": {"trunk": {"mode": "trunk", "all_networks": True}}}
             ],
             # site info
-            ("site", "site-1"): [{"name": "HQ Office"}],
+            ("info", "site-1"): [{"name": "HQ Office"}],
         }
 
     async def test_build_from_backup(self, live_data, mock_backup_data):
-        async def mock_load(org_id, object_type, site_id=None):
+        async def mock_load(_org_id, object_type, site_id=None):
             return mock_backup_data.get((object_type, site_id), [])
 
         with patch(
@@ -384,7 +437,7 @@ class TestBuildSiteSnapshot:
             }
         }
 
-        async def mock_load(org_id, object_type, site_id=None):
+        async def mock_load(_org_id, object_type, site_id=None):
             return mock_backup_data.get((object_type, site_id), [])
 
         with patch(
@@ -397,7 +450,7 @@ class TestBuildSiteSnapshot:
         assert snap.devices["dev-1"].port_config["ge-0/0/0"]["vlan_id"] == 999
 
     async def test_empty_backup(self, live_data):
-        async def mock_load(org_id, object_type, site_id=None):
+        async def mock_load(_org_id, _object_type, _site_id=None):
             return []
 
         with patch(
@@ -415,12 +468,12 @@ class TestBuildSiteSnapshot:
     async def test_site_networks_override_org_networks(self, live_data):
         """Site-level networks should override org-level with the same ID."""
 
-        async def mock_load(org_id, object_type, site_id=None):
+        async def mock_load(_org_id, object_type, site_id=None):
             if object_type == "networks" and site_id is None:
                 return [{"id": "shared-net", "name": "org-version", "vlan_id": 100}]
             if object_type == "networks" and site_id == "site-1":
                 return [{"id": "shared-net", "name": "site-version", "vlan_id": 200}]
-            if object_type == "site":
+            if object_type == "info":
                 return [{"name": "Test"}]
             return []
 
@@ -432,3 +485,81 @@ class TestBuildSiteSnapshot:
 
         assert snap.networks["shared-net"]["name"] == "site-version"
         assert snap.networks["shared-net"]["vlan_id"] == 200
+
+    async def test_post_override_adds_new_wlan(self, live_data, mock_backup_data):
+        overrides = {
+            ("wlans", "site-1", "twin-new"): {
+                "id": "twin-new",
+                "ssid": "Guest",
+                "enabled": True,
+            }
+        }
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            return mock_backup_data.get((object_type, site_id), [])
+
+        with patch(
+            "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+            side_effect=mock_load,
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data, state_overrides=overrides)
+
+        assert "twin-new" in snap.wlans
+        assert snap.wlans["twin-new"]["ssid"] == "Guest"
+
+    async def test_delete_override_removes_existing_wlan(self, live_data, mock_backup_data):
+        overrides = {
+            ("wlans", "site-1", "wlan-1"): {"__twin_deleted__": True},
+        }
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            return mock_backup_data.get((object_type, site_id), [])
+
+        with patch(
+            "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+            side_effect=mock_load,
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data, state_overrides=overrides)
+
+        assert "wlan-1" not in snap.wlans
+
+    async def test_singleton_settings_override_applied(self, live_data, mock_backup_data):
+        overrides = {
+            ("settings", "site-1", None): {
+                "vars": {"office_vlan": "300"},
+                "port_usages": {"access": {"mode": "access", "vlan_id": 300}},
+            },
+        }
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            return mock_backup_data.get((object_type, site_id), [])
+
+        with patch(
+            "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+            side_effect=mock_load,
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data, state_overrides=overrides)
+
+        assert snap.site_setting["vars"]["office_vlan"] == "300"
+        assert "access" in snap.port_usages
+
+    async def test_org_level_network_override_applied(self, live_data, mock_backup_data):
+        overrides = {
+            ("networks", None, "org-net-1"): {
+                "id": "org-net-1",
+                "name": "corp-updated",
+                "vlan_id": 222,
+            },
+        }
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            return mock_backup_data.get((object_type, site_id), [])
+
+        with patch(
+            "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+            side_effect=mock_load,
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data, state_overrides=overrides)
+
+        assert snap.networks["org-net-1"]["name"] == "corp-updated"
+        assert snap.networks["org-net-1"]["vlan_id"] == 222

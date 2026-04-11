@@ -64,10 +64,12 @@ async def get_site_template_context(
     site_name = site_info.get("name", site_id)
 
     # Get site setting for vars
-    site_setting = virtual_state.get(("setting", site_id, None), {})
+    site_setting = virtual_state.get(("settings", site_id, None), {})
     if not site_setting:
         backup = (
-            await BackupObject.find({"object_type": "setting", "site_id": site_id, "is_deleted": False})
+            await BackupObject.find(
+                {"object_type": "settings", "site_id": site_id, "org_id": org_id, "is_deleted": False}
+            )
             .sort([("version", -1)])
             .first_or_none()
         )

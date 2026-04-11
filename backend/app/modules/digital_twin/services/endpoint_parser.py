@@ -54,7 +54,7 @@ _ORG_RESOURCES: frozenset[str] = frozenset(
 )
 
 # Org-level singletons (no object_id)
-_ORG_SINGLETONS: frozenset[str] = frozenset({"setting"})
+_ORG_SINGLETONS: frozenset[str] = frozenset({"settings"})
 
 # Valid site-level resource names (collections)
 _SITE_RESOURCES: frozenset[str] = frozenset(
@@ -77,7 +77,7 @@ _SITE_RESOURCES: frozenset[str] = frozenset(
 )
 
 # Site-level singletons (no object_id)
-_SITE_SINGLETONS: frozenset[str] = frozenset({"setting", "info"})
+_SITE_SINGLETONS: frozenset[str] = frozenset({"settings", "info"})
 
 # Normalization: singular or common LLM mistakes → correct plural form
 _NORMALIZATION_MAP: dict[str, str] = {
@@ -91,6 +91,7 @@ _NORMALIZATION_MAP: dict[str, str] = {
     "asset": "assets",
     "webhook": "webhooks",
     "service": "services",
+    "setting": "settings",
     "vpn": "vpns",
     "site": "sites",
     "sitegroup": "sitegroups",
@@ -178,7 +179,7 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
 
         if resource is None:
             # /api/v1/orgs/{org_id} — org info
-            result.object_type = "info"
+            result.object_type = "data"
             result.is_singleton = True
             return result
 

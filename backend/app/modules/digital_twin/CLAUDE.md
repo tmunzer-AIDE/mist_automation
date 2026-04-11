@@ -24,6 +24,16 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 6. **Remediate**: LLM proposes fixes, re-simulates (bounded by agent max_iterations)
 7. **Approve**: User confirms via elicitation, staged writes execute against Mist API
 
+### State Key Conventions
+
+- `endpoint_parser.py` emits canonical singleton object types used by backup snapshots:
+	- `/api/v1/sites/{site_id}/setting` and `/api/v1/orgs/{org_id}/setting` -> `settings`
+	- `/api/v1/sites/{site_id}` -> `info`
+	- `/api/v1/orgs/{org_id}` -> `data`
+- `state_resolver.py` still canonicalizes legacy aliases (`setting`, `site_setting`, `site`) for backward compatibility.
+- Singleton writes use `object_id=None`; base-state loading handles singleton lookups by `(object_type, site_id/org scope)` without requiring an explicit object ID.
+- `site_snapshot.py` loads inherited org networks with an org-level-only filter (`site_id == null`) to avoid leaking other sites' network backups into a single-site snapshot.
+
 ### Key Services
 
 | Service | Responsibility |
