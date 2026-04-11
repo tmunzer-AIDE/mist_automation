@@ -21,17 +21,23 @@ router = APIRouter(tags=["Digital Twin"])
 async def list_twin_sessions(
     current_user: User = Depends(require_admin),
     status_filter: str | None = Query(None, alias="status"),
+    source: str | None = Query(None),
+    search: str | None = Query(None),
+    skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ):
     """List Digital Twin sessions for the current user."""
-    sessions = await twin_service.list_sessions(
+    sessions, total = await twin_service.list_sessions(
         user_id=str(current_user.id),
         status=status_filter,
+        source=source,
+        search=search,
+        skip=skip,
         limit=limit,
     )
     return TwinSessionListResponse(
         sessions=[session_to_response(s) for s in sessions],
-        total=len(sessions),
+        total=total,
     )
 
 

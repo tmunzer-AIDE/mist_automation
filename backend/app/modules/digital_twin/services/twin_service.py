@@ -267,13 +267,22 @@ async def get_session(session_id: str) -> TwinSession | None:
 async def list_sessions(
     user_id: str,
     status: str | None = None,
+    source: str | None = None,
+    search: str | None = None,
+    skip: int = 0,
     limit: int = 20,
-) -> list[TwinSession]:
-    """List twin sessions for a user, optionally filtered by status."""
+) -> tuple[list[TwinSession], int]:
+    """List twin sessions for a user, optionally filtered by status, source, or search term."""
     query: dict[str, Any] = {"user_id": PydanticObjectId(user_id)}
     if status:
         query["status"] = status
-    return await TwinSession.find(query).sort([("created_at", -1)]).limit(limit).to_list()
+    if source:
+        query["source"] = source
+    if search:
+        query["source_ref"] = {"$regex": search, "$options": "i"}
+    total = await TwinSession.find(query).count()
+    sessions = await TwinSession.find(query).sort([("created_at", -1)]).skip(skip).limit(limit).to_list()
+    return sessions, total
 
 
 async def intercept_write(
