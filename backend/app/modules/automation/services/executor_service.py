@@ -268,6 +268,22 @@ class WorkflowExecutor:
         # Initialize variable context
         self.variable_context = {"trigger": trigger_data, "results": {}, "nodes": {}}
 
+        # Digital Twin mode: set ContextVar so MistService intercepts writes
+        _twin_token = None
+        if getattr(workflow, "twin_validation", False) and not dry_run:
+            from app.modules.digital_twin.services import twin_service
+            from app.services.mist_service import twin_session_var
+
+            twin_session = await twin_service.simulate(
+                user_id=str(execution.triggered_by or "system"),
+                org_id=self.mist_service.org_id if self.mist_service else "",
+                writes=[],
+                source="workflow",
+                source_ref=str(execution.id),
+            )
+            self._twin_session_id = str(twin_session.id)
+            _twin_token = twin_session_var.set(str(twin_session.id))
+
         try:
             execution = await asyncio.wait_for(
                 self._execute_graph(workflow, execution, simulate=simulate, dry_run=dry_run),
@@ -307,6 +323,31 @@ class WorkflowExecutor:
 
             await _update_workflow_stats_atomic(workflow, success=False, timestamp=start_time)
             raise WorkflowExecutionError(f"Workflow execution failed: {_sanitize_execution_error(e)}") from e
+
+        else:
+            # After graph execution, validate the captured writes
+            if _twin_token is not None and hasattr(self, "_twin_session_id"):
+                from app.modules.digital_twin.services import twin_service as dt_twin_service
+
+                twin_sess = await dt_twin_service.get_session(self._twin_session_id)
+                if twin_sess and twin_sess.staged_writes:
+                    # Re-run simulation with captured writes
+                    writes_data = [
+                        {"method": w.method, "endpoint": w.endpoint, "body": w.body}
+                        for w in twin_sess.staged_writes
+                    ]
+                    await dt_twin_service.simulate(
+                        user_id=str(execution.triggered_by or "system"),
+                        org_id=self.mist_service.org_id if self.mist_service else "",
+                        writes=writes_data,
+                        source="workflow",
+                        source_ref=str(execution.id),
+                        existing_session_id=self._twin_session_id,
+                    )
+
+        finally:
+            if _twin_token is not None:
+                twin_session_var.reset(_twin_token)
 
         # Calculate duration
         end_time = datetime.now(timezone.utc)

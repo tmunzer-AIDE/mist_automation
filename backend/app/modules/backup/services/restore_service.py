@@ -1116,3 +1116,62 @@ class RestoreService:
                     {"path": d["path"], "type": "modified", "old_value": d["old"], "new_value": d["new"]}
                 )
         return differences
+
+    async def validate_with_twin(
+        self,
+        backup: BackupObject,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Run Digital Twin simulation on the restore payload before executing.
+
+        Returns the twin session report dict if the twin module is available
+        and finds issues (execution_safe=False). Returns None if twin is not
+        installed, the check passes, or simulation fails (non-blocking).
+        """
+        try:
+            from app.modules.digital_twin.services import twin_service
+        except ImportError:
+            return None
+
+        config = backup.configuration.copy()
+        readonly_fields = ["id", "org_id", "site_id", "created_time", "modified_time"]
+        for field in readonly_fields:
+            config.pop(field, None)
+
+        endpoint = self._build_endpoint(
+            backup.object_type,
+            backup.object_id,
+            backup.site_id,
+            backup.org_id,
+        )
+
+        try:
+            session = await twin_service.simulate(
+                user_id=user_id or "system",
+                org_id=backup.org_id or self.mist_service.org_id,
+                writes=[{"method": "PUT", "endpoint": endpoint, "body": config}],
+                source="backup_restore",
+            )
+            if session.prediction_report and not session.prediction_report.execution_safe:
+                return {
+                    "twin_session_id": str(session.id),
+                    "overall_severity": session.overall_severity,
+                    "summary": session.prediction_report.summary,
+                    "errors": session.prediction_report.errors,
+                    "critical": session.prediction_report.critical,
+                    "warnings": session.prediction_report.warnings,
+                    "check_results": [
+                        {
+                            "check_id": r.check_id,
+                            "status": r.status,
+                            "summary": r.summary,
+                            "remediation_hint": r.remediation_hint,
+                        }
+                        for r in session.prediction_report.check_results
+                        if r.status in ("error", "critical", "warning")
+                    ],
+                }
+            return None
+        except Exception as e:
+            logger.warning("twin_restore_validation_failed", error=str(e))
+            return None

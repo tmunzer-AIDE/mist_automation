@@ -164,6 +164,14 @@ MODULES: list[AppModule] = [
         router_module="app.api.v1.about",
         tags=["About"],
     ),
+    AppModule(
+        name="digital_twin",
+        router_module="app.api.v1.digital_twin",
+        model_imports=[
+            ("app.modules.digital_twin.models", "TwinSession"),
+        ],
+        tags=["Digital Twin"],
+    ),
 ]
 
 

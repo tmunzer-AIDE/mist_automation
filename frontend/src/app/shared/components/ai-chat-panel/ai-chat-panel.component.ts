@@ -23,6 +23,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { AiIconComponent } from '../ai-icon/ai-icon.component';
 import { RestoreDiffCardComponent, RestoreDiffData } from './restore-diff-card.component';
+import { TwinResultCardComponent, TwinResultData } from './twin-result-card.component';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { Subscription } from 'rxjs';
@@ -37,7 +38,16 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   html: string;
-  metadata?: { tool_calls?: { tool: string; server: string; status: string; arguments?: Record<string, unknown>; result_preview?: string }[]; thinking_texts?: string[] } | null;
+  metadata?: {
+    tool_calls?: {
+      tool: string;
+      server: string;
+      status: string;
+      arguments?: Record<string, unknown>;
+      result_preview?: string;
+    }[];
+    thinking_texts?: string[];
+  } | null;
   timestamp?: string;
 }
 
@@ -49,8 +59,24 @@ export interface MessageSection {
 }
 
 export type TimelineItem =
-  | { kind: 'message'; role: 'user' | 'assistant'; content: string; html: string; sections?: MessageSection[]; timestamp?: string }
-  | { kind: 'tool'; tool: string; server: string; status: 'running' | 'success' | 'error'; arguments?: Record<string, unknown>; resultPreview?: string; expanded: boolean; timestamp?: string }
+  | {
+      kind: 'message';
+      role: 'user' | 'assistant';
+      content: string;
+      html: string;
+      sections?: MessageSection[];
+      timestamp?: string;
+    }
+  | {
+      kind: 'tool';
+      tool: string;
+      server: string;
+      status: 'running' | 'success' | 'error';
+      arguments?: Record<string, unknown>;
+      resultPreview?: string;
+      expanded: boolean;
+      timestamp?: string;
+    }
   | { kind: 'compaction'; timestamp?: string };
 
 function renderMarkdown(md: string): string {
@@ -61,64 +87,81 @@ function renderMarkdown(md: string): string {
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
-  imports: [ReactiveFormsModule, MatIconModule, MatButtonModule, MatTooltipModule, MatMenuModule, AiIconComponent, RestoreDiffCardComponent, ArtifactCardComponent],
+  imports: [
+    ReactiveFormsModule,
+    MatIconModule,
+    MatButtonModule,
+    MatTooltipModule,
+    MatMenuModule,
+    AiIconComponent,
+    RestoreDiffCardComponent,
+    TwinResultCardComponent,
+    ArtifactCardComponent,
+  ],
   template: `
     <div class="ai-chat-panel">
       <div class="chat-messages" #chatMessages aria-live="polite" aria-relevant="additions">
         @if (timeline().length === 0 && isLoading()) {
           <div class="loading-hint">
-            <div class="typing-indicator">
-              <span></span><span></span><span></span>
-            </div>
+            <div class="typing-indicator"><span></span><span></span><span></span></div>
             <span>{{ loadingLabel() }}</span>
           </div>
         }
 
         @for (item of timeline(); track $index) {
           @if (item.kind === 'message') {
-          @if (item.role === 'user' || item.content.trim()) {
-            @if (item.timestamp) {
-              <div class="message-timestamp" [class.user-ts]="item.role === 'user'">{{ formatTimestamp(item.timestamp) }}</div>
-            }
-            <div
-              class="chat-message"
-              [class.user]="item.role === 'user'"
-              [class.assistant]="item.role === 'assistant'"
-            >
-              @if (item.role === 'assistant') {
-                <div class="avatar assistant-avatar">
-                  <app-ai-icon [size]="16"></app-ai-icon>
+            @if (item.role === 'user' || item.content.trim()) {
+              @if (item.timestamp) {
+                <div class="message-timestamp" [class.user-ts]="item.role === 'user'">
+                  {{ formatTimestamp(item.timestamp) }}
                 </div>
               }
-              <div class="message-bubble" [class.has-artifacts]="item.sections?.length">
-                @if (item.role === 'assistant' && item.sections?.length) {
-                  @for (section of item.sections; track $index) {
-                    @if (section.type === 'prose' && section.html) {
-                      <div class="message-content markdown-body" [innerHTML]="section.html"></div>
-                    } @else if (section.type === 'artifact' && section.artifact) {
-                      <app-artifact-card
-                        [artifact]="section.artifact"
-                        [state]="section.state ?? 'ready'"
-                      />
+              <div
+                class="chat-message"
+                [class.user]="item.role === 'user'"
+                [class.assistant]="item.role === 'assistant'"
+              >
+                @if (item.role === 'assistant') {
+                  <div class="avatar assistant-avatar">
+                    <app-ai-icon [size]="16"></app-ai-icon>
+                  </div>
+                }
+                <div class="message-bubble" [class.has-artifacts]="item.sections?.length">
+                  @if (item.role === 'assistant' && item.sections?.length) {
+                    @for (section of item.sections; track $index) {
+                      @if (section.type === 'prose' && section.html) {
+                        <div class="message-content markdown-body" [innerHTML]="section.html"></div>
+                      } @else if (section.type === 'artifact' && section.artifact) {
+                        <app-artifact-card
+                          [artifact]="section.artifact"
+                          [state]="section.state ?? 'ready'"
+                        />
+                      }
                     }
+                  } @else if (item.role === 'assistant') {
+                    <div class="message-content markdown-body" [innerHTML]="item.html"></div>
+                  } @else {
+                    <div class="message-content">{{ item.content }}</div>
                   }
-                } @else if (item.role === 'assistant') {
-                  <div class="message-content markdown-body" [innerHTML]="item.html"></div>
-                } @else {
-                  <div class="message-content">{{ item.content }}</div>
+                </div>
+                @if (item.role === 'user') {
+                  <div class="avatar user-avatar">
+                    <mat-icon>person</mat-icon>
+                  </div>
                 }
               </div>
-              @if (item.role === 'user') {
-                <div class="avatar user-avatar">
-                  <mat-icon>person</mat-icon>
-                </div>
-              }
-            </div>
-          }
+            }
           } @else if (item.kind === 'tool') {
-            <div class="tool-call-inline" [class.running]="item.status === 'running'" [class.success]="item.status === 'success'" [class.error]="item.status === 'error'">
+            <div
+              class="tool-call-inline"
+              [class.running]="item.status === 'running'"
+              [class.success]="item.status === 'success'"
+              [class.error]="item.status === 'error'"
+            >
               @if (item.timestamp) {
-                <div class="message-timestamp tool-timestamp">{{ formatTimestamp(item.timestamp) }}</div>
+                <div class="message-timestamp tool-timestamp">
+                  {{ formatTimestamp(item.timestamp) }}
+                </div>
               }
               <div class="tool-call-header" (click)="toggleToolExpand($index)">
                 @if (item.status === 'running') {
@@ -133,7 +176,9 @@ function renderMarkdown(md: string): string {
                   <span class="tool-server">on {{ item.server }}</span>
                 </span>
                 @if (item.resultPreview || (item.arguments && objectKeys(item.arguments).length)) {
-                  <mat-icon class="tool-expand-icon">{{ item.expanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+                  <mat-icon class="tool-expand-icon">{{
+                    item.expanded ? 'expand_less' : 'expand_more'
+                  }}</mat-icon>
                 }
               </div>
               @if (item.expanded) {
@@ -144,10 +189,17 @@ function renderMarkdown(md: string): string {
                   </div>
                 }
                 @if (item.resultPreview) {
-                  <div class="tool-call-section">
-                    <div class="tool-call-section-label">Response</div>
-                    <pre class="tool-call-result">{{ item.resultPreview }}</pre>
-                  </div>
+                  @if (
+                    item.tool === 'digital_twin' && _parseTwinResult(item.resultPreview);
+                    as twinData
+                  ) {
+                    <app-twin-result-card [data]="twinData" />
+                  } @else {
+                    <div class="tool-call-section">
+                      <div class="tool-call-section-label">Response</div>
+                      <pre class="tool-call-result">{{ item.resultPreview }}</pre>
+                    </div>
+                  }
                 }
               }
             </div>
@@ -159,15 +211,17 @@ function renderMarkdown(md: string): string {
           }
         }
 
-        @if (isLoading() && timeline().length > 0 && (waitingAfterTool() || (!hasStreamingContent() && !hasToolCalls()))) {
+        @if (
+          isLoading() &&
+          timeline().length > 0 &&
+          (waitingAfterTool() || (!hasStreamingContent() && !hasToolCalls()))
+        ) {
           <div class="chat-message assistant">
             <div class="avatar assistant-avatar">
               <app-ai-icon [size]="16"></app-ai-icon>
             </div>
             <div class="message-bubble typing-bubble">
-              <div class="typing-indicator">
-                <span></span><span></span><span></span>
-              </div>
+              <div class="typing-indicator"><span></span><span></span><span></span></div>
             </div>
           </div>
         }
@@ -180,6 +234,31 @@ function renderMarkdown(md: string): string {
               (accepted)="respondElicitation(true)"
               (declined)="respondElicitation(false)"
             />
+          } @else if (elicit.elicitationType === 'twin_approve') {
+            <div class="twin-approve-card">
+              <div class="twin-approve-header">
+                <mat-icon class="twin-approve-icon">rocket_launch</mat-icon>
+                <div>
+                  <div class="twin-approve-label">Deploy Configuration Changes</div>
+                  <div class="twin-approve-desc">{{ elicit.description }}</div>
+                </div>
+              </div>
+              @if (elicit.data; as data) {
+                <div class="twin-approve-summary">
+                  <span>{{ data.writes_count }} write(s)</span>
+                  <span>{{ data.affected_sites?.length || 0 }} site(s)</span>
+                  @if (data.remediation_count > 0) {
+                    <span>{{ data.remediation_count }} fix iteration(s)</span>
+                  }
+                </div>
+              }
+              <div class="twin-approve-actions">
+                <button mat-stroked-button (click)="respondElicitation(false)">Cancel</button>
+                <button mat-flat-button color="primary" (click)="respondElicitation(true)">
+                  Deploy
+                </button>
+              </div>
+            </div>
           } @else {
             <div class="elicitation-card">
               <div class="elicitation-icon">
@@ -189,7 +268,9 @@ function renderMarkdown(md: string): string {
                 <div class="elicitation-label">Tool confirmation</div>
                 <div class="elicitation-desc">{{ elicit.description }}</div>
                 <div class="elicitation-actions">
-                  <button mat-flat-button color="primary" (click)="respondElicitation(true)">Accept</button>
+                  <button mat-flat-button color="primary" (click)="respondElicitation(true)">
+                    Accept
+                  </button>
                   <button mat-stroked-button (click)="respondElicitation(false)">Decline</button>
                 </div>
               </div>
@@ -219,14 +300,24 @@ function renderMarkdown(md: string): string {
             ></textarea>
             <div class="chat-input-actions">
               @if (mcpConfigs().length > 0) {
-                <button class="mcp-toggle" [class.active]="mcpConfigIds().length > 0" [matMenuTriggerFor]="mcpMenu" [matTooltip]="mcpTooltip()">
+                <button
+                  class="mcp-toggle"
+                  [class.active]="mcpConfigIds().length > 0"
+                  [matMenuTriggerFor]="mcpMenu"
+                  [matTooltip]="mcpTooltip()"
+                >
                   <mat-icon>hub</mat-icon>
                   <span>{{ mcpConfigIds().length }}</span>
                 </button>
                 <mat-menu #mcpMenu="matMenu">
                   @for (cfg of mcpConfigs(); track cfg.id) {
-                    <button mat-menu-item (click)="toggleMcpServer(cfg.id); $event.stopPropagation()">
-                      <mat-icon>{{ isMcpSelected(cfg.id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
+                    <button
+                      mat-menu-item
+                      (click)="toggleMcpServer(cfg.id); $event.stopPropagation()"
+                    >
+                      <mat-icon>{{
+                        isMcpSelected(cfg.id) ? 'check_box' : 'check_box_outline_blank'
+                      }}</mat-icon>
                       {{ cfg.name }}
                     </button>
                   }
@@ -431,8 +522,14 @@ function renderMarkdown(md: string): string {
       }
 
       @keyframes tool-in {
-        from { opacity: 0; transform: translateY(4px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       .tool-call-header {
@@ -453,9 +550,15 @@ function renderMarkdown(md: string): string {
         width: 16px;
         height: 16px;
 
-        .running & { color: var(--app-purple); }
-        .success & { color: var(--app-success); }
-        .error & { color: var(--app-error); }
+        .running & {
+          color: var(--app-purple);
+        }
+        .success & {
+          color: var(--app-success);
+        }
+        .error & {
+          color: var(--app-error);
+        }
 
         &.spinning {
           animation: tool-spin 1.5s linear infinite;
@@ -463,8 +566,12 @@ function renderMarkdown(md: string): string {
       }
 
       @keyframes tool-spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .tool-call-label {
@@ -622,8 +729,14 @@ function renderMarkdown(md: string): string {
       }
 
       @keyframes elicit-in {
-        from { opacity: 0; transform: translateY(8px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       .elicitation-icon {
@@ -637,7 +750,11 @@ function renderMarkdown(md: string): string {
         align-items: center;
         justify-content: center;
 
-        mat-icon { font-size: 18px; width: 18px; height: 18px; }
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
       }
 
       .elicitation-body {
@@ -664,7 +781,72 @@ function renderMarkdown(md: string): string {
         display: flex;
         gap: 8px;
 
-        button { font-size: 13px; height: 32px; }
+        button {
+          font-size: 13px;
+          height: 32px;
+        }
+      }
+
+      .twin-approve-card {
+        margin: 0 4px;
+        border-radius: 12px;
+        border: 1px solid var(--app-info-bg, #e3f2fd);
+        background: var(--mat-sys-surface-container, #f5f5f5);
+        overflow: hidden;
+        animation: elicit-in 200ms ease-out;
+        padding: 14px;
+      }
+
+      .twin-approve-header {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      .twin-approve-icon {
+        flex-shrink: 0;
+        font-size: 24px;
+        width: 24px;
+        height: 24px;
+        color: var(--app-info, #1976d2);
+      }
+
+      .twin-approve-label {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .twin-approve-desc {
+        font-size: 13px;
+        color: var(--mat-sys-on-surface-variant);
+        margin-top: 2px;
+        line-height: 1.4;
+      }
+
+      .twin-approve-summary {
+        display: flex;
+        gap: 12px;
+        padding: 10px 0 0 34px;
+        font-size: 12px;
+        color: var(--mat-sys-on-surface-variant);
+
+        span {
+          padding: 2px 8px;
+          border-radius: 10px;
+          background: rgba(128, 128, 128, 0.1);
+        }
+      }
+
+      .twin-approve-actions {
+        display: flex;
+        gap: 8px;
+        padding-top: 12px;
+        justify-content: flex-end;
+
+        button {
+          font-size: 13px;
+          height: 32px;
+        }
       }
 
       .chat-error {
@@ -716,7 +898,9 @@ function renderMarkdown(md: string): string {
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
 
         &:focus-within {
           border-color: var(--mat-sys-primary, #1976d2);
@@ -860,7 +1044,7 @@ export class AiChatPanelComponent {
     requestId: string;
     description: string;
     elicitationType?: string;
-    data?: RestoreDiffData;
+    data?: any;
   } | null>(null);
   /** True after a tool completes, until next thinking/tool_start arrives */
   waitingAfterTool = signal(false);
@@ -870,7 +1054,9 @@ export class AiChatPanelComponent {
   hasStreamingContent = computed(() => {
     const tl = this.timeline();
     const last = tl[tl.length - 1];
-    return !!last && last.kind === 'message' && last.role === 'assistant' && last.content.length > 0;
+    return (
+      !!last && last.kind === 'message' && last.role === 'assistant' && last.content.length > 0
+    );
   });
   hasToolCalls = computed(() => this.timeline().some((item) => item.kind === 'tool'));
 
@@ -889,7 +1075,9 @@ export class AiChatPanelComponent {
 
   mcpTooltip = computed(() => {
     const ids = new Set(this.mcpConfigIds());
-    const names = this.mcpConfigs().filter((c) => ids.has(c.id)).map((c) => c.name);
+    const names = this.mcpConfigs()
+      .filter((c) => ids.has(c.id))
+      .map((c) => c.name);
     return names.length ? 'MCP: ' + names.join(', ') : 'No MCP servers active';
   });
 
@@ -899,12 +1087,15 @@ export class AiChatPanelComponent {
       const loading = this.isLoading();
       const thread = this.threadId();
       if (!loading && thread) {
-        afterNextRender(() => {
-          const el = this.chatInputEl()?.nativeElement;
-          if (el && (!document.activeElement || document.activeElement === document.body)) {
-            el.focus();
-          }
-        }, { injector: this.injector });
+        afterNextRender(
+          () => {
+            const el = this.chatInputEl()?.nativeElement;
+            if (el && (!document.activeElement || document.activeElement === document.body)) {
+              el.focus();
+            }
+          },
+          { injector: this.injector },
+        );
       }
     });
 
@@ -916,7 +1107,11 @@ export class AiChatPanelComponent {
       untracked(() => {
         this.timeline.update((tl) => {
           let trimIdx = tl.length;
-          while (trimIdx > 0 && tl[trimIdx - 1].kind === 'message' && (tl[trimIdx - 1] as { role: string }).role === 'assistant') {
+          while (
+            trimIdx > 0 &&
+            tl[trimIdx - 1].kind === 'message' &&
+            (tl[trimIdx - 1] as { role: string }).role === 'assistant'
+          ) {
             trimIdx--;
           }
           const existingTs = trimIdx < tl.length ? tl[trimIdx].timestamp : new Date().toISOString();
@@ -951,11 +1146,26 @@ export class AiChatPanelComponent {
           // Interleave: thinking[0] → tool calls → thinking[1] → ... → final assistant message
           for (let i = 0; i < Math.max(thinkingTexts.length, toolCallsList.length); i++) {
             if (i < thinkingTexts.length && thinkingTexts[i]) {
-              tl.push({ kind: 'message', role: 'assistant', content: thinkingTexts[i], html: renderMarkdown(thinkingTexts[i]), timestamp: m.timestamp });
+              tl.push({
+                kind: 'message',
+                role: 'assistant',
+                content: thinkingTexts[i],
+                html: renderMarkdown(thinkingTexts[i]),
+                timestamp: m.timestamp,
+              });
             }
             if (i < toolCallsList.length) {
               const tc = toolCallsList[i];
-              tl.push({ kind: 'tool', tool: tc.tool, server: tc.server, status: (tc.status as 'success' | 'error') || 'success', arguments: tc.arguments, resultPreview: tc.result_preview, expanded: false, timestamp: m.timestamp });
+              tl.push({
+                kind: 'tool',
+                tool: tc.tool,
+                server: tc.server,
+                status: (tc.status as 'success' | 'error') || 'success',
+                arguments: tc.arguments,
+                resultPreview: tc.result_preview,
+                expanded: false,
+                timestamp: m.timestamp,
+              });
             }
           }
         }
@@ -964,7 +1174,13 @@ export class AiChatPanelComponent {
           const parsed = this._buildArtifactTimeline(m.content, 'assistant', m.timestamp);
           tl.push(...parsed);
         } else if (m.role === 'user' || m.content?.trim()) {
-          tl.push({ kind: 'message', role: m.role as 'user' | 'assistant', content: m.content, html: m.role === 'assistant' ? renderMarkdown(m.content) : '', timestamp: m.timestamp });
+          tl.push({
+            kind: 'message',
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            html: m.role === 'assistant' ? renderMarkdown(m.content) : '',
+            timestamp: m.timestamp,
+          });
         }
       }
       this.timeline.set(tl);
@@ -1000,7 +1216,13 @@ export class AiChatPanelComponent {
 
     this.timeline.update((tl) => [
       ...tl,
-      { kind: 'message' as const, role: 'user' as const, content: text, html: '', timestamp: new Date().toISOString() },
+      {
+        kind: 'message' as const,
+        role: 'user' as const,
+        content: text,
+        html: '',
+        timestamp: new Date().toISOString(),
+      },
     ]);
     this.followUpText.reset();
     this.loading.set(true);
@@ -1019,7 +1241,10 @@ export class AiChatPanelComponent {
         // Replace the last streamed assistant bubble with the final artifact-aware response
         this.timeline.update((tl) => {
           const last = tl[tl.length - 1];
-          const ts = last?.kind === 'message' && last.role === 'assistant' ? last.timestamp : new Date().toISOString();
+          const ts =
+            last?.kind === 'message' && last.role === 'assistant'
+              ? last.timestamp
+              : new Date().toISOString();
           const items = this._buildArtifactTimeline(res.reply, 'assistant', ts);
           if (last?.kind === 'message' && last.role === 'assistant') {
             return [...tl.slice(0, -1), ...items];
@@ -1040,7 +1265,11 @@ export class AiChatPanelComponent {
   }
 
   /** Parse content through artifact parser and return a single message with inline sections. */
-  private _buildArtifactTimeline(content: string, role: 'user' | 'assistant', timestamp?: string): TimelineItem[] {
+  private _buildArtifactTimeline(
+    content: string,
+    role: 'user' | 'assistant',
+    timestamp?: string,
+  ): TimelineItem[] {
     if (role === 'user') {
       return [{ kind: 'message', role, content, html: '', timestamp }];
     }
@@ -1093,14 +1322,29 @@ export class AiChatPanelComponent {
         if (msg.type === 'tool_start' && msg.tool) {
           this.waitingAfterTool.set(false);
           needsNewBubble = true;
-          this.timeline.update((tl) => [...tl, { kind: 'tool' as const, tool: msg.tool!, server: msg.server ?? '', status: 'running' as const, arguments: msg.arguments, expanded: false, timestamp: new Date().toISOString() }]);
+          this.timeline.update((tl) => [
+            ...tl,
+            {
+              kind: 'tool' as const,
+              tool: msg.tool!,
+              server: msg.server ?? '',
+              status: 'running' as const,
+              arguments: msg.arguments,
+              expanded: false,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
           this.scrollToBottom();
         } else if (msg.type === 'tool_end' && msg.tool) {
           this.waitingAfterTool.set(true);
           this.timeline.update((tl) =>
             tl.map((item) =>
               item.kind === 'tool' && item.tool === msg.tool && item.status === 'running'
-                ? { ...item, status: msg.status === 'error' ? 'error' as const : 'success' as const, resultPreview: msg.result_preview }
+                ? {
+                    ...item,
+                    status: msg.status === 'error' ? ('error' as const) : ('success' as const),
+                    resultPreview: msg.result_preview,
+                  }
                 : item,
             ),
           );
@@ -1112,10 +1356,20 @@ export class AiChatPanelComponent {
             needsNewBubble = false;
           }
           streamedContent += msg.content;
-          const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent), timestamp: streamTimestamp };
+          const entry: TimelineItem = {
+            kind: 'message',
+            role: 'assistant',
+            content: streamedContent,
+            html: renderMarkdown(streamedContent),
+            timestamp: streamTimestamp,
+          };
           this.timeline.update((tl) => {
             const last = tl[tl.length - 1];
-            if (last?.kind === 'message' && last.role === 'assistant' && streamedContent.length > msg.content!.length) {
+            if (
+              last?.kind === 'message' &&
+              last.role === 'assistant' &&
+              streamedContent.length > msg.content!.length
+            ) {
               return [...tl.slice(0, -1), entry];
             }
             return [...tl, entry];
@@ -1135,11 +1389,20 @@ export class AiChatPanelComponent {
             this._artifactBuffer += msg.content ?? '';
             if (this.artifactParser.hasClosingTag(this._artifactBuffer)) {
               // Artifact complete -- parse and render as single message with sections
-              const items = this._buildArtifactTimeline(streamedContent, 'assistant', streamTimestamp);
+              const items = this._buildArtifactTimeline(
+                streamedContent,
+                'assistant',
+                streamTimestamp,
+              );
               this.timeline.update((tl) => {
                 // Remove the last assistant message (which had the loading artifact)
                 const trimmed = tl.filter(
-                  (item, idx) => !(idx === tl.length - 1 && item.kind === 'message' && item.role === 'assistant'),
+                  (item, idx) =>
+                    !(
+                      idx === tl.length - 1 &&
+                      item.kind === 'message' &&
+                      item.role === 'assistant'
+                    ),
                 );
                 return [...trimmed, ...items];
               });
@@ -1153,14 +1416,20 @@ export class AiChatPanelComponent {
             const unprocessed = streamedContent.slice(this._streamProcessedTo);
             const rawMeta = this.artifactParser.detectOpeningTag(unprocessed);
             const tagMeta = rawMeta
-              ? { ...rawMeta, startIndex: rawMeta.startIndex + this._streamProcessedTo, endIndex: rawMeta.endIndex + this._streamProcessedTo }
+              ? {
+                  ...rawMeta,
+                  startIndex: rawMeta.startIndex + this._streamProcessedTo,
+                  endIndex: rawMeta.endIndex + this._streamProcessedTo,
+                }
               : null;
             const contentFromTag = tagMeta ? streamedContent.slice(tagMeta.startIndex) : '';
             if (tagMeta && !this.artifactParser.hasClosingTag(contentFromTag)) {
               // Opening tag detected -- start buffering, capture any content already after the tag
               this._artifactMeta = tagMeta;
               this._artifactBuffer = streamedContent.slice(tagMeta.endIndex);
-              const proseBeforeTag = streamedContent.slice(0, tagMeta.startIndex).replace(/^\n+|\n+$/g, '');
+              const proseBeforeTag = streamedContent
+                .slice(0, tagMeta.startIndex)
+                .replace(/^\n+|\n+$/g, '');
               const loadingArtifact: Artifact = {
                 id: crypto.randomUUID(),
                 type: tagMeta.type as Artifact['type'],
@@ -1173,7 +1442,14 @@ export class AiChatPanelComponent {
                 sections.push({ type: 'prose', html: renderMarkdown(proseBeforeTag) });
               }
               sections.push({ type: 'artifact', artifact: loadingArtifact, state: 'loading' });
-              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: '', sections, timestamp: streamTimestamp };
+              const entry: TimelineItem = {
+                kind: 'message',
+                role: 'assistant',
+                content: streamedContent,
+                html: '',
+                sections,
+                timestamp: streamTimestamp,
+              };
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
                 if (last?.kind === 'message' && last.role === 'assistant') {
@@ -1184,7 +1460,11 @@ export class AiChatPanelComponent {
             } else if (tagMeta && this.artifactParser.hasClosingTag(contentFromTag)) {
               // Complete artifact arrived in one chunk
               this._streamProcessedTo = streamedContent.length;
-              const items = this._buildArtifactTimeline(streamedContent, 'assistant', streamTimestamp);
+              const items = this._buildArtifactTimeline(
+                streamedContent,
+                'assistant',
+                streamTimestamp,
+              );
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
                 if (last?.kind === 'message' && last.role === 'assistant') {
@@ -1194,7 +1474,13 @@ export class AiChatPanelComponent {
               });
             } else {
               // Normal text
-              const entry: TimelineItem = { kind: 'message', role: 'assistant', content: streamedContent, html: renderMarkdown(streamedContent), timestamp: streamTimestamp };
+              const entry: TimelineItem = {
+                kind: 'message',
+                role: 'assistant',
+                content: streamedContent,
+                html: renderMarkdown(streamedContent),
+                timestamp: streamTimestamp,
+              };
               this.timeline.update((tl) => {
                 const last = tl[tl.length - 1];
                 if (last?.kind === 'message' && last.role === 'assistant') {
@@ -1222,7 +1508,11 @@ export class AiChatPanelComponent {
               language: this._artifactMeta.language,
               content: this._artifactBuffer,
             };
-            const section: MessageSection = { type: 'artifact', artifact: truncatedArtifact, state: 'ready' };
+            const section: MessageSection = {
+              type: 'artifact',
+              artifact: truncatedArtifact,
+              state: 'ready',
+            };
             this.timeline.update((tl) => {
               const last = tl[tl.length - 1];
               if (last?.kind === 'message' && last.role === 'assistant' && last.sections?.length) {
@@ -1232,7 +1522,17 @@ export class AiChatPanelComponent {
                 );
                 return [...tl.slice(0, -1), { ...last, sections: updatedSections }];
               }
-              return [...tl, { kind: 'message' as const, role: 'assistant' as const, content: '', html: '', sections: [section], timestamp: streamTimestamp }];
+              return [
+                ...tl,
+                {
+                  kind: 'message' as const,
+                  role: 'assistant' as const,
+                  content: '',
+                  html: '',
+                  sections: [section],
+                  timestamp: streamTimestamp,
+                },
+              ];
             });
             this._artifactBuffer = null;
             this._artifactMeta = null;
@@ -1245,7 +1545,15 @@ export class AiChatPanelComponent {
 
   /** Start streaming for initial message flow — called by parent before HTTP request. */
   startStream(streamId: string, userMessage: string): void {
-    this.timeline.set([{ kind: 'message' as const, role: 'user' as const, content: userMessage, html: '', timestamp: new Date().toISOString() }]);
+    this.timeline.set([
+      {
+        kind: 'message' as const,
+        role: 'user' as const,
+        content: userMessage,
+        html: '',
+        timestamp: new Date().toISOString(),
+      },
+    ]);
     this.waitingAfterTool.set(false);
     this._artifactBuffer = null;
     this._artifactMeta = null;
@@ -1282,7 +1590,9 @@ export class AiChatPanelComponent {
 
   toggleToolExpand(index: number): void {
     this.timeline.update((tl) =>
-      tl.map((item, i) => (i === index && item.kind === 'tool' ? { ...item, expanded: !item.expanded } : item)),
+      tl.map((item, i) =>
+        i === index && item.kind === 'tool' ? { ...item, expanded: !item.expanded } : item,
+      ),
     );
   }
 
@@ -1299,10 +1609,40 @@ export class AiChatPanelComponent {
     const pad = (n: number) => n.toString().padStart(2, '0');
     const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     if (d.toDateString() === now.toDateString()) return time;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const date = `${months[d.getMonth()]} ${d.getDate()}`;
     if (d.getFullYear() === now.getFullYear()) return `${date}, ${time}`;
     return `${date} ${d.getFullYear()}, ${time}`;
+  }
+
+  private _twinResultCache = new Map<string, TwinResultData | null>();
+
+  _parseTwinResult(resultPreview: string | undefined): TwinResultData | null {
+    if (!resultPreview) return null;
+    const cached = this._twinResultCache.get(resultPreview);
+    if (cached !== undefined) return cached;
+    try {
+      const parsed = JSON.parse(resultPreview);
+      const result = parsed?.counts && parsed?.overall_severity ? (parsed as TwinResultData) : null;
+      this._twinResultCache.set(resultPreview, result);
+      return result;
+    } catch {
+      this._twinResultCache.set(resultPreview, null);
+      return null;
+    }
   }
 
   respondElicitation(accepted: boolean): void {
@@ -1326,7 +1666,7 @@ export class AiChatPanelComponent {
         if (!el) return;
         el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
       },
-      { injector: this.injector }
+      { injector: this.injector },
     );
   }
 }
