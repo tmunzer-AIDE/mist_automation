@@ -159,6 +159,11 @@ MODULES: list[AppModule] = [
             ("app.modules.power_scheduling.models", "PowerScheduleLog"),
         ],
     ),
+    AppModule(
+        name="about",
+        router_module="app.api.v1.about",
+        tags=["About"],
+    ),
 ]
 
 

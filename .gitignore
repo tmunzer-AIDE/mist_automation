@@ -70,3 +70,4 @@ backend/app/frontend/
 
 # Generated files (sources of truth live elsewhere)
 frontend/src/assets/licenses.json
+# backend/app/data/licenses.json is tracked — regenerate with `make licenses`

@@ -60,7 +60,7 @@ licenses:
 		/tmp/mist_backend_licenses.json \
 		/tmp/mist_frontend_licenses.json \
 		licenses/licenses.json
-	@cp licenses/licenses.json $(FRONTEND_DIR)/src/assets/licenses.json
+	@cp licenses/licenses.json $(BACKEND_DIR)/app/data/licenses.json
 	@echo "Done."
 
 # Remove Angular build artifacts and copied static files

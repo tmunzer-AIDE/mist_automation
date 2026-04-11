@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { ApiService } from '../../core/services/api.service';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -224,7 +224,7 @@ interface LicensesData {
   ],
 })
 export class AboutComponent implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
   private readonly topbarService = inject(TopbarService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -278,7 +278,7 @@ export class AboutComponent implements OnInit {
   ngOnInit(): void {
     this.topbarService.setTitle('About');
 
-    this.http.get<LicensesData>('assets/licenses.json').subscribe({
+    this.api.get<LicensesData>('/about/licenses').subscribe({
       next: (data) => {
         this.generatedAt.set(data.generated_at);
         this.allBackend.set(data.backend);
