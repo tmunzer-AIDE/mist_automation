@@ -93,7 +93,7 @@ class BaseSnapshotRef(BaseModel):
     site_id: str | None = None
 
 
-class TwinSession(Document, TimestampMixin):
+class TwinSession(TimestampMixin, Document):
     """
     Tracks a pre-deployment simulation session.
 
