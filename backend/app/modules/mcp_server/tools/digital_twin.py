@@ -120,6 +120,8 @@ async def digital_twin(
         session = await twin_service.get_session(session_id)
         if not session:
             return to_json({"error": f"Session {session_id} not found"})
+        if str(session.user_id) != user_id:
+            return to_json({"error": "Session not found"})
 
         write_count = len(session.staged_writes)
         report = session.prediction_report
@@ -141,18 +143,21 @@ async def digital_twin(
             "remediation_count": session.remediation_count,
         }
 
-        await _elicit(
-            {
-                "type": "elicitation",
-                "description": description,
-                "elicitation_type": "twin_approve",
-                "data": approval_data,
-            },
-            description,
-            120.0,
-        )
+        try:
+            await _elicit(
+                {
+                    "type": "elicitation",
+                    "description": description,
+                    "elicitation_type": "twin_approve",
+                    "data": approval_data,
+                },
+                description,
+                120.0,
+            )
+        except ValueError:
+            return to_json({"error": "Deployment cancelled by user"})
 
-        session = await twin_service.approve_and_execute(session_id)
+        session = await twin_service.approve_and_execute(session_id, user_id=user_id)
         return to_json(
             {
                 "session_id": str(session.id),
@@ -164,7 +169,7 @@ async def digital_twin(
     elif action == "reject":
         if not session_id:
             return to_json({"error": "session_id required for reject action"})
-        session = await twin_service.reject_session(session_id)
+        session = await twin_service.reject_session(session_id, user_id=user_id)
         return to_json({"session_id": str(session.id), "status": session.status.value})
 
     elif action == "status":
@@ -173,6 +178,8 @@ async def digital_twin(
         session = await twin_service.get_session(session_id)
         if not session:
             return to_json({"error": f"Session {session_id} not found"})
+        if str(session.user_id) != user_id:
+            return to_json({"error": "Session not found"})
         return to_json(
             {
                 "session_id": str(session.id),

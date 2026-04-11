@@ -7,6 +7,7 @@ Phase 2+: Will add topology, routing, security, and L2 checks.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -147,7 +148,13 @@ async def run_layer1_checks(
             config_copy["_site_name"] = site_id or "org"
             all_networks.append(config_copy)
 
-    existing_networks_raw = await load_all_objects_of_type(org_id, "networks")
+    # Parallel load from backup
+    existing_networks_raw, existing_wlans_raw, existing_devices_raw = await asyncio.gather(
+        load_all_objects_of_type(org_id, "networks"),
+        load_all_objects_of_type(org_id, "wlans"),
+        load_all_objects_of_type(org_id, "devices"),
+    )
+
     existing_networks = []
     for net in existing_networks_raw:
         net_copy = dict(net)
@@ -181,7 +188,6 @@ async def run_layer1_checks(
             wlan_copy["_site_id"] = site_id
             all_wlans.append(wlan_copy)
 
-    existing_wlans_raw = await load_all_objects_of_type(org_id, "wlans")
     for w in existing_wlans_raw:
         w_copy = dict(w)
         w_copy.setdefault("_site_id", w.get("site_id"))
@@ -194,7 +200,6 @@ async def run_layer1_checks(
     results.append(check_ssid_airtime_overhead(all_wlans))
 
     # ── L1-05: Port profile conflict ───────────────────────────────────
-    existing_devices_raw = await load_all_objects_of_type(org_id, "devices")
     existing_port_entries: list[dict[str, Any]] = []
     for dev in existing_devices_raw:
         port_config = dev.get("port_config")

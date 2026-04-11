@@ -53,7 +53,7 @@ def apply_staged_writes(
     writes: list[StagedWrite],
 ) -> dict[StateKey, dict[str, Any]]:
     """Apply all staged writes to a copy of the base state, in sequence order."""
-    state = dict(base_state)
+    state = {k: dict(v) for k, v in base_state.items()}
     sorted_writes = sorted(writes, key=lambda w: w.sequence)
     for write in sorted_writes:
         merge_write_into_state(state, write)

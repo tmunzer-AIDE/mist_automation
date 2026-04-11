@@ -146,13 +146,15 @@ async def simulate(
     return session
 
 
-async def approve_and_execute(session_id: str) -> TwinSession:
+async def approve_and_execute(session_id: str, user_id: str | None = None) -> TwinSession:
     """Approve a twin session and execute all staged writes against Mist API."""
     from app.services.mist_service_factory import create_mist_service
 
     session = await TwinSession.get(PydanticObjectId(session_id))
     if not session:
         raise ValueError(f"Twin session {session_id} not found")
+    if user_id and str(session.user_id) != user_id:
+        raise ValueError("Session not found")
     if session.status != TwinSessionStatus.AWAITING_APPROVAL:
         raise ValueError(f"Session is in '{session.status.value}' state, not awaiting_approval")
 
@@ -180,8 +182,8 @@ async def approve_and_execute(session_id: str) -> TwinSession:
                 continue
             write.synthetic_response = result if isinstance(result, dict) else {}
         except Exception as e:
-            errors.append(f"Write #{write.sequence} ({write.method} {write.endpoint}): {str(e)[:200]}")
-            logger.error("twin_write_failed", write=write.sequence, error=str(e))
+            errors.append(f"Write #{write.sequence} failed")
+            logger.error("twin_write_failed", write=write.sequence, endpoint=write.endpoint, error=str(e))
 
     if errors:
         session.status = TwinSessionStatus.FAILED
@@ -203,11 +205,13 @@ async def approve_and_execute(session_id: str) -> TwinSession:
     return session
 
 
-async def reject_session(session_id: str) -> TwinSession:
+async def reject_session(session_id: str, user_id: str | None = None) -> TwinSession:
     """Reject a twin session."""
     session = await TwinSession.get(PydanticObjectId(session_id))
     if not session:
         raise ValueError(f"Twin session {session_id} not found")
+    if user_id and str(session.user_id) != user_id:
+        raise ValueError("Session not found")
     session.status = TwinSessionStatus.REJECTED
     session.update_timestamp()
     await session.save()
