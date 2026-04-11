@@ -17,6 +17,86 @@ from app.modules.digital_twin.models import CheckResult, PredictionReport
 
 logger = structlog.get_logger(__name__)
 
+# Maps object_type to the set of check IDs that are relevant when that type is modified.
+# Checks not in the relevant set are skipped (status="skipped").
+# If no staged writes have a known type, all checks run as fallback.
+CHECK_RELEVANCE: dict[str, set[str]] = {
+    "wlans": {
+        "L1-04", "L1-06", "L1-07", "L1-11", "L1-12", "L1-14",  # SSID, template, airtime, PSK, capacity
+        "L4-01",  # Guest SSID security
+    },
+    "networks": {
+        "L1-01", "L1-02", "L1-03", "L1-08", "L1-09", "L1-10",  # IP, subnet, VLAN, DHCP, DNS/NTP
+        "L2-02",  # VLAN black hole
+    },
+    "setting": {
+        "L1-06", "L1-07", "L1-10",  # Template override, unresolved vars, DNS/NTP
+        "L3-01",  # Default gateway gap
+    },
+    "devices": {
+        "L1-05",  # Port profile conflict
+        "L2-01", "L2-03", "L2-04", "L2-05", "L2-06", "L2-07", "L2-08", "L2-09",  # Topology checks
+        "L3-02", "L3-03", "L3-04", "L3-05",  # Routing checks
+        "L5-01", "L5-02", "L5-03",  # L2 loop checks
+    },
+    "networktemplates": {
+        "L1-01", "L1-02", "L1-03", "L1-06", "L1-07", "L1-08", "L1-09", "L1-10",
+        "L2-02",
+    },
+    "rftemplates": {
+        "L1-13",  # RF template impact
+    },
+    "gatewaytemplates": {
+        "L1-05", "L1-06", "L1-07",
+        "L3-01", "L3-02", "L3-03", "L3-04", "L3-05",
+    },
+    "deviceprofiles": {
+        "L1-05", "L1-06", "L1-07",
+    },
+    "secpolicies": {
+        "L4-04", "L4-05", "L4-06",  # Security policy checks
+    },
+    "servicepolicies": {
+        "L4-04", "L4-05",
+    },
+    "services": {
+        "L4-05",
+    },
+    "nacrules": {
+        "L4-02", "L4-03",  # NAC checks
+    },
+    "nactags": {
+        "L4-02", "L4-03",
+    },
+    "psks": {
+        "L1-12",  # PSK rotation impact
+    },
+}
+
+
+def compute_relevant_checks(staged_writes: list) -> set[str] | None:
+    """Compute the set of relevant check IDs based on staged write object types.
+
+    Returns None if all checks should run (fallback when no types are recognized).
+    Returns a set of check IDs when filtering should be applied.
+    """
+    object_types = {w.object_type for w in staged_writes if w.object_type}
+    if not object_types:
+        return None  # No known types → run all checks
+
+    relevant: set[str] = set()
+    has_mapping = False
+    for obj_type in object_types:
+        checks = CHECK_RELEVANCE.get(obj_type)
+        if checks:
+            relevant |= checks
+            has_mapping = True
+
+    if not has_mapping:
+        return None  # None of the types have mappings → run all as fallback
+
+    return relevant
+
 
 @dataclass
 class SimulationContext:
@@ -189,6 +269,7 @@ async def run_layer1_checks(
     staged_writes: list,
     org_id: str,
     ctx: SimulationContext | None = None,
+    relevant_checks: set[str] | None = None,
 ) -> list[CheckResult]:
     """Run all 14 Layer 1 config conflict checks against the virtual state."""
     from app.modules.backup.models import BackupObject
@@ -252,14 +333,23 @@ async def run_layer1_checks(
     ]
 
     # L1-01: IP/subnet overlap
-    results.append(check_ip_subnet_overlap(existing_networks, new_networks))
+    if relevant_checks is None or "L1-01" in relevant_checks:
+        results.append(check_ip_subnet_overlap(existing_networks, new_networks))
+    else:
+        results.append(CheckResult(check_id="L1-01", check_name="IP/Subnet Overlap", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # L1-02: Subnet collision within site
     combined_networks = existing_networks + new_networks
-    results.append(check_subnet_collision_within_site(combined_networks))
+    if relevant_checks is None or "L1-02" in relevant_checks:
+        results.append(check_subnet_collision_within_site(combined_networks))
+    else:
+        results.append(CheckResult(check_id="L1-02", check_name="Subnet Collision Within Site", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # L1-03: VLAN ID collision
-    results.append(check_vlan_id_collision(combined_networks))
+    if relevant_checks is None or "L1-03" in relevant_checks:
+        results.append(check_vlan_id_collision(combined_networks))
+    else:
+        results.append(CheckResult(check_id="L1-03", check_name="VLAN ID Collision", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # ── Collect WLANs ──────────────────────────────────────────────────
     all_wlans: list[dict[str, Any]] = []
@@ -275,10 +365,16 @@ async def run_layer1_checks(
         all_wlans.append(w_copy)
 
     # L1-04: Duplicate SSID
-    results.append(check_duplicate_ssid(all_wlans))
+    if relevant_checks is None or "L1-04" in relevant_checks:
+        results.append(check_duplicate_ssid(all_wlans))
+    else:
+        results.append(CheckResult(check_id="L1-04", check_name="Duplicate SSID", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # L1-11: SSID airtime overhead
-    results.append(check_ssid_airtime_overhead(all_wlans))
+    if relevant_checks is None or "L1-11" in relevant_checks:
+        results.append(check_ssid_airtime_overhead(all_wlans))
+    else:
+        results.append(CheckResult(check_id="L1-11", check_name="SSID Airtime Overhead", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # ── L1-05: Port profile conflict ───────────────────────────────────
     existing_port_entries: list[dict[str, Any]] = []
@@ -318,13 +414,23 @@ async def run_layer1_checks(
                     }
                 )
 
-    results.append(check_port_profile_conflict(existing_port_entries, new_port_entries))
+    if relevant_checks is None or "L1-05" in relevant_checks:
+        results.append(check_port_profile_conflict(existing_port_entries, new_port_entries))
+    else:
+        results.append(CheckResult(check_id="L1-05", check_name="Port Profile Conflict", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # ── L1-06 & L1-07: Template checks ────────────────────────────────
     affected_site_ids: set[str] = set()
     for w in staged_writes:
         if w.site_id:
             affected_site_ids.add(w.site_id)
+
+    _run_l106 = relevant_checks is None or "L1-06" in relevant_checks
+    _run_l107 = relevant_checks is None or "L1-07" in relevant_checks
+    if not _run_l106:
+        results.append(CheckResult(check_id="L1-06", check_name="Template Override Crush", layer=1, status="skipped", summary="Not relevant for this change type"))
+    if not _run_l107:
+        results.append(CheckResult(check_id="L1-07", check_name="Unresolved Template Variables", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     for site_id in affected_site_ids:
         try:
@@ -337,12 +443,14 @@ async def run_layer1_checks(
                 tmpl_name = tmpl["template_name"]
 
                 # L1-06: Template override crush
-                site_setting = virtual_state.get(("setting", site_id, None), {})
-                if site_setting:
-                    results.append(check_template_override_crush(site_setting, tmpl_config, site_name))
+                if _run_l106:
+                    site_setting = virtual_state.get(("setting", site_id, None), {})
+                    if site_setting:
+                        results.append(check_template_override_crush(site_setting, tmpl_config, site_name))
 
                 # L1-07: Unresolved template variables
-                results.append(check_unresolved_template_variables(tmpl_config, site_vars, tmpl_name, site_name))
+                if _run_l107:
+                    results.append(check_unresolved_template_variables(tmpl_config, site_vars, tmpl_name, site_name))
         except Exception as e:
             logger.warning("template_check_failed", site_id=site_id, error=str(e))
 
@@ -382,8 +490,15 @@ async def run_layer1_checks(
                 }
             )
 
-    results.append(check_dhcp_scope_overlap(dhcp_configs))
-    results.append(check_dhcp_server_misconfiguration(dhcp_configs))
+    if relevant_checks is None or "L1-08" in relevant_checks:
+        results.append(check_dhcp_scope_overlap(dhcp_configs))
+    else:
+        results.append(CheckResult(check_id="L1-08", check_name="DHCP Scope Overlap", layer=1, status="skipped", summary="Not relevant for this change type"))
+
+    if relevant_checks is None or "L1-09" in relevant_checks:
+        results.append(check_dhcp_server_misconfiguration(dhcp_configs))
+    else:
+        results.append(CheckResult(check_id="L1-09", check_name="DHCP Server Misconfiguration", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # ── L1-10: DNS/NTP consistency ─────────────────────────────────────
     device_dns_configs: list[dict[str, Any]] = []
@@ -397,7 +512,10 @@ async def run_layer1_checks(
                     "ntp_servers": config.get("ntp_servers", config.get("ntp", [])),
                 }
             )
-    results.append(check_dns_ntp_consistency(device_dns_configs))
+    if relevant_checks is None or "L1-10" in relevant_checks:
+        results.append(check_dns_ntp_consistency(device_dns_configs))
+    else:
+        results.append(CheckResult(check_id="L1-10", check_name="DNS/NTP Consistency", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     # ── Per-write comparison checks (L1-12, L1-13, L1-14) ─────────────
     # Try to load live client/device stats from telemetry cache
@@ -426,17 +544,26 @@ async def run_layer1_checks(
             active_clients = _count_clients_on_ssid(client_cache, w.site_id, old_config.get("ssid", ""))
 
             # L1-12: PSK rotation impact
-            results.append(check_psk_rotation_impact(old_config, new_config, active_clients, site_name))
+            if relevant_checks is None or "L1-12" in relevant_checks:
+                results.append(check_psk_rotation_impact(old_config, new_config, active_clients, site_name))
+            else:
+                results.append(CheckResult(check_id="L1-12", check_name="PSK Rotation Client Impact", layer=1, status="skipped", summary="Not relevant for this change type"))
 
             # L1-14: Client capacity impact
-            results.append(check_client_capacity_impact(old_config, new_config, active_clients, site_name))
+            if relevant_checks is None or "L1-14" in relevant_checks:
+                results.append(check_client_capacity_impact(old_config, new_config, active_clients, site_name))
+            else:
+                results.append(CheckResult(check_id="L1-14", check_name="Client Capacity Impact", layer=1, status="skipped", summary="Not relevant for this change type"))
 
         elif w.object_type == "rftemplates":
             # Count APs at affected sites from telemetry cache
             affected_ap_count = _count_aps_at_sites(device_cache, affected_site_ids)
 
             # L1-13: RF template impact
-            results.append(check_rf_template_impact(old_config, new_config, affected_ap_count))
+            if relevant_checks is None or "L1-13" in relevant_checks:
+                results.append(check_rf_template_impact(old_config, new_config, affected_ap_count))
+            else:
+                results.append(CheckResult(check_id="L1-13", check_name="RF Template Impact", layer=1, status="skipped", summary="Not relevant for this change type"))
 
     return results
 
@@ -446,6 +573,7 @@ async def run_layer2_checks(
     staged_writes: list,
     org_id: str,
     affected_site_ids: set[str],
+    relevant_checks: set[str] | None = None,
 ) -> list[CheckResult]:
     """Run Layer 2 topology prediction checks for each affected site."""
     from app.modules.digital_twin.services.predicted_topology import build_predicted_topology
@@ -499,15 +627,42 @@ async def run_layer2_checks(
                     port_counts[dev_id] = (used, total)
 
             # Run all L2 checks
-            results.append(check_connectivity_loss(baseline_snapshot, predicted_snapshot))
-            results.append(check_vlan_black_hole(predicted_snapshot))
-            results.append(check_lag_mclag_integrity(baseline_snapshot, predicted_snapshot))
-            results.append(check_vc_integrity(baseline_snapshot, predicted_snapshot))
-            results.append(check_poe_budget_overrun(predicted_snapshot, poe_budgets))
-            results.append(check_poe_disable_on_active(baseline_snapshot, predicted_snapshot, active_poe_ports))
-            results.append(check_port_capacity_saturation(predicted_snapshot, port_counts))
-            results.append(check_lacp_misconfiguration(predicted_snapshot))
-            results.append(check_mtu_mismatch(predicted_snapshot))
+            if relevant_checks is None or "L2-01" in relevant_checks:
+                results.append(check_connectivity_loss(baseline_snapshot, predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L2-01", check_name="Connectivity Loss", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-02" in relevant_checks:
+                results.append(check_vlan_black_hole(predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L2-02", check_name="VLAN Black Hole", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-03" in relevant_checks:
+                results.append(check_lag_mclag_integrity(baseline_snapshot, predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L2-03", check_name="LAG/MCLAG Integrity", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-04" in relevant_checks:
+                results.append(check_vc_integrity(baseline_snapshot, predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L2-04", check_name="VC Integrity", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-05" in relevant_checks:
+                results.append(check_poe_budget_overrun(predicted_snapshot, poe_budgets))
+            else:
+                results.append(CheckResult(check_id="L2-05", check_name="PoE Budget Overrun", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-06" in relevant_checks:
+                results.append(check_poe_disable_on_active(baseline_snapshot, predicted_snapshot, active_poe_ports))
+            else:
+                results.append(CheckResult(check_id="L2-06", check_name="PoE Disable on Active Port", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-07" in relevant_checks:
+                results.append(check_port_capacity_saturation(predicted_snapshot, port_counts))
+            else:
+                results.append(CheckResult(check_id="L2-07", check_name="Port Capacity Saturation", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-08" in relevant_checks:
+                results.append(check_lacp_misconfiguration(predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L2-08", check_name="LACP Misconfiguration", layer=2, status="skipped", summary="Not relevant for this change type"))
+            if relevant_checks is None or "L2-09" in relevant_checks:
+                results.append(check_mtu_mismatch(predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L2-09", check_name="MTU Mismatch", layer=2, status="skipped", summary="Not relevant for this change type"))
         except Exception as e:
             logger.warning("l2_checks_failed", site_id=site_id, error=str(e))
 
@@ -519,6 +674,7 @@ async def run_layer3_checks(
     staged_writes: list,
     org_id: str,
     affected_site_ids: set[str],
+    relevant_checks: set[str] | None = None,
 ) -> list[CheckResult]:
     """Run Layer 3 routing prediction checks."""
     from app.modules.digital_twin.services.routing_checks import (
@@ -558,13 +714,25 @@ async def run_layer3_checks(
             topo = await build_site_topology(site_id, org_id)
             if topo:
                 snapshot = capture_topology_snapshot(topo)
-                results.append(check_default_gateway_gap(snapshot, device_configs))
+                if relevant_checks is None or "L3-01" in relevant_checks:
+                    results.append(check_default_gateway_gap(snapshot, device_configs))
+                else:
+                    results.append(CheckResult(check_id="L3-01", check_name="Default Gateway Gap", layer=3, status="skipped", summary="Not relevant for this change type"))
         except Exception as e:
             logger.warning("l3_topology_check_failed", site_id=site_id, error=str(e))
 
-    results.append(check_ospf_adjacency_break(baseline_routing, device_configs))
-    results.append(check_bgp_peer_break(baseline_routing, device_configs))
-    results.append(check_vrf_consistency(device_configs))
+    if relevant_checks is None or "L3-02" in relevant_checks:
+        results.append(check_ospf_adjacency_break(baseline_routing, device_configs))
+    else:
+        results.append(CheckResult(check_id="L3-02", check_name="OSPF Adjacency Break", layer=3, status="skipped", summary="Not relevant for this change type"))
+    if relevant_checks is None or "L3-03" in relevant_checks:
+        results.append(check_bgp_peer_break(baseline_routing, device_configs))
+    else:
+        results.append(CheckResult(check_id="L3-03", check_name="BGP Peer Break", layer=3, status="skipped", summary="Not relevant for this change type"))
+    if relevant_checks is None or "L3-04" in relevant_checks:
+        results.append(check_vrf_consistency(device_configs))
+    else:
+        results.append(CheckResult(check_id="L3-04", check_name="VRF Consistency", layer=3, status="skipped", summary="Not relevant for this change type"))
 
     # Baseline configs for WAN failover comparison
     baseline_configs: dict[str, dict[str, Any]] = {}
@@ -577,7 +745,10 @@ async def run_layer3_checks(
         if backup:
             baseline_configs[dev_id] = backup.configuration
 
-    results.append(check_wan_failover_impact(baseline_configs, device_configs))
+    if relevant_checks is None or "L3-05" in relevant_checks:
+        results.append(check_wan_failover_impact(baseline_configs, device_configs))
+    else:
+        results.append(CheckResult(check_id="L3-05", check_name="WAN Failover Impact", layer=3, status="skipped", summary="Not relevant for this change type"))
 
     return results
 
@@ -587,6 +758,7 @@ async def run_layer4_checks(
     staged_writes: list,
     org_id: str,
     ctx: SimulationContext | None = None,
+    relevant_checks: set[str] | None = None,
 ) -> list[CheckResult]:
     """Run Layer 4 security policy checks."""
     from app.modules.digital_twin.services.security_checks import (
@@ -616,7 +788,10 @@ async def run_layer4_checks(
         w_copy.setdefault("_site_id", w.get("site_id"))
         all_wlans.append(w_copy)
 
-    results.append(check_guest_ssid_security(all_wlans))
+    if relevant_checks is None or "L4-01" in relevant_checks:
+        results.append(check_guest_ssid_security(all_wlans))
+    else:
+        results.append(CheckResult(check_id="L4-01", check_name="Guest SSID Security", layer=4, status="skipped", summary="Not relevant for this change type"))
 
     # NAC rules and auth servers
     nac_rules: list[dict[str, Any]] = []
@@ -635,8 +810,14 @@ async def run_layer4_checks(
     existing_ssos = await load_all_objects_of_type(org_id, "ssos")
     auth_servers.extend(existing_ssos)
 
-    results.append(check_nac_auth_server_dependency(nac_rules, auth_servers))
-    results.append(check_nac_vlan_conflict(nac_rules))
+    if relevant_checks is None or "L4-02" in relevant_checks:
+        results.append(check_nac_auth_server_dependency(nac_rules, auth_servers))
+    else:
+        results.append(CheckResult(check_id="L4-02", check_name="NAC Auth Server Dependency", layer=4, status="skipped", summary="Not relevant for this change type"))
+    if relevant_checks is None or "L4-03" in relevant_checks:
+        results.append(check_nac_vlan_conflict(nac_rules))
+    else:
+        results.append(CheckResult(check_id="L4-03", check_name="NAC VLAN Conflict", layer=4, status="skipped", summary="Not relevant for this change type"))
 
     # Security policies, networks, services
     security_policies: list[dict[str, Any]] = []
@@ -660,7 +841,10 @@ async def run_layer4_checks(
     existing_svcs = await load_all_objects_of_type(org_id, "services")
     services.extend(existing_svcs)
 
-    results.append(check_unreachable_destination(security_policies, networks, services))
+    if relevant_checks is None or "L4-04" in relevant_checks:
+        results.append(check_unreachable_destination(security_policies, networks, services))
+    else:
+        results.append(CheckResult(check_id="L4-04", check_name="Unreachable Destination", layer=4, status="skipped", summary="Not relevant for this change type"))
 
     service_policies: list[dict[str, Any]] = []
     for (obj_type, _site_id, _obj_id), config in virtual_state.items():
@@ -669,8 +853,14 @@ async def run_layer4_checks(
     existing_sps = await load_all_objects_of_type(org_id, "servicepolicies")
     service_policies.extend(existing_sps)
 
-    results.append(check_service_policy_references(service_policies, services))
-    results.append(check_firewall_rule_shadow(security_policies))
+    if relevant_checks is None or "L4-05" in relevant_checks:
+        results.append(check_service_policy_references(service_policies, services))
+    else:
+        results.append(CheckResult(check_id="L4-05", check_name="Service Policy References", layer=4, status="skipped", summary="Not relevant for this change type"))
+    if relevant_checks is None or "L4-06" in relevant_checks:
+        results.append(check_firewall_rule_shadow(security_policies))
+    else:
+        results.append(CheckResult(check_id="L4-06", check_name="Firewall Rule Shadow", layer=4, status="skipped", summary="Not relevant for this change type"))
 
     return results
 
@@ -680,6 +870,7 @@ async def run_layer5_checks(
     staged_writes: list,
     org_id: str,
     affected_site_ids: set[str],
+    relevant_checks: set[str] | None = None,
 ) -> list[CheckResult]:
     """Run Layer 5 L2/STP prediction checks."""
     from app.modules.backup.models import BackupObject
@@ -725,11 +916,20 @@ async def run_layer5_checks(
                 continue
             predicted_snapshot = capture_topology_snapshot(predicted_topo)
 
-            results.append(check_l2_loop_risk(baseline_snapshot, predicted_snapshot))
+            if relevant_checks is None or "L5-01" in relevant_checks:
+                results.append(check_l2_loop_risk(baseline_snapshot, predicted_snapshot))
+            else:
+                results.append(CheckResult(check_id="L5-01", check_name="L2 Loop Risk", layer=5, status="skipped", summary="Not relevant for this change type"))
         except Exception as e:
             logger.warning("l5_topology_check_failed", site_id=site_id, error=str(e))
 
-    results.append(check_bpdu_filter_on_trunk(predicted_configs))
-    results.append(check_stp_root_bridge_shift(baseline_configs, predicted_configs))
+    if relevant_checks is None or "L5-02" in relevant_checks:
+        results.append(check_bpdu_filter_on_trunk(predicted_configs))
+    else:
+        results.append(CheckResult(check_id="L5-02", check_name="BPDU Filter on Trunk", layer=5, status="skipped", summary="Not relevant for this change type"))
+    if relevant_checks is None or "L5-03" in relevant_checks:
+        results.append(check_stp_root_bridge_shift(baseline_configs, predicted_configs))
+    else:
+        results.append(CheckResult(check_id="L5-03", check_name="STP Root Bridge Shift", layer=5, status="skipped", summary="Not relevant for this change type"))
 
     return results

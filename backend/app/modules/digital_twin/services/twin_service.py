@@ -22,6 +22,7 @@ from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
 from app.modules.digital_twin.services.prediction_service import (
     _build_simulation_context,
     build_prediction_report,
+    compute_relevant_checks,
     run_layer1_checks,
 )
 from app.modules.digital_twin.services.state_resolver import (
@@ -136,17 +137,20 @@ async def simulate(
     # Pre-fetch shared backup data once for all check layers
     ctx = await _build_simulation_context(org_id)
 
+    # Compute relevant checks based on staged write object types
+    relevant_checks = compute_relevant_checks(staged_writes)
+
     # Include parse errors as check results (so they appear in the report)
     check_results: list[CheckResult] = list(parse_errors)
 
     # Run Layer 1 checks
-    check_results.extend(await run_layer1_checks(virtual_state, staged_writes, org_id, ctx=ctx))
+    check_results.extend(await run_layer1_checks(virtual_state, staged_writes, org_id, ctx=ctx, relevant_checks=relevant_checks))
 
     # Run Layer 2 checks if any sites are affected
     if affected_sites:
         from app.modules.digital_twin.services.prediction_service import run_layer2_checks
 
-        l2_results = await run_layer2_checks(virtual_state, staged_writes, org_id, set(affected_sites))
+        l2_results = await run_layer2_checks(virtual_state, staged_writes, org_id, set(affected_sites), relevant_checks=relevant_checks)
         check_results.extend(l2_results)
 
         from app.modules.digital_twin.services.prediction_service import (
@@ -155,13 +159,13 @@ async def simulate(
             run_layer5_checks,
         )
 
-        l3_results = await run_layer3_checks(virtual_state, staged_writes, org_id, set(affected_sites))
+        l3_results = await run_layer3_checks(virtual_state, staged_writes, org_id, set(affected_sites), relevant_checks=relevant_checks)
         check_results.extend(l3_results)
 
-        l4_results = await run_layer4_checks(virtual_state, staged_writes, org_id, ctx=ctx)
+        l4_results = await run_layer4_checks(virtual_state, staged_writes, org_id, ctx=ctx, relevant_checks=relevant_checks)
         check_results.extend(l4_results)
 
-        l5_results = await run_layer5_checks(virtual_state, staged_writes, org_id, set(affected_sites))
+        l5_results = await run_layer5_checks(virtual_state, staged_writes, org_id, set(affected_sites), relevant_checks=relevant_checks)
         check_results.extend(l5_results)
 
     # Build report
