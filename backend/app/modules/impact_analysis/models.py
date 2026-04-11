@@ -160,6 +160,10 @@ class MonitoringSession(TimestampMixin, Document):
         default=None, description="Parent ChangeGroup ID (if part of a multi-device change)"
     )
 
+    # Digital Twin linkage (if spawned from Twin deployment)
+    twin_session_id: str | None = Field(default=None, description="Parent TwinSession ID")
+    twin_prediction: dict | None = Field(default=None, description="Frozen Twin prediction report at deployment time")
+
     device_clients: list[dict] = Field(
         default_factory=list, description="LLDP neighbor MACs captured at baseline (for AP-switch correlation)"
     )
