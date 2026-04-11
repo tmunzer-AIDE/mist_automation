@@ -9,9 +9,11 @@ from typing import Annotated
 
 import structlog
 from beanie import PydanticObjectId
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from app.modules.mcp_server.server import mcp, mcp_thread_id_var, mcp_user_id_var
+from app.modules.mcp_server.tools.utils import is_placeholder
 
 logger = structlog.get_logger(__name__)
 
@@ -50,48 +52,68 @@ async def _store_memory(
 
     max_entries, max_value_len = await _get_memory_config()
 
+    normalized_key = key.strip()
+    normalized_value = value.strip()
+    normalized_category = category.strip().lower()
+
+    if not normalized_key:
+        raise ToolError("key is required")
+    if is_placeholder(normalized_key):
+        raise ToolError("key must not contain unresolved placeholders")
+    if not normalized_value:
+        raise ToolError("value is required")
+    if normalized_category not in VALID_CATEGORIES:
+        raise ToolError(
+            f"Invalid category '{category}'. Use: {', '.join(sorted(VALID_CATEGORIES))}"
+        )
+
     # Validate key length (not admin-configurable, fixed at 100)
-    if len(key) > _DEFAULT_MAX_KEY_LENGTH:
-        return f"Key too long: maximum {_DEFAULT_MAX_KEY_LENGTH} characters, got {len(key)}."
+    if len(normalized_key) > _DEFAULT_MAX_KEY_LENGTH:
+        raise ToolError(
+            f"Key too long: maximum {_DEFAULT_MAX_KEY_LENGTH} characters, got {len(normalized_key)}"
+        )
 
     # Validate value length
-    if len(value) > max_value_len:
-        return f"Value too long: maximum {max_value_len} characters, got {len(value)}."
+    if len(normalized_value) > max_value_len:
+        raise ToolError(
+            f"Value too long: maximum {max_value_len} characters, got {len(normalized_value)}"
+        )
 
-    # Normalize category
-    if category not in VALID_CATEGORIES:
-        category = "general"
-
-    uid = PydanticObjectId(user_id)
+    try:
+        uid = PydanticObjectId(user_id)
+    except Exception as exc:
+        raise ToolError("Invalid user context") from exc
 
     # Check if key already exists for this user → upsert
     existing = await MemoryEntry.find_one(
         MemoryEntry.user_id == uid,
-        MemoryEntry.key == key,
+        MemoryEntry.key == normalized_key,
     )
 
     if existing:
-        existing.value = value
-        existing.category = category
+        existing.value = normalized_value
+        existing.category = normalized_category
         existing.source_thread_id = thread_id
         existing.updated_at = datetime.now(timezone.utc)
         await existing.save()
-        return f"Memory '{key}' updated."
+        return f"Memory '{normalized_key}' updated."
 
     # New entry — check per-user cap
     count = await MemoryEntry.find(MemoryEntry.user_id == uid).count()
     if count >= max_entries:
-        return f"Memory limit reached ({max_entries} entries). Delete old memories before storing new ones."
+        raise ToolError(
+            f"Memory limit reached ({max_entries} entries). Delete old memories before storing new ones."
+        )
 
     entry = MemoryEntry(
         user_id=uid,
-        key=key,
-        value=value,
-        category=category,
+        key=normalized_key,
+        value=normalized_value,
+        category=normalized_category,
         source_thread_id=thread_id,
     )
     await entry.insert()
-    return f"Memory '{key}' stored."
+    return f"Memory '{normalized_key}' stored."
 
 
 async def _recall_memory(
@@ -102,20 +124,32 @@ async def _recall_memory(
     """Search or list user memories. Returns formatted text."""
     from app.modules.llm.models import MemoryEntry
 
-    uid = PydanticObjectId(user_id)
+    try:
+        uid = PydanticObjectId(user_id)
+    except Exception as exc:
+        raise ToolError("Invalid user context") from exc
+
+    normalized_query = (query or "").strip()
+    normalized_category = (category or "").strip().lower()
+
+    if normalized_category and normalized_category not in VALID_CATEGORIES:
+        raise ToolError(
+            f"Invalid category '{category}'. Use: {', '.join(sorted(VALID_CATEGORIES))}"
+        )
+
     max_results = 30
 
-    if query:
+    if normalized_query:
         # MongoDB text search on key+value, filtered by user_id
-        filters: dict = {"user_id": uid, "$text": {"$search": query}}
-        if category and category in VALID_CATEGORIES:
-            filters["category"] = category
+        filters: dict = {"user_id": uid, "$text": {"$search": normalized_query}}
+        if normalized_category:
+            filters["category"] = normalized_category
         entries = await MemoryEntry.find(filters).sort([("score", {"$meta": "textScore"})]).limit(max_results).to_list()
-    elif category and category in VALID_CATEGORIES:
+    elif normalized_category:
         entries = (
             await MemoryEntry.find(
                 MemoryEntry.user_id == uid,
-                MemoryEntry.category == category,
+                MemoryEntry.category == normalized_category,
             )
             .sort(-MemoryEntry.updated_at)
             .limit(max_results)
@@ -140,17 +174,27 @@ async def _forget_memory(user_id: str, key: str) -> str:
     """Delete a specific memory by exact key match."""
     from app.modules.llm.models import MemoryEntry
 
-    uid = PydanticObjectId(user_id)
+    try:
+        uid = PydanticObjectId(user_id)
+    except Exception as exc:
+        raise ToolError("Invalid user context") from exc
+
+    normalized_key = key.strip()
+    if not normalized_key:
+        raise ToolError("key is required")
+    if is_placeholder(normalized_key):
+        raise ToolError("key must not contain unresolved placeholders")
+
     entry = await MemoryEntry.find_one(
         MemoryEntry.user_id == uid,
-        MemoryEntry.key == key,
+        MemoryEntry.key == normalized_key,
     )
 
     if not entry:
-        return f"No memory found with key: {key}"
+        raise ToolError(f"No memory found with key: {normalized_key}")
 
     await entry.delete()
-    return f"Memory '{key}' deleted."
+    return f"Memory '{normalized_key}' deleted."
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +221,7 @@ async def memory_store(
         str,
         Field(
             description=(
-                "Category for this memory. One of: general, network, preference, troubleshooting. "
-                "Defaults to 'general' if omitted or invalid."
+                "Category for this memory. Must be one of: general, network, preference, troubleshooting."
             ),
         ),
     ] = "general",
@@ -186,7 +229,7 @@ async def memory_store(
     """Save a fact to the user's personal memory store. Memories persist across conversations."""
     user_id = mcp_user_id_var.get()
     if not user_id:
-        return "Error: user context not available."
+        raise ToolError("User context not available")
     thread_id = mcp_thread_id_var.get()
     return await _store_memory(user_id, key, value, category, thread_id)
 
@@ -209,7 +252,7 @@ async def memory_recall(
     """Search the user's personal memory store."""
     user_id = mcp_user_id_var.get()
     if not user_id:
-        return "Error: user context not available."
+        raise ToolError("User context not available")
     return await _recall_memory(user_id, query or None, category or None)
 
 
@@ -223,5 +266,5 @@ async def memory_forget(
     """Delete a specific memory by its exact key."""
     user_id = mcp_user_id_var.get()
     if not user_id:
-        return "Error: user context not available."
+        raise ToolError("User context not available")
     return await _forget_memory(user_id, key)

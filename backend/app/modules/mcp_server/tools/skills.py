@@ -3,9 +3,12 @@ MCP tool: activate_skill — loads the full instructions for a named Agent Skill
 """
 
 from pathlib import Path
+from typing import Annotated
 from xml.sax.saxutils import escape
 
 import structlog
+from fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from app.modules.mcp_server.server import mcp
 
@@ -13,7 +16,17 @@ logger = structlog.get_logger(__name__)
 
 
 @mcp.tool()
-async def activate_skill(name: str) -> str:
+async def activate_skill(
+    name: Annotated[
+        str,
+        Field(
+            description=(
+                "Exact skill name from the skill catalog (case-sensitive). "
+                "Use only listed skills; do not use placeholders."
+            )
+        ),
+    ]
+) -> str:
     """Load the full instructions for a named Agent Skill.
 
     Call this tool when the user's request matches a skill's description.
@@ -25,21 +38,27 @@ async def activate_skill(name: str) -> str:
     from app.modules.llm.models import Skill
     from app.modules.llm.services.skills_service import list_skill_resources, parse_skill_md
 
-    skill = await Skill.find_one(Skill.name == name, Skill.enabled == True)  # noqa: E712
+    skill_name = name.strip()
+    if not skill_name:
+        raise ToolError("name is required")
+    if skill_name.startswith("{") or skill_name.startswith("<") or skill_name.startswith(":"):
+        raise ToolError("name must be a real skill name, not a placeholder")
+
+    skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
     if not skill:
-        return f"Skill '{name}' not found or not enabled."
+        raise ToolError(f"Skill '{skill_name}' not found or not enabled")
 
     skill_dir = Path(skill.local_path)
     skill_file = skill_dir / "SKILL.md"
 
     if not skill_file.exists():
-        logger.error("skill_file_missing", skill=name, path=str(skill_file))
-        return f"Skill '{name}' SKILL.md file is missing from the server filesystem."
+        logger.error("skill_file_missing", skill=skill_name, path=str(skill_file))
+        raise ToolError(f"Skill '{skill_name}' SKILL.md file is missing from the server filesystem")
 
     try:
         _, _, body = parse_skill_md(skill_file)
     except ValueError as exc:
-        return f"Skill '{name}' could not be loaded: {exc}"
+        raise ToolError(f"Skill '{skill_name}' could not be loaded: {exc}") from exc
 
     resources = list_skill_resources(skill_dir)
     resources_block = ""
@@ -48,7 +67,7 @@ async def activate_skill(name: str) -> str:
         resources_block = f"\n<skill_resources>\n{resource_lines}\n</skill_resources>"
 
     return (
-        f'<skill_content name="{escape(name)}">\n'
+        f'<skill_content name="{escape(skill_name)}">\n'
         f"{escape(body)}\n\n"
         f"Skill directory: {escape(str(skill.local_path))}"
         f"{resources_block}\n"
