@@ -66,23 +66,30 @@ async def run_layer1_checks(
     staged_writes: list,
     org_id: str,
 ) -> list[CheckResult]:
-    """Run all Layer 1 config conflict checks against the virtual state.
-
-    This is the main entry point for Phase 1 validation. It extracts the
-    relevant config data from the virtual state and runs each check.
-    """
+    """Run all 14 Layer 1 config conflict checks against the virtual state."""
+    from app.modules.backup.models import BackupObject
     from app.modules.digital_twin.services.config_checks import (
+        check_client_capacity_impact,
+        check_dhcp_scope_overlap,
+        check_dhcp_server_misconfiguration,
+        check_dns_ntp_consistency,
         check_duplicate_ssid,
         check_ip_subnet_overlap,
+        check_port_profile_conflict,
+        check_psk_rotation_impact,
+        check_rf_template_impact,
         check_ssid_airtime_overhead,
         check_subnet_collision_within_site,
+        check_template_override_crush,
+        check_unresolved_template_variables,
         check_vlan_id_collision,
     )
     from app.modules.digital_twin.services.state_resolver import load_all_objects_of_type
+    from app.modules.digital_twin.services.template_resolver import get_site_template_context
 
     results: list[CheckResult] = []
 
-    # Collect all networks from virtual state
+    # ── Collect networks ───────────────────────────────────────────────
     all_networks: list[dict[str, Any]] = []
     for (obj_type, site_id, _obj_id), config in virtual_state.items():
         if obj_type == "networks":
@@ -91,7 +98,6 @@ async def run_layer1_checks(
             config_copy["_site_name"] = site_id or "org"
             all_networks.append(config_copy)
 
-    # Load existing networks from backup for cross-reference
     existing_networks_raw = await load_all_objects_of_type(org_id, "networks")
     existing_networks = []
     for net in existing_networks_raw:
@@ -100,7 +106,6 @@ async def run_layer1_checks(
         net_copy.setdefault("_site_id", net.get("site_id"))
         existing_networks.append(net_copy)
 
-    # Determine which networks are new (from staged writes)
     new_network_ids = set()
     for w in staged_writes:
         if w.object_type == "networks" and w.method == "POST":
@@ -109,17 +114,17 @@ async def run_layer1_checks(
         n for n in all_networks if n.get("id") in new_network_ids or (n.get("id") or "").startswith("twin-")
     ]
 
-    # L1-01: IP/subnet overlap (new vs existing)
+    # L1-01: IP/subnet overlap
     results.append(check_ip_subnet_overlap(existing_networks, new_networks))
 
-    # L1-02: Subnet collision within site (all networks including new)
+    # L1-02: Subnet collision within site
     combined_networks = existing_networks + new_networks
     results.append(check_subnet_collision_within_site(combined_networks))
 
     # L1-03: VLAN ID collision
     results.append(check_vlan_id_collision(combined_networks))
 
-    # Collect WLANs
+    # ── Collect WLANs ──────────────────────────────────────────────────
     all_wlans: list[dict[str, Any]] = []
     for (obj_type, site_id, _obj_id), config in virtual_state.items():
         if obj_type == "wlans":
@@ -138,5 +143,156 @@ async def run_layer1_checks(
 
     # L1-11: SSID airtime overhead
     results.append(check_ssid_airtime_overhead(all_wlans))
+
+    # ── L1-05: Port profile conflict ───────────────────────────────────
+    existing_devices_raw = await load_all_objects_of_type(org_id, "devices")
+    existing_port_entries: list[dict[str, Any]] = []
+    for dev in existing_devices_raw:
+        port_config = dev.get("port_config")
+        if not port_config or not isinstance(port_config, dict):
+            continue
+        device_name = dev.get("name", dev.get("mac", "?"))
+        for port_name, port_cfg in port_config.items():
+            if not isinstance(port_cfg, dict):
+                continue
+            existing_port_entries.append(
+                {
+                    "_device_name": device_name,
+                    "_site_id": dev.get("site_id"),
+                    "port": port_name,
+                    "profile": port_cfg.get("usage", port_cfg.get("profile", "")),
+                }
+            )
+
+    new_port_entries: list[dict[str, Any]] = []
+    for w in staged_writes:
+        if w.object_type == "devices" and w.method in ("PUT", "POST") and w.body:
+            port_config = w.body.get("port_config")
+            if not port_config or not isinstance(port_config, dict):
+                continue
+            device_name = w.body.get("name", w.object_id or "?")
+            for port_name, port_cfg in port_config.items():
+                if not isinstance(port_cfg, dict):
+                    continue
+                new_port_entries.append(
+                    {
+                        "_device_name": device_name,
+                        "_site_id": w.site_id,
+                        "port": port_name,
+                        "profile": port_cfg.get("usage", port_cfg.get("profile", "")),
+                    }
+                )
+
+    results.append(check_port_profile_conflict(existing_port_entries, new_port_entries))
+
+    # ── L1-06 & L1-07: Template checks ────────────────────────────────
+    affected_site_ids: set[str] = set()
+    for w in staged_writes:
+        if w.site_id:
+            affected_site_ids.add(w.site_id)
+
+    for site_id in affected_site_ids:
+        try:
+            ctx = await get_site_template_context(org_id, site_id, virtual_state)
+            site_vars = ctx["site_vars"]
+            site_name = ctx["site_name"]
+
+            for tmpl in ctx["assigned_templates"]:
+                tmpl_config = tmpl["config"]
+                tmpl_name = tmpl["template_name"]
+
+                # L1-06: Template override crush
+                site_setting = virtual_state.get(("setting", site_id, None), {})
+                if site_setting:
+                    results.append(check_template_override_crush(site_setting, tmpl_config, site_name))
+
+                # L1-07: Unresolved template variables
+                results.append(check_unresolved_template_variables(tmpl_config, site_vars, tmpl_name, site_name))
+        except Exception as e:
+            logger.warning("template_check_failed", site_id=site_id, error=str(e))
+
+    # ── L1-08 & L1-09: DHCP checks ────────────────────────────────────
+    dhcp_configs: list[dict[str, Any]] = []
+
+    for (obj_type, site_id, _obj_id), config in virtual_state.items():
+        if obj_type not in ("devices", "setting"):
+            continue
+        dhcpd = config.get("dhcpd_config")
+        if not dhcpd or not isinstance(dhcpd, dict):
+            continue
+        if not dhcpd.get("enabled", True):
+            continue
+        device_name = config.get("name", config.get("mac", _obj_id or "?"))
+        for network_name, scope in dhcpd.items():
+            if network_name in ("enabled",) or not isinstance(scope, dict):
+                continue
+            if scope.get("type") != "local":
+                continue
+            # Try to find subnet from network definitions if not in scope
+            subnet = scope.get("subnet", "")
+            if not subnet:
+                for (nt, ns, _ni), ncfg in virtual_state.items():
+                    if nt == "networks" and ns == site_id and ncfg.get("name") == network_name:
+                        subnet = ncfg.get("subnet", "")
+                        break
+            dhcp_configs.append(
+                {
+                    "_device_name": device_name,
+                    "_site_id": site_id,
+                    "network": network_name,
+                    "subnet": subnet,
+                    "ip_start": scope.get("ip_start", ""),
+                    "ip_end": scope.get("ip_end", ""),
+                    "gateway": scope.get("gateway", ""),
+                }
+            )
+
+    results.append(check_dhcp_scope_overlap(dhcp_configs))
+    results.append(check_dhcp_server_misconfiguration(dhcp_configs))
+
+    # ── L1-10: DNS/NTP consistency ─────────────────────────────────────
+    device_dns_configs: list[dict[str, Any]] = []
+    for (obj_type, site_id, _obj_id), config in virtual_state.items():
+        if obj_type in ("devices", "setting"):
+            device_dns_configs.append(
+                {
+                    "_device_name": config.get("name", _obj_id or "?"),
+                    "_site_id": site_id,
+                    "dns_servers": config.get("dns_servers", config.get("dns", [])),
+                    "ntp_servers": config.get("ntp_servers", config.get("ntp", [])),
+                }
+            )
+    results.append(check_dns_ntp_consistency(device_dns_configs))
+
+    # ── Per-write comparison checks (L1-12, L1-13, L1-14) ─────────────
+    for w in staged_writes:
+        if w.method != "PUT" or not w.object_id:
+            continue
+
+        # Load old config from backup
+        old_backup = (
+            await BackupObject.find({"object_type": w.object_type, "object_id": w.object_id, "is_deleted": False})
+            .sort([("version", -1)])
+            .first_or_none()
+        )
+        old_config = old_backup.configuration if old_backup else {}
+
+        # New config from virtual state
+        new_config = virtual_state.get((w.object_type, w.site_id, w.object_id), {})
+
+        site_name = w.site_id or "org"
+
+        if w.object_type == "wlans":
+            # L1-12: PSK rotation impact
+            # Phase 1: active_clients=0 (live stats not available yet)
+            results.append(check_psk_rotation_impact(old_config, new_config, 0, site_name))
+
+            # L1-14: Client capacity impact
+            results.append(check_client_capacity_impact(old_config, new_config, 0, site_name))
+
+        elif w.object_type == "rftemplates":
+            # L1-13: RF template impact
+            # Phase 1: affected_ap_count=0 (live stats not available yet)
+            results.append(check_rf_template_impact(old_config, new_config, 0))
 
     return results

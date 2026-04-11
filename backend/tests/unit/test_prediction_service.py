@@ -71,3 +71,41 @@ class TestBuildPredictionReport:
         report = build_prediction_report(results)
         assert report.execution_safe is True
         assert report.overall_severity == "clean"
+
+
+@pytest.mark.unit
+class TestRunLayer1ChecksIds:
+    """Verify that all 14 L1 check functions produce the correct check_id."""
+
+    def test_all_check_ids_present(self):
+        from app.modules.digital_twin.services.config_checks import (
+            check_client_capacity_impact,
+            check_dhcp_scope_overlap,
+            check_dhcp_server_misconfiguration,
+            check_dns_ntp_consistency,
+            check_duplicate_ssid,
+            check_ip_subnet_overlap,
+            check_port_profile_conflict,
+            check_psk_rotation_impact,
+            check_rf_template_impact,
+            check_ssid_airtime_overhead,
+            check_subnet_collision_within_site,
+            check_template_override_crush,
+            check_unresolved_template_variables,
+            check_vlan_id_collision,
+        )
+
+        assert check_ip_subnet_overlap([], []).check_id == "L1-01"
+        assert check_subnet_collision_within_site([]).check_id == "L1-02"
+        assert check_vlan_id_collision([]).check_id == "L1-03"
+        assert check_duplicate_ssid([]).check_id == "L1-04"
+        assert check_port_profile_conflict([], []).check_id == "L1-05"
+        assert check_template_override_crush({}, {}, "s").check_id == "L1-06"
+        assert check_unresolved_template_variables({}, {}, "t", "s").check_id == "L1-07"
+        assert check_dhcp_scope_overlap([]).check_id == "L1-08"
+        assert check_dhcp_server_misconfiguration([]).check_id == "L1-09"
+        assert check_dns_ntp_consistency([]).check_id == "L1-10"
+        assert check_ssid_airtime_overhead([]).check_id == "L1-11"
+        assert check_psk_rotation_impact({}, {}, 0, "s").check_id == "L1-12"
+        assert check_rf_template_impact({}, {}, 0).check_id == "L1-13"
+        assert check_client_capacity_impact({}, {}, 0, "s").check_id == "L1-14"
