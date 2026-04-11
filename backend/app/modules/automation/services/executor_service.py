@@ -275,7 +275,7 @@ class WorkflowExecutor:
             from app.services.mist_service import twin_session_var
 
             twin_session = await twin_service.simulate(
-                user_id=str(execution.triggered_by or "system"),
+                user_id=str(execution.triggered_by) if execution.triggered_by else str(execution.workflow_id),
                 org_id=self.mist_service.org_id if self.mist_service else "",
                 writes=[],
                 source="workflow",
@@ -336,14 +336,33 @@ class WorkflowExecutor:
                         {"method": w.method, "endpoint": w.endpoint, "body": w.body}
                         for w in twin_sess.staged_writes
                     ]
-                    await dt_twin_service.simulate(
-                        user_id=str(execution.triggered_by or "system"),
+                    validated = await dt_twin_service.simulate(
+                        user_id=str(execution.triggered_by) if execution.triggered_by else str(execution.workflow_id),
                         org_id=self.mist_service.org_id if self.mist_service else "",
                         writes=writes_data,
                         source="workflow",
                         source_ref=str(execution.id),
                         existing_session_id=self._twin_session_id,
                     )
+
+                    if validated.prediction_report and validated.prediction_report.execution_safe:
+                        # Auto-execute: validation passed
+                        await dt_twin_service.approve_and_execute(
+                            self._twin_session_id,
+                            user_id=str(execution.triggered_by) if execution.triggered_by else None,
+                        )
+                    else:
+                        # Validation failed: mark execution as awaiting twin approval
+                        execution.status = ExecutionStatus.AWAITING_TWIN
+                        execution.paused_at = datetime.now(timezone.utc)
+                        execution.paused_node_id = "twin_validation"
+                        execution.add_log(
+                            f"Digital Twin validation found issues (severity: {validated.overall_severity}). "
+                            f"Awaiting manual approval.",
+                            "warning",
+                        )
+                        if not getattr(execution, "_in_memory_only", False):
+                            await execution.save()
 
         finally:
             if _twin_token is not None:

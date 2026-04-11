@@ -44,6 +44,8 @@ async def get_twin_session(
     session = await twin_service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if str(session.user_id) != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return session_to_response(session)
 
 

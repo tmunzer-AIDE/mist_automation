@@ -371,14 +371,14 @@ class MistService:
         **kwargs: Any,
     ) -> Any:
         """Execute a Mist API call with common error handling."""
+        endpoint = endpoint.replace("{org_id}", self.org_id)
+
         # Digital Twin interception: capture writes instead of executing
         twin_id = twin_session_var.get()
         if twin_id and method in ("post", "put", "delete"):
             from app.modules.digital_twin.services.twin_service import intercept_write
 
             return await intercept_write(twin_id, method, endpoint, kwargs.get("body"))
-
-        endpoint = endpoint.replace("{org_id}", self.org_id)
         session_method = getattr(self.session, f"mist_{method}")
 
         try:

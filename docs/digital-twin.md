@@ -249,7 +249,7 @@ All endpoints require admin role.
 
 ## Testing
 
-### Unit Tests (246 tests)
+### Unit Tests (252 tests)
 
 Located in `backend/tests/unit/`:
 

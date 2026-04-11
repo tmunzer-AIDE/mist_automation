@@ -99,7 +99,7 @@ async def simulate(
 
     virtual_state, all_impacted_sites = await compile_virtual_state(virtual_state, staged_writes, org_id)
     # Expand affected_sites with template-impacted sites
-    affected_sites = sorted(all_impacted_sites | set(affected_sites))
+    affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
     session.affected_sites = affected_sites
 
     session.base_snapshot_refs = refs

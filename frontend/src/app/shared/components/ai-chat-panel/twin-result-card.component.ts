@@ -70,32 +70,34 @@ interface TwinIssue {
               , <span class="count-critical">{{ counts.critical }} critical</span>
             }
           </div>
-          <div class="progress-bar">
-            @if (counts.passed > 0) {
-              <div
-                class="bar-segment bar-passed"
-                [style.width.%]="(counts.passed / counts.total) * 100"
-              ></div>
-            }
-            @if (counts.warnings > 0) {
-              <div
-                class="bar-segment bar-warning"
-                [style.width.%]="(counts.warnings / counts.total) * 100"
-              ></div>
-            }
-            @if (counts.errors > 0) {
-              <div
-                class="bar-segment bar-error"
-                [style.width.%]="(counts.errors / counts.total) * 100"
-              ></div>
-            }
-            @if (counts.critical > 0) {
-              <div
-                class="bar-segment bar-critical"
-                [style.width.%]="(counts.critical / counts.total) * 100"
-              ></div>
-            }
-          </div>
+          @if (counts.total > 0) {
+            <div class="progress-bar">
+              @if (counts.passed > 0) {
+                <div
+                  class="bar-segment bar-passed"
+                  [style.width.%]="(counts.passed / counts.total) * 100"
+                ></div>
+              }
+              @if (counts.warnings > 0) {
+                <div
+                  class="bar-segment bar-warning"
+                  [style.width.%]="(counts.warnings / counts.total) * 100"
+                ></div>
+              }
+              @if (counts.errors > 0) {
+                <div
+                  class="bar-segment bar-error"
+                  [style.width.%]="(counts.errors / counts.total) * 100"
+                ></div>
+              }
+              @if (counts.critical > 0) {
+                <div
+                  class="bar-segment bar-critical"
+                  [style.width.%]="(counts.critical / counts.total) * 100"
+                ></div>
+              }
+            </div>
+          }
         </div>
       }
 

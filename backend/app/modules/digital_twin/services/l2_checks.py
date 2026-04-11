@@ -47,7 +47,7 @@ def _build_graph(connections: list[dict]) -> nx.Graph:
 def _cycles_from_graph(g: nx.Graph) -> list[list[str]]:
     """Return up to _MAX_CYCLES simple cycles from an undirected graph."""
     cycles: list[list[str]] = []
-    for cycle in nx.simple_cycles(g):
+    for cycle in nx.cycle_basis(g):
         cycles.append(cycle)
         if len(cycles) >= _MAX_CYCLES:
             break

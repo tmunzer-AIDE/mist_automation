@@ -45,9 +45,12 @@ Call the tool:
 digital_twin(action="simulate", writes=[...])
 ```
 
-The Twin runs 23 validation checks across 2 layers:
+The Twin runs 37 validation checks across 5 layers:
 - **Layer 1 (Config)**: IP/subnet overlaps, VLAN collisions, duplicate SSIDs, unresolved template variables, DHCP misconfigs, PSK rotation impact, airtime overhead, port conflicts
 - **Layer 2 (Topology)**: Connectivity loss, VLAN black holes, LAG/MCLAG integrity, VC integrity, PoE overload, port saturation, LACP misconfiguration, MTU mismatch
+- **Layer 3 (Routing)**: Default gateway gap, OSPF/BGP adjacency breaks, VRF consistency, WAN failover
+- **Layer 4 (Security)**: Guest SSID security, NAC auth/VLAN conflicts, firewall rule shadows, service policy references
+- **Layer 5 (STP/L2)**: L2 loop risk, BPDU filter on trunk, STP root bridge shift
 
 ### Step 3: Handle Results
 

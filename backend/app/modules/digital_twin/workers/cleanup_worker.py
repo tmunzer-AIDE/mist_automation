@@ -3,7 +3,7 @@
 Registered as an APScheduler nightly job at 4:00 UTC (offset from
 impact analysis cleanup at 3:30 UTC).
 
-Note: TwinSession also has a 24h TTL index on created_at, so MongoDB
+Note: TwinSession also has a 7-day TTL index on created_at, so MongoDB
 handles automatic expiry. This worker provides explicit cleanup for
 terminal sessions that may have been created before the TTL was set.
 """
