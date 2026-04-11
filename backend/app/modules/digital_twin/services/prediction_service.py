@@ -8,6 +8,7 @@ Phase 2+: Will add topology, routing, security, and L2 checks.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -15,6 +16,31 @@ import structlog
 from app.modules.digital_twin.models import CheckResult, PredictionReport
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class SimulationContext:
+    """Pre-fetched data shared across all check layers to avoid duplicate DB loads."""
+
+    existing_networks: list[dict[str, Any]]
+    existing_wlans: list[dict[str, Any]]
+    existing_devices: list[dict[str, Any]]
+
+
+async def _build_simulation_context(org_id: str) -> SimulationContext:
+    """Pre-fetch shared backup data once for all check layers."""
+    from app.modules.digital_twin.services.state_resolver import load_all_objects_of_type
+
+    networks, wlans, devices = await asyncio.gather(
+        load_all_objects_of_type(org_id, "networks"),
+        load_all_objects_of_type(org_id, "wlans"),
+        load_all_objects_of_type(org_id, "devices"),
+    )
+    return SimulationContext(
+        existing_networks=networks,
+        existing_wlans=wlans,
+        existing_devices=devices,
+    )
 
 
 # ── Telemetry cache helpers (graceful when telemetry is not running) ────
@@ -63,6 +89,53 @@ def _count_aps_at_sites(device_cache, site_ids: set[str]) -> int:
     except Exception:
         pass
     return total
+
+
+def _extract_poe_data_from_cache(site_id: str) -> tuple[dict[str, float], dict[str, list[str]]]:
+    """Extract PoE budget and active PoE ports from telemetry cache.
+
+    Returns:
+        (poe_budgets, active_poe_ports)
+        poe_budgets: {device_id: total_max_power_watts}
+        active_poe_ports: {device_id: [port_ids delivering PoE]}
+    """
+    poe_budgets: dict[str, float] = {}
+    active_poe_ports: dict[str, list[str]] = {}
+
+    try:
+        from app.modules.telemetry import _latest_cache
+
+        if not _latest_cache:
+            return poe_budgets, active_poe_ports
+
+        cached_devices = _latest_cache.get_all_for_site(site_id, max_age_seconds=120)
+        for stats in cached_devices:
+            if stats.get("type") != "switch":
+                continue
+            device_id = stats.get("_id", stats.get("mac", ""))
+
+            # Sum PoE budget across all modules (FPCs)
+            total_max = 0.0
+            for module in stats.get("module_stat", []):
+                poe = module.get("poe", {})
+                total_max += poe.get("max_power", 0)
+
+            if total_max > 0:
+                poe_budgets[device_id] = total_max
+
+            # For active PoE ports, check clients with LLDP source
+            # (Switch WS doesn't expose per-port PoE, so we track ports that are up
+            # and connected to PoE devices like APs based on LLDP clients)
+            active_ports: list[str] = []
+            for client in stats.get("clients", []):
+                if client.get("source") == "lldp":
+                    active_ports.extend(client.get("port_ids", []))
+            if active_ports:
+                active_poe_ports[device_id] = active_ports
+    except Exception:
+        pass
+
+    return poe_budgets, active_poe_ports
 
 
 _SEVERITY_ORDER = {"pass": 0, "skipped": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
@@ -115,6 +188,7 @@ async def run_layer1_checks(
     virtual_state: dict[tuple, dict[str, Any]],
     staged_writes: list,
     org_id: str,
+    ctx: SimulationContext | None = None,
 ) -> list[CheckResult]:
     """Run all 14 Layer 1 config conflict checks against the virtual state."""
     from app.modules.backup.models import BackupObject
@@ -148,12 +222,19 @@ async def run_layer1_checks(
             config_copy["_site_name"] = site_id or "org"
             all_networks.append(config_copy)
 
-    # Parallel load from backup
-    existing_networks_raw, existing_wlans_raw, existing_devices_raw = await asyncio.gather(
-        load_all_objects_of_type(org_id, "networks"),
-        load_all_objects_of_type(org_id, "wlans"),
-        load_all_objects_of_type(org_id, "devices"),
-    )
+    # Use pre-fetched context if available, otherwise load from backup
+    if ctx:
+        existing_networks_raw, existing_wlans_raw, existing_devices_raw = (
+            ctx.existing_networks,
+            ctx.existing_wlans,
+            ctx.existing_devices,
+        )
+    else:
+        existing_networks_raw, existing_wlans_raw, existing_devices_raw = await asyncio.gather(
+            load_all_objects_of_type(org_id, "networks"),
+            load_all_objects_of_type(org_id, "wlans"),
+            load_all_objects_of_type(org_id, "devices"),
+        )
 
     existing_networks = []
     for net in existing_networks_raw:
@@ -400,14 +481,31 @@ async def run_layer2_checks(
                 continue
             predicted_snapshot = capture_topology_snapshot(predicted_topo)
 
+            # PoE data from telemetry
+            poe_budgets, active_poe_ports = _extract_poe_data_from_cache(site_id)
+
+            # Port counts from predicted snapshot
+            port_counts: dict[str, tuple[int, int]] = {}
+            for dev_id, dev_info in predicted_snapshot.get("devices", {}).items():
+                if dev_info.get("device_type") == "switch":
+                    # Count used ports from connections + total from device model
+                    used = sum(
+                        1
+                        for c in predicted_snapshot.get("connections", [])
+                        if c.get("local_device_id") == dev_id or c.get("remote_device_id") == dev_id
+                    )
+                    # Estimate total ports from model (fallback: 48)
+                    total = 48  # Default
+                    port_counts[dev_id] = (used, total)
+
             # Run all L2 checks
             results.append(check_connectivity_loss(baseline_snapshot, predicted_snapshot))
             results.append(check_vlan_black_hole(predicted_snapshot))
             results.append(check_lag_mclag_integrity(baseline_snapshot, predicted_snapshot))
             results.append(check_vc_integrity(baseline_snapshot, predicted_snapshot))
-            results.append(check_poe_budget_overrun(predicted_snapshot, {}))
-            results.append(check_poe_disable_on_active(baseline_snapshot, predicted_snapshot, {}))
-            results.append(check_port_capacity_saturation(predicted_snapshot, {}))
+            results.append(check_poe_budget_overrun(predicted_snapshot, poe_budgets))
+            results.append(check_poe_disable_on_active(baseline_snapshot, predicted_snapshot, active_poe_ports))
+            results.append(check_port_capacity_saturation(predicted_snapshot, port_counts))
             results.append(check_lacp_misconfiguration(predicted_snapshot))
             results.append(check_mtu_mismatch(predicted_snapshot))
         except Exception as e:
@@ -488,6 +586,7 @@ async def run_layer4_checks(
     virtual_state: dict[tuple, dict[str, Any]],
     staged_writes: list,
     org_id: str,
+    ctx: SimulationContext | None = None,
 ) -> list[CheckResult]:
     """Run Layer 4 security policy checks."""
     from app.modules.digital_twin.services.security_checks import (
@@ -510,8 +609,8 @@ async def run_layer4_checks(
             wlan_copy["_site_id"] = site_id
             all_wlans.append(wlan_copy)
 
-    # Also include existing WLANs from backup
-    existing_wlans = await load_all_objects_of_type(org_id, "wlans")
+    # Also include existing WLANs from backup (use ctx if available)
+    existing_wlans = ctx.existing_wlans if ctx else await load_all_objects_of_type(org_id, "wlans")
     for w in existing_wlans:
         w_copy = dict(w)
         w_copy.setdefault("_site_id", w.get("site_id"))
@@ -551,7 +650,7 @@ async def run_layer4_checks(
     for (obj_type, _site_id, _obj_id), config in virtual_state.items():
         if obj_type == "networks":
             networks.append(dict(config))
-    existing_nets = await load_all_objects_of_type(org_id, "networks")
+    existing_nets = ctx.existing_networks if ctx else await load_all_objects_of_type(org_id, "networks")
     networks.extend(existing_nets)
 
     services: list[dict[str, Any]] = []

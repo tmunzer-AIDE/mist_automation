@@ -18,6 +18,7 @@ from app.modules.digital_twin.models import (
 )
 from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
 from app.modules.digital_twin.services.prediction_service import (
+    _build_simulation_context,
     build_prediction_report,
     run_layer1_checks,
 )
@@ -105,8 +106,11 @@ async def simulate(
     session.base_snapshot_refs = refs
     session.live_fetched_at = datetime.now(timezone.utc)
 
+    # Pre-fetch shared backup data once for all check layers
+    ctx = await _build_simulation_context(org_id)
+
     # Run Layer 1 checks
-    check_results = await run_layer1_checks(virtual_state, staged_writes, org_id)
+    check_results = await run_layer1_checks(virtual_state, staged_writes, org_id, ctx=ctx)
 
     # Run Layer 2 checks if any sites are affected
     if affected_sites:
@@ -124,7 +128,7 @@ async def simulate(
         l3_results = await run_layer3_checks(virtual_state, staged_writes, org_id, set(affected_sites))
         check_results.extend(l3_results)
 
-        l4_results = await run_layer4_checks(virtual_state, staged_writes, org_id)
+        l4_results = await run_layer4_checks(virtual_state, staged_writes, org_id, ctx=ctx)
         check_results.extend(l4_results)
 
         l5_results = await run_layer5_checks(virtual_state, staged_writes, org_id, set(affected_sites))

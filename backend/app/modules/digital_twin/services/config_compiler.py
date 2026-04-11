@@ -349,8 +349,19 @@ async def _compile_site_devices(
         if device_type == "switch":
             compiled = compile_switch_config(derived_setting, config, site_vars)
         elif device_type == "gateway":
-            # Device profile is embedded via device_profile_id resolution — use empty for now
-            compiled = compile_gateway_config(gw_template, {}, config, site_vars)
+            # Load device profile if assigned
+            device_profile: dict[str, Any] | None = None
+            dp_id = config.get("deviceprofile_id")
+            if dp_id:
+                dp_backup = (
+                    await BackupObject.find({"object_type": "deviceprofiles", "object_id": dp_id, "is_deleted": False})
+                    .sort([("version", -1)])
+                    .first_or_none()
+                )
+                if dp_backup:
+                    device_profile = dp_backup.configuration
+
+            compiled = compile_gateway_config(gw_template, device_profile or {}, config, site_vars)
         else:
             # APs: no port config to compile
             compiled = dict(config)
