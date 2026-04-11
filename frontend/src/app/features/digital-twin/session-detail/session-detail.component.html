@@ -1,0 +1,247 @@
+<ng-template #actionsTemplate>
+  @if (isAwaitingApproval()) {
+    <button mat-flat-button class="approve-btn" (click)="approve()" [disabled]="loading()">
+      <mat-icon>check_circle</mat-icon>
+      Approve &amp; Deploy
+    </button>
+    <button mat-stroked-button class="reject-btn" (click)="reject()" [disabled]="loading()">
+      <mat-icon>cancel</mat-icon>
+      Reject
+    </button>
+  }
+</ng-template>
+
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+@if (session(); as s) {
+  <div class="session-detail">
+    <div class="back-link">
+      <a routerLink="/digital-twin">
+        <mat-icon>arrow_back</mat-icon>
+        Digital Twin Sessions
+      </a>
+    </div>
+
+    <div class="session-header">
+      <div class="title-row">
+        <h2>{{ s.source_ref || 'Twin Session' }}</h2>
+        <app-status-badge [status]="s.status" />
+      </div>
+      <div class="meta-row">
+        <span class="meta-item">
+          <mat-icon class="meta-icon">source</mat-icon>
+          {{ sourceLabel(s.source) }}
+        </span>
+        <span class="meta-item">
+          <mat-icon class="meta-icon">schedule</mat-icon>
+          {{ s.created_at | dateTime: 'short' }}
+        </span>
+        @if (s.affected_sites.length > 0) {
+          <span class="meta-item">
+            <mat-icon class="meta-icon">location_on</mat-icon>
+            {{ s.affected_sites.length }} site{{ s.affected_sites.length !== 1 ? 's' : '' }}
+          </span>
+        }
+        @if (s.remediation_count > 0) {
+          <span class="meta-item">
+            <mat-icon class="meta-icon">auto_fix_high</mat-icon>
+            {{ s.remediation_count }} remediation{{ s.remediation_count !== 1 ? 's' : '' }}
+          </span>
+        }
+      </div>
+      @if (s.ai_assessment) {
+        <div class="ai-assessment">
+          <mat-icon class="ai-icon">smart_toy</mat-icon>
+          <span>{{ s.ai_assessment }}</span>
+        </div>
+      }
+    </div>
+
+    @if (s.prediction_report; as report) {
+      <div class="summary-cards">
+        <div class="summary-card card-passed">
+          <div class="card-value">{{ report.passed }}</div>
+          <div class="card-label">Passed</div>
+        </div>
+        <div class="summary-card card-warnings">
+          <div class="card-value">{{ report.warnings }}</div>
+          <div class="card-label">Warnings</div>
+        </div>
+        <div class="summary-card card-errors">
+          <div class="card-value">{{ report.errors }}</div>
+          <div class="card-label">Errors</div>
+        </div>
+        <div class="summary-card card-critical">
+          <div class="card-value">{{ report.critical }}</div>
+          <div class="card-label">Critical</div>
+        </div>
+      </div>
+    }
+
+    <mat-tab-group animationDuration="150ms">
+      <!-- Tab 1: Check Results -->
+      <mat-tab label="Check Results">
+        <div class="tab-content">
+          @for (layer of layers; track layer.number) {
+            @if (checksForLayer(layer.number).length > 0) {
+              <div class="layer-section">
+                <div class="layer-header" (click)="toggleLayer(layer.number)">
+                  <mat-icon class="expand-icon">
+                    {{ isLayerExpanded(layer.number) ? 'expand_more' : 'chevron_right' }}
+                  </mat-icon>
+                  <span class="layer-name">L{{ layer.number }} — {{ layer.name }}</span>
+                  <span class="layer-count">{{ checksForLayer(layer.number).length }} checks</span>
+                  @if (issueCountForLayer(layer.number) > 0) {
+                    <span class="issue-badge">{{ issueCountForLayer(layer.number) }} issue{{ issueCountForLayer(layer.number) !== 1 ? 's' : '' }}</span>
+                  } @else {
+                    <span class="clean-badge">Clean</span>
+                  }
+                </div>
+
+                @if (isLayerExpanded(layer.number)) {
+                  <div class="layer-checks">
+                    @for (check of checksForLayer(layer.number); track check.check_id) {
+                      @if (check.status === 'pass' || check.status === 'skipped') {
+                        <div class="check-row check-passed">
+                          <mat-icon class="check-icon icon-pass">check_circle</mat-icon>
+                          <span class="check-id">{{ check.check_id }}</span>
+                          <span class="check-name">{{ check.check_name }}</span>
+                        </div>
+                      } @else {
+                        <div
+                          class="check-row check-failed"
+                          [class.check-expanded]="isCheckExpanded(check.check_id)"
+                          (click)="toggleCheck(check.check_id)"
+                        >
+                          <div class="check-summary-row">
+                            <mat-icon class="check-icon icon-fail">cancel</mat-icon>
+                            <span class="check-id">{{ check.check_id }}</span>
+                            <span class="check-name">{{ check.check_name }}</span>
+                            <span class="check-severity severity-{{ check.status }}">
+                              {{ severityLabel(check.status) }}
+                            </span>
+                            <mat-icon class="toggle-icon">
+                              {{ isCheckExpanded(check.check_id) ? 'expand_less' : 'expand_more' }}
+                            </mat-icon>
+                          </div>
+
+                          @if (isCheckExpanded(check.check_id)) {
+                            <div class="check-details" (click)="$event.stopPropagation()">
+                              @if (check.summary) {
+                                <p class="check-summary-text">{{ check.summary }}</p>
+                              }
+                              @if (check.details.length > 0) {
+                                <ul class="details-list">
+                                  @for (detail of check.details; track $index) {
+                                    <li>{{ detail }}</li>
+                                  }
+                                </ul>
+                              }
+                              @if (check.affected_objects.length > 0) {
+                                <div class="affected-section">
+                                  <span class="affected-label">Affected objects:</span>
+                                  @for (obj of check.affected_objects; track $index) {
+                                    <code class="affected-item">{{ obj }}</code>
+                                  }
+                                </div>
+                              }
+                              @if (check.remediation_hint) {
+                                <div class="remediation-hint">
+                                  <mat-icon class="hint-icon">lightbulb</mat-icon>
+                                  <span>{{ check.remediation_hint }}</span>
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
+                      }
+                    }
+                  </div>
+                }
+              </div>
+            }
+          }
+        </div>
+      </mat-tab>
+
+      <!-- Tab 2: Staged Writes -->
+      <mat-tab [label]="'Staged Writes (' + s.staged_writes.length + ')'">
+        <div class="tab-content">
+          @if (s.staged_writes.length === 0) {
+            <div class="empty-tab">No staged writes for this session.</div>
+          } @else {
+            @for (write of s.staged_writes; track write.sequence) {
+              <div
+                class="write-row"
+                [class.write-expanded]="isWriteExpanded(write.sequence)"
+                (click)="toggleWrite(write.sequence)"
+              >
+                <div class="write-summary-row">
+                  <span class="write-seq">#{{ write.sequence }}</span>
+                  <span class="method-badge {{ methodClass(write.method) }}">{{ write.method }}</span>
+                  <code class="write-endpoint">{{ write.endpoint }}</code>
+                  @if (write.object_type) {
+                    <span class="object-type">{{ write.object_type }}</span>
+                  }
+                  <mat-icon class="toggle-icon">
+                    {{ isWriteExpanded(write.sequence) ? 'expand_less' : 'expand_more' }}
+                  </mat-icon>
+                </div>
+
+                @if (isWriteExpanded(write.sequence) && write.body) {
+                  <div class="write-body" (click)="$event.stopPropagation()">
+                    <pre>{{ write.body | json }}</pre>
+                  </div>
+                }
+              </div>
+            }
+          }
+        </div>
+      </mat-tab>
+
+      <!-- Tab 3: Remediation History (only if count > 0) -->
+      @if (s.remediation_count > 0) {
+        <mat-tab [label]="'Remediation History (' + s.remediation_history.length + ')'">
+          <div class="tab-content">
+            @for (attempt of s.remediation_history; track attempt.attempt) {
+              <div class="remediation-card">
+                <div class="remediation-header">
+                  <span class="attempt-label">Attempt #{{ attempt.attempt }}</span>
+                  <span class="attempt-time">{{ attempt.timestamp | dateTime: 'short' }}</span>
+                </div>
+                <div class="severity-change">
+                  <span class="severity-badge severity-{{ attempt.previous_severity }}">
+                    {{ severityLabel(attempt.previous_severity) }}
+                  </span>
+                  <mat-icon class="arrow-icon">arrow_forward</mat-icon>
+                  <span class="severity-badge severity-{{ attempt.new_severity }}">
+                    {{ severityLabel(attempt.new_severity) }}
+                  </span>
+                  <span class="writes-changed">{{ attempt.changed_writes.length }} write{{ attempt.changed_writes.length !== 1 ? 's' : '' }} changed</span>
+                </div>
+                @if (attempt.fixed_checks.length > 0) {
+                  <div class="check-tags-row">
+                    <span class="tags-label">Fixed:</span>
+                    @for (id of attempt.fixed_checks; track id) {
+                      <span class="check-tag tag-fixed">{{ id }}</span>
+                    }
+                  </div>
+                }
+                @if (attempt.introduced_checks.length > 0) {
+                  <div class="check-tags-row">
+                    <span class="tags-label">Introduced:</span>
+                    @for (id of attempt.introduced_checks; track id) {
+                      <span class="check-tag tag-introduced">{{ id }}</span>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </mat-tab>
+      }
+    </mat-tab-group>
+  </div>
+}
