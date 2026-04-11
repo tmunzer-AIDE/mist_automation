@@ -48,7 +48,7 @@ class CheckResult(BaseModel):
     check_id: str
     check_name: str
     layer: int
-    status: Literal["pass", "warning", "error", "critical", "skipped"]
+    status: Literal["pass", "info", "warning", "error", "critical", "skipped"]
     summary: str
     details: list[str] = Field(default_factory=list)
     affected_objects: list[str] = Field(default_factory=list)

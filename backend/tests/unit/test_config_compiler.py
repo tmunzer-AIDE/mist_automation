@@ -181,11 +181,15 @@ class TestCompileSwitchConfig:
         result = compile_switch_config(derived, device, {"site_name": "HQ"})
         assert result["networks"]["corp"]["description"] == "site HQ"
 
-    def test_port_config_is_device_only(self) -> None:
-        derived = self._make_derived()
-        device = self._make_device(port_config={"ge-0/0/0": {"usage": "default"}})
+    def test_port_config_deep_merge_preserves_inherited_fields(self) -> None:
+        derived = self._make_derived(
+            port_config={"ge-0/0/0": {"usage": "trunk", "vlan_id": 100, "poe_disabled": False}}
+        )
+        device = self._make_device(port_config={"ge-0/0/0": {"poe_disabled": True}})
         result = compile_switch_config(derived, device, {})
-        assert result["port_config"] == {"ge-0/0/0": {"usage": "default"}}
+        assert result["port_config"]["ge-0/0/0"]["usage"] == "trunk"
+        assert result["port_config"]["ge-0/0/0"]["vlan_id"] == 100
+        assert result["port_config"]["ge-0/0/0"]["poe_disabled"] is True
 
     def test_dhcpd_config_merged(self) -> None:
         derived = self._make_derived(dhcpd_config={"enabled": True, "subnet": "10.0.0.0/24"})

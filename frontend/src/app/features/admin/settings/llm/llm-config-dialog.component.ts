@@ -284,7 +284,16 @@ export class LlmConfigDialogComponent implements OnInit {
 
   showBaseUrl(): boolean {
     const p = this.form.get('provider')?.value;
-    return ['openai_compatible', 'azure_openai', 'bedrock', 'ollama', 'lm_studio', 'llama_cpp', 'vllm'].includes(
+    return [
+      'openai_compatible',
+      'azure_openai',
+      'bedrock',
+      'mistral',
+      'ollama',
+      'lm_studio',
+      'llama_cpp',
+      'vllm',
+    ].includes(
       p || '',
     );
   }
@@ -343,7 +352,10 @@ export class LlmConfigDialogComponent implements OnInit {
 
     for (const [k, v] of Object.entries(values)) {
       if (k === 'api_key' && !v) continue;
-      if (k === 'base_url' && !allowBaseUrl) continue;
+      if (k === 'base_url' && !allowBaseUrl) {
+        payload[k] = null;
+        continue;
+      }
       // canvas_prompt_tier: null means "auto-detect" and must be sent explicitly
       if (k === 'canvas_prompt_tier') { payload[k] = v; continue; }
       // context_window_tokens: null means "auto-detect" and must be sent explicitly (to clear override)

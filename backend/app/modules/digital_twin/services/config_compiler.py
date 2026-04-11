@@ -178,11 +178,11 @@ def compile_switch_config(
         },
         site_vars,
     )
-    # Port config: site setting provides the base, device overrides per-port
-    port_config = {
-        **dict(derived_setting.get("port_config") or {}),
-        **dict(device_config.get("port_config") or {}),
-    }
+    # Port config: merge per-port fields so device overrides do not drop inherited keys.
+    port_config = _deep_merge_port_config(
+        derived_setting.get("port_config"),
+        device_config.get("port_config"),
+    )
 
     return {
         "port_usages": port_usages,
