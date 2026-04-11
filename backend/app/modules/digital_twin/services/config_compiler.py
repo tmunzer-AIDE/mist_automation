@@ -21,10 +21,9 @@ from typing import Any
 import structlog
 
 from app.modules.digital_twin.models import StagedWrite
+from app.modules.digital_twin.services.state_resolver import _DELETED_SENTINEL_KEY
 
 logger = structlog.get_logger(__name__)
-
-_DELETED_SENTINEL_KEY = "__twin_deleted__"
 
 # ---------------------------------------------------------------------------
 # Template type mapping

@@ -133,6 +133,16 @@ class TestParseEndpoint:
         assert result.object_type == "servicepolicies"
         assert result.error is None
 
+    def test_wxtags(self):
+        result = parse_endpoint("PUT", "/api/v1/orgs/org-123/wxtags/tag-1")
+        assert result.object_type == "wxtags"
+        assert result.error is None
+
+    def test_aamwprofiles(self):
+        result = parse_endpoint("PUT", "/api/v1/orgs/org-123/aamwprofiles/aamw-1")
+        assert result.object_type == "aamwprofiles"
+        assert result.error is None
+
     # --- Normalization tests (singular → plural) ---
 
     def test_normalize_wlan_to_wlans(self):

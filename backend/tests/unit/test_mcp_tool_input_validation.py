@@ -174,65 +174,193 @@ class TestSkillsToolValidation:
 
 @pytest.mark.unit
 class TestDigitalTwinValidation:
-    CONFIG_ORG = "8aa21779-1178-4357-b3e0-42c02b93b870"
-    ENV_ORG = "3699b3fd-1b63-49f3-98ac-b8502a047b2e"
+    ORG_ID = "8aa21779-1178-4357-b3e0-42c02b93b870"
+    SITE_ID = "2818e386-8dec-4562-9ede-5b8a0fbbdc71"
+    OBJECT_ID = "3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7"
 
-    def test_prefers_explicit_org_id(self):
-        explicit = "2818e386-8dec-2562-9ede-5b8a0fbbdc71"
-        resolved = resolve_twin_org_id(explicit, self.CONFIG_ORG, self.ENV_ORG)
-        assert resolved == explicit
-
-    def test_prefers_system_config_org_id(self):
-        resolved = resolve_twin_org_id("", self.CONFIG_ORG, self.ENV_ORG)
-        assert resolved == self.CONFIG_ORG
-
-    def test_falls_back_to_env_org_id(self):
-        resolved = resolve_twin_org_id("", "", self.ENV_ORG)
-        assert resolved == self.ENV_ORG
+    def test_resolves_explicit_org_id(self):
+        resolved = resolve_twin_org_id(self.ORG_ID)
+        assert resolved == self.ORG_ID
 
     def test_rejects_invalid_explicit_org_id(self):
         with pytest.raises(ToolError, match="must be a valid UUID"):
-            resolve_twin_org_id("my-org", self.CONFIG_ORG, self.ENV_ORG)
+            resolve_twin_org_id("my-org")
 
     def test_rejects_missing_org_id(self):
-        with pytest.raises(ToolError, match="Mist Organization ID not configured"):
-            resolve_twin_org_id("", "", "")
+        with pytest.raises(ToolError, match="org_id is required"):
+            resolve_twin_org_id("")
 
-    def test_simulate_requires_writes(self):
-        with pytest.raises(ToolError, match="No writes provided"):
-            validate_twin(action="simulate", writes=None, session_id="")
-
-    def test_rejects_placeholder_endpoint(self):
-        with pytest.raises(ToolError, match="contains unresolved placeholders"):
+    def test_simulate_requires_action_type(self):
+        with pytest.raises(ToolError, match="action_type is required"):
             validate_twin(
                 action="simulate",
-                writes=[{"method": "PUT", "endpoint": "/api/v1/sites/{site_id}/devices/x", "body": {}}],
+                action_type=None,
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type="org_wlans",
+                payload={"ssid": "Guest"},
+                object_id=None,
                 session_id="",
             )
 
-    def test_rejects_org_endpoint_mismatch(self):
-        with pytest.raises(ToolError, match="does not match resolved org_id"):
+    def test_simulate_requires_object_type(self):
+        with pytest.raises(ToolError, match="object_type is required"):
             validate_twin(
                 action="simulate",
-                writes=[
-                    {
-                        "method": "PUT",
-                        "endpoint": "/api/v1/orgs/11111111-1111-1111-1111-111111111111/networks/22222222-2222-2222-2222-222222222222",
-                        "body": {"name": "x"},
-                    }
-                ],
+                action_type="create",
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type=None,
+                payload={"ssid": "Guest"},
+                object_id=None,
                 session_id="",
-                resolved_org_id="33333333-3333-3333-3333-333333333333",
             )
+
+    def test_simulate_requires_org_id(self):
+        with pytest.raises(ToolError, match="org_id is required"):
+            validate_twin(
+                action="simulate",
+                action_type="create",
+                org_id=None,
+                site_id=None,
+                object_type="org_wlans",
+                payload={"ssid": "Guest"},
+                object_id=None,
+                session_id="",
+            )
+
+    def test_site_scoped_object_requires_site_id(self):
+        with pytest.raises(ToolError, match="site_id is required"):
+            validate_twin(
+                action="simulate",
+                action_type="update",
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type="site_wlans",
+                payload={"ssid": "Guest"},
+                object_id=self.OBJECT_ID,
+                session_id="",
+            )
+
+    def test_org_scoped_object_rejects_site_id(self):
+        with pytest.raises(ToolError, match="site_id is not supported"):
+            validate_twin(
+                action="simulate",
+                action_type="create",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="org_wlans",
+                payload={"ssid": "Guest"},
+                object_id=None,
+                session_id="",
+            )
+
+    def test_delete_rejects_payload(self):
+        with pytest.raises(ToolError, match="payload is not supported"):
+            validate_twin(
+                action="simulate",
+                action_type="delete",
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type="org_wlans",
+                payload={"name": "not-allowed"},
+                object_id=self.OBJECT_ID,
+                session_id="",
+            )
+
+    def test_create_rejects_object_id(self):
+        with pytest.raises(ToolError, match="object_id is not supported"):
+            validate_twin(
+                action="simulate",
+                action_type="create",
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type="org_wlans",
+                payload={"ssid": "Guest"},
+                object_id=self.OBJECT_ID,
+                session_id="",
+            )
+
+    def test_rejects_payload_placeholders(self):
+        with pytest.raises(ToolError, match="payload contains unresolved placeholders"):
+            validate_twin(
+                action="simulate",
+                action_type="update",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="site_wlans",
+                payload={"ssid": "{{guest_ssid}}"},
+                object_id=self.OBJECT_ID,
+                session_id="",
+            )
+
+    def test_compiles_valid_update_write(self):
+        validated = validate_twin(
+            action="simulate",
+            action_type="update",
+            org_id=self.ORG_ID,
+            site_id=self.SITE_ID,
+            object_type="site_wlans",
+            payload={"ssid": "Guest"},
+            object_id=self.OBJECT_ID,
+            session_id="",
+        )
+
+        assert validated["action"] == "simulate"
+        assert validated["org_id"] == self.ORG_ID
+        assert validated["writes"][0]["method"] == "PUT"
+        assert validated["writes"][0]["endpoint"] == (
+            f"/api/v1/sites/{self.SITE_ID}/wlans/{self.OBJECT_ID}"
+        )
 
     def test_approve_requires_session_id(self):
         with pytest.raises(ToolError, match="session_id required"):
-            validate_twin(action="approve", writes=None, session_id="")
+            validate_twin(
+                action="approve",
+                action_type=None,
+                org_id=None,
+                site_id=None,
+                object_type=None,
+                payload=None,
+                object_id=None,
+                session_id="",
+            )
 
-    def test_history_rejects_writes(self):
-        with pytest.raises(ToolError, match="writes is not supported"):
+    def test_session_actions_require_objectid_session_id(self):
+        with pytest.raises(ToolError, match="24-character hex ObjectId"):
+            validate_twin(
+                action="status",
+                action_type=None,
+                org_id=None,
+                site_id=None,
+                object_type=None,
+                payload=None,
+                object_id=None,
+                session_id=self.OBJECT_ID,
+            )
+
+    def test_simulate_existing_session_requires_objectid(self):
+        with pytest.raises(ToolError, match="24-character hex ObjectId"):
+            validate_twin(
+                action="simulate",
+                action_type="update",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="site_wlans",
+                payload={"ssid": "Guest"},
+                object_id=self.OBJECT_ID,
+                session_id=self.OBJECT_ID,
+            )
+
+    def test_history_rejects_simulation_fields(self):
+        with pytest.raises(ToolError, match="not supported for action='history'"):
             validate_twin(
                 action="history",
-                writes=[{"method": "POST", "endpoint": "/api/v1/sites/a/wlans", "body": {}}],
+                action_type="create",
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type="org_wlans",
+                payload={"ssid": "Guest"},
+                object_id=None,
                 session_id="",
             )

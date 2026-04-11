@@ -4,17 +4,18 @@ MCP tool: digital_twin — pre-deployment simulation for Mist config changes.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import re
 from enum import Enum
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastmcp.exceptions import ToolError
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from app.modules.mcp_server.helpers import _elicit, to_json
 from app.modules.mcp_server.server import mcp, mcp_user_id_var
-from app.modules.mcp_server.tools.utils import endpoint_has_placeholder, is_placeholder, is_uuid
+from app.modules.mcp_server.tools.utils import is_placeholder, is_uuid
 
 
 class TwinActionType(str, Enum):
@@ -25,56 +26,253 @@ class TwinActionType(str, Enum):
     HISTORY = 'history'
 
 
-class TwinWriteMethod(str, Enum):
-    POST = 'POST'
-    PUT = 'PUT'
-    DELETE = 'DELETE'
+class Object_type(str, Enum):
+    ORG_ALARMTEMPLATES = 'org_alarmtemplates'
+    ORG_WLANS = 'org_wlans'
+    ORG_SITEGROUPS = 'org_sitegroups'
+    ORG_AVPROFILES = 'org_avprofiles'
+    ORG_DEVICEPROFILES = 'org_deviceprofiles'
+    ORG_GATEWAYTEMPLATES = 'org_gatewaytemplates'
+    ORG_IDPPROFILES = 'org_idpprofiles'
+    ORG_AAMWPROFILES = 'org_aamwprofiles'
+    ORG_NACTAGS = 'org_nactags'
+    ORG_NACRULES = 'org_nacrules'
+    ORG_NETWORKTEMPLATES = 'org_networktemplates'
+    ORG_NETWORKS = 'org_networks'
+    ORG_PSKS = 'org_psks'
+    ORG_RFTEMPLATES = 'org_rftemplates'
+    ORG_SERVICES = 'org_services'
+    ORG_SERVICEPOLICIES = 'org_servicepolicies'
+    ORG_SITETEMPLATES = 'org_sitetemplates'
+    ORG_VPNS = 'org_vpns'
+    ORG_WEBHOOKS = 'org_webhooks'
+    ORG_WLANTEMPLATES = 'org_wlantemplates'
+    ORG_WXRULES = 'org_wxrules'
+    ORG_WXTAGS = 'org_wxtags'
+    SITE_DEVICES = 'site_devices'
+    SITE_EVPN_TOPOLOGIES = 'site_evpn_topologies'
+    SITE_PSKS = 'site_psks'
+    SITE_WEBHOOKS = 'site_webhooks'
+    SITE_WLANS = 'site_wlans'
+    SITE_WXRULES = 'site_wxrules'
+    SITE_WXTAGS = 'site_wxtags'
 
 
-class TwinWriteInput(BaseModel):
-    method: TwinWriteMethod
-    endpoint: str
-    body: dict[str, Any] | None = None
+class Action_type(str, Enum):
+    CREATE = 'create'
+    UPDATE = 'update'
+    DELETE = 'delete'
 
 
 _TWIN_ACTIONS: set[str] = {action.value for action in TwinActionType}
-_WRITE_METHODS: set[str] = {'POST', 'PUT', 'DELETE'}
+_TWIN_SESSION_ACTIONS: set[str] = {'approve', 'reject', 'status'}
+
+_ACTION_TO_METHOD: dict[Action_type, str] = {
+    Action_type.CREATE: 'POST',
+    Action_type.UPDATE: 'PUT',
+    Action_type.DELETE: 'DELETE',
+}
+
+_MONGO_OBJECT_ID_RE = re.compile(r'^[0-9a-fA-F]{24}$')
+
+_OBJECT_RESOURCE_OVERRIDES: dict[Object_type, str] = {
+    # Mist uses /templates for WLAN template CRUD.
+    Object_type.ORG_WLANTEMPLATES: 'templates',
+}
+
+_ORG_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if obj.value.startswith('org_')))
+_SITE_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if obj.value.startswith('site_')))
+
+
+def _validate_session_id_format(session_id: str) -> None:
+    """Validate Twin session identifiers are MongoDB ObjectId strings."""
+    if not _MONGO_OBJECT_ID_RE.fullmatch(session_id):
+        raise ToolError(
+            "session_id must be a valid Digital Twin session ID (24-character hex ObjectId)"
+        )
+
+
+def _first_payload_placeholder(value: Any, path: str = 'payload') -> str | None:
+    """Return the first payload path containing an unresolved placeholder value."""
+    if isinstance(value, str):
+        return path if is_placeholder(value) else None
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key)
+            if is_placeholder(key_text):
+                return f'{path}.{key_text}'
+            found = _first_payload_placeholder(item, f'{path}.{key_text}')
+            if found:
+                return found
+        return None
+
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            found = _first_payload_placeholder(item, f'{path}[{index}]')
+            if found:
+                return found
+        return None
+
+    return None
+
+
+def _normalize_optional_uuid(value: UUID | str | None, field_name: str) -> str | None:
+    """Normalize optional UUID-like input to string and validate placeholders/format."""
+    if value is None:
+        return None
+
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+
+    if is_placeholder(normalized):
+        raise ToolError(f"{field_name} must be a real UUID, not a placeholder")
+    if not is_uuid(normalized):
+        raise ToolError(f"{field_name} '{normalized}' must be a valid UUID")
+    return normalized
 
 
 def _resolve_twin_org_id(
-    explicit_org_id: str | None,
-    config_org_id: str | None,
-    env_org_id: str | None,
+    explicit_org_id: UUID | str | None,
 ) -> str:
-    """Resolve Mist org ID for Digital Twin operations.
-
-    Preference order: explicit tool input, SystemConfig value, env fallback.
-    """
-    explicit = (explicit_org_id or '').strip()
-    if explicit:
-        if is_placeholder(explicit):
-            raise ToolError('org_id must be a real UUID, not a placeholder')
-        if not is_uuid(explicit):
-            raise ToolError(f"org_id '{explicit}' must be a valid UUID")
-        return explicit
-
-    resolved = (config_org_id or '').strip() or (env_org_id or '').strip()
+    """Resolve and validate the org ID for Digital Twin simulation."""
+    resolved = _normalize_optional_uuid(explicit_org_id, 'org_id')
     if not resolved:
-        raise ToolError('Mist Organization ID not configured. Set it in Admin Settings before simulation')
-    if not is_uuid(resolved):
-        raise ToolError('Configured Mist Organization ID is invalid. Set a valid UUID in Admin Settings')
+        raise ToolError("org_id is required when action='simulate'")
     return resolved
+
+
+def _coerce_action_type(action_type: Action_type | str | None) -> Action_type | None:
+    """Normalize action_type to enum with clear ToolError messages."""
+    if action_type is None:
+        return None
+    if isinstance(action_type, Action_type):
+        return action_type
+
+    raw = str(action_type).strip().lower()
+    if not raw:
+        return None
+    if is_placeholder(raw):
+        raise ToolError('action_type must be a real value (create, update, delete), not a placeholder')
+
+    try:
+        return Action_type(raw)
+    except ValueError as exc:
+        raise ToolError('action_type must be one of: create, update, delete') from exc
+
+
+def _coerce_object_type(object_type: Object_type | str | None) -> Object_type | None:
+    """Normalize object_type to enum with clear ToolError messages."""
+    if object_type is None:
+        return None
+    if isinstance(object_type, Object_type):
+        return object_type
+
+    raw = str(object_type).strip().lower()
+    if not raw:
+        return None
+    if is_placeholder(raw):
+        raise ToolError('object_type must be a real enum value, not a placeholder')
+
+    try:
+        return Object_type(raw)
+    except ValueError as exc:
+        valid_values = ', '.join(sorted(obj.value for obj in Object_type))
+        raise ToolError(f'object_type must be one of: {valid_values}') from exc
+
+
+def _scope_and_resource(object_type: Object_type) -> tuple[str, str]:
+    """Translate enum object_type into endpoint scope/resource parts."""
+    value = object_type.value
+    if value.startswith('org_'):
+        scope = 'org'
+        resource = value[len('org_') :]
+    elif value.startswith('site_'):
+        scope = 'site'
+        resource = value[len('site_') :]
+    else:
+        raise ToolError(f"Unsupported object_type '{value}'")
+
+    return scope, _OBJECT_RESOURCE_OVERRIDES.get(object_type, resource)
+
+
+def _build_simulation_write(
+    *,
+    action_type: Action_type,
+    org_id: str,
+    site_id: str | None,
+    object_type: Object_type,
+    payload: dict[str, Any] | None,
+    object_id: str | None,
+) -> dict[str, Any]:
+    """Compile a strict enum-driven change request into one Mist write operation."""
+    from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
+
+    scope, resource = _scope_and_resource(object_type)
+    method = _ACTION_TO_METHOD[action_type]
+
+    if scope == 'site':
+        if not site_id:
+            raise ToolError(f"site_id is required when object_type='{object_type.value}'")
+    elif site_id:
+        raise ToolError(f"site_id is not supported when object_type='{object_type.value}'")
+
+    if action_type in {Action_type.UPDATE, Action_type.DELETE} and not object_id:
+        raise ToolError("object_id is required when action_type is 'update' or 'delete'")
+    if action_type == Action_type.CREATE and object_id:
+        raise ToolError("object_id is not supported when action_type is 'create'")
+
+    if action_type in {Action_type.CREATE, Action_type.UPDATE}:
+        if payload is None or not isinstance(payload, dict):
+            raise ToolError("payload must be a JSON object when action_type is 'create' or 'update'")
+        placeholder_path = _first_payload_placeholder(payload)
+        if placeholder_path:
+            raise ToolError(
+                f"payload contains unresolved placeholders at {placeholder_path}. Replace placeholders with real values before simulation"
+            )
+    elif payload is not None:
+        raise ToolError("payload is not supported when action_type is 'delete'")
+
+    if scope == 'org':
+        endpoint_base = f'/api/v1/orgs/{org_id}/{resource}'
+    else:
+        endpoint_base = f'/api/v1/sites/{site_id}/{resource}'
+
+    endpoint = endpoint_base if action_type == Action_type.CREATE else f'{endpoint_base}/{object_id}'
+
+    parsed = parse_endpoint(method, endpoint)
+    if parsed.error:
+        raise ToolError(
+            f"object_type/action_type combination generated invalid endpoint '{endpoint}': {parsed.error}"
+        )
+    if parsed.org_id and parsed.org_id != org_id:
+        raise ToolError(
+            f"Generated endpoint org_id '{parsed.org_id}' does not match provided org_id '{org_id}'"
+        )
+    if scope == 'site' and parsed.site_id != site_id:
+        raise ToolError(
+            f"Generated endpoint site_id '{parsed.site_id}' does not match provided site_id '{site_id}'"
+        )
+
+    write: dict[str, Any] = {'method': method, 'endpoint': endpoint}
+    if payload is not None:
+        write['body'] = payload
+    return write
 
 
 def _validate_twin_inputs(
     *,
     action: TwinActionType | str,
-    writes: Sequence[TwinWriteInput | dict[str, Any]] | None,
+    action_type: Action_type | str | None,
+    org_id: UUID | str | None,
+    site_id: UUID | str | None,
+    object_type: Object_type | str | None,
+    payload: dict[str, Any] | None,
+    object_id: UUID | str | None,
     session_id: str,
-    resolved_org_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate action-specific input coherence for the Digital Twin tool."""
-    from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
 
     normalized_action = action.value if isinstance(action, TwinActionType) else str(action).strip().lower()
     if normalized_action not in _TWIN_ACTIONS:
@@ -83,75 +281,76 @@ def _validate_twin_inputs(
     normalized_session_id = session_id.strip()
     if normalized_session_id and is_placeholder(normalized_session_id):
         raise ToolError(f"Invalid session_id '{session_id}': unresolved placeholders are not allowed")
+    if normalized_session_id and normalized_action in (_TWIN_SESSION_ACTIONS | {'simulate'}):
+        _validate_session_id_format(normalized_session_id)
 
-    normalized_writes: list[dict[str, Any]] = []
+    normalized_action_type = _coerce_action_type(action_type)
+    normalized_object_type = _coerce_object_type(object_type)
+    normalized_org_id = _normalize_optional_uuid(org_id, 'org_id')
+    normalized_site_id = _normalize_optional_uuid(site_id, 'site_id')
+    normalized_object_id = _normalize_optional_uuid(object_id, 'object_id')
 
-    if normalized_action in {'approve', 'reject', 'status'}:
+    has_simulate_params = any(
+        [
+            normalized_action_type is not None,
+            normalized_org_id is not None,
+            normalized_site_id is not None,
+            normalized_object_type is not None,
+            payload is not None,
+            normalized_object_id is not None,
+        ]
+    )
+
+    if normalized_action in _TWIN_SESSION_ACTIONS:
         if not normalized_session_id:
             raise ToolError(f'session_id required for {normalized_action} action')
-        if writes:
-            raise ToolError(f"writes is not supported for action='{normalized_action}'")
+        if has_simulate_params:
+            raise ToolError(
+                f"action_type, org_id, site_id, object_type, payload, and object_id are not supported for action='{normalized_action}'"
+            )
     elif normalized_action == 'history':
         if normalized_session_id:
             raise ToolError("session_id is not supported for action='history'")
-        if writes:
-            raise ToolError("writes is not supported for action='history'")
+        if has_simulate_params:
+            raise ToolError(
+                "action_type, org_id, site_id, object_type, payload, and object_id are not supported for action='history'"
+            )
     else:
-        if writes is None:
-            raise ToolError('No writes provided. Provide a JSON array of {method, endpoint, body} objects')
-        if not isinstance(writes, list):
-            raise ToolError('writes must be a JSON array of {method, endpoint, body} objects')
+        if normalized_action_type is None:
+            raise ToolError("action_type is required when action='simulate'")
+        if normalized_object_type is None:
+            raise ToolError("object_type is required when action='simulate'")
 
-        for idx, write in enumerate(writes):
-            if isinstance(write, TwinWriteInput):
-                write_data = write.model_dump(mode='python')
-            elif isinstance(write, dict):
-                write_data = write
-            else:
-                raise ToolError(f'writes[{idx}] must be an object')
+        resolved_org_id = _resolve_twin_org_id(normalized_org_id)
+        simulation_write = _build_simulation_write(
+            action_type=normalized_action_type,
+            org_id=resolved_org_id,
+            site_id=normalized_site_id,
+            object_type=normalized_object_type,
+            payload=payload,
+            object_id=normalized_object_id,
+        )
 
-            method_raw = write_data.get('method', '')
-            if isinstance(method_raw, TwinWriteMethod):
-                method = method_raw.value
-            else:
-                method = str(method_raw).strip().upper()
-
-            endpoint = str(write_data.get('endpoint', '')).strip()
-            body = write_data.get('body')
-
-            if method not in _WRITE_METHODS:
-                raise ToolError(f'writes[{idx}].method must be one of: POST, PUT, DELETE')
-            if not endpoint:
-                raise ToolError(f'writes[{idx}].endpoint is required')
-            if endpoint_has_placeholder(endpoint):
-                raise ToolError(f'writes[{idx}].endpoint contains unresolved placeholders: {endpoint}')
-            if method in {'POST', 'PUT'} and (body is None or not isinstance(body, dict)):
-                raise ToolError(f'writes[{idx}].body must be an object for method={method}')
-            if method == 'DELETE' and body is not None and not isinstance(body, dict):
-                raise ToolError('writes body must be an object when provided')
-
-            parsed = parse_endpoint(method, endpoint)
-            if parsed.error:
-                raise ToolError(f'writes[{idx}].endpoint is invalid: {parsed.error}')
-            if parsed.site_id and not is_uuid(parsed.site_id):
-                raise ToolError(f"writes[{idx}].endpoint site_id must be a UUID, got '{parsed.site_id}'")
-            if parsed.org_id and not is_uuid(parsed.org_id):
-                raise ToolError(f"writes[{idx}].endpoint org_id must be a UUID, got '{parsed.org_id}'")
-            if parsed.org_id and resolved_org_id and parsed.org_id != resolved_org_id:
-                raise ToolError(f"writes[{idx}].endpoint org_id '{parsed.org_id}' does not match resolved org_id '{resolved_org_id}'")
-
-            normalized_write: dict[str, Any] = {'method': method, 'endpoint': endpoint}
-            if body is not None:
-                normalized_write['body'] = body
-            normalized_writes.append(normalized_write)
-
-        if not normalized_writes:
-            raise ToolError('No writes provided. Provide a JSON array of {method, endpoint, body} objects')
+        return {
+            'action': normalized_action,
+            'writes': [simulation_write],
+            'session_id': normalized_session_id,
+            'org_id': resolved_org_id,
+            'action_type': normalized_action_type.value,
+            'object_type': normalized_object_type.value,
+            'site_id': normalized_site_id,
+            'object_id': normalized_object_id,
+        }
 
     return {
         'action': normalized_action,
-        'writes': normalized_writes,
+        'writes': [],
         'session_id': normalized_session_id,
+        'org_id': None,
+        'action_type': normalized_action_type.value if normalized_action_type else None,
+        'object_type': normalized_object_type.value if normalized_object_type else None,
+        'site_id': normalized_site_id,
+        'object_id': normalized_object_id,
     }
 
 
@@ -162,54 +361,175 @@ async def digital_twin(
         TwinActionType,
         Field(
             description=(
-                'Action to perform: simulate | approve | reject | status | history. '
-                "Use 'simulate' first, then 'approve' only when execution_safe is true."
+                "Action to perform. Use exactly one of:\n"
+                "- simulate: stage one config change and run validation checks (requires action_type, org_id, object_type and action-specific fields).\n"
+                "- approve: execute previously simulated staged writes (requires session_id only).\n"
+                "- reject: cancel a previously simulated session (requires session_id only).\n"
+                "- status: inspect an existing session report and deployment safety state (requires session_id only).\n"
+                "- history: list recent sessions for the current user (no other fields).\n"
+                "Always run simulate first and only approve when execution_safe is true."
             )
         ),
     ],
-    writes: Annotated[
-        list[TwinWriteInput] | None,
+    action_type: Annotated[
+        Action_type | None,
         Field(
             description=(
-                "Writes for simulate action only. "
-                'Each write: {"method": "POST|PUT|DELETE", "endpoint": "/api/v1/...", "body": {...}}. '
-                'Endpoints are strict-validated before simulation.'
-            )
+                'Whether the simulation change creates, updates, or deletes an object. '
+                "Required when action='simulate'. When updating or deleting, object_id is required."
+            ),
+            examples=['create', 'update', 'delete'],
         ),
     ] = None,
     org_id: Annotated[
+        UUID | None,
+        Field(
+            description=(
+                "Organization ID. Required when action='simulate'."
+            ),
+            examples=['8aa21779-1178-4357-b3e0-42c02b93b870'],
+        ),
+    ] = None,
+    site_id: Annotated[
+        UUID | None,
+        Field(
+            default=None,
+            description=(
+                "Site ID. Required for simulate when object_type is site-scoped (value starts with 'site_'). "
+                "Do not pass site_id for org-scoped object_type values."
+            ),
+            examples=['2818e386-8dec-4562-9ede-5b8a0fbbdc71'],
+        ),
+    ] = None,
+    object_type: Annotated[
+        Object_type | None,
+        Field(
+            description=(
+                'Type of configuration object to create, update, or delete. Required when action=\'simulate\'. '
+                "Use one of the explicit enum values (org_* or site_*). "
+                f"Org-scoped values: {_ORG_OBJECT_TYPE_VALUES}. "
+                f"Site-scoped values: {_SITE_OBJECT_TYPE_VALUES}."
+            ),
+            examples=['org_wlans', 'site_wlans', 'site_devices'],
+        ),
+    ] = None,
+    payload: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description=(
+                "JSON payload for create/update simulation. Required when action_type is 'create' or 'update'. "
+                "When updating an existing object, include all required attributes in the payload. "
+                "Recommended workflow: first read the current object via get-configuration tools, then apply only intended changes. "
+                "Do not include unresolved placeholders such as {{var}}, {id}, <id>, or :id."
+            ),
+            examples=[{'ssid': 'Guest', 'enabled': True, 'vlan_id': '200'}],
+        ),
+    ] = None,
+    object_id: Annotated[
+        UUID | None,
+        Field(
+            description=(
+                "Object ID for update/delete simulation target. Required when action_type is 'update' or 'delete'."
+            ),
+            default=None,
+            examples=['3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7'],
+        ),
+    ] = None,
+    session_id: Annotated[
         str,
         Field(
             description=(
-                'Optional Mist org UUID override for this call. '
-                'If omitted, uses SystemConfig mist_org_id or env fallback.'
-            )
+                'Digital Twin session ID for approve/reject/status actions. '
+                "For action='simulate', optionally pass an existing session_id to record another remediation iteration. "
+                'Format: 24-character hex MongoDB ObjectId.'
+            ),
+            examples=['67f1f77bcf86cd799439011a'],
         ),
     ] = '',
-    session_id: Annotated[
-        str,
-        Field(description='Twin session ID for approve/reject/status actions.'),
-    ] = '',
 ) -> str:
-    """Pre-deployment simulation engine (Digital Twin)."""
+    """Pre-deployment simulation engine (Digital Twin) for Mist config changes.
+
+    Simulation mode (`action='simulate'`) now uses a strict change-object contract:
+    - `action_type`: create | update | delete
+    - `org_id`: organization UUID
+    - `site_id`: required for site-scoped object_type only
+    - `object_type`: explicit enum for supported object families
+    - `payload`: required for create/update, forbidden for delete
+    - `object_id`: required for update/delete, forbidden for create
+
+    Session mode actions (`approve`, `reject`, `status`, `history`) only require
+    session metadata and reject simulation fields to avoid ambiguous calls.
+
+        Required/forbidden matrix:
+        - action=simulate:
+            required: action_type, org_id, object_type
+            required when action_type in (create, update): payload
+            required when action_type in (update, delete): object_id
+            required when object_type starts with site_: site_id
+            forbidden: site_id for org_* object_type
+        - action in (approve, reject, status):
+            required: session_id (24-char hex ObjectId)
+            forbidden: action_type, org_id, site_id, object_type, payload, object_id
+        - action=history:
+            required: none
+            forbidden: session_id, action_type, org_id, site_id, object_type, payload, object_id
+
+        Usage examples:
+        1) Create org WLAN
+             digital_twin(
+                 action='simulate',
+                 action_type='create',
+                 org_id='8aa21779-1178-4357-b3e0-42c02b93b870',
+                 object_type='org_wlans',
+                 payload={'ssid': 'Guest', 'enabled': True, 'vlan_id': '200'}
+             )
+
+        2) Update site WLAN
+             digital_twin(
+                 action='simulate',
+                 action_type='update',
+                 org_id='8aa21779-1178-4357-b3e0-42c02b93b870',
+                 site_id='2818e386-8dec-4562-9ede-5b8a0fbbdc71',
+                 object_type='site_wlans',
+                 object_id='3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7',
+                 payload={'ssid': 'Guest', 'enabled': True}
+             )
+
+        3) Delete site PSK
+             digital_twin(
+                 action='simulate',
+                 action_type='delete',
+                 org_id='8aa21779-1178-4357-b3e0-42c02b93b870',
+                 site_id='2818e386-8dec-4562-9ede-5b8a0fbbdc71',
+                 object_type='site_psks',
+                 object_id='3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7'
+             )
+
+        4) Approve safe session
+             digital_twin(action='approve', session_id='67f1f77bcf86cd799439011a')
+
+        The simulate response includes:
+        - requested_change: normalized change inputs
+        - compiled_write: generated Mist API write (method/endpoint/body)
+        - execution_safe and next_action: deploy guidance for LLM orchestration
+    """
     _ = ctx
 
-    from app.config import settings
-    from app.models.system import SystemConfig
     from app.modules.digital_twin.services import twin_service
 
     user_id = mcp_user_id_var.get()
     if not user_id:
         raise ToolError('User context not available')
 
-    config = await SystemConfig.get_config()
-    config_org_id = config.mist_org_id if config else None
-    resolved_org_id = _resolve_twin_org_id(org_id, config_org_id, settings.mist_org_id)
     validated = _validate_twin_inputs(
         action=action,
-        writes=writes,
+        action_type=action_type,
+        org_id=org_id,
+        site_id=site_id,
+        object_type=object_type,
+        payload=payload,
+        object_id=object_id,
         session_id=session_id,
-        resolved_org_id=resolved_org_id,
     )
 
     action_value = validated['action']
@@ -219,13 +539,16 @@ async def digital_twin(
         write_list = validated['writes']
         existing_id = session_id_value if session_id_value else None
 
-        session = await twin_service.simulate(
-            user_id=user_id,
-            org_id=resolved_org_id,
-            writes=write_list,
-            source='llm_chat',
-            existing_session_id=existing_id,
-        )
+        try:
+            session = await twin_service.simulate(
+                user_id=user_id,
+                org_id=validated['org_id'],
+                writes=write_list,
+                source='llm_chat',
+                existing_session_id=existing_id,
+            )
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
 
         report = session.prediction_report
         result: dict[str, Any] = {
@@ -233,11 +556,20 @@ async def digital_twin(
             'status': session.status.value,
             'overall_severity': session.overall_severity,
             'remediation_count': session.remediation_count,
+            'requested_change': {
+                'action_type': validated['action_type'],
+                'object_type': validated['object_type'],
+                'org_id': validated['org_id'],
+                'site_id': validated['site_id'],
+                'object_id': validated['object_id'],
+            },
+            'compiled_write': write_list[0],
         }
 
         if report:
             result['summary'] = report.summary
             result['execution_safe'] = report.execution_safe
+            result['next_action'] = 'approve' if report.execution_safe else 'fix_and_resimulate'
             result['counts'] = {
                 'total': report.total_checks,
                 'passed': report.passed,
@@ -301,7 +633,10 @@ async def digital_twin(
         except ValueError as exc:
             raise ToolError('Deployment cancelled by user') from exc
 
-        session = await twin_service.approve_and_execute(session_id_value, user_id=user_id)
+        try:
+            session = await twin_service.approve_and_execute(session_id_value, user_id=user_id)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
         return to_json(
             {
                 'session_id': str(session.id),
@@ -311,24 +646,43 @@ async def digital_twin(
         )
 
     if action_value == 'reject':
-        session = await twin_service.reject_session(session_id_value, user_id=user_id)
+        try:
+            session = await twin_service.reject_session(session_id_value, user_id=user_id)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
         return to_json({'session_id': str(session.id), 'status': session.status.value})
 
     if action_value == 'status':
-        session = await twin_service.get_session(session_id_value)
+        try:
+            session = await twin_service.get_session(session_id_value)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
         if not session:
             raise ToolError(f'Session {session_id_value} not found')
         if str(session.user_id) != user_id:
             raise ToolError('Session not found')
-        return to_json(
-            {
-                'session_id': str(session.id),
-                'status': session.status.value,
-                'severity': session.overall_severity,
-                'writes': len(session.staged_writes),
-                'remediation_count': session.remediation_count,
+
+        report = session.prediction_report
+        status_result: dict[str, Any] = {
+            'session_id': str(session.id),
+            'status': session.status.value,
+            'severity': session.overall_severity,
+            'writes': len(session.staged_writes),
+            'remediation_count': session.remediation_count,
+        }
+        if report:
+            status_result['summary'] = report.summary
+            status_result['execution_safe'] = report.execution_safe
+            status_result['next_action'] = 'approve' if report.execution_safe else 'fix_and_resimulate'
+            status_result['counts'] = {
+                'total': report.total_checks,
+                'passed': report.passed,
+                'warnings': report.warnings,
+                'errors': report.errors,
+                'critical': report.critical,
             }
-        )
+
+        return to_json(status_result)
 
     sessions, _total = await twin_service.list_sessions(user_id, limit=10)
     return to_json(
@@ -338,6 +692,8 @@ async def digital_twin(
                     'id': str(s.id),
                     'status': s.status.value,
                     'severity': s.overall_severity,
+                    'execution_safe': s.prediction_report.execution_safe if s.prediction_report else None,
+                    'summary': s.prediction_report.summary if s.prediction_report else None,
                     'source': s.source,
                     'writes': len(s.staged_writes),
                     'created_at': s.created_at,

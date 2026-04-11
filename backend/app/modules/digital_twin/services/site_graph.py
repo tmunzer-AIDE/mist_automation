@@ -13,11 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import networkx as nx
-import structlog
 
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
-
-logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -159,12 +156,6 @@ def build_site_graph(snapshot: SiteSnapshot) -> SiteGraph:
     - Gateway metadata: which devices are gateways, which VLANs they have L3 on.
     """
     network_name_to_vlan = _build_network_name_to_vlan(snapshot.networks)
-
-    # -- Build MAC -> DeviceSnapshot lookup --
-    mac_to_device: dict[str, DeviceSnapshot] = {}
-    for _dev_id, device in snapshot.devices.items():
-        if device.mac:
-            mac_to_device[device.mac] = device
 
     # -- Physical graph --
     physical = nx.Graph()
