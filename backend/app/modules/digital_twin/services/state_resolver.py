@@ -129,11 +129,13 @@ async def load_all_objects_of_type(
     if site_id:
         pipeline[0]["$match"]["site_id"] = site_id
 
-    pipeline.extend([
-        {"$sort": {"version": -1}},
-        {"$group": {"_id": "$object_id", "doc": {"$first": "$$ROOT"}}},
-        {"$replaceRoot": {"newRoot": "$doc"}},
-    ])
+    pipeline.extend(
+        [
+            {"$sort": {"version": -1}},
+            {"$group": {"_id": "$object_id", "doc": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$doc"}},
+        ]
+    )
 
     results = await BackupObject.aggregate(pipeline).to_list()
     return [r.get("configuration", {}) for r in results if r.get("configuration")]

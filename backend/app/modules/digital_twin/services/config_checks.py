@@ -78,8 +78,7 @@ def check_ip_subnet_overlap(existing_networks: list[dict], new_networks: list[di
                 new_site = new_net.get("_site_name", new_net.get("_site_id", "unknown"))
                 existing_site = existing_net.get("_site_name", existing_net.get("_site_id", "unknown"))
                 detail = (
-                    f"{new_net['subnet']} ({new_site}) overlaps with "
-                    f"{existing_net['subnet']} ({existing_site})"
+                    f"{new_net['subnet']} ({new_site}) overlaps with " f"{existing_net['subnet']} ({existing_site})"
                 )
                 conflicts.append(detail)
                 if new_site not in affected_sites:

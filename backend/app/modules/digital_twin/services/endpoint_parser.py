@@ -13,12 +13,8 @@ from dataclasses import dataclass
 
 _SINGLETON_TYPES = {"setting", "info"}
 
-_ORG_PATTERN = re.compile(
-    r"^/api/v1/orgs/(?P<org_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$"
-)
-_SITE_PATTERN = re.compile(
-    r"^/api/v1/sites/(?P<site_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$"
-)
+_ORG_PATTERN = re.compile(r"^/api/v1/orgs/(?P<org_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$")
+_SITE_PATTERN = re.compile(r"^/api/v1/sites/(?P<site_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$")
 
 
 @dataclass

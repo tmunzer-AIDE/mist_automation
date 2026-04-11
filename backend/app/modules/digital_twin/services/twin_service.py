@@ -107,7 +107,9 @@ async def simulate(
     if existing_session_id and session.remediation_count > 0:
         old_failing_ids = set()
         if session.prediction_report:
-            old_failing_ids = {r.check_id for r in session.prediction_report.check_results if r.status in ("error", "critical")}
+            old_failing_ids = {
+                r.check_id for r in session.prediction_report.check_results if r.status in ("error", "critical")
+            }
         new_failing = {r.check_id for r in check_results if r.status in ("error", "critical")}
 
         session.remediation_history.append(

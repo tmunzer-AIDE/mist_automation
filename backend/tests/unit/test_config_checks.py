@@ -3,7 +3,6 @@ Unit tests for Layer 1 config checks.
 TDD: tests written before implementation.
 """
 
-
 from app.modules.digital_twin.services.config_checks import (
     check_client_capacity_impact,
     check_dhcp_scope_overlap,
@@ -482,24 +481,18 @@ class TestL1_10:
 
 class TestL1_11:
     def test_five_ssids_warning(self):
-        wlans = [
-            {"ssid": f"SSID-{i}", "_site_id": "site-a", "_site_name": "Site A"} for i in range(5)
-        ]
+        wlans = [{"ssid": f"SSID-{i}", "_site_id": "site-a", "_site_name": "Site A"} for i in range(5)]
         result = check_ssid_airtime_overhead(wlans)
         assert result.check_id == "L1-11"
         assert result.status == "warning"
 
     def test_seven_ssids_error(self):
-        wlans = [
-            {"ssid": f"SSID-{i}", "_site_id": "site-a", "_site_name": "Site A"} for i in range(7)
-        ]
+        wlans = [{"ssid": f"SSID-{i}", "_site_id": "site-a", "_site_name": "Site A"} for i in range(7)]
         result = check_ssid_airtime_overhead(wlans)
         assert result.status == "error"
 
     def test_four_ssids_pass(self):
-        wlans = [
-            {"ssid": f"SSID-{i}", "_site_id": "site-a", "_site_name": "Site A"} for i in range(4)
-        ]
+        wlans = [{"ssid": f"SSID-{i}", "_site_id": "site-a", "_site_name": "Site A"} for i in range(4)]
         result = check_ssid_airtime_overhead(wlans)
         assert result.status == "pass"
 

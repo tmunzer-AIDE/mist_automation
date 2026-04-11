@@ -139,11 +139,13 @@ async def digital_twin(
         await elicit_confirmation(ctx, description)
 
         session = await twin_service.approve_and_execute(session_id)
-        return to_json({
-            "session_id": str(session.id),
-            "status": session.status.value,
-            "message": "Deployment complete" if session.status.value == "deployed" else "Deployment failed",
-        })
+        return to_json(
+            {
+                "session_id": str(session.id),
+                "status": session.status.value,
+                "message": "Deployment complete" if session.status.value == "deployed" else "Deployment failed",
+            }
+        )
 
     elif action == "reject":
         if not session_id:
@@ -157,28 +159,32 @@ async def digital_twin(
         session = await twin_service.get_session(session_id)
         if not session:
             return to_json({"error": f"Session {session_id} not found"})
-        return to_json({
-            "session_id": str(session.id),
-            "status": session.status.value,
-            "severity": session.overall_severity,
-            "writes": len(session.staged_writes),
-            "remediation_count": session.remediation_count,
-        })
+        return to_json(
+            {
+                "session_id": str(session.id),
+                "status": session.status.value,
+                "severity": session.overall_severity,
+                "writes": len(session.staged_writes),
+                "remediation_count": session.remediation_count,
+            }
+        )
 
     elif action == "history":
         sessions = await twin_service.list_sessions(user_id, limit=10)
-        return to_json({
-            "sessions": [
-                {
-                    "id": str(s.id),
-                    "status": s.status.value,
-                    "severity": s.overall_severity,
-                    "source": s.source,
-                    "writes": len(s.staged_writes),
-                    "created_at": s.created_at,
-                }
-                for s in sessions
-            ]
-        })
+        return to_json(
+            {
+                "sessions": [
+                    {
+                        "id": str(s.id),
+                        "status": s.status.value,
+                        "severity": s.overall_severity,
+                        "source": s.source,
+                        "writes": len(s.staged_writes),
+                        "created_at": s.created_at,
+                    }
+                    for s in sessions
+                ]
+            }
+        )
 
     return to_json({"error": f"Unknown action: {action}. Use simulate, approve, reject, status, or history."})

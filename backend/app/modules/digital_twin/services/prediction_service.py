@@ -106,9 +106,7 @@ async def run_layer1_checks(
         if w.object_type == "networks" and w.method == "POST":
             new_network_ids.add(w.object_id)
     new_networks = [
-        n
-        for n in all_networks
-        if n.get("id") in new_network_ids or (n.get("id") or "").startswith("twin-")
+        n for n in all_networks if n.get("id") in new_network_ids or (n.get("id") or "").startswith("twin-")
     ]
 
     # L1-01: IP/subnet overlap (new vs existing)
