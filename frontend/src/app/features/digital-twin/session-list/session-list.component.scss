@@ -66,6 +66,11 @@
   color: var(--app-warning);
 }
 
+.severity-info {
+  background: var(--app-info-bg);
+  color: var(--app-info-chip);
+}
+
 .severity-clean {
   background: var(--app-success-bg);
   color: var(--app-success);

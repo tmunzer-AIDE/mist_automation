@@ -127,5 +127,6 @@ class TwinSession(TimestampMixin, Document):
         name = "twin_sessions"
         indexes = [
             IndexModel([("user_id", ASCENDING), ("status", ASCENDING)]),
+            IndexModel([("user_id", ASCENDING), ("source_ref", ASCENDING)]),
             IndexModel([("created_at", ASCENDING)], expireAfterSeconds=604800),  # 7 days
         ]

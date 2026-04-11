@@ -77,6 +77,17 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
 
   isAwaitingApproval = computed(() => this.session()?.status === 'awaiting_approval');
 
+  checksByLayer = computed(() => {
+    const checks = this.session()?.prediction_report?.check_results ?? [];
+    const map = new Map<number, CheckResultModel[]>();
+    for (const c of checks) {
+      const list = map.get(c.layer) ?? [];
+      list.push(c);
+      map.set(c.layer, list);
+    }
+    return map;
+  });
+
   readonly layers = LAYERS;
 
   private sessionId = '';
@@ -107,7 +118,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   }
 
   checksForLayer(layer: number): CheckResultModel[] {
-    return this.session()?.prediction_report?.check_results.filter((c) => c.layer === layer) ?? [];
+    return this.checksByLayer().get(layer) ?? [];
   }
 
   issueCountForLayer(layer: number): number {

@@ -139,6 +139,8 @@ export class SessionListComponent implements OnInit, OnDestroy {
         return 'severity-error';
       case 'warning':
         return 'severity-warning';
+      case 'info':
+        return 'severity-info';
       default:
         return 'severity-clean';
     }

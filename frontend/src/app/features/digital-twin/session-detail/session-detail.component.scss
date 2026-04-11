@@ -156,6 +156,7 @@
     display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
     .severity-badge { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 10px;
       &.severity-clean { background: var(--app-success-bg); color: var(--app-success); }
+      &.severity-info { background: var(--app-info-bg); color: var(--app-info-chip); }
       &.severity-warning { background: var(--app-warning-bg); color: var(--app-warning); }
       &.severity-error, &.severity-critical { background: var(--app-error-status-bg); color: var(--app-error-status); }
     }
