@@ -12,6 +12,7 @@ import structlog
 from beanie import PydanticObjectId
 
 from app.modules.digital_twin.models import (
+    CheckResult,
     RemediationAttempt,
     StagedWrite,
     TwinSession,
@@ -32,9 +33,16 @@ from app.modules.digital_twin.services.state_resolver import (
 logger = structlog.get_logger(__name__)
 
 
-def _parse_and_enrich_writes(writes: list[dict[str, Any]]) -> list[StagedWrite]:
-    """Parse raw write dicts into StagedWrite objects with endpoint metadata."""
+def _parse_and_enrich_writes(
+    writes: list[dict[str, Any]],
+) -> tuple[list[StagedWrite], list[CheckResult]]:
+    """Parse raw write dicts into StagedWrite objects with endpoint metadata.
+
+    Returns (staged_writes, parse_errors). Parse errors are CheckResult objects
+    with check_id="SYS-01" that should be included in the PredictionReport.
+    """
     staged: list[StagedWrite] = []
+    parse_errors: list[CheckResult] = []
     for i, w in enumerate(writes):
         parsed = parse_endpoint(w.get("method", "PUT"), w.get("endpoint", ""))
         staged.append(
@@ -48,7 +56,25 @@ def _parse_and_enrich_writes(writes: list[dict[str, Any]]) -> list[StagedWrite]:
                 object_id=parsed.object_id,
             )
         )
-    return staged
+        if parsed.error:
+            logger.warning(
+                "twin_write_parse_error",
+                sequence=i,
+                endpoint=w.get("endpoint", ""),
+                error=parsed.error,
+            )
+            parse_errors.append(
+                CheckResult(
+                    check_id="SYS-01",
+                    check_name="Endpoint Validation",
+                    layer=0,
+                    status="error",
+                    summary=f"Write #{i}: invalid endpoint '{w.get('endpoint', '')}'",
+                    details=[parsed.error],
+                    remediation_hint="Use valid Mist API endpoints like /api/v1/sites/{site_id}/wlans or /api/v1/orgs/{org_id}/networks. Resource names must match the Mist API (e.g., 'wlans' not 'wlan').",
+                )
+            )
+    return staged, parse_errors
 
 
 async def simulate(
@@ -64,7 +90,7 @@ async def simulate(
     If existing_session_id is provided, updates that session (remediation iteration).
     Otherwise creates a new TwinSession.
     """
-    staged_writes = _parse_and_enrich_writes(writes)
+    staged_writes, parse_errors = _parse_and_enrich_writes(writes)
     affected_sites, affected_types = collect_affected_metadata(staged_writes)
 
     old_severity = "clean"
@@ -110,8 +136,11 @@ async def simulate(
     # Pre-fetch shared backup data once for all check layers
     ctx = await _build_simulation_context(org_id)
 
+    # Include parse errors as check results (so they appear in the report)
+    check_results: list[CheckResult] = list(parse_errors)
+
     # Run Layer 1 checks
-    check_results = await run_layer1_checks(virtual_state, staged_writes, org_id, ctx=ctx)
+    check_results.extend(await run_layer1_checks(virtual_state, staged_writes, org_id, ctx=ctx))
 
     # Run Layer 2 checks if any sites are affected
     if affected_sites:
