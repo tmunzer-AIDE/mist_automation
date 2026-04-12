@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import require_admin
 from app.models.user import User
+from app.modules.digital_twin.models import SimulationLogEntry
 from app.modules.digital_twin.schemas import (
     TwinSessionDetailResponse,
     TwinSessionListResponse,
@@ -16,6 +17,30 @@ from app.modules.digital_twin.services import twin_service
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["Digital Twin"])
+
+
+def _filter_logs(
+    entries: list[SimulationLogEntry],
+    *,
+    level: str | None,
+    phase: str | None,
+    search: str | None,
+) -> list[SimulationLogEntry]:
+    """Apply level/phase/search filters to a list of SimulationLogEntry."""
+    results = entries
+    if level:
+        results = [e for e in results if e.level == level]
+    if phase:
+        results = [e for e in results if e.phase == phase]
+    if search:
+        needle = search.lower()
+        results = [
+            e
+            for e in results
+            if needle in e.event.lower()
+            or any(needle in str(v).lower() for v in e.context.values())
+        ]
+    return results
 
 
 def _approve_error_response(error_msg: str) -> tuple[int, str]:
@@ -101,3 +126,32 @@ async def approve_twin_session(
     except ValueError as e:
         status_code, detail = _approve_error_response(str(e))
         raise HTTPException(status_code=status_code, detail=detail) from None
+
+
+@router.get(
+    "/digital-twin/sessions/{session_id}/logs",
+    response_model=list[SimulationLogEntry],
+)
+async def get_session_logs(
+    session_id: str,
+    level: str | None = Query(None, pattern="^(debug|info|warning|error)$"),
+    phase: str | None = Query(
+        None, pattern="^(simulate|remediate|approve|execute|other)$"
+    ),
+    search: str | None = Query(None, max_length=200),
+    current_user: User = Depends(require_admin),
+) -> list[SimulationLogEntry]:
+    """Return the persisted simulation logs for a Twin session (admin only)."""
+    session = await twin_service.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if str(session.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+
+    return _filter_logs(
+        session.simulation_logs, level=level, phase=phase, search=search
+    )
