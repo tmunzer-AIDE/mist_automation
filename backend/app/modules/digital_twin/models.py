@@ -95,6 +95,16 @@ class BaseSnapshotRef(BaseModel):
     site_id: str | None = None
 
 
+class SimulationLogEntry(BaseModel):
+    """A single structlog entry captured during a Twin session phase."""
+
+    timestamp: datetime
+    level: Literal["debug", "info", "warning", "error"]
+    event: str
+    phase: Literal["simulate", "remediate", "approve", "execute", "other"]
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class TwinSession(TimestampMixin, Document):
     """
     Tracks a pre-deployment simulation session.
@@ -105,12 +115,14 @@ class TwinSession(TimestampMixin, Document):
 
     user_id: PydanticObjectId
     org_id: str
-    source: Literal["llm_chat", "workflow", "backup_restore"] = "llm_chat"
+    source: Literal["mcp", "workflow", "backup_restore"] = "mcp"
     source_ref: str | None = None
     status: TwinSessionStatus = TwinSessionStatus.PENDING
     staged_writes: list[StagedWrite] = Field(default_factory=list)
     affected_sites: list[str] = Field(default_factory=list)
     affected_object_types: list[str] = Field(default_factory=list)
+    affected_object_label: str | None = None
+    affected_site_labels: list[str] = Field(default_factory=list)
     base_snapshot_refs: list[BaseSnapshotRef] = Field(default_factory=list)
     live_fetched_at: datetime | None = None
     resolved_state: dict[str, Any] | None = None
@@ -120,6 +132,7 @@ class TwinSession(TimestampMixin, Document):
     remediation_history: list[RemediationAttempt] = Field(default_factory=list)
     ai_assessment: str | None = None
     ia_session_ids: list[str] = Field(default_factory=list)
+    simulation_logs: list[SimulationLogEntry] = Field(default_factory=list)
 
     # Timestamps (required by TimestampMixin.update_timestamp())
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
