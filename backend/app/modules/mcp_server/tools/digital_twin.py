@@ -98,6 +98,58 @@ _ORG_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if o
 _SITE_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if obj.value.startswith('site_')))
 
 
+def _serialize_check_result(check: Any) -> dict[str, Any]:
+    """Serialize one check result into an admin-focused diagnostics payload."""
+    return {
+        'check': check.check_id,
+        'name': check.check_name,
+        'layer': check.layer,
+        'status': check.status,
+        'summary': check.summary,
+        'description': check.description,
+        'pre_existing': bool(getattr(check, 'pre_existing', False)),
+        'affected_sites': list(getattr(check, 'affected_sites', []) or []),
+        'affected_objects': list(getattr(check, 'affected_objects', []) or []),
+        'details': list(getattr(check, 'details', []) or []),
+        'remediation_hint': check.remediation_hint,
+    }
+
+
+def _build_report_diagnostics(report: Any) -> dict[str, Any]:
+    """Build consistent diagnostics blocks for simulation/status responses."""
+    sorted_checks = sorted(report.check_results, key=lambda c: (c.layer, c.check_id))
+
+    check_diagnostics = [_serialize_check_result(check) for check in sorted_checks]
+    executed_checks = [
+        {
+            'check': item['check'],
+            'name': item['name'],
+            'layer': item['layer'],
+            'status': item['status'],
+            'summary': item['summary'],
+        }
+        for item in check_diagnostics
+    ]
+    issues = [
+        item
+        for item in check_diagnostics
+        if item['status'] not in ('pass', 'skipped')
+    ]
+    decision_log = [
+        f"L{item['layer']} {item['check']} [{item['status']}] {item['summary']}"
+        for item in check_diagnostics
+    ]
+
+    return {
+        'executed_checks': executed_checks,
+        'issues': issues,
+        'check_diagnostics': check_diagnostics,
+        'decision_log': decision_log,
+        'pre_existing_issue_count': sum(1 for item in issues if item['pre_existing']),
+        'introduced_issue_count': sum(1 for item in issues if not item['pre_existing']),
+    }
+
+
 def _validate_session_id_format(session_id: str) -> None:
     """Validate Twin session identifiers are MongoDB ObjectId strings."""
     if not _MONGO_OBJECT_ID_RE.fullmatch(session_id):
@@ -831,27 +883,7 @@ async def digital_twin(
                 'errors': report.errors,
                 'critical': report.critical,
             }
-            result['executed_checks'] = [
-                {
-                    'check': r.check_id,
-                    'name': r.check_name,
-                    'layer': r.layer,
-                    'status': r.status,
-                }
-                for r in sorted(report.check_results, key=lambda c: (c.layer, c.check_id))
-            ]
-            result['issues'] = [
-                {
-                    'check': r.check_id,
-                    'name': r.check_name,
-                    'status': r.status,
-                    'summary': r.summary,
-                    'details': r.details,
-                    'remediation_hint': r.remediation_hint,
-                }
-                for r in report.check_results
-                if r.status not in ('pass', 'skipped')
-            ]
+            result.update(_build_report_diagnostics(report))
         else:
             result['warning'] = (
                 'No prediction report generated for this simulation; treat as unsafe until resimulated.'
@@ -965,6 +997,7 @@ async def digital_twin(
                 'errors': report.errors,
                 'critical': report.critical,
             }
+            status_result.update(_build_report_diagnostics(report))
         else:
             status_result['warning'] = 'No prediction report on this session; treat as unsafe.'
 

@@ -3,6 +3,7 @@
 import pytest
 from fastmcp.exceptions import ToolError
 
+from app.modules.digital_twin.models import CheckResult
 from app.modules.mcp_server.tools import backup as backup_tool
 from app.modules.mcp_server.tools import details as details_tool
 from app.modules.mcp_server.tools import digital_twin as twin_tool
@@ -13,6 +14,7 @@ from app.modules.mcp_server.tools import workflow as workflow_tool
 validate_backup = getattr(backup_tool, "_validate_backup_inputs")
 validate_details = getattr(details_tool, "_validate_details_inputs")
 validate_twin = getattr(twin_tool, "_validate_twin_inputs")
+build_report_diagnostics = getattr(twin_tool, "_build_report_diagnostics")
 resolve_twin_org_id = getattr(twin_tool, "_resolve_twin_org_id")
 validate_impact = getattr(impact_tool, "_validate_session_search_inputs")
 validate_skill_name = getattr(skills_tool, "_validate_skill_name")
@@ -550,3 +552,73 @@ class TestDigitalTwinValidation:
                 changes=[],
                 session_id="",
             )
+
+
+@pytest.mark.unit
+class TestDigitalTwinDiagnosticsFormatting:
+    def test_build_report_diagnostics_includes_full_issue_context(self):
+        report = type("FakeReport", (), {})()
+        report.check_results = [
+            CheckResult(
+                check_id="ROUTE-GW",
+                check_name="Default Gateway Gap",
+                layer=3,
+                status="error",
+                summary="1 network missing a gateway L3 interface.",
+                details=["Network 'Corp' has no gateway L3 interface; network VLAN=10"],
+                affected_objects=["Corp"],
+                affected_sites=["site-1"],
+                remediation_hint="Add gateway ip_config for routed VLANs.",
+                pre_existing=False,
+                description="Detects routed networks with no corresponding gateway interface.",
+            ),
+            CheckResult(
+                check_id="CONN-PHYS",
+                check_name="Physical connectivity loss",
+                layer=2,
+                status="pass",
+                summary="All devices retain gateway reachability.",
+                description="Detects devices that become isolated from gateways.",
+            ),
+        ]
+
+        diagnostics = build_report_diagnostics(report)
+
+        assert len(diagnostics["executed_checks"]) == 2
+        assert len(diagnostics["check_diagnostics"]) == 2
+        assert len(diagnostics["issues"]) == 1
+        assert diagnostics["introduced_issue_count"] == 1
+        assert diagnostics["pre_existing_issue_count"] == 0
+
+        issue = diagnostics["issues"][0]
+        assert issue["check"] == "ROUTE-GW"
+        assert issue["description"] != ""
+        assert issue["details"]
+        assert issue["remediation_hint"]
+        assert issue["affected_sites"] == ["site-1"]
+        assert issue["affected_objects"] == ["Corp"]
+
+        assert any("ROUTE-GW" in line and "error" in line for line in diagnostics["decision_log"])
+
+    def test_build_report_diagnostics_counts_pre_existing_issues(self):
+        report = type("FakeReport", (), {})()
+        report.check_results = [
+            CheckResult(
+                check_id="SEC-GUEST",
+                check_name="Guest Isolation Risk",
+                layer=4,
+                status="warning",
+                summary="Guest SSID open without isolation.",
+                details=["SSID Guest-WiFi is open without client isolation"],
+                affected_sites=["site-1"],
+                remediation_hint="Enable client isolation for open SSIDs.",
+                pre_existing=True,
+                description="Detects open WLANs that are missing isolation.",
+            )
+        ]
+
+        diagnostics = build_report_diagnostics(report)
+
+        assert diagnostics["introduced_issue_count"] == 0
+        assert diagnostics["pre_existing_issue_count"] == 1
+        assert diagnostics["issues"][0]["pre_existing"] is True
