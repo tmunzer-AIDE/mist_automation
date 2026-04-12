@@ -106,6 +106,18 @@ def _validate_session_id_format(session_id: str) -> None:
         )
 
 
+def _resolve_source_ref(client_name: str | None) -> str:
+    """Normalize the MCP client name into a display label.
+
+    Empty/None -> "Internal Chat" (in-app LLM chat has no external client).
+    Trimmed client name -> displayed as-is.
+    """
+    if not client_name:
+        return "Internal Chat"
+    trimmed = client_name.strip()
+    return trimmed or "Internal Chat"
+
+
 def _first_payload_placeholder(value: Any, path: str = 'payload') -> str | None:
     """Return the first payload path containing an unresolved placeholder value."""
     if isinstance(value, str):
@@ -762,12 +774,23 @@ async def digital_twin(
         write_list = validated['writes']
         existing_id = session_id_value if session_id_value else None
 
+        client_name: str | None = None
+        try:
+            client_obj = getattr(ctx, "client", None)
+            if client_obj is not None:
+                client_name = getattr(client_obj, "name", None)
+        except Exception:
+            client_name = None
+
+        source_ref = _resolve_source_ref(client_name)
+
         try:
             session = await twin_service.simulate(
                 user_id=user_id,
                 org_id=validated['org_id'],
                 writes=write_list,
-                source='llm_chat',
+                source='mcp',
+                source_ref=source_ref,
                 existing_session_id=existing_id,
             )
         except ValueError as exc:
