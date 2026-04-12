@@ -354,3 +354,30 @@ class TestCheckSecurityIntegration:
         results = check_security(baseline, predicted)
         for r in results:
             assert r.status == "pass", f"{r.check_id} should pass on empty snapshot but got {r.status}"
+
+
+# ---------------------------------------------------------------------------
+# TestCheckDescriptions
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDescriptions:
+    """Verify security checks populate the description field."""
+
+    def test_sec_guest_description_populated(self):
+        snap = _snap()
+        results = check_security(snap, snap)
+        check = next(r for r in results if r.check_id == "SEC-GUEST")
+        assert check.description != ""
+
+    def test_sec_policy_description_populated(self):
+        snap = _snap()
+        results = check_security(snap, snap)
+        check = next(r for r in results if r.check_id == "SEC-POLICY")
+        assert check.description != ""
+
+    def test_sec_nac_description_populated(self):
+        snap = _snap()
+        results = check_security(snap, snap)
+        check = next(r for r in results if r.check_id == "SEC-NAC")
+        assert check.description != ""

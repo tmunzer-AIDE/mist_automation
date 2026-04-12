@@ -61,6 +61,7 @@ def _check_guest_ssid(predicted: SiteSnapshot) -> CheckResult:
             affected_objects=affected,
             affected_sites=[predicted.site_id],
             remediation_hint="Enable client isolation on open/guest SSIDs to prevent lateral traffic.",
+            description="Flags open (unauthenticated) SSIDs that do not have client isolation enabled, allowing lateral traffic between clients.",
         )
 
     return CheckResult(
@@ -69,6 +70,7 @@ def _check_guest_ssid(predicted: SiteSnapshot) -> CheckResult:
         layer=4,
         status="pass",
         summary="All open SSIDs have client isolation enabled.",
+        description="Flags open (unauthenticated) SSIDs that do not have client isolation enabled, allowing lateral traffic between clients.",
     )
 
 
@@ -123,6 +125,7 @@ def _check_security_policies(baseline: SiteSnapshot, predicted: SiteSnapshot) ->
             details=details,
             affected_sites=[predicted.site_id],
             remediation_hint="Review security policy changes to ensure they align with organizational requirements.",
+            description="Reports additions, removals, or modifications to security policies between baseline and predicted state.",
         )
 
     return CheckResult(
@@ -131,6 +134,7 @@ def _check_security_policies(baseline: SiteSnapshot, predicted: SiteSnapshot) ->
         layer=4,
         status="pass",
         summary="No security policy changes detected.",
+        description="Reports additions, removals, or modifications to security policies between baseline and predicted state.",
     )
 
 
@@ -158,6 +162,7 @@ def _check_nac_rules(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             details=details,
             affected_sites=[predicted.site_id],
             remediation_hint="Review NAC rule changes to ensure network access control remains correct.",
+            description="Reports changes to NAC rules between baseline and predicted state.",
         )
 
     return CheckResult(
@@ -166,6 +171,7 @@ def _check_nac_rules(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
         layer=4,
         status="pass",
         summary="No NAC rule changes detected.",
+        description="Reports changes to NAC rules between baseline and predicted state.",
     )
 
 
