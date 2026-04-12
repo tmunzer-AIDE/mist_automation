@@ -647,3 +647,36 @@ class TestCheckRoutingIntegration:
         results = check_routing(baseline, predicted)
         for r in results:
             assert r.status == "pass", f"{r.check_id} should pass on empty snapshot but got {r.status}"
+
+
+# ---------------------------------------------------------------------------
+# TestCheckDescriptions
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDescriptions:
+    """Verify routing checks populate the description field."""
+
+    def test_route_gw_description_populated(self):
+        snap = _snap()
+        results = check_routing(snap, snap)
+        check = next(r for r in results if r.check_id == "ROUTE-GW")
+        assert check.description != ""
+
+    def test_route_ospf_description_populated(self):
+        snap = _snap()
+        results = check_routing(snap, snap)
+        check = next(r for r in results if r.check_id == "ROUTE-OSPF")
+        assert check.description != ""
+
+    def test_route_bgp_description_populated(self):
+        snap = _snap()
+        results = check_routing(snap, snap)
+        check = next(r for r in results if r.check_id == "ROUTE-BGP")
+        assert check.description != ""
+
+    def test_route_wan_description_populated(self):
+        snap = _snap()
+        results = check_routing(snap, snap)
+        check = next(r for r in results if r.check_id == "ROUTE-WAN")
+        assert check.description != ""

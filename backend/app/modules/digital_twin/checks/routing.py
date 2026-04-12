@@ -102,6 +102,7 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
             layer=3,
             status="pass",
             summary="No routed networks defined -- gateway check not applicable.",
+            description="Detects routed networks (with subnet/gateway config) that have no corresponding L3 interface on any gateway device.",
         )
 
     # Collect network names that have a gateway L3 interface
@@ -121,6 +122,7 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
             layer=3,
             status="pass",
             summary="All networks have a gateway L3 interface.",
+            description="Detects routed networks (with subnet/gateway config) that have no corresponding L3 interface on any gateway device.",
         )
 
     details: list[str] = []
@@ -139,6 +141,7 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
         affected_objects=affected_objects,
         affected_sites=[predicted.site_id],
         remediation_hint="Add ip_config entries on a gateway device for each network that requires L3 routing.",
+        description="Detects routed networks (with subnet/gateway config) that have no corresponding L3 interface on any gateway device.",
     )
 
 
@@ -170,6 +173,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
                 remediation_hint=(
                     "Ensure live telemetry exposes OSPF peers (peer_ip), then re-run simulation."
                 ),
+                description="Checks that OSPF peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
             )
         return CheckResult(
             check_id="ROUTE-OSPF",
@@ -177,6 +181,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
             layer=3,
             status="pass",
             summary="No OSPF peers in baseline -- check not applicable.",
+            description="Checks that OSPF peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
         )
 
     breaks: list[str] = []
@@ -212,6 +217,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
             layer=3,
             status="pass",
             summary="All OSPF peer IPs remain reachable.",
+            description="Checks that OSPF peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
         )
 
     return CheckResult(
@@ -224,6 +230,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
         affected_objects=affected_objects,
         affected_sites=[baseline.site_id],
         remediation_hint="Verify that interface IP changes do not remove subnets used by OSPF peers.",
+        description="Checks that OSPF peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
     )
 
 
@@ -253,6 +260,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
                 remediation_hint=(
                     "Ensure live telemetry exposes BGP peers (peer_ip), then re-run simulation."
                 ),
+                description="Checks that BGP peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
             )
         return CheckResult(
             check_id="ROUTE-BGP",
@@ -260,6 +268,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             layer=3,
             status="pass",
             summary="No BGP peers in baseline -- check not applicable.",
+            description="Checks that BGP peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
         )
 
     breaks: list[str] = []
@@ -295,6 +304,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             layer=3,
             status="pass",
             summary="All BGP peer IPs remain reachable.",
+            description="Checks that BGP peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
         )
 
     return CheckResult(
@@ -307,6 +317,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
         affected_objects=affected_objects,
         affected_sites=[baseline.site_id],
         remediation_hint="Verify that interface IP changes do not remove subnets used by BGP peers.",
+        description="Checks that BGP peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
     )
 
 
@@ -364,6 +375,7 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             layer=3,
             status="pass",
             summary="No WAN links removed from gateway devices.",
+            description="Detects WAN ports removed from gateway devices, which reduces redundancy and available bandwidth.",
         )
 
     status = "warning" if len(removed_details) == 1 else "error"
@@ -378,6 +390,7 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
         affected_objects=affected_objects,
         affected_sites=[baseline.site_id],
         remediation_hint="Verify that remaining WAN links provide sufficient redundancy and bandwidth.",
+        description="Detects WAN ports removed from gateway devices, which reduces redundancy and available bandwidth.",
     )
 
 
