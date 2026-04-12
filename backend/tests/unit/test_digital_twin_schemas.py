@@ -210,6 +210,9 @@ def _make_session(
     session.remediation_history = remediation_history or []
     session.remediation_count = len(remediation_history or [])
     session.affected_sites = ["site1"]
+    session.affected_site_labels = []
+    session.affected_object_label = None
+    session.affected_object_types = []
     session.prediction_report = prediction_report
     session.ai_assessment = ai_assessment
     session.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -390,3 +393,47 @@ class TestCheckResultDescription:
             description="Validates that the test thing works.",
         )
         assert result.description == "Validates that the test thing works."
+
+
+def test_check_result_response_includes_description():
+    from app.modules.digital_twin.models import CheckResult
+    from app.modules.digital_twin.schemas import CheckResultResponse
+
+    cr = CheckResult(
+        check_id="CFG-SUBNET",
+        check_name="IP Subnet Overlap",
+        layer=1,
+        status="pass",
+        summary="",
+        description="Checks all network subnets pairwise for IP address range overlaps.",
+    )
+    resp = CheckResultResponse(**cr.model_dump())
+    assert resp.description.startswith("Checks all network subnets")
+
+
+def test_twin_session_response_carries_new_label_fields():
+    from app.modules.digital_twin.models import TwinSession, TwinSessionStatus
+    from app.modules.digital_twin.schemas import session_to_response
+
+    session = TwinSession.model_construct(
+        user_id="507f1f77bcf86cd799439011",
+        org_id="org",
+        source="mcp",
+        source_ref="Claude Desktop",
+        affected_object_label="networktemplates: default-campus",
+        affected_object_types=["networktemplates"],
+        affected_site_labels=["HQ", "Boston"],
+        affected_sites=[],
+        staged_writes=[],
+        status=TwinSessionStatus.AWAITING_APPROVAL,
+        overall_severity="clean",
+        remediation_count=0,
+        remediation_history=[],
+        prediction_report=None,
+    )
+    resp = session_to_response(session)
+    assert resp.source == "mcp"
+    assert resp.source_ref == "Claude Desktop"
+    assert resp.affected_object_label == "networktemplates: default-campus"
+    assert resp.affected_object_types == ["networktemplates"]
+    assert resp.affected_site_labels == ["HQ", "Boston"]

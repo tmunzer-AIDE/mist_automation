@@ -64,8 +64,11 @@ class TwinSessionResponse(BaseModel):
     source: str
     source_ref: str | None = None
     overall_severity: str
-    writes_count: int
+    writes_count: int  # deprecated — will be removed after frontend migration
     affected_sites: list[str] = Field(default_factory=list)
+    affected_site_labels: list[str] = Field(default_factory=list)
+    affected_object_label: str | None = None
+    affected_object_types: list[str] = Field(default_factory=list)
     remediation_count: int = 0
     prediction_report: PredictionReportResponse | None = None
     created_at: datetime | None = None
@@ -113,6 +116,9 @@ def session_to_response(session: TwinSession) -> TwinSessionResponse:
         overall_severity=session.overall_severity,
         writes_count=len(session.staged_writes),
         affected_sites=session.affected_sites,
+        affected_site_labels=session.affected_site_labels,
+        affected_object_label=session.affected_object_label,
+        affected_object_types=session.affected_object_types,
         remediation_count=session.remediation_count,
         prediction_report=_build_report_response(session),
         created_at=session.created_at,
