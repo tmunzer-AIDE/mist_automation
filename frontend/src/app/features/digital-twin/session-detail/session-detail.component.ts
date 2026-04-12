@@ -5,6 +5,7 @@ import {
   TemplateRef,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -74,8 +75,27 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   loading = signal(true);
   expandedChecks = signal<Set<string>>(new Set());
   expandedWrites = signal<Set<number>>(new Set());
-  expandedLayers = signal<Set<number>>(new Set([1, 2, 3, 4, 5]));
+  expandedLayers = signal<Set<number>>(new Set());
   readonly sitesExpanded = signal(false);
+
+  // Seed layer expansion from the session: auto-expand layers with warning/error/critical checks.
+  // Clean and not-run layers start collapsed. User can still toggle manually.
+  private readonly seedLayerExpansion = effect(() => {
+    const s = this.session();
+    if (!s?.prediction_report) return;
+
+    const initial = new Set<number>();
+    for (const check of s.prediction_report.check_results) {
+      if (
+        check.status === 'warning' ||
+        check.status === 'error' ||
+        check.status === 'critical'
+      ) {
+        initial.add(check.layer);
+      }
+    }
+    this.expandedLayers.set(initial);
+  });
 
   toggleSitesExpanded(): void {
     this.sitesExpanded.update((v) => !v);
