@@ -74,8 +74,8 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   session = signal<TwinSessionDetail | null>(null);
   loading = signal(true);
   expandedChecks = signal<Set<string>>(new Set());
-  expandedWrites = signal<Set<number>>(new Set());
   expandedLayers = signal<Set<number>>(new Set());
+  readonly rawBodyVisible = signal(new Set<number>());
   readonly sitesExpanded = signal(false);
 
   // Seed layer expansion from the session: auto-expand layers with warning/error/critical checks.
@@ -191,18 +191,20 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
     this.expandedChecks.set(set);
   }
 
-  isWriteExpanded(seq: number): boolean {
-    return this.expandedWrites().has(seq);
+  isRawBodyVisible(sequence: number): boolean {
+    return this.rawBodyVisible().has(sequence);
   }
 
-  toggleWrite(seq: number): void {
-    const set = new Set(this.expandedWrites());
-    if (set.has(seq)) {
-      set.delete(seq);
-    } else {
-      set.add(seq);
-    }
-    this.expandedWrites.set(set);
+  toggleRawBody(sequence: number): void {
+    this.rawBodyVisible.update((set) => {
+      const next = new Set(set);
+      if (next.has(sequence)) {
+        next.delete(sequence);
+      } else {
+        next.add(sequence);
+      }
+      return next;
+    });
   }
 
   severityLabel(severity: string): string {

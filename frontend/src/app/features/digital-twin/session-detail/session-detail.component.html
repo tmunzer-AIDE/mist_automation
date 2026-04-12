@@ -233,27 +233,57 @@
             <div class="empty-tab">No staged writes for this session.</div>
           } @else {
             @for (write of s.staged_writes; track write.sequence) {
-              <div
-                class="write-row"
-                [class.write-expanded]="isWriteExpanded(write.sequence)"
-                (click)="toggleWrite(write.sequence)"
-              >
-                <div class="write-summary-row">
+              <div class="write-card">
+                <div class="write-head">
                   <span class="write-seq">#{{ write.sequence }}</span>
                   <span class="method-badge {{ methodClass(write.method) }}">{{ write.method }}</span>
                   <code class="write-endpoint">{{ write.endpoint }}</code>
                   @if (write.object_type) {
                     <span class="object-type">{{ write.object_type }}</span>
                   }
-                  <mat-icon class="toggle-icon">
-                    {{ isWriteExpanded(write.sequence) ? 'expand_less' : 'expand_more' }}
-                  </mat-icon>
                 </div>
 
-                @if (isWriteExpanded(write.sequence) && write.body) {
-                  <div class="write-body" (click)="$event.stopPropagation()">
-                    <pre>{{ write.body | json }}</pre>
-                  </div>
+                @if (write.diff_summary) {
+                  <div class="diff-summary">{{ write.diff_summary }}</div>
+                }
+
+                @if (write.diff.length > 0) {
+                  <ul class="diff-list">
+                    @for (entry of write.diff; track entry.path) {
+                      <li class="diff-entry diff-{{ entry.change }}">
+                        <span class="diff-path">{{ entry.path }}</span>
+                        <span class="diff-values">
+                          @switch (entry.change) {
+                            @case ('added') {
+                              <span class="diff-after">+ {{ entry.after | json }}</span>
+                            }
+                            @case ('removed') {
+                              <span class="diff-before">- {{ entry.before | json }}</span>
+                            }
+                            @default {
+                              <span class="diff-before">{{ entry.before | json }}</span>
+                              <span class="diff-arrow">→</span>
+                              <span class="diff-after">{{ entry.after | json }}</span>
+                            }
+                          }
+                        </span>
+                      </li>
+                    }
+                  </ul>
+                }
+
+                @if (write.body) {
+                  <button
+                    type="button"
+                    class="raw-toggle"
+                    (click)="toggleRawBody(write.sequence)"
+                  >
+                    {{ isRawBodyVisible(write.sequence) ? 'Hide' : 'Show' }} full body
+                  </button>
+
+                  @if (isRawBodyVisible(write.sequence)) {
+                    <pre class="raw-body">{{ write.body | json }}</pre>
+                  }
                 }
               </div>
             }
