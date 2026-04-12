@@ -11,8 +11,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Workflows', icon: 'account_tree', route: '/workflows' },
   { label: 'Backups', icon: 'backup', route: '/backup' },
   { label: 'Reports', icon: 'assessment', route: '/reports', roles: ['post_deployment', 'admin'] },
-  { label: 'Impact Analysis', icon: 'analytics', route: '/impact-analysis', roles: ['impact_analysis', 'admin'], },
-  { label: 'Digital Twin', icon: 'science', route: '/digital-twin', roles: ['admin'] },
+  { label: 'Impact Analysis', icon: 'vital_signs', route: '/impact-analysis', roles: ['impact_analysis', 'admin'], },
+  { label: 'Digital Twin', icon: 'flip', route: '/digital-twin', roles: ['admin'] },
   {
     label: 'Power Scheduling',
     icon: 'power_settings_new',

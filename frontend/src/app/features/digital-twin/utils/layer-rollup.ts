@@ -7,7 +7,7 @@ export interface LayerRollup {
   status: 'pass' | 'warn' | 'err' | 'crit' | 'skip';
 }
 
-const LAYER_NUMBERS = [0, 1, 2, 3, 4, 5];
+const LAYER_NUMBERS = [ 1, 2, 3, 4, 5];
 
 const STATUS_RANK: Record<CheckResultModel['status'], number> = {
   pass: 0,
