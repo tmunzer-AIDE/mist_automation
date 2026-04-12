@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
 import {
+  SimulationLogEntry,
   TwinSessionDetail,
   TwinSessionListResponse,
 } from './models/twin-session.model';
@@ -31,6 +32,20 @@ export class DigitalTwinService {
   cancelSession(id: string): Observable<{ status: string; session_id: string }> {
     return this.api.post<{ status: string; session_id: string }>(
       `/digital-twin/sessions/${id}/cancel`,
+    );
+  }
+
+  getSessionLogs(
+    id: string,
+    filters: { level?: string; phase?: string; search?: string } = {},
+  ): Observable<SimulationLogEntry[]> {
+    const params: Record<string, string> = {};
+    if (filters.level) params['level'] = filters.level;
+    if (filters.phase) params['phase'] = filters.phase;
+    if (filters.search) params['search'] = filters.search;
+    return this.api.get<SimulationLogEntry[]>(
+      `/digital-twin/sessions/${id}/logs`,
+      params,
     );
   }
 }

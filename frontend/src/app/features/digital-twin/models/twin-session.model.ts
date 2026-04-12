@@ -24,6 +24,13 @@ export interface PredictionReportModel {
   execution_safe: boolean;
 }
 
+export interface WriteDiffField {
+  path: string;
+  change: 'added' | 'removed' | 'modified';
+  before: unknown;
+  after: unknown;
+}
+
 export interface StagedWriteModel {
   sequence: number;
   method: string;
@@ -32,6 +39,8 @@ export interface StagedWriteModel {
   object_type: string | null;
   site_id: string | null;
   object_id: string | null;
+  diff: WriteDiffField[];
+  diff_summary: string | null;
 }
 
 export interface RemediationAttemptModel {
@@ -47,11 +56,14 @@ export interface RemediationAttemptModel {
 export interface TwinSessionSummary {
   id: string;
   status: string;
-  source: string;
+  source: 'mcp' | 'workflow' | 'backup_restore';
   source_ref: string | null;
   overall_severity: string;
   writes_count: number;
   affected_sites: string[];
+  affected_site_labels: string[];
+  affected_object_label: string | null;
+  affected_object_types: string[];
   remediation_count: number;
   prediction_report: PredictionReportModel | null;
   created_at: string;
@@ -68,4 +80,12 @@ export interface TwinSessionDetail extends TwinSessionSummary {
 export interface TwinSessionListResponse {
   sessions: TwinSessionSummary[];
   total: number;
+}
+
+export interface SimulationLogEntry {
+  timestamp: string;
+  level: 'debug' | 'info' | 'warning' | 'error';
+  event: string;
+  phase: 'simulate' | 'remediate' | 'approve' | 'execute' | 'other';
+  context: Record<string, unknown>;
 }
