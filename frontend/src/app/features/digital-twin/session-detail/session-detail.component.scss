@@ -22,19 +22,10 @@
     margin-bottom: 10px;
     h2 { margin: 0; font-size: 22px; font-weight: 600; }
   }
-  .meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 24px;
-    font-size: 13px;
-    color: var(--mat-sys-on-surface-variant);
-    margin-bottom: 12px;
-    .meta-item { display: inline-flex; align-items: center; gap: 4px; }
-    .meta-icon { font-size: 16px; width: 16px; height: 16px; }
-  }
   .ai-assessment {
     display: flex;
     gap: 8px;
+    margin-top: 16px;
     padding: 12px 14px;
     background: var(--app-info-bg);
     border-radius: 8px;
@@ -42,6 +33,101 @@
     line-height: 1.5;
     .ai-icon { font-size: 18px; width: 18px; height: 18px; color: var(--app-info); flex-shrink: 0; }
   }
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1fr;
+  gap: 24px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.meta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.meta-value { font-size: 13px; }
+.meta-sub { font-size: 11px; color: var(--mat-sys-on-surface-variant); }
+
+.object-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  .object-type {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 7px;
+    border-radius: 3px;
+    background: var(--app-purple-bg);
+    color: var(--app-purple);
+  }
+
+  .object-name { font-family: 'SF Mono', Monaco, monospace; font-size: 13px; }
+}
+
+.sites-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sites-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sites-count-pill {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--app-neutral-bg);
+  color: var(--mat-sys-on-surface);
+  font-size: 12px;
+}
+
+.sites-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--app-info);
+  cursor: pointer;
+}
+
+.sites-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 64px;
+  overflow: hidden;
+
+  &.expanded { max-height: none; }
+}
+
+.site-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--app-info-bg);
+  color: var(--app-info);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .summary-cards {

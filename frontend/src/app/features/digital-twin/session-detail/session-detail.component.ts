@@ -75,6 +75,16 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   expandedChecks = signal<Set<string>>(new Set());
   expandedWrites = signal<Set<number>>(new Set());
   expandedLayers = signal<Set<number>>(new Set([1, 2, 3, 4, 5]));
+  readonly sitesExpanded = signal(false);
+
+  toggleSitesExpanded(): void {
+    this.sitesExpanded.update((v) => !v);
+  }
+
+  sourceSubLabel(summary: { source: string; source_ref: string | null }): string | null {
+    if (summary.source === 'mcp') return summary.source_ref ?? 'Internal Chat';
+    return summary.source_ref;
+  }
 
   isAwaitingApproval = computed(() => this.session()?.status === 'awaiting_approval');
   canApprove = computed(() => {
@@ -183,8 +193,8 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
 
   sourceLabel(source: string): string {
     switch (source) {
-      case 'llm_chat':
-        return 'LLM Chat';
+      case 'mcp':
+        return 'MCP';
       case 'workflow':
         return 'Workflow';
       case 'backup_restore':
