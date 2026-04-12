@@ -29,6 +29,11 @@ from app.modules.digital_twin.services.site_snapshot import (
     fetch_live_data,
     load_site_snapshot_source_data,
 )
+from app.modules.digital_twin.services.label_resolver import (
+    fetch_object_names_by_type,
+    fetch_site_names,
+    format_object_label,
+)
 from app.modules.digital_twin.services.state_resolver import (
     apply_staged_writes,
     canonicalize_object_type,
@@ -250,6 +255,16 @@ async def simulate(
     preflight_errors = bool(parse_errors or target_errors)
     affected_sites, affected_types = collect_affected_metadata(staged_writes)
 
+    # Resolve human-readable object label (uses backup data, resolved once at
+    # session creation and never refreshed — names captured at simulate-time).
+    object_names = await fetch_object_names_by_type(
+        org_id=org_id, writes=staged_writes
+    )
+    affected_object_label = format_object_label(
+        object_types=affected_types,
+        object_names_by_type=object_names,
+    )
+
     old_severity = "clean"
     if existing_session_id:
         session = await TwinSession.get(PydanticObjectId(existing_session_id))
@@ -263,6 +278,7 @@ async def simulate(
         session.staged_writes = staged_writes
         session.affected_sites = affected_sites
         session.affected_object_types = affected_types
+        session.affected_object_label = affected_object_label
         session.remediation_count += 1
     else:
         session = TwinSession(
@@ -273,6 +289,7 @@ async def simulate(
             staged_writes=staged_writes,
             affected_sites=affected_sites,
             affected_object_types=affected_types,
+            affected_object_label=affected_object_label,
         )
 
     session.status = TwinSessionStatus.VALIDATING
@@ -300,6 +317,12 @@ async def simulate(
         # Expand affected_sites with template-impacted sites
         affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
         session.affected_sites = affected_sites
+
+        # Resolve site labels once the full fan-out is known (template edits may
+        # expand the scoped sites — we want labels for ALL tested sites).
+        session.affected_site_labels = await fetch_site_names(
+            org_id=org_id, site_ids=affected_sites
+        )
 
         # Compile the baseline the same way as predicted so port-based checks
         # compare apples-to-apples. Without this, baseline reads raw backup
