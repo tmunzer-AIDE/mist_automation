@@ -245,7 +245,7 @@ async def simulate(
     user_id: str,
     org_id: str,
     writes: list[dict[str, Any]],
-    source: str = "llm_chat",
+    source: str = "mcp",
     source_ref: str | None = None,
     existing_session_id: str | None = None,
 ) -> TwinSession:

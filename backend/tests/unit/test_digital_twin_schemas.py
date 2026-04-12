@@ -96,7 +96,7 @@ class TestTwinSessionResponse:
         r = TwinSessionResponse(
             id="abc",
             status="pending",
-            source="llm_chat",
+            source="mcp",
             source_ref="conv_123",
             overall_severity="clean",
             writes_count=0,
@@ -144,7 +144,7 @@ class TestTwinSessionDetailResponse:
         r = TwinSessionDetailResponse(
             id="abc",
             status="pending",
-            source="llm_chat",
+            source="mcp",
             overall_severity="clean",
             writes_count=0,
         )
@@ -178,7 +178,7 @@ class TestTwinSessionDetailResponse:
         r = TwinSessionDetailResponse(
             id="abc",
             status="pending",
-            source="llm_chat",
+            source="mcp",
             overall_severity="clean",
             writes_count=0,
         )
@@ -191,7 +191,7 @@ class TestTwinSessionDetailResponse:
 def _make_session(
     *,
     status_value="pending",
-    source="llm_chat",
+    source="mcp",
     source_ref=None,
     overall_severity="clean",
     staged_writes=None,
