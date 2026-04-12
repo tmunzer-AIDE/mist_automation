@@ -186,7 +186,39 @@ async def load_base_state_from_backup(
         elif object_type not in _SINGLETON_OBJECT_TYPES:
             continue
 
-        backup = await BackupObject.find(query).sort([("version", -1)]).first_or_none()
+        backup = None
+        if object_type == "info" and write.site_id and not write.object_id:
+            # Site identity/template bindings can be stored under multiple
+            # backup shapes. Resolve in deterministic order so a partial
+            # /sites/{site_id} payload merges onto the full current singleton
+            # instead of starting from an empty dict.
+            fallback_queries = [
+                {
+                    "object_type": "info",
+                    "site_id": write.site_id,
+                    "org_id": org_id,
+                    "is_deleted": False,
+                },
+                {
+                    "object_type": "site",
+                    "object_id": write.site_id,
+                    "org_id": org_id,
+                    "is_deleted": False,
+                },
+                {
+                    "object_type": "sites",
+                    "object_id": write.site_id,
+                    "org_id": org_id,
+                    "is_deleted": False,
+                },
+            ]
+            for fallback_query in fallback_queries:
+                backup = await BackupObject.find(fallback_query).sort([("version", -1)]).first_or_none()
+                if backup:
+                    break
+        else:
+            backup = await BackupObject.find(query).sort([("version", -1)]).first_or_none()
+
         if not backup:
             continue
 

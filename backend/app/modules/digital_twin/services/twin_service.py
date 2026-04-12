@@ -88,6 +88,7 @@ def _parse_and_enrich_writes(
                     summary=f"Write #{i}: invalid endpoint '{w.get('endpoint', '')}'",
                     details=[parsed.error],
                     remediation_hint="Use valid Mist API endpoints like /api/v1/sites/{site_id}/wlans or /api/v1/orgs/{org_id}/networks. Resource names must match the Mist API (e.g., 'wlans' not 'wlan').",
+                    description="Validates that the staged write targets a well-formed, recognized Mist API endpoint.",
                 )
             )
     return staged, parse_errors
@@ -117,6 +118,7 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
                     "Current request resolved org_id to an empty value.",
                 ],
                 remediation_hint="Configure Mist Organization ID in settings, then re-run simulation.",
+                description="Verifies that an organization context (org_id) is present before simulation can proceed.",
             )
         ]
 
@@ -196,6 +198,7 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
                     remediation_hint=(
                         "Verify org/site selection and run a backup for this site if snapshots are missing."
                     ),
+                    description="Confirms the target site exists in backup data so baseline state can be built.",
                 )
             )
             continue
@@ -222,6 +225,7 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
                             "PUT/DELETE simulations require existing object IDs to build baseline state.",
                         ],
                         remediation_hint=("Use a real object UUID for the target resource (or POST for new objects)."),
+                        description="Confirms the target object ID exists in backup data for PUT/DELETE operations.",
                     )
                 )
 

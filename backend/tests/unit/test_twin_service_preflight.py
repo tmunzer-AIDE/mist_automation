@@ -9,6 +9,7 @@ from app.modules.digital_twin.services import twin_service
 
 validate_write_targets = getattr(twin_service, "_validate_write_targets")
 has_blocking_preflight_errors = getattr(twin_service, "_has_blocking_preflight_errors")
+parse_and_enrich_writes = getattr(twin_service, "_parse_and_enrich_writes")
 
 
 def _matches(doc: dict, query: dict) -> bool:
@@ -243,3 +244,85 @@ class TestTwinServicePreflight:
         assert len(errors) == 1
         assert errors[0].check_id == "SYS-02-0"
         assert "run a backup" in (errors[0].remediation_hint or "").lower()
+
+
+@pytest.mark.unit
+class TestCheckDescriptions:
+    """Verify SYS preflight checks populate the description field."""
+
+    def test_sys_01_description_populated(self):
+        """SYS-01 (endpoint parse error) populates description."""
+        _staged, errors = parse_and_enrich_writes([
+            {"method": "PUT", "endpoint": "/bad/endpoint/not/mist"}
+        ])
+        assert len(errors) == 1
+        assert errors[0].description != ""
+
+    async def test_sys_00_description_populated(self, monkeypatch):
+        """SYS-00 (missing org_id) populates description."""
+        _FakeBackupObject.docs = []
+        monkeypatch.setattr(backup_models, "BackupObject", _FakeBackupObject)
+
+        writes = [
+            StagedWrite(
+                sequence=0,
+                method="PUT",
+                endpoint="/api/v1/sites/site-1/wlans/wlan-1",
+                body={},
+                object_type="wlans",
+                site_id="site-1",
+                object_id="wlan-1",
+            )
+        ]
+        errors = await validate_write_targets("", writes)
+        assert len(errors) == 1
+        assert errors[0].description != ""
+
+    async def test_sys_02_description_populated(self, monkeypatch):
+        """SYS-02 (site not in backup) populates description."""
+        _FakeBackupObject.docs = []
+        monkeypatch.setattr(backup_models, "BackupObject", _FakeBackupObject)
+
+        writes = [
+            StagedWrite(
+                sequence=0,
+                method="PUT",
+                endpoint="/api/v1/sites/site-missing/wlans/wlan-1",
+                body={},
+                object_type="wlans",
+                site_id="site-missing",
+                object_id="wlan-1",
+            )
+        ]
+        errors = await validate_write_targets("org-1", writes)
+        assert any(e.check_id == "SYS-02-0" for e in errors)
+        sys02 = next(e for e in errors if e.check_id == "SYS-02-0")
+        assert sys02.description != ""
+
+    async def test_sys_03_description_populated(self, monkeypatch):
+        """SYS-03 (object not in backup) populates description."""
+        _FakeBackupObject.docs = [
+            {
+                "org_id": "org-1",
+                "is_deleted": False,
+                "object_type": "sites",
+                "object_id": "site-1",
+            }
+        ]
+        monkeypatch.setattr(backup_models, "BackupObject", _FakeBackupObject)
+
+        writes = [
+            StagedWrite(
+                sequence=0,
+                method="PUT",
+                endpoint="/api/v1/sites/site-1/wlans/wlan-missing",
+                body={},
+                object_type="wlans",
+                site_id="site-1",
+                object_id="wlan-missing",
+            )
+        ]
+        errors = await validate_write_targets("org-1", writes)
+        assert any(e.check_id == "SYS-03-0" for e in errors)
+        sys03 = next(e for e in errors if e.check_id == "SYS-03-0")
+        assert sys03.description != ""
