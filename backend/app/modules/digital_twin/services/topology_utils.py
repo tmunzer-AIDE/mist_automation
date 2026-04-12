@@ -45,17 +45,17 @@ def port_lookup_candidates(port_id: str | None) -> list[str]:
     normalized = normalize_port_id(port_id)
     raw = str(port_id).strip()
     candidates: list[str] = []
-    
+
     for candidate in (raw, normalized, f"{normalized}.0", f"{normalized}:0"):
         if candidate and candidate not in candidates:
             candidates.append(candidate)
-            
+
     # Also try without prefix if config uses shorthand (rare but possible)
     if "-" in normalized:
         shorthand = normalized.split("-", 1)[1]
         if shorthand and shorthand not in candidates:
             candidates.append(shorthand)
-            
+
     return candidates
 
 

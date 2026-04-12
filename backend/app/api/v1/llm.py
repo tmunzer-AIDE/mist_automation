@@ -496,12 +496,17 @@ async def _fetch_models(provider: str, api_key: str, base_url: str | None) -> li
             if provider == "llama_cpp" and not url:
                 url = "http://localhost:8080/v1"
 
-            client = AsyncOpenAI(**_build_openai_client_kwargs(provider, api_key, url))
+            client_kwargs, custom_http_client = _build_openai_client_kwargs(provider, api_key, url)
+            client = AsyncOpenAI(**client_kwargs)
             try:
                 result = await client.models.list()
                 return [{"id": m.id, "name": m.id, "context_window": get_context_window(m.id)} for m in result.data]
             finally:
-                await client.close()
+                try:
+                    await client.close()
+                finally:
+                    if custom_http_client is not None and not getattr(custom_http_client, "is_closed", True):
+                        await custom_http_client.aclose()
 
         elif provider == "anthropic":
             async with httpx.AsyncClient(timeout=15) as client:

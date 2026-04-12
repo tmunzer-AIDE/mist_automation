@@ -74,6 +74,32 @@ class TestMergeWriteIntoState:
         merge_write_into_state(state, write)
         assert ("settings", "site-1", None) in state
 
+    def test_put_replaces_nested_dict_root_key(self):
+        state = {
+            ("devices", "site-1", "dev-1"): {
+                "port_config": {
+                    "ge-0/0/1": {"usage": "ap", "description": "old"},
+                    "ge-0/0/2": {"usage": "trunk"},
+                },
+                "name": "sw1",
+            }
+        }
+        write = StagedWrite(
+            sequence=0,
+            method="PUT",
+            endpoint="/api/v1/sites/site-1/devices/dev-1",
+            body={"port_config": {"ge-0/0/1": {"usage": "disabled"}}},
+            object_type="devices",
+            site_id="site-1",
+            object_id="dev-1",
+        )
+
+        merge_write_into_state(state, write)
+
+        obj = state[("devices", "site-1", "dev-1")]
+        assert obj["name"] == "sw1"
+        assert obj["port_config"] == {"ge-0/0/1": {"usage": "disabled"}}
+
 
 class TestApplyStagedWrites:
     def test_applies_writes_in_sequence_order(self):

@@ -49,9 +49,11 @@ async def test_complete_uses_openai_client_with_mistral_default_url(monkeypatch)
             )
 
     class FakeAsyncOpenAI:
-        def __init__(self, api_key: str, base_url: str | None = None):
+        def __init__(self, api_key: str, base_url: str | None = None, **kwargs):
             captured["api_key"] = api_key
             captured["base_url"] = base_url
+            if kwargs:
+                captured["extra_kwargs"] = kwargs
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
         async def close(self):
@@ -82,9 +84,11 @@ async def test_fetch_models_mistral_uses_default_api_url(monkeypatch):
             return SimpleNamespace(data=[SimpleNamespace(id="mistral-small-latest")])
 
     class FakeAsyncOpenAI:
-        def __init__(self, api_key: str, base_url: str | None = None):
+        def __init__(self, api_key: str, base_url: str | None = None, **kwargs):
             captured["api_key"] = api_key
             captured["base_url"] = base_url
+            if kwargs:
+                captured["extra_kwargs"] = kwargs
             self.models = FakeModelsClient()
 
         async def close(self):
@@ -100,3 +104,47 @@ async def test_fetch_models_mistral_uses_default_api_url(monkeypatch):
     assert captured["base_url"] == "https://api.mistral.ai/v1"
     assert captured["closed"] is True
     assert models[0]["id"] == "mistral-small-latest"
+
+
+async def test_fetch_models_closes_custom_http_client(monkeypatch):
+    """_fetch_models should close custom http client from helper kwargs tuple."""
+    from app.api.v1.llm import _fetch_models
+    from app.modules.llm.services import llm_service
+
+    captured: dict[str, object] = {}
+
+    class FakeHTTPClient:
+        is_closed = False
+
+        async def aclose(self):
+            self.is_closed = True
+            captured["http_closed"] = True
+
+    class FakeModelsClient:
+        async def list(self):
+            return SimpleNamespace(data=[SimpleNamespace(id="test-model")])
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            self.models = FakeModelsClient()
+
+        async def close(self):
+            captured["client_closed"] = True
+
+    fake_openai_module = ModuleType("openai")
+    fake_openai_module.AsyncOpenAI = FakeAsyncOpenAI  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "openai", fake_openai_module)
+
+    fake_http_client = FakeHTTPClient()
+
+    def _fake_build_kwargs(provider: str, api_key: str, base_url: str | None):
+        return ({"api_key": api_key, "base_url": base_url}, fake_http_client)
+
+    monkeypatch.setattr(llm_service, "_build_openai_client_kwargs", _fake_build_kwargs)
+
+    models = await _fetch_models("mistral", "secret-key", None)
+
+    assert captured["client_closed"] is True
+    assert captured["http_closed"] is True
+    assert models[0]["id"] == "test-model"

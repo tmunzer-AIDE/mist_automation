@@ -11,7 +11,13 @@ import structlog
 from structlog.types import EventDict, Processor
 
 from app.config import settings
-from app.modules.digital_twin.services.twin_logging import capture_twin_session_logs
+
+try:
+    from app.modules.digital_twin.services.twin_logging import capture_twin_session_logs
+except ImportError:
+    def capture_twin_session_logs(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+        """No-op fallback when the optional Digital Twin module is unavailable."""
+        return event_dict
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:

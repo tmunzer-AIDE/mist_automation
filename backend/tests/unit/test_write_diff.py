@@ -95,7 +95,7 @@ def test_diff_for_put_empty_body_has_no_changes():
     assert summary == "0 fields changed"
 
 
-def test_diff_for_put_replaces_only_specified_root_key():
+def test_diff_for_put_replaces_specified_dict_root_key():
     base = {
         "name": "default",
         "key1": {"nested_a": 1, "nested_b": 2},
@@ -120,3 +120,35 @@ def test_diff_for_put_replaces_only_specified_root_key():
     assert by_path["key1.nested_b"]["before"] == 2
     assert by_path["key1.nested_b"]["after"] is None
     assert summary == "2 fields changed"
+
+
+def test_diff_for_put_port_config_replaces_specified_dict_root_key():
+    base = {
+        "port_config": {
+            "ge-0/0/1": {"usage": "access", "description": "uplink"},
+            "ge-0/0/2": {"usage": "ap"},
+        }
+    }
+    write = StagedWrite(
+        sequence=0,
+        method="PUT",
+        endpoint="/api/v1/sites/site-1/devices/dev-1",
+        body={"port_config": {"ge-0/0/1": {"usage": "trunk"}}},
+        object_type="devices",
+        site_id="site-1",
+        object_id="dev-1",
+    )
+
+    diff, summary = build_write_diff(write, base)
+    by_path = {d["path"]: d for d in diff}
+
+    assert by_path["port_config.ge-0/0/1.usage"]["change"] == "modified"
+    assert by_path["port_config.ge-0/0/1.usage"]["before"] == "access"
+    assert by_path["port_config.ge-0/0/1.usage"]["after"] == "trunk"
+    assert by_path["port_config.ge-0/0/1.description"]["change"] == "removed"
+    assert by_path["port_config.ge-0/0/1.description"]["before"] == "uplink"
+    assert by_path["port_config.ge-0/0/1.description"]["after"] is None
+    assert by_path["port_config.ge-0/0/2"]["change"] == "removed"
+    assert by_path["port_config.ge-0/0/2"]["before"] == {"usage": "ap"}
+    assert by_path["port_config.ge-0/0/2"]["after"] is None
+    assert summary == "3 fields changed"
