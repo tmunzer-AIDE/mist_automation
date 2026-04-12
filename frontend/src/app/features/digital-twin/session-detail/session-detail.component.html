@@ -332,6 +332,15 @@
           </div>
         </mat-tab>
       }
+
+      <!-- Tab 4: Logs (admin only) -->
+      @if (isAdmin()) {
+        <mat-tab label="Logs">
+          <div class="tab-content">
+            <app-digital-twin-logs-tab [sessionId]="s.id" />
+          </div>
+        </mat-tab>
+      }
     </mat-tab-group>
   </div>
 }

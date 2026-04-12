@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { JsonPipe } from '@angular/common';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -18,6 +19,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { Store } from '@ngrx/store';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import {
   ConfirmDialogComponent,
@@ -25,8 +27,10 @@ import {
 } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { TopbarService } from '../../../core/services/topbar.service';
+import { selectIsAdmin } from '../../../core/state/auth/auth.selectors';
 import { DigitalTwinService } from '../digital-twin.service';
 import { CheckResultModel, TwinSessionDetail } from '../models/twin-session.model';
+import { LogsTabComponent } from './logs-tab.component';
 
 interface LayerInfo {
   number: number;
@@ -57,6 +61,7 @@ const LAYERS: LayerInfo[] = [
     MatTooltipModule,
     StatusBadgeComponent,
     DateTimePipe,
+    LogsTabComponent,
   ],
   templateUrl: './session-detail.component.html',
   styleUrl: './session-detail.component.scss',
@@ -70,6 +75,9 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   private readonly topbarService = inject(TopbarService);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly store = inject(Store);
+
+  readonly isAdmin = toSignal(this.store.select(selectIsAdmin), { initialValue: false });
 
   session = signal<TwinSessionDetail | null>(null);
   loading = signal(true);
