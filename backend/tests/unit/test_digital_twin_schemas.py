@@ -437,3 +437,51 @@ def test_twin_session_response_carries_new_label_fields():
     assert resp.affected_object_label == "networktemplates: default-campus"
     assert resp.affected_object_types == ["networktemplates"]
     assert resp.affected_site_labels == ["HQ", "Boston"]
+
+
+def test_session_to_detail_response_computes_diff_against_resolved_state():
+    from app.modules.digital_twin.models import (
+        StagedWrite,
+        TwinSession,
+        TwinSessionStatus,
+    )
+    from app.modules.digital_twin.schemas import session_to_detail_response
+
+    write = StagedWrite(
+        sequence=0,
+        method="PUT",
+        endpoint="/api/v1/orgs/org/networktemplates/t1",
+        body={"name": "default", "vlan_id": 20},
+        object_type="networktemplates",
+        object_id="t1",
+    )
+
+    base_key = str(("networktemplates", None, "t1"))
+    session = TwinSession.model_construct(
+        user_id="507f1f77bcf86cd799439011",
+        org_id="org",
+        source="mcp",
+        source_ref=None,
+        status=TwinSessionStatus.AWAITING_APPROVAL,
+        overall_severity="clean",
+        affected_sites=[],
+        affected_site_labels=[],
+        affected_object_label=None,
+        affected_object_types=["networktemplates"],
+        staged_writes=[write],
+        resolved_state={base_key: {"name": "default", "vlan_id": 10}},
+        remediation_count=0,
+        remediation_history=[],
+        prediction_report=None,
+        ai_assessment=None,
+    )
+
+    resp = session_to_detail_response(session)
+    assert len(resp.staged_writes) == 1
+    out_write = resp.staged_writes[0]
+    assert out_write.diff_summary == "1 field changed"
+    assert len(out_write.diff) == 1
+    assert out_write.diff[0].path == "vlan_id"
+    assert out_write.diff[0].change == "modified"
+    assert out_write.diff[0].before == 10
+    assert out_write.diff[0].after == 20

@@ -148,8 +148,8 @@ def session_to_detail_response(session: TwinSession) -> TwinSessionDetailRespons
 
     def _base_body_for(write: StagedWrite) -> dict[str, Any] | None:
         canonical = canonicalize_object_type(write.object_type) or ""
-        key = (canonical, write.site_id, write.object_id)
-        value = base_state.get(key) or base_state.get(str(key))
+        key = str((canonical, write.site_id, write.object_id))
+        value = base_state.get(key)
         return value if isinstance(value, dict) else None
 
     staged_writes: list[StagedWriteResponse] = []

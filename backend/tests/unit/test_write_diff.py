@@ -63,3 +63,22 @@ def test_diff_for_put_against_missing_base_treats_all_as_added():
     assert summary == "1 field changed"
     assert diff[0]["change"] == "added"
     assert diff[0]["path"] == "name"
+
+
+def test_diff_for_put_with_removed_field():
+    base = {"name": "t", "description": "old desc", "enabled": True}
+    write = StagedWrite(
+        sequence=0,
+        method="PUT",
+        endpoint="/api/v1/orgs/org-id/networktemplates/t1",
+        body={"name": "t", "enabled": True},  # description dropped
+        object_type="networktemplates",
+        object_id="t1",
+    )
+    diff, summary = build_write_diff(write, base)
+    removed = [d for d in diff if d["change"] == "removed"]
+    assert len(removed) == 1
+    assert removed[0]["path"] == "description"
+    assert removed[0]["before"] == "old desc"
+    assert removed[0]["after"] is None
+    assert summary == "1 field changed"

@@ -287,6 +287,10 @@ async def simulate(
     if not preflight_errors:
         # Resolve virtual state
         base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
+        # Persist the resolved base state so the detail view can compute diffs
+        # for each staged write against the original backup snapshot.
+        # Tuple keys are stringified because Mongo can't store tuple keys directly.
+        session.resolved_state = {str(k): v for k, v in base_state.items()}
         virtual_state = apply_staged_writes(base_state, staged_writes)
 
         # Compile effective device configs (template inheritance + variable resolution)
