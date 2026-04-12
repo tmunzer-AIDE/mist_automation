@@ -11,6 +11,7 @@ import structlog
 from structlog.types import EventDict, Processor
 
 from app.config import settings
+from app.modules.digital_twin.services.twin_logging import capture_twin_session_logs
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
@@ -119,6 +120,7 @@ def configure_logging():
             structlog.processors.UnicodeDecoder(),
             add_app_context,
             censor_sensitive_data,
+            capture_twin_session_logs,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

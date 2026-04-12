@@ -40,6 +40,10 @@ from app.modules.digital_twin.services.state_resolver import (
     collect_affected_metadata,
     load_base_state_from_backup,
 )
+from app.modules.digital_twin.services.twin_logging import (
+    bind_twin_session,
+    drain_buffer,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -298,115 +302,125 @@ async def simulate(
     session.update_timestamp()
     await session.save()
 
-    # Include parser/target validation errors in the report.
-    check_results: list[CheckResult] = [*parse_errors, *target_errors]
+    simulation_phase = "remediate" if session.remediation_count > 0 else "simulate"
+    with bind_twin_session(str(session.id), phase=simulation_phase):
+        # Include parser/target validation errors in the report.
+        check_results: list[CheckResult] = [*parse_errors, *target_errors]
 
-    if not preflight_errors:
-        # Resolve virtual state
-        base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
-        # Persist the resolved base state so the detail view can compute diffs
-        # for each staged write against the original backup snapshot.
-        # Tuple keys are stringified because Mongo can't store tuple keys directly.
-        session.resolved_state = {str(k): v for k, v in base_state.items()}
-        virtual_state = apply_staged_writes(base_state, staged_writes)
+        if not preflight_errors:
+            # Resolve virtual state
+            base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
+            # Persist the resolved base state so the detail view can compute diffs
+            # for each staged write against the original backup snapshot.
+            # Tuple keys are stringified because Mongo can't store tuple keys directly.
+            session.resolved_state = {str(k): v for k, v in base_state.items()}
+            virtual_state = apply_staged_writes(base_state, staged_writes)
 
-        # Compile effective device configs (template inheritance + variable resolution)
-        from app.modules.digital_twin.services.config_compiler import compile_base_state, compile_virtual_state
+            # Compile effective device configs (template inheritance + variable resolution)
+            from app.modules.digital_twin.services.config_compiler import compile_base_state, compile_virtual_state
 
-        virtual_state, all_impacted_sites = await compile_virtual_state(virtual_state, staged_writes, org_id)
-        # Expand affected_sites with template-impacted sites
-        affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
-        session.affected_sites = affected_sites
+            virtual_state, all_impacted_sites = await compile_virtual_state(virtual_state, staged_writes, org_id)
+            # Expand affected_sites with template-impacted sites
+            affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
+            session.affected_sites = affected_sites
 
-        # Resolve site labels once the full fan-out is known (template edits may
-        # expand the scoped sites — we want labels for ALL tested sites).
-        session.affected_site_labels = await fetch_site_names(
-            org_id=org_id, site_ids=affected_sites
-        )
-
-        # Compile the baseline the same way as predicted so port-based checks
-        # compare apples-to-apples. Without this, baseline reads raw backup
-        # device configs while predicted is template-merged, producing
-        # asymmetric port_config data that silently defeats PORT-DISC and the
-        # per-VLAN reachability diff.
-        baseline_state = await compile_base_state(affected_sites, org_id)
-
-        session.base_snapshot_refs = refs
-        session.live_fetched_at = datetime.now(timezone.utc)
-
-        # ── Snapshot-based analysis ──
-        # For each affected site: build baseline + predicted snapshots, run all checks
-        semaphore = asyncio.Semaphore(min(_SITE_ANALYSIS_CONCURRENCY, len(affected_sites)))
-
-        async def _analyze_one_site(sid: str) -> list:
-            async with semaphore:
-                live_data = await fetch_live_data(sid, org_id)
-                snapshot_source_data = await load_site_snapshot_source_data(sid, org_id)
-                baseline_snap = await build_site_snapshot(
-                    sid,
-                    org_id,
-                    live_data,
-                    state_overrides=baseline_state,
-                    source_data=snapshot_source_data,
-                )
-                predicted_snap = await build_site_snapshot(
-                    sid,
-                    org_id,
-                    live_data,
-                    state_overrides=virtual_state,
-                    source_data=snapshot_source_data,
-                )
-                return analyze_site_with_context(
-                    baseline_snap,
-                    predicted_snap,
-                    affected_types,
-                )
-
-        if affected_sites:
-            site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
-            for site_result in site_results:
-                check_results.extend(site_result)
-
-    # Build report
-    report = build_prediction_report(check_results)
-
-    # Track remediation history
-    if existing_session_id and session.remediation_count > 0:
-        old_failing_ids = set()
-        if session.prediction_report:
-            old_failing_ids = {
-                r.check_id for r in session.prediction_report.check_results if r.status in ("error", "critical")
-            }
-        new_failing = {r.check_id for r in check_results if r.status in ("error", "critical")}
-
-        session.remediation_history.append(
-            RemediationAttempt(
-                attempt=session.remediation_count,
-                previous_severity=old_severity if existing_session_id else "clean",
-                new_severity=report.overall_severity,
-                fixed_checks=sorted(old_failing_ids - new_failing),
-                introduced_checks=sorted(new_failing - old_failing_ids),
+            # Resolve site labels once the full fan-out is known (template edits may
+            # expand the scoped sites — we want labels for ALL tested sites).
+            session.affected_site_labels = await fetch_site_names(
+                org_id=org_id, site_ids=affected_sites
             )
+
+            # Compile the baseline the same way as predicted so port-based checks
+            # compare apples-to-apples. Without this, baseline reads raw backup
+            # device configs while predicted is template-merged, producing
+            # asymmetric port_config data that silently defeats PORT-DISC and the
+            # per-VLAN reachability diff.
+            baseline_state = await compile_base_state(affected_sites, org_id)
+
+            session.base_snapshot_refs = refs
+            session.live_fetched_at = datetime.now(timezone.utc)
+
+            # ── Snapshot-based analysis ──
+            # For each affected site: build baseline + predicted snapshots, run all checks
+            semaphore = asyncio.Semaphore(min(_SITE_ANALYSIS_CONCURRENCY, len(affected_sites)))
+
+            async def _analyze_one_site(sid: str) -> list:
+                async with semaphore:
+                    live_data = await fetch_live_data(sid, org_id)
+                    snapshot_source_data = await load_site_snapshot_source_data(sid, org_id)
+                    baseline_snap = await build_site_snapshot(
+                        sid,
+                        org_id,
+                        live_data,
+                        state_overrides=baseline_state,
+                        source_data=snapshot_source_data,
+                    )
+                    predicted_snap = await build_site_snapshot(
+                        sid,
+                        org_id,
+                        live_data,
+                        state_overrides=virtual_state,
+                        source_data=snapshot_source_data,
+                    )
+                    return analyze_site_with_context(
+                        baseline_snap,
+                        predicted_snap,
+                        affected_types,
+                    )
+
+            if affected_sites:
+                site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
+                for site_result in site_results:
+                    check_results.extend(site_result)
+
+        # Build report
+        report = build_prediction_report(check_results)
+
+        # Track remediation history
+        if existing_session_id and session.remediation_count > 0:
+            old_failing_ids = set()
+            if session.prediction_report:
+                old_failing_ids = {
+                    r.check_id for r in session.prediction_report.check_results if r.status in ("error", "critical")
+                }
+            new_failing = {r.check_id for r in check_results if r.status in ("error", "critical")}
+
+            session.remediation_history.append(
+                RemediationAttempt(
+                    attempt=session.remediation_count,
+                    previous_severity=old_severity if existing_session_id else "clean",
+                    new_severity=report.overall_severity,
+                    fixed_checks=sorted(old_failing_ids - new_failing),
+                    introduced_checks=sorted(new_failing - old_failing_ids),
+                )
+            )
+
+        session.prediction_report = report
+        session.overall_severity = report.overall_severity
+        if _has_blocking_preflight_errors(check_results):
+            session.status = TwinSessionStatus.FAILED
+            session.ai_assessment = "Preflight validation failed. Fix endpoint/target issues and re-run simulation."
+        else:
+            session.status = TwinSessionStatus.AWAITING_APPROVAL
+            session.ai_assessment = None
+
+        logger.info(
+            "twin_simulation_complete",
+            session_id=str(session.id),
+            severity=report.overall_severity,
+            checks=report.total_checks,
+            issues=report.errors + report.critical + report.warnings,
         )
 
-    session.prediction_report = report
-    session.overall_severity = report.overall_severity
-    if _has_blocking_preflight_errors(check_results):
-        session.status = TwinSessionStatus.FAILED
-        session.ai_assessment = "Preflight validation failed. Fix endpoint/target issues and re-run simulation."
-    else:
-        session.status = TwinSessionStatus.AWAITING_APPROVAL
-        session.ai_assessment = None
+    # Drain captured logs before persistence so they're saved with the session.
+    captured = drain_buffer(str(session.id))
+    if captured:
+        session.simulation_logs.extend(captured)
+        if len(session.simulation_logs) > 1000:
+            session.simulation_logs = session.simulation_logs[-1000:]
+
     session.update_timestamp()
     await session.save()
-
-    logger.info(
-        "twin_simulation_complete",
-        session_id=str(session.id),
-        severity=report.overall_severity,
-        checks=report.total_checks,
-        issues=report.errors + report.critical + report.warnings,
-    )
 
     return session
 
@@ -437,55 +451,63 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
     session.update_timestamp()
     await session.save()
 
-    mist = await create_mist_service()
-    errors: list[str] = []
+    with bind_twin_session(str(session.id), phase="execute"):
+        mist = await create_mist_service()
+        errors: list[str] = []
 
-    for write in sorted(session.staged_writes, key=lambda w: w.sequence):
-        try:
-            if write.method == "POST":
-                result = await mist.api_post(write.endpoint, write.body or {})
-            elif write.method == "PUT":
-                result = await mist.api_put(write.endpoint, write.body or {})
-            elif write.method == "DELETE":
-                await mist.api_delete(write.endpoint)
-                result = None
-            else:
-                continue
-            write.synthetic_response = result if isinstance(result, dict) else {}
-        except Exception as e:
-            errors.append(f"Write #{write.sequence} failed")
-            logger.error("twin_write_failed", write=write.sequence, endpoint=write.endpoint, error=str(e))
+        for write in sorted(session.staged_writes, key=lambda w: w.sequence):
+            try:
+                if write.method == "POST":
+                    result = await mist.api_post(write.endpoint, write.body or {})
+                elif write.method == "PUT":
+                    result = await mist.api_put(write.endpoint, write.body or {})
+                elif write.method == "DELETE":
+                    await mist.api_delete(write.endpoint)
+                    result = None
+                else:
+                    continue
+                write.synthetic_response = result if isinstance(result, dict) else {}
+            except Exception as e:
+                errors.append(f"Write #{write.sequence} failed")
+                logger.error("twin_write_failed", write=write.sequence, endpoint=write.endpoint, error=str(e))
 
-    if errors:
-        session.status = TwinSessionStatus.FAILED
-        session.ai_assessment = f"Execution failed: {'; '.join(errors)}"
-    else:
-        session.status = TwinSessionStatus.DEPLOYED
+        if errors:
+            session.status = TwinSessionStatus.FAILED
+            session.ai_assessment = f"Execution failed: {'; '.join(errors)}"
+        else:
+            session.status = TwinSessionStatus.DEPLOYED
 
-        # Create IA monitoring sessions for post-deployment validation
-        try:
-            from app.modules.digital_twin.services.twin_ia_bridge import create_ia_sessions_for_deployment
+            # Create IA monitoring sessions for post-deployment validation
+            try:
+                from app.modules.digital_twin.services.twin_ia_bridge import create_ia_sessions_for_deployment
 
-            ia_ids = await create_ia_sessions_for_deployment(session)
-            session.ia_session_ids = ia_ids
-            logger.info(
-                "twin_ia_bridge_complete",
-                session_id=str(session.id),
-                ia_sessions=len(ia_ids),
-            )
-        except Exception as e:
-            logger.warning("twin_ia_bridge_failed", session_id=str(session.id), error=str(e))
+                ia_ids = await create_ia_sessions_for_deployment(session)
+                session.ia_session_ids = ia_ids
+                logger.info(
+                    "twin_ia_bridge_complete",
+                    session_id=str(session.id),
+                    ia_sessions=len(ia_ids),
+                )
+            except Exception as e:
+                logger.warning("twin_ia_bridge_failed", session_id=str(session.id), error=str(e))
+
+        logger.info(
+            "twin_execution_complete",
+            session_id=str(session.id),
+            status=session.status.value,
+            writes=len(session.staged_writes),
+            errors=len(errors),
+        )
+
+    # Drain captured logs before persistence so they're saved with the session.
+    captured = drain_buffer(str(session.id))
+    if captured:
+        session.simulation_logs.extend(captured)
+        if len(session.simulation_logs) > 1000:
+            session.simulation_logs = session.simulation_logs[-1000:]
 
     session.update_timestamp()
     await session.save()
-
-    logger.info(
-        "twin_execution_complete",
-        session_id=str(session.id),
-        status=session.status.value,
-        writes=len(session.staged_writes),
-        errors=len(errors),
-    )
 
     return session
 
