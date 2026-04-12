@@ -97,6 +97,7 @@ def _check_stp_root(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             layer=5,
             status="skipped",
             summary="No STP priority configured on any switch — skipping root bridge check.",
+            description="Detects STP root bridge shifts caused by bridge priority changes, which trigger network-wide reconvergence.",
         )
 
     # Fill missing devices with default priority for fair comparison
@@ -128,6 +129,7 @@ def _check_stp_root(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             layer=5,
             status="skipped",
             summary="Cannot determine STP root bridge — insufficient data.",
+            description="Detects STP root bridge shifts caused by bridge priority changes, which trigger network-wide reconvergence.",
         )
 
     baseline_root_id, baseline_root_prio, baseline_root_name = baseline_root
@@ -140,6 +142,7 @@ def _check_stp_root(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             layer=5,
             status="pass",
             summary=f"STP root bridge remains '{baseline_root_name}' — no reconvergence expected.",
+            description="Detects STP root bridge shifts caused by bridge priority changes, which trigger network-wide reconvergence.",
         )
 
     details = [
@@ -163,6 +166,7 @@ def _check_stp_root(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             "Review STP priority changes carefully. If the root shift is intentional, "
             "schedule during a maintenance window."
         ),
+        description="Detects STP root bridge shifts caused by bridge priority changes, which trigger network-wide reconvergence.",
     )
 
 
@@ -224,6 +228,7 @@ def _check_stp_bpdu(predicted: SiteSnapshot) -> CheckResult:
             layer=5,
             status="pass",
             summary="No BPDU filter enabled on trunk ports.",
+            description="Flags trunk ports with BPDU filter enabled, which disables STP loop protection on switch-to-switch uplinks.",
         )
 
     return CheckResult(
@@ -239,6 +244,7 @@ def _check_stp_bpdu(predicted: SiteSnapshot) -> CheckResult:
             "Remove BPDU filter from trunk ports. BPDU filter should only be used on "
             "edge/access ports, never on switch-to-switch uplinks."
         ),
+        description="Flags trunk ports with BPDU filter enabled, which disables STP loop protection on switch-to-switch uplinks.",
     )
 
 
@@ -277,6 +283,7 @@ def _check_stp_loop(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             layer=5,
             status="pass",
             summary="No new L2 loops detected in predicted topology.",
+            description="Detects new L2 cycles introduced in the physical topology graph that could cause broadcast storms.",
         )
 
     # Resolve MACs to device names for readable output. Fall back to the MAC
@@ -315,6 +322,7 @@ def _check_stp_loop(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             "Enable STP/RSTP on all ports in the loop path, convert redundant links to LAG, "
             "or remove the redundant connection."
         ),
+        description="Detects new L2 cycles introduced in the physical topology graph that could cause broadcast storms.",
     )
 
 

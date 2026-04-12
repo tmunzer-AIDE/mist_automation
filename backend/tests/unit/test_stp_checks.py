@@ -415,3 +415,31 @@ class TestStpLoop:
         assert " ->  -> " not in joined_details
         # affected_objects must never contain an empty string
         assert "" not in loop_result.affected_objects
+
+
+# ---------------------------------------------------------------------------
+# TestCheckDescriptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCheckDescriptions:
+    """Verify STP checks populate the description field."""
+
+    def test_stp_root_description_populated(self):
+        snap = _snap()
+        results = check_stp(snap, snap)
+        check = next(r for r in results if r.check_id == "STP-ROOT")
+        assert check.description != ""
+
+    def test_stp_bpdu_description_populated(self):
+        snap = _snap()
+        results = check_stp(snap, snap)
+        check = next(r for r in results if r.check_id == "STP-BPDU")
+        assert check.description != ""
+
+    def test_stp_loop_description_populated(self):
+        snap = _snap()
+        results = check_stp(snap, snap)
+        check = next(r for r in results if r.check_id == "STP-LOOP")
+        assert check.description != ""
