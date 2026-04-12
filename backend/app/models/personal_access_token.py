@@ -41,6 +41,7 @@ class PersonalAccessToken(TimestampMixin, Document):
         name = "personal_access_tokens"
         indexes = [
             IndexModel([("token_hash", ASCENDING)], unique=True),
+            IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
             "user_id",
             "revoked_at",
         ]

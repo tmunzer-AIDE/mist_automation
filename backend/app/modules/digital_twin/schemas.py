@@ -88,7 +88,7 @@ class TwinSessionResponse(BaseModel):
 
 class TwinSessionDetailResponse(TwinSessionResponse):
     ai_assessment: str | None = None
-    execution_safe: bool = True
+    execution_safe: bool = False
     staged_writes: list[StagedWriteResponse] = Field(default_factory=list)
     remediation_history: list[RemediationAttemptResponse] = Field(default_factory=list)
 
@@ -172,7 +172,7 @@ def session_to_detail_response(session: TwinSession) -> TwinSessionDetailRespons
     return TwinSessionDetailResponse(
         **base.model_dump(),
         ai_assessment=session.ai_assessment,
-        execution_safe=session.prediction_report.execution_safe if session.prediction_report else True,
+        execution_safe=session.prediction_report.execution_safe if session.prediction_report else False,
         staged_writes=staged_writes,
         remediation_history=[
             RemediationAttemptResponse(

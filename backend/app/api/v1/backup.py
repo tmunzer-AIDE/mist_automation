@@ -879,7 +879,15 @@ async def restore_object_version(
 
     When ``cascade=True``, deleted parents are restored first (with new UUIDs),
     then the target object, then deleted children — all with ID remapping.
+
+    ``dry_run`` and ``simulate`` are mutually exclusive no-apply modes.
     """
+    if dry_run and simulate:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="dry_run and simulate are mutually exclusive; choose only one mode",
+        )
+
     try:
         doc_id = PydanticObjectId(version_id)
     except Exception as exc:

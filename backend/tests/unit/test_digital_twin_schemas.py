@@ -183,7 +183,7 @@ class TestTwinSessionDetailResponse:
             writes_count=0,
         )
         assert r.ai_assessment is None
-        assert r.execution_safe is True
+        assert r.execution_safe is False
         assert r.staged_writes == []
         assert r.remediation_history == []
 
@@ -303,10 +303,10 @@ class TestSessionToDetailResponse:
         r = session_to_detail_response(session)
         assert r.execution_safe is False
 
-    def test_execution_safe_defaults_true_without_report(self):
+    def test_execution_safe_defaults_false_without_report(self):
         session = _make_session(prediction_report=None)
         r = session_to_detail_response(session)
-        assert r.execution_safe is True
+        assert r.execution_safe is False
 
     def test_source_ref_propagated(self):
         session = _make_session(source_ref="chat_xyz")

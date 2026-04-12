@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.core.placeholder_utils import is_unresolved_placeholder
+
 # Valid org-level resource names (collections)
 _ORG_RESOURCES: frozenset[str] = frozenset(
     {
@@ -120,29 +122,10 @@ _ORG_PATTERN = re.compile(r"^/api/v1/orgs/(?P<org_id>[^/]+)(?:/(?P<resource>[^/]
 _SITE_PATTERN = re.compile(r"^/api/v1/sites/(?P<site_id>[^/]+)(?:/(?P<resource>[^/]+)(?:/(?P<object_id>[^/]+))?)?$")
 
 
-def _is_unresolved_placeholder(value: str | None) -> bool:
-    """Return True when a path segment appears to be an unresolved template token."""
-    if not value:
-        return False
-
-    lowered = value.lower()
-    if "%7b" in lowered and "%7d" in lowered:
-        return True
-    if "{{" in value or "}}" in value:
-        return True
-    if value.startswith("{") and value.endswith("}"):
-        return True
-    if value.startswith("<") and value.endswith(">"):
-        return True
-    if value.startswith(":"):
-        return True
-    return False
-
-
 def _validate_segments(result: ParsedEndpoint, **segments: str | None) -> bool:
     """Validate parsed path segments do not contain unresolved template placeholders."""
     for segment_name, segment_value in segments.items():
-        if _is_unresolved_placeholder(segment_value):
+        if is_unresolved_placeholder(segment_value):
             result.error = (
                 f"Unresolved path placeholder for '{segment_name}': '{segment_value}'. "
                 "Replace placeholders with real UUID values before simulation."
