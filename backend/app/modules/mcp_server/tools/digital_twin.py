@@ -303,6 +303,66 @@ def _build_simulation_write(
     return write
 
 
+def _build_simulation_writes_from_changes(
+    *,
+    changes: list[dict[str, Any]],
+    org_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Compile a list of change objects into Mist write operations."""
+    allowed_fields = {'action_type', 'object_type', 'site_id', 'payload', 'object_id'}
+    writes: list[dict[str, Any]] = []
+    normalized_changes: list[dict[str, Any]] = []
+
+    if not changes:
+        raise ToolError("changes must contain at least one change object")
+
+    for index, raw_change in enumerate(changes):
+        if not isinstance(raw_change, dict):
+            raise ToolError(f"changes[{index}] must be an object")
+
+        unknown = sorted(str(key) for key in raw_change.keys() if str(key) not in allowed_fields)
+        if unknown:
+            raise ToolError(
+                f"changes[{index}] contains unsupported field(s): {', '.join(unknown)}. "
+                f"Allowed fields: {', '.join(sorted(allowed_fields))}"
+            )
+
+        change_action_type = _coerce_action_type(raw_change.get('action_type'))
+        if change_action_type is None:
+            raise ToolError(f"changes[{index}].action_type is required")
+
+        change_object_type = _coerce_object_type(raw_change.get('object_type'))
+        if change_object_type is None:
+            raise ToolError(f"changes[{index}].object_type is required")
+
+        change_site_id = _normalize_optional_uuid(raw_change.get('site_id'), f'changes[{index}].site_id')
+        change_object_id = _normalize_optional_uuid(raw_change.get('object_id'), f'changes[{index}].object_id')
+        change_payload = raw_change.get('payload')
+        if change_payload is not None and not isinstance(change_payload, dict):
+            raise ToolError(f"changes[{index}].payload must be a JSON object when provided")
+
+        writes.append(
+            _build_simulation_write(
+                action_type=change_action_type,
+                org_id=org_id,
+                site_id=change_site_id,
+                object_type=change_object_type,
+                payload=change_payload,
+                object_id=change_object_id,
+            )
+        )
+        normalized_changes.append(
+            {
+                'action_type': change_action_type.value,
+                'object_type': change_object_type.value,
+                'site_id': change_site_id,
+                'object_id': change_object_id,
+            }
+        )
+
+    return writes, normalized_changes
+
+
 def _validate_twin_inputs(
     *,
     action: TwinActionType | str,
@@ -312,7 +372,8 @@ def _validate_twin_inputs(
     object_type: Object_type | str | None,
     payload: dict[str, Any] | None,
     object_id: UUID | str | None,
-    session_id: str,
+    changes: list[dict[str, Any]] | None = None,
+    session_id: str = '',
     default_org_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate action-specific input coherence for the Digital Twin tool.
@@ -336,6 +397,10 @@ def _validate_twin_inputs(
     normalized_org_id = _normalize_optional_uuid(org_id, 'org_id')
     normalized_site_id = _normalize_optional_uuid(site_id, 'site_id')
     normalized_object_id = _normalize_optional_uuid(object_id, 'object_id')
+    changes_provided = changes is not None
+    normalized_changes = changes or []
+    if changes is not None and not isinstance(changes, list):
+        raise ToolError('changes must be a list of change objects when provided')
 
     has_simulate_params = any(
         [
@@ -345,6 +410,7 @@ def _validate_twin_inputs(
             normalized_object_type is not None,
             payload is not None,
             normalized_object_id is not None,
+            changes_provided,
         ]
     )
 
@@ -353,40 +419,70 @@ def _validate_twin_inputs(
             raise ToolError(f'session_id required for {normalized_action} action')
         if has_simulate_params:
             raise ToolError(
-                f"action_type, org_id, site_id, object_type, payload, and object_id are not supported for action='{normalized_action}'"
+                f"action_type, org_id, site_id, object_type, payload, object_id, and changes are not supported for action='{normalized_action}'"
             )
     elif normalized_action == 'history':
         if normalized_session_id:
             raise ToolError("session_id is not supported for action='history'")
         if has_simulate_params:
             raise ToolError(
-                "action_type, org_id, site_id, object_type, payload, and object_id are not supported for action='history'"
+                "action_type, org_id, site_id, object_type, payload, object_id, and changes are not supported for action='history'"
             )
     else:
-        if normalized_action_type is None:
-            raise ToolError("action_type is required when action='simulate'")
-        if normalized_object_type is None:
-            raise ToolError("object_type is required when action='simulate'")
-
         resolved_org_id = _resolve_twin_org_id(normalized_org_id, default_org_id)
-        simulation_write = _build_simulation_write(
-            action_type=normalized_action_type,
-            org_id=resolved_org_id,
-            site_id=normalized_site_id,
-            object_type=normalized_object_type,
-            payload=payload,
-            object_id=normalized_object_id,
-        )
+
+        if changes_provided:
+            if any(
+                [
+                    normalized_action_type is not None,
+                    normalized_site_id is not None,
+                    normalized_object_type is not None,
+                    payload is not None,
+                    normalized_object_id is not None,
+                ]
+            ):
+                raise ToolError(
+                    "changes is mutually exclusive with action_type, site_id, object_type, payload, and object_id"
+                )
+
+            writes, requested_changes = _build_simulation_writes_from_changes(
+                changes=normalized_changes,
+                org_id=resolved_org_id,
+            )
+        else:
+            if normalized_action_type is None:
+                raise ToolError("action_type is required when action='simulate'")
+            if normalized_object_type is None:
+                raise ToolError("object_type is required when action='simulate'")
+
+            simulation_write = _build_simulation_write(
+                action_type=normalized_action_type,
+                org_id=resolved_org_id,
+                site_id=normalized_site_id,
+                object_type=normalized_object_type,
+                payload=payload,
+                object_id=normalized_object_id,
+            )
+            writes = [simulation_write]
+            requested_changes = [
+                {
+                    'action_type': normalized_action_type.value,
+                    'object_type': normalized_object_type.value,
+                    'site_id': normalized_site_id,
+                    'object_id': normalized_object_id,
+                }
+            ]
 
         return {
             'action': normalized_action,
-            'writes': [simulation_write],
+            'writes': writes,
             'session_id': normalized_session_id,
             'org_id': resolved_org_id,
-            'action_type': normalized_action_type.value,
-            'object_type': normalized_object_type.value,
+            'action_type': requested_changes[0]['action_type'] if len(requested_changes) == 1 else None,
+            'object_type': requested_changes[0]['object_type'] if len(requested_changes) == 1 else None,
             'site_id': normalized_site_id,
             'object_id': normalized_object_id,
+            'requested_changes': requested_changes,
         }
 
     return {
@@ -398,6 +494,7 @@ def _validate_twin_inputs(
         'object_type': normalized_object_type.value if normalized_object_type else None,
         'site_id': normalized_site_id,
         'object_id': normalized_object_id,
+        'requested_changes': [],
     }
 
 
@@ -408,7 +505,7 @@ async def digital_twin(
         Field(
             description=(
                 "Action to perform. Use exactly one of:\n"
-                "- simulate: stage one config change and run validation checks (requires action_type, org_id, object_type and action-specific fields).\n"
+                "- simulate: stage one or more config changes and run validation checks (single-change fields or changes list).\n"
                 "- approve: execute previously simulated staged writes (requires session_id only).\n"
                 "- reject: cancel a previously simulated session (requires session_id only).\n"
                 "- status: inspect an existing session report and deployment safety state (requires session_id only).\n"
@@ -498,6 +595,34 @@ async def digital_twin(
             examples=['3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7'],
         ),
     ] =None,
+    changes: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Optional multi-change simulate input. When provided (action='simulate' only), pass a list of change objects, "
+                "each containing: action_type, object_type, and optional site_id, payload, object_id. "
+                "Use this to stage multiple writes in one Digital Twin session. "
+                "Mutually exclusive with top-level action_type/site_id/object_type/payload/object_id."
+            ),
+            examples=[[
+                {
+                    'action_type': 'update',
+                    'object_type': 'site_wlans',
+                    'site_id': '2818e386-8dec-4562-9ede-5b8a0fbbdc71',
+                    'object_id': '3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7',
+                    'payload': {'ssid': 'Guest'}
+                },
+                {
+                    'action_type': 'update',
+                    'object_type': 'site_psks',
+                    'site_id': '2818e386-8dec-4562-9ede-5b8a0fbbdc71',
+                    'object_id': '6c7f19c2-4c16-4f4c-9f1b-8f5338107bd8',
+                    'payload': {'name': 'Guest-PSK'}
+                }
+            ]],
+            default=None,
+        ),
+    ] =None,
     session_id: Annotated[
         str,
         Field(
@@ -524,13 +649,12 @@ async def digital_twin(
     4. Call digital_twin(action='approve', session_id=...) to deploy. Approve is DESTRUCTIVE and writes
        the change to Mist.
 
-    Simulation mode (`action='simulate'`) uses a strict change-object contract:
-    - `action_type`: create | update | delete
-    - `org_id`: organization UUID
-    - `site_id`: required for site-scoped object_type only
-    - `object_type`: explicit enum for supported object families
-    - `payload`: required for create/update, forbidden for delete
-    - `object_id`: required for update/delete, forbidden for create
+        Simulation mode (`action='simulate'`) supports two contracts:
+        - Single change contract (backward compatible):
+            `action_type`, `org_id`, `object_type`, plus action-specific `site_id`/`payload`/`object_id`
+        - Multi-change contract:
+            `org_id` + `changes` (list of change objects), where each change object contains
+            `action_type`, `object_type`, and action-specific `site_id`/`payload`/`object_id`
 
     Session mode actions (`approve`, `reject`, `status`, `history`) only require
     session metadata and reject simulation fields to avoid ambiguous calls.
@@ -539,18 +663,23 @@ async def digital_twin(
     session (the prior iterations are preserved; use action='status' to inspect history).
 
         Required/forbidden matrix:
-        - action=simulate:
+        - action=simulate (single):
             required: action_type, org_id, object_type
             required when action_type in (create, update): payload
             required when action_type in (update, delete): object_id
             required when object_type starts with site_: site_id
             forbidden: site_id for org_* object_type
+        - action=simulate (multi):
+            required: org_id, changes (non-empty list)
+            each change entry requires: action_type, object_type
+            each change entry follows the same create/update/delete requirements as single simulate
+            forbidden at top-level when using changes: action_type, site_id, object_type, payload, object_id
         - action in (approve, reject, status):
             required: session_id (24-char hex ObjectId)
-            forbidden: action_type, org_id, site_id, object_type, payload, object_id
+            forbidden: action_type, org_id, site_id, object_type, payload, object_id, changes
         - action=history:
             required: none
-            forbidden: session_id, action_type, org_id, site_id, object_type, payload, object_id
+            forbidden: session_id, action_type, org_id, site_id, object_type, payload, object_id, changes
 
         Usage examples:
         1) Create org WLAN
@@ -621,6 +750,7 @@ async def digital_twin(
         object_type=object_type,
         payload=payload,
         object_id=object_id,
+        changes=changes,
         session_id=session_id,
         default_org_id=default_org_id,
     )
@@ -649,18 +779,23 @@ async def digital_twin(
             'status': session.status.value,
             'overall_severity': session.overall_severity,
             'remediation_count': session.remediation_count,
-            'requested_change': {
-                'action_type': validated['action_type'],
-                'object_type': validated['object_type'],
-                'org_id': validated['org_id'],
-                'site_id': validated['site_id'],
-                'object_id': validated['object_id'],
-            },
-            'compiled_write': write_list[0],
+            'requested_changes': validated['requested_changes'],
+            'compiled_writes': write_list,
             # Always populate execution_safe / next_action so LLMs can branch reliably.
             'execution_safe': False,
             'next_action': 'fix_and_resimulate',
         }
+
+        # Backward-compatible aliases for existing MCP clients.
+        single_change = validated['requested_changes'][0]
+        result['requested_change'] = {
+            'action_type': single_change['action_type'],
+            'object_type': single_change['object_type'],
+            'org_id': validated['org_id'],
+            'site_id': single_change['site_id'],
+            'object_id': single_change['object_id'],
+        }
+        result['compiled_write'] = write_list[0]
 
         if report:
             result['summary'] = report.summary

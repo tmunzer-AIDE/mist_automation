@@ -482,3 +482,71 @@ class TestDigitalTwinValidation:
                 object_id=None,
                 session_id="",
             )
+
+    def test_simulate_compiles_multiple_changes(self):
+        validated = validate_twin(
+            action="simulate",
+            action_type=None,
+            org_id=self.ORG_ID,
+            site_id=None,
+            object_type=None,
+            payload=None,
+            object_id=None,
+            changes=[
+                {
+                    "action_type": "update",
+                    "object_type": "site_wlans",
+                    "site_id": self.SITE_ID,
+                    "object_id": self.OBJECT_ID,
+                    "payload": {"ssid": "Guest-1"},
+                },
+                {
+                    "action_type": "create",
+                    "object_type": "org_networks",
+                    "payload": {"name": "net-new"},
+                },
+            ],
+            session_id="",
+        )
+
+        assert validated["action"] == "simulate"
+        assert len(validated["writes"]) == 2
+        assert len(validated["requested_changes"]) == 2
+        assert validated["writes"][0]["method"] == "PUT"
+        assert validated["writes"][1]["method"] == "POST"
+
+    def test_simulate_rejects_mixing_changes_with_single_fields(self):
+        with pytest.raises(ToolError, match="changes is mutually exclusive"):
+            validate_twin(
+                action="simulate",
+                action_type="update",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="site_wlans",
+                payload={"ssid": "Guest"},
+                object_id=self.OBJECT_ID,
+                changes=[
+                    {
+                        "action_type": "update",
+                        "object_type": "site_wlans",
+                        "site_id": self.SITE_ID,
+                        "object_id": self.OBJECT_ID,
+                        "payload": {"ssid": "Guest-2"},
+                    }
+                ],
+                session_id="",
+            )
+
+    def test_simulate_rejects_empty_changes_list(self):
+        with pytest.raises(ToolError, match="at least one change object"):
+            validate_twin(
+                action="simulate",
+                action_type=None,
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type=None,
+                payload=None,
+                object_id=None,
+                changes=[],
+                session_id="",
+            )
