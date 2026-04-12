@@ -242,8 +242,8 @@ async def create_my_token(
             detail=f"Token limit reached ({config.max_pats_per_user}). Revoke an existing token first.",
         )
 
-    if payload.expires_at is not None:
-        expires = payload.expires_at
+    expires = payload.expires_at
+    if expires is not None:
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         if expires <= datetime.now(timezone.utc):
@@ -261,7 +261,7 @@ async def create_my_token(
             name=payload.name,
             token_hash=token_hash,
             token_prefix=token_prefix,
-            expires_at=payload.expires_at,
+            expires_at=expires,
         )
         try:
             await candidate.insert()

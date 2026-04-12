@@ -237,7 +237,7 @@ class TestPortDisc:
         results = check_port_impact(baseline, predicted)
         disc = results[0]
 
-        assert disc.check_id == "PORT-VLAN"
+        assert disc.check_id == "PORT-DISC"
         assert disc.status == "warning"
         assert "GW-Edge" in disc.details[0]
         assert "may isolate VLAN traffic" in disc.details[0]
@@ -286,7 +286,7 @@ class TestPortDisc:
         results = check_port_impact(baseline, predicted)
         disc = results[0]
 
-        assert disc.check_id == "PORT-VLAN"
+        assert disc.check_id == "PORT-DISC"
         assert disc.status == "critical"  # peer is switch
         assert len(disc.details) == 1
         assert "may isolate VLAN traffic" in disc.details[0]

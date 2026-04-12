@@ -233,6 +233,19 @@ class TestPatEndpoints:
         assert r.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_create_normalizes_naive_expiry_to_utc(self, client):
+        # Naive timestamp should be treated as UTC and returned as tz-aware.
+        future_naive = (datetime.now(timezone.utc) + timedelta(days=1)).replace(tzinfo=None).isoformat()
+        r = await client.post(
+            "/api/v1/users/me/tokens",
+            json={"name": "naive-future", "expires_at": future_naive},
+        )
+        assert r.status_code == 201, r.text
+        expires = datetime.fromisoformat(r.json()["expires_at"])
+        assert expires.tzinfo is not None
+        assert expires.utcoffset() == timedelta(0)
+
+    @pytest.mark.asyncio
     async def test_list_excludes_expired_tokens(self, client, test_user):
         expired = PersonalAccessToken(
             user_id=test_user.id,

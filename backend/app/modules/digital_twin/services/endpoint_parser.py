@@ -79,7 +79,7 @@ _SITE_RESOURCES: frozenset[str] = frozenset(
 )
 
 # Site-level singletons (no object_id)
-_SITE_SINGLETONS: frozenset[str] = frozenset({"settings", "info"})
+_SITE_SINGLETONS: frozenset[str] = frozenset({"settings"})
 
 # Normalization: singular or common LLM mistakes → correct plural form
 _NORMALIZATION_MAP: dict[str, str] = {

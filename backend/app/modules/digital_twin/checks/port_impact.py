@@ -248,15 +248,14 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
                 disc_details.append(detail)
                 disc_affected.append(f"{baseline_dev.name}:{port}")
 
-    # Build PORT-DISC result
+    # Keep a stable check_id for UI grouping/filtering; express scenario via
+    # check_name/summary instead of changing the ID.
     disc_check_id = "PORT-DISC"
     disc_check_name = "Port Profile Disconnect Risk"
 
     if has_vlan_isolation and not has_physical_disconnect:
-        disc_check_id = "PORT-VLAN"
         disc_check_name = "Port VLAN Isolation Risk"
     elif has_vlan_isolation and has_physical_disconnect:
-        disc_check_id = "PORT-L2"
         disc_check_name = "Port Link and VLAN Reachability Risk"
 
     if disc_details:

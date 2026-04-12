@@ -76,6 +76,14 @@ class TestParseEndpoint:
         assert result.is_singleton is True
         assert result.error is None
 
+    def test_site_info_path_segment_is_rejected(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/site-789/info")
+        assert result.object_type is None
+        assert result.site_id == "site-789"
+        assert result.scope == "site"
+        assert result.error is not None
+        assert "Unknown site resource 'info'" in result.error
+
     def test_networks(self):
         result = parse_endpoint("POST", "/api/v1/orgs/org-123/networks")
         assert result.object_type == "networks"
