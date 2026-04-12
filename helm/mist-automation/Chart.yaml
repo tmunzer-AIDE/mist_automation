@@ -2,8 +2,8 @@ apiVersion: v2
 name: mist-automation
 description: A Helm chart for Mist Automation Platform - Full-stack application for automating Juniper Mist network operations
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.2.1
+appVersion: "0.2.1"
 icon: https://raw.githubusercontent.com/tmunzer-AIDE/mist_automation/refs/heads/main/frontend/public/favicon.svg
 annotations:
   catalog.cattle.io/display-name: "Mist Automation Platform"
