@@ -4,8 +4,9 @@ FRONTEND_DIR     = frontend
 BACKEND_DIR      = backend
 STATIC_DIR       = $(BACKEND_DIR)/app/frontend/static
 INDEX_DIR        = $(BACKEND_DIR)/app/frontend
+OPENAPI_SECRET_KEY ?= dev-secret
 
-.PHONY: angular clean docker publish all set-version licenses
+.PHONY: angular clean docker publish all set-version licenses openapi
 
 # Build Angular frontend and copy output into the backend static directory
 angular:
@@ -62,6 +63,14 @@ licenses:
 		licenses/licenses.json
 	@cp licenses/licenses.json $(BACKEND_DIR)/app/data/licenses.json
 	@echo "Done."
+
+# Regenerate backend OpenAPI spec from current FastAPI routes
+openapi:
+	@echo "Regenerating OpenAPI spec..."
+	@cd $(BACKEND_DIR) && \
+		SECRET_KEY=$${SECRET_KEY:-$(OPENAPI_SECRET_KEY)} \
+		.venv/bin/python -c "from pathlib import Path; import yaml; from app.main import app; spec = app.openapi(); Path('openapi.yaml').write_text(yaml.safe_dump(spec, sort_keys=False, allow_unicode=False), encoding='utf-8'); print(f'wrote openapi.yaml with {len(spec.get(\"paths\", {}))} paths and {len(spec.get(\"components\", {}).get(\"schemas\", {}))} schemas')"
+	@echo "OpenAPI spec updated at $(BACKEND_DIR)/openapi.yaml"
 
 # Remove Angular build artifacts and copied static files
 clean:

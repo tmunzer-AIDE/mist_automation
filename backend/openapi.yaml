@@ -3,7 +3,7 @@ info:
   title: Mist Automation Platform
   description: Comprehensive web application for automating Juniper Mist operations
     and managing configuration backups
-  version: 1.0.0
+  version: 0.1.8
 paths:
   /health:
     get:
@@ -23,7 +23,8 @@ paths:
       tags:
       - Root
       summary: Root
-      description: Root endpoint.
+      description: Serve Angular SPA index.html if available, otherwise return API
+        info.
       operationId: root__get
       responses:
         '200':
@@ -236,6 +237,146 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/passkey/register/begin:
+    post:
+      tags:
+      - Authentication
+      - Authentication
+      summary: Passkey Register Begin
+      description: "Begin passkey registration \u2014 returns challenge options."
+      operationId: passkey_register_begin_api_v1_auth_passkey_register_begin_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyRegisterBeginResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/passkey/register/complete:
+    post:
+      tags:
+      - Authentication
+      - Authentication
+      summary: Passkey Register Complete
+      description: "Complete passkey registration \u2014 verify attestation and store\
+        \ credential."
+      operationId: passkey_register_complete_api_v1_auth_passkey_register_complete_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyRegisterCompleteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/passkey/login/begin:
+    post:
+      tags:
+      - Authentication
+      - Authentication
+      summary: Passkey Login Begin
+      description: "Begin passkey authentication \u2014 returns challenge options\
+        \ (no auth required)."
+      operationId: passkey_login_begin_api_v1_auth_passkey_login_begin_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyLoginBeginResponse'
+  /api/v1/auth/passkey/login/complete:
+    post:
+      tags:
+      - Authentication
+      - Authentication
+      summary: Passkey Login Complete
+      description: "Complete passkey authentication \u2014 verify assertion and return\
+        \ JWT."
+      operationId: passkey_login_complete_api_v1_auth_passkey_login_complete_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyLoginCompleteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/passkeys:
+    get:
+      tags:
+      - Authentication
+      - Authentication
+      summary: List Passkeys
+      description: List current user's registered passkeys.
+      operationId: list_passkeys_api_v1_auth_passkeys_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyListResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/passkey/{credential_id}/delete:
+    post:
+      tags:
+      - Authentication
+      - Authentication
+      summary: Delete Passkey
+      description: Delete a passkey. Requires password re-authentication.
+      operationId: delete_passkey_api_v1_auth_passkey__credential_id__delete_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Credential Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyDeleteRequest'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/users:
     get:
       tags:
@@ -400,6 +541,77 @@ paths:
         schema:
           type: string
           title: User Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/users/me/tokens:
+    get:
+      tags:
+      - Users
+      - Personal Access Tokens
+      summary: List My Tokens
+      description: List the caller's active (usable) personal access tokens.
+      operationId: list_my_tokens_api_v1_users_me_tokens_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PATListResponse'
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - Users
+      - Personal Access Tokens
+      summary: Create My Token
+      description: Create a new PAT. The plaintext token is returned exactly once.
+      operationId: create_my_token_api_v1_users_me_tokens_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PATCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PATCreateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/users/me/tokens/{token_id}:
+    delete:
+      tags:
+      - Users
+      - Personal Access Tokens
+      summary: Revoke My Token
+      description: Revoke a PAT owned by the caller.
+      operationId: revoke_my_token_api_v1_users_me_tokens__token_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token Id
       responses:
         '204':
           description: Successful Response
@@ -1410,9 +1622,19 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Mist webhook signature
+          description: Mist webhook HMAC-SHA1 signature (v1)
           title: X-Mist-Signature
-        description: Mist webhook signature
+        description: Mist webhook HMAC-SHA1 signature (v1)
+      - name: x-mist-signature-v2
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Mist webhook HMAC-SHA256 signature (v2)
+          title: X-Mist-Signature-V2
+        description: Mist webhook HMAC-SHA256 signature (v2)
       - name: x-forwarded-by
         in: header
         required: false
@@ -2192,12 +2414,9 @@ paths:
       - Backups
       - Backups
       summary: Restore Object Version
-      description: 'Restore a backed-up object to a specific version in Mist.
-
-
-        When ``cascade=True``, deleted parents are restored first (with new UUIDs),
-
-        then the target object, then deleted children — all with ID remapping.'
+      description: "Restore a backed-up object to a specific version in Mist.\n\n\
+        When ``cascade=True``, deleted parents are restored first (with new UUIDs),\n\
+        then the target object, then deleted children \u2014 all with ID remapping."
       operationId: restore_object_version_api_v1_backups_objects_versions__version_id__restore_post
       security:
       - HTTPBearer: []
@@ -2226,6 +2445,15 @@ paths:
           default: false
           title: Cascade
         description: Cascade restore parents and children
+      - name: simulate
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Run Digital Twin simulation without applying restore
+          default: false
+          title: Simulate
+        description: Run Digital Twin simulation without applying restore
       responses:
         '200':
           description: Successful Response
@@ -2995,7 +3223,8 @@ paths:
     get:
       tags:
       - Admin
-      summary: Get Mist Webhook IPs
+      - Admin
+      summary: Get Mist Webhook Ips
       description: Return known Mist webhook source IPs by cloud region.
       operationId: get_mist_webhook_ips_api_v1_admin_mist_webhook_ips_get
       responses:
@@ -3003,20 +3232,102 @@ paths:
           description: Successful Response
           content:
             application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/admin/memory/consolidation-logs:
+    get:
+      tags:
+      - Admin
+      - Admin
+      summary: List Consolidation Logs
+      description: Paginated list of memory consolidation runs (admin only).
+      operationId: list_consolidation_logs_api_v1_admin_memory_consolidation_logs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 25
+          title: Page Size
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by user ID
+          title: User Id
+        description: Filter by user ID
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
               schema:
-                type: object
-                additionalProperties:
-                  type: array
-                  items:
-                    type: string
-                example:
-                  Global 01:
-                  - 54.193.71.17
-                  - 54.215.237.20
-                  EMEA 01:
-                  - 3.122.172.223
-                  - 3.121.19.146
-                  - 3.120.167.1
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/memory/consolidation-logs/{log_id}:
+    get:
+      tags:
+      - Admin
+      - Admin
+      summary: Get Consolidation Log
+      description: Single consolidation log with full action details (admin only).
+      operationId: get_consolidation_log_api_v1_admin_memory_consolidation_logs__log_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: log_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Log Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/memory/stats:
+    get:
+      tags:
+      - Admin
+      - Admin
+      summary: Get Memory Stats
+      description: Aggregate memory stats across all users (admin only).
+      operationId: get_memory_stats_api_v1_admin_memory_stats_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
       security:
       - HTTPBearer: []
   /api/v1/webhooks/slack/interactive:
@@ -4136,6 +4447,400 @@ paths:
           type: string
           title: Thread Id
       responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/skills:
+    get:
+      tags:
+      - LLM
+      - LLM
+      summary: List Skills
+      description: List all skills. Admin only.
+      operationId: list_skills_api_v1_llm_skills_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/skills/direct:
+    post:
+      tags:
+      - LLM
+      - LLM
+      summary: Add Direct Skill
+      description: Add a skill by pasting its SKILL.md content. Admin only.
+      operationId: add_direct_skill_api_v1_llm_skills_direct_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDirectSkillRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/skills/{skill_id}/toggle:
+    patch:
+      tags:
+      - LLM
+      - LLM
+      summary: Toggle Skill
+      description: Enable or disable a skill. Admin only.
+      operationId: toggle_skill_api_v1_llm_skills__skill_id__toggle_patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/skills/{skill_id}:
+    delete:
+      tags:
+      - LLM
+      - LLM
+      summary: Delete Skill
+      description: Delete a direct-source skill (and its directory). Git-sourced skills
+        cannot be deleted individually. Admin only.
+      operationId: delete_skill_api_v1_llm_skills__skill_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/skills/repos:
+    get:
+      tags:
+      - LLM
+      - LLM
+      summary: List Skill Repos
+      description: List all git repo skills sources. Admin only.
+      operationId: list_skill_repos_api_v1_llm_skills_repos_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - LLM
+      - LLM
+      summary: Add Skill Repo
+      description: Add a git repo as a skills source. Clone + scan runs in the background.
+        Admin only.
+      operationId: add_skill_repo_api_v1_llm_skills_repos_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddGitRepoRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/skills/repos/{repo_id}:
+    get:
+      tags:
+      - LLM
+      - LLM
+      summary: Get Skill Repo
+      description: Get a single git repo record (used for polling status). Admin only.
+      operationId: get_skill_repo_api_v1_llm_skills_repos__repo_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: repo_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Repo Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - LLM
+      - LLM
+      summary: Delete Skill Repo
+      description: Delete a git repo, all its skills, and the cloned directory. Admin
+        only.
+      operationId: delete_skill_repo_api_v1_llm_skills_repos__repo_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: repo_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Repo Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/skills/repos/{repo_id}/refresh:
+    post:
+      tags:
+      - LLM
+      - LLM
+      summary: Refresh Skill Repo
+      description: Pull latest changes and re-scan for skills. Runs in the background.
+        Admin only.
+      operationId: refresh_skill_repo_api_v1_llm_skills_repos__repo_id__refresh_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: repo_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Repo Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/memories:
+    get:
+      tags:
+      - LLM
+      - LLM
+      summary: List Memories
+      description: List the current user's memory entries.
+      operationId: list_memories_api_v1_llm_memories_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: category
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by category
+          title: Category
+        description: Filter by category
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Text search across key and value
+          title: Search
+        description: Text search across key and value
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - LLM
+      - LLM
+      summary: Delete All Memories
+      description: Delete all memory entries for the current user. Requires confirm=true.
+      operationId: delete_all_memories_api_v1_llm_memories_delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: confirm
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Must be true to confirm deletion
+          default: false
+          title: Confirm
+        description: Must be true to confirm deletion
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/memories/{memory_id}:
+    get:
+      tags:
+      - LLM
+      - LLM
+      summary: Get Memory
+      description: Get a single memory entry. Verifies ownership.
+      operationId: get_memory_api_v1_llm_memories__memory_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Memory Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryEntryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - LLM
+      - LLM
+      summary: Update Memory
+      description: Update a memory entry's value and/or category.
+      operationId: update_memory_api_v1_llm_memories__memory_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Memory Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryEntryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - LLM
+      - LLM
+      summary: Delete Memory
+      description: Delete a single memory entry. Verifies ownership.
+      operationId: delete_memory_api_v1_llm_memories__memory_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Memory Id
+      responses:
         '200':
           description: Successful Response
           content:
@@ -4364,7 +5069,7 @@ paths:
       - Impact Analysis
       - Impact Analysis
       summary: Get Summary
-      description: Get dashboard summary counts for impact analysis sessions.
+      description: Get dashboard summary counts.
       operationId: get_summary_api_v1_impact_analysis_summary_get
       responses:
         '200':
@@ -4474,6 +5179,224 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/impact-analysis/groups:
+    get:
+      tags:
+      - Impact Analysis
+      - Impact Analysis
+      summary: List Groups
+      description: List change groups with optional filtering.
+      operationId: list_groups_api_v1_impact_analysis_groups_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Comma-separated status filter
+          title: Status
+        description: Comma-separated status filter
+      - name: severity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by worst_severity
+          title: Severity
+        description: Filter by worst_severity
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeGroupListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/impact-analysis/groups/{group_id}/cancel:
+    post:
+      tags:
+      - Impact Analysis
+      - Impact Analysis
+      summary: Cancel Group
+      description: Cancel all active sessions in a change group.
+      operationId: cancel_group_api_v1_impact_analysis_groups__group_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PydanticObjectId'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeGroupDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/impact-analysis/groups/{group_id}/analyze:
+    post:
+      tags:
+      - Impact Analysis
+      - Impact Analysis
+      summary: Analyze Group
+      description: Trigger AI analysis on a change group.
+      operationId: analyze_group_api_v1_impact_analysis_groups__group_id__analyze_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PydanticObjectId'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeGroupDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/impact-analysis/groups/{group_id}/chat:
+    post:
+      tags:
+      - Impact Analysis
+      - Impact Analysis
+      summary: Group Chat
+      description: 'Send a message to the AI about this change group.
+
+
+        The AI has full context about the group (child sessions, devices, validation
+        results,
+
+        SLE metrics, incidents) and access to MCP tools for querying app data.'
+      operationId: group_chat_api_v1_impact_analysis_groups__group_id__chat_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PydanticObjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionChatRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionChatResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/impact-analysis/groups/{group_id}/sessions:
+    get:
+      tags:
+      - Impact Analysis
+      - Impact Analysis
+      summary: List Group Sessions
+      description: List all monitoring sessions belonging to a change group.
+      operationId: list_group_sessions_api_v1_impact_analysis_groups__group_id__sessions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PydanticObjectId'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__modules__impact_analysis__schemas__SessionListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/impact-analysis/groups/{group_id}:
+    get:
+      tags:
+      - Impact Analysis
+      - Impact Analysis
+      summary: Get Group
+      description: Get full change group detail including aggregated timeline.
+      operationId: get_group_api_v1_impact_analysis_groups__group_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PydanticObjectId'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeGroupDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/impact-analysis/settings:
     get:
       tags:
@@ -4544,12 +5467,9 @@ paths:
       - Telemetry
       - Telemetry
       summary: Get Latest Stats
-      description: 'Return latest cached stats for a device from the in-memory cache.
-
-
-        This is zero-latency — reads directly from the LatestValueCache,
-
-        not from InfluxDB. Returns fresh=False if cache is stale or empty.'
+      description: "Return latest cached stats for a device from the in-memory cache.\n\
+        \nThis is zero-latency \u2014 reads directly from the LatestValueCache,\n\
+        not from InfluxDB. Returns fresh=False if cache is stale or empty."
       operationId: get_latest_stats_api_v1_telemetry_latest__mac__get
       security:
       - HTTPBearer: []
@@ -4599,10 +5519,8 @@ paths:
       - Telemetry
       - Telemetry
       summary: Get Scope Summary
-      description: 'Return aggregated summary per device type from the in-memory cache.
-
-
-        Zero-latency — reads directly from LatestValueCache, no InfluxDB needed.'
+      description: "Return aggregated summary per device type from the in-memory cache.\n\
+        \nZero-latency \u2014 reads directly from LatestValueCache, no InfluxDB needed."
       operationId: get_scope_summary_api_v1_telemetry_scope_summary_get
       security:
       - HTTPBearer: []
@@ -4636,12 +5554,9 @@ paths:
       - Telemetry
       - Telemetry
       summary: Get Scope Devices
-      description: 'Return a flat list of all cached devices with basic metrics.
-
-
-        Zero-latency — reads directly from LatestValueCache, no InfluxDB needed.
-
-        Sorted by last_seen descending.'
+      description: "Return a flat list of all cached devices with basic metrics.\n\
+        \nZero-latency \u2014 reads directly from LatestValueCache, no InfluxDB needed.\n\
+        Sorted by last_seen descending."
       operationId: get_scope_devices_api_v1_telemetry_scope_devices_get
       security:
       - HTTPBearer: []
@@ -4673,6 +5588,170 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ScopeDevicesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/telemetry/scope/clients/summary:
+    get:
+      tags:
+      - Telemetry
+      - Telemetry
+      summary: Get Scope Clients Summary
+      description: Return aggregate wireless client stats from the in-memory client
+        cache.
+      operationId: get_scope_clients_summary_api_v1_telemetry_scope_clients_summary_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Site UUID to filter by
+          title: Site Id
+        description: Site UUID to filter by
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientSiteSummary'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/telemetry/scope/clients:
+    get:
+      tags:
+      - Telemetry
+      - Telemetry
+      summary: Get Scope Clients
+      description: Return all cached wireless clients for a site.
+      operationId: get_scope_clients_api_v1_telemetry_scope_clients_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Site UUID
+          title: Site Id
+        description: Site UUID
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/telemetry/scope/clients/{mac}:
+    get:
+      tags:
+      - Telemetry
+      - Telemetry
+      summary: Get Scope Client
+      description: Return latest cached stats for a single wireless client.
+      operationId: get_scope_client_api_v1_telemetry_scope_clients__mac__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: mac
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Mac
+      - name: site_id
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Site UUID
+          title: Site Id
+        description: Site UUID
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientStatRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/telemetry/query/clients/range:
+    get:
+      tags:
+      - Telemetry
+      - Telemetry
+      summary: Query Clients Range
+      description: Query historical time-range data for a single wireless client from
+        InfluxDB.
+      operationId: query_clients_range_api_v1_telemetry_query_clients_range_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: mac
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Client MAC address
+          title: Mac
+        description: Client MAC address
+      - name: site_id
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Site UUID
+          title: Site Id
+        description: Site UUID
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: string
+          description: Range start (e.g., -1h, -30m)
+          default: -1h
+          title: Start
+        description: Range start (e.g., -1h, -30m)
+      - name: end
+        in: query
+        required: false
+        schema:
+          type: string
+          description: Range end
+          default: now()
+          title: End
+        description: Range end
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RangeQueryResponse'
         '422':
           description: Validation Error
           content:
@@ -4823,6 +5902,26 @@ paths:
           default: now()
           title: End
         description: Range end
+      - name: device_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by device type (ap, switch, gateway)
+          title: Device Type
+        description: Filter by device type (ap, switch, gateway)
+      - name: group_by
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Tag column to group results by (band, device_type)
+          title: Group By
+        description: Tag column to group results by (band, device_type)
       responses:
         '200':
           description: Successful Response
@@ -4842,7 +5941,7 @@ paths:
       - Telemetry
       - Telemetry
       summary: Get Telemetry Settings
-      description: Return current telemetry settings.
+      description: Return current telemetry configuration (from environment variables).
       operationId: get_telemetry_settings_api_v1_telemetry_settings_get
       responses:
         '200':
@@ -4862,11 +5961,9 @@ paths:
       description: 'Stop and restart the full telemetry pipeline.
 
 
-        Reads current SystemConfig, tears down all services, and reinitializes.
+        Tears down all services and reinitializes from environment variables.
 
-        Works both for restarting an existing pipeline and for first-time init
-
-        after enabling telemetry in settings (no app restart needed).'
+        Useful for forcing a reconnect without restarting the app.'
       operationId: reconnect_websockets_api_v1_telemetry_reconnect_post
       responses:
         '200':
@@ -4877,6 +5974,496 @@ paths:
                 $ref: '#/components/schemas/ReconnectResponse'
       security:
       - HTTPBearer: []
+  /api/v1/power-scheduling/sites:
+    get:
+      tags:
+      - Power Scheduling
+      summary: List Schedules
+      operationId: list_schedules_api_v1_power_scheduling_sites_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ScheduleResponse'
+                type: array
+                title: Response List Schedules Api V1 Power Scheduling Sites Get
+      security:
+      - HTTPBearer: []
+  /api/v1/power-scheduling/sites/{site_id}:
+    get:
+      tags:
+      - Power Scheduling
+      summary: Get Schedule
+      operationId: get_schedule_api_v1_power_scheduling_sites__site_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Power Scheduling
+      summary: Create Schedule
+      operationId: create_schedule_api_v1_power_scheduling_sites__site_id__post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - Power Scheduling
+      summary: Update Schedule
+      operationId: update_schedule_api_v1_power_scheduling_sites__site_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Power Scheduling
+      summary: Delete Schedule
+      operationId: delete_schedule_api_v1_power_scheduling_sites__site_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/power-scheduling/sites/{site_id}/status:
+    get:
+      tags:
+      - Power Scheduling
+      summary: Get Status
+      operationId: get_status_api_v1_power_scheduling_sites__site_id__status_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleStatusResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/power-scheduling/sites/{site_id}/logs:
+    get:
+      tags:
+      - Power Scheduling
+      summary: Get Logs
+      operationId: get_logs_api_v1_power_scheduling_sites__site_id__logs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: event_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Event Type
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LogResponse'
+                title: Response Get Logs Api V1 Power Scheduling Sites  Site Id  Logs
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/power-scheduling/sites/{site_id}/trigger:
+    post:
+      tags:
+      - Power Scheduling
+      summary: Manual Trigger
+      operationId: manual_trigger_api_v1_power_scheduling_sites__site_id__trigger_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Site Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Response Manual Trigger Api V1 Power Scheduling Sites  Site
+                  Id  Trigger Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/about/licenses:
+    get:
+      tags:
+      - About
+      summary: Get Licenses
+      description: Return third-party license information for backend and frontend
+        dependencies.
+      operationId: get_licenses_api_v1_about_licenses_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/digital-twin/sessions:
+    get:
+      tags:
+      - Digital Twin
+      - Digital Twin
+      summary: List Twin Sessions
+      description: List Digital Twin sessions for the current user.
+      operationId: list_twin_sessions_api_v1_digital_twin_sessions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: source
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwinSessionListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/digital-twin/sessions/{session_id}:
+    get:
+      tags:
+      - Digital Twin
+      - Digital Twin
+      summary: Get Twin Session
+      description: Get a Digital Twin session by ID.
+      operationId: get_twin_session_api_v1_digital_twin_sessions__session_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwinSessionDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/digital-twin/sessions/{session_id}/cancel:
+    post:
+      tags:
+      - Digital Twin
+      - Digital Twin
+      summary: Cancel Twin Session
+      description: Cancel/reject a Digital Twin session.
+      operationId: cancel_twin_session_api_v1_digital_twin_sessions__session_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/digital-twin/sessions/{session_id}/approve:
+    post:
+      tags:
+      - Digital Twin
+      - Digital Twin
+      summary: Approve Twin Session
+      description: Approve a Digital Twin session and execute all staged writes.
+      operationId: approve_twin_session_api_v1_digital_twin_sessions__session_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwinSessionDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/digital-twin/sessions/{session_id}/logs:
+    get:
+      tags:
+      - Digital Twin
+      - Digital Twin
+      summary: Get Session Logs
+      description: Return persisted simulation logs for an owned Twin session (admin
+        role required).
+      operationId: get_session_logs_api_v1_digital_twin_sessions__session_id__logs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: level
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(debug|info|warning|error)$
+          - type: 'null'
+          title: Level
+      - name: phase
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(simulate|remediate|approve|execute|other)$
+          - type: 'null'
+          title: Phase
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Search
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SimulationLogEntry'
+                title: Response Get Session Logs Api V1 Digital Twin Sessions  Session
+                  Id  Logs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     APScopeSummary:
@@ -4912,6 +6499,41 @@ components:
           title: Bands
       type: object
       title: APScopeSummary
+    AddDirectSkillRequest:
+      properties:
+        content:
+          type: string
+          minLength: 10
+          title: Content
+          description: Raw SKILL.md text including YAML frontmatter
+      type: object
+      required:
+      - content
+      title: AddDirectSkillRequest
+      description: Add a skill from raw SKILL.md content.
+    AddGitRepoRequest:
+      properties:
+        url:
+          type: string
+          minLength: 5
+          title: Url
+          description: Git repo URL (HTTPS)
+        branch:
+          type: string
+          minLength: 1
+          title: Branch
+          default: main
+        token:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Token
+          description: Deploy token / PAT for private repos
+      type: object
+      required:
+      - url
+      title: AddGitRepoRequest
+      description: Add a git repository as a skills source.
     AggregateQueryResponse:
       properties:
         site_id:
@@ -5470,6 +7092,165 @@ components:
       - categories
       title: CategorySelectionResponse
       description: Response with selected API categories.
+    ChangeGroupDetailResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        audit_id:
+          type: string
+          title: Audit Id
+        org_id:
+          type: string
+          title: Org Id
+        site_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Site Id
+        change_source:
+          type: string
+          title: Change Source
+        change_description:
+          type: string
+          title: Change Description
+        triggered_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Triggered By
+        triggered_at:
+          type: string
+          format: date-time
+          title: Triggered At
+        session_count:
+          type: integer
+          title: Session Count
+        summary:
+          $ref: '#/components/schemas/GroupSummaryResponse'
+        ai_assessment:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Ai Assessment
+        ai_assessment_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ai Assessment Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        timeline:
+          items:
+            $ref: '#/components/schemas/TimelineEntryResponse'
+          type: array
+          title: Timeline
+      type: object
+      required:
+      - id
+      - audit_id
+      - org_id
+      - change_source
+      - change_description
+      - triggered_at
+      - session_count
+      - summary
+      - created_at
+      - updated_at
+      title: ChangeGroupDetailResponse
+      description: Full detail view including timeline.
+    ChangeGroupListResponse:
+      properties:
+        groups:
+          items:
+            $ref: '#/components/schemas/ChangeGroupResponse'
+          type: array
+          title: Groups
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - groups
+      - total
+      title: ChangeGroupListResponse
+      description: Paginated list of change groups.
+    ChangeGroupResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        audit_id:
+          type: string
+          title: Audit Id
+        org_id:
+          type: string
+          title: Org Id
+        site_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Site Id
+        change_source:
+          type: string
+          title: Change Source
+        change_description:
+          type: string
+          title: Change Description
+        triggered_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Triggered By
+        triggered_at:
+          type: string
+          format: date-time
+          title: Triggered At
+        session_count:
+          type: integer
+          title: Session Count
+        summary:
+          $ref: '#/components/schemas/GroupSummaryResponse'
+        ai_assessment:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Ai Assessment
+        ai_assessment_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ai Assessment Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - audit_id
+      - org_id
+      - change_source
+      - change_description
+      - triggered_at
+      - session_count
+      - summary
+      - created_at
+      - updated_at
+      title: ChangeGroupResponse
+      description: Summary view for group list.
     ChangePasswordRequest:
       properties:
         current_password:
@@ -5511,6 +7292,59 @@ components:
       - thread_id
       title: ChatResponse
       description: Response from a follow-up conversation message.
+    CheckResultResponse:
+      properties:
+        check_id:
+          type: string
+          title: Check Id
+        check_name:
+          type: string
+          title: Check Name
+        layer:
+          type: integer
+          title: Layer
+        status:
+          type: string
+          title: Status
+        summary:
+          type: string
+          title: Summary
+        details:
+          items:
+            type: string
+          type: array
+          title: Details
+        affected_objects:
+          items:
+            type: string
+          type: array
+          title: Affected Objects
+        affected_sites:
+          items:
+            type: string
+          type: array
+          title: Affected Sites
+        remediation_hint:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remediation Hint
+        pre_existing:
+          type: boolean
+          title: Pre Existing
+          default: false
+        description:
+          type: string
+          title: Description
+          default: ''
+      type: object
+      required:
+      - check_id
+      - check_name
+      - layer
+      - status
+      - summary
+      title: CheckResultResponse
     ChildReference:
       properties:
         source_type:
@@ -5538,6 +7372,197 @@ components:
       - field_path
       title: ChildReference
       description: A child object that depends on this object.
+    ClientListResponse:
+      properties:
+        clients:
+          items:
+            $ref: '#/components/schemas/ClientStatRecord'
+          type: array
+          title: Clients
+        total:
+          type: integer
+          title: Total
+          default: 0
+      type: object
+      title: ClientListResponse
+      description: Response for GET /telemetry/scope/clients.
+    ClientSiteSummary:
+      properties:
+        total_clients:
+          type: integer
+          title: Total Clients
+          default: 0
+        avg_rssi:
+          type: number
+          title: Avg Rssi
+          default: 0.0
+        band_counts:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Band Counts
+        proto_counts:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Proto Counts
+        channel_counts:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Channel Counts
+        auth_counts:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Auth Counts
+        total_tx_bps:
+          type: integer
+          title: Total Tx Bps
+          default: 0
+        total_rx_bps:
+          type: integer
+          title: Total Rx Bps
+          default: 0
+      type: object
+      title: ClientSiteSummary
+      description: Aggregate client stats for a site (from LatestClientCache).
+    ClientStatRecord:
+      properties:
+        mac:
+          type: string
+          title: Mac
+        site_id:
+          type: string
+          title: Site Id
+        ap_mac:
+          type: string
+          title: Ap Mac
+        ssid:
+          type: string
+          title: Ssid
+        band:
+          type: string
+          title: Band
+        auth_type:
+          type: string
+          title: Auth Type
+        hostname:
+          type: string
+          title: Hostname
+          default: ''
+        ip:
+          type: string
+          title: Ip
+          default: ''
+        manufacture:
+          type: string
+          title: Manufacture
+          default: ''
+        family:
+          type: string
+          title: Family
+          default: ''
+        model:
+          type: string
+          title: Model
+          default: ''
+        os:
+          type: string
+          title: Os
+          default: ''
+        group:
+          type: string
+          title: Group
+          default: ''
+        vlan_id:
+          type: string
+          title: Vlan Id
+          default: ''
+        proto:
+          type: string
+          title: Proto
+          default: ''
+        username:
+          type: string
+          title: Username
+          default: ''
+        rssi:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Rssi
+        snr:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Snr
+        channel:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Channel
+        tx_rate:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Tx Rate
+        rx_rate:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Rx Rate
+        tx_bps:
+          type: integer
+          title: Tx Bps
+          default: 0
+        rx_bps:
+          type: integer
+          title: Rx Bps
+          default: 0
+        tx_bytes:
+          type: integer
+          title: Tx Bytes
+          default: 0
+        rx_bytes:
+          type: integer
+          title: Rx Bytes
+          default: 0
+        uptime:
+          type: integer
+          title: Uptime
+          default: 0
+        idle_time:
+          type: number
+          title: Idle Time
+          default: 0.0
+        is_guest:
+          type: boolean
+          title: Is Guest
+          default: false
+        dual_band:
+          type: boolean
+          title: Dual Band
+          default: false
+        last_seen:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Last Seen
+        fresh:
+          type: boolean
+          title: Fresh
+          default: false
+      type: object
+      required:
+      - mac
+      - site_id
+      - ap_mac
+      - ssid
+      - band
+      - auth_type
+      title: ClientStatRecord
+      description: A single wireless client's latest stats from LatestClientCache.
     ConfigChangeEventResponse:
       properties:
         event_type:
@@ -5638,6 +7663,10 @@ components:
             type: string
           type: array
           title: Mcp Config Ids
+        compacted:
+          type: boolean
+          title: Compacted
+          default: false
         created_at:
           type: string
           format: date-time
@@ -5707,6 +7736,43 @@ components:
       - updated_at
       title: ConversationThreadSummary
       description: Thread summary for list views (no full message content).
+    CreateScheduleRequest:
+      properties:
+        site_name:
+          type: string
+          title: Site Name
+        windows:
+          items:
+            $ref: '#/components/schemas/ScheduleWindow'
+          type: array
+          title: Windows
+        grace_period_minutes:
+          type: integer
+          title: Grace Period Minutes
+          default: 5
+        neighbor_rssi_threshold_dbm:
+          type: integer
+          title: Neighbor Rssi Threshold Dbm
+          default: -65
+        roam_rssi_threshold_dbm:
+          type: integer
+          title: Roam Rssi Threshold Dbm
+          default: -75
+        critical_ap_macs:
+          items:
+            type: string
+          type: array
+          title: Critical Ap Macs
+          default: []
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      type: object
+      required:
+      - site_name
+      - windows
+      title: CreateScheduleRequest
     CreateSessionRequest:
       properties:
         site_id:
@@ -5943,6 +8009,74 @@ components:
       - model
       - fresh
       title: DeviceSummaryRecord
+    DeviceSummaryResponse:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        device_mac:
+          type: string
+          title: Device Mac
+        device_name:
+          type: string
+          title: Device Name
+        device_type:
+          type: string
+          title: Device Type
+        site_name:
+          type: string
+          title: Site Name
+        status:
+          type: string
+          title: Status
+        impact_severity:
+          type: string
+          title: Impact Severity
+        failed_checks:
+          items:
+            type: string
+          type: array
+          title: Failed Checks
+        active_incidents:
+          items:
+            $ref: '#/components/schemas/IncidentSummaryResponse'
+          type: array
+          title: Active Incidents
+        worst_sle_delta:
+          anyOf:
+          - $ref: '#/components/schemas/SLEDeltaResponse'
+          - type: 'null'
+      type: object
+      required:
+      - session_id
+      - device_mac
+      - device_name
+      - device_type
+      - site_name
+      - status
+      - impact_severity
+      title: DeviceSummaryResponse
+      description: Per-device summary within a change group.
+    DeviceTypeCountsResponse:
+      properties:
+        total:
+          type: integer
+          title: Total
+          default: 0
+        monitoring:
+          type: integer
+          title: Monitoring
+          default: 0
+        completed:
+          type: integer
+          title: Completed
+          default: 0
+        impacted:
+          type: integer
+          title: Impacted
+          default: 0
+      type: object
+      title: DeviceTypeCountsResponse
     ElicitationResponseRequest:
       properties:
         accepted:
@@ -6133,6 +8267,48 @@ components:
       - thread_id
       title: GlobalChatResponse
       description: Response from global chat.
+    GroupSummaryResponse:
+      properties:
+        total_devices:
+          type: integer
+          title: Total Devices
+          default: 0
+        by_type:
+          additionalProperties:
+            $ref: '#/components/schemas/DeviceTypeCountsResponse'
+          type: object
+          title: By Type
+        worst_severity:
+          type: string
+          title: Worst Severity
+          default: none
+        validation_summary:
+          items:
+            $ref: '#/components/schemas/ValidationCheckSummaryResponse'
+          type: array
+          title: Validation Summary
+        sle_summary:
+          additionalProperties:
+            $ref: '#/components/schemas/SLEDeltaResponse'
+          type: object
+          title: Sle Summary
+        devices:
+          items:
+            $ref: '#/components/schemas/DeviceSummaryResponse'
+          type: array
+          title: Devices
+        status:
+          type: string
+          title: Status
+          default: monitoring
+        last_updated:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Updated
+      type: object
+      title: GroupSummaryResponse
     HTTPValidationError:
       properties:
         detail:
@@ -6206,6 +8382,28 @@ components:
       type: object
       title: ImpactSettingsUpdate
       description: Partial update for impact analysis settings.
+    IncidentSummaryResponse:
+      properties:
+        type:
+          type: string
+          title: Type
+        severity:
+          type: string
+          title: Severity
+        timestamp:
+          type: string
+          format: date-time
+          title: Timestamp
+        resolved:
+          type: boolean
+          title: Resolved
+          default: false
+      type: object
+      required:
+      - type
+      - severity
+      - timestamp
+      title: IncidentSummaryResponse
     InlineGraphRequest:
       properties:
         nodes:
@@ -6272,6 +8470,13 @@ components:
           minimum: 100.0
           title: Max Tokens Per Request
           default: 4096
+        context_window_tokens:
+          anyOf:
+          - type: integer
+            maximum: 2000000.0
+            minimum: 1000.0
+          - type: 'null'
+          title: Context Window Tokens
         is_default:
           type: boolean
           title: Is Default
@@ -6280,6 +8485,12 @@ components:
           type: boolean
           title: Enabled
           default: true
+        canvas_prompt_tier:
+          anyOf:
+          - type: string
+            pattern: ^(full|explicit|none)$
+          - type: 'null'
+          title: Canvas Prompt Tier
       type: object
       required:
       - name
@@ -6329,6 +8540,13 @@ components:
             minimum: 100.0
           - type: 'null'
           title: Max Tokens Per Request
+        context_window_tokens:
+          anyOf:
+          - type: integer
+            maximum: 2000000.0
+            minimum: 1000.0
+          - type: 'null'
+          title: Context Window Tokens
         is_default:
           anyOf:
           - type: boolean
@@ -6339,6 +8557,12 @@ components:
           - type: boolean
           - type: 'null'
           title: Enabled
+        canvas_prompt_tier:
+          anyOf:
+          - type: string
+            pattern: ^(full|explicit|none)$
+          - type: 'null'
+          title: Canvas Prompt Tier
       type: object
       title: LLMConfigUpdate
       description: Update an existing LLM configuration.
@@ -6417,6 +8641,38 @@ components:
       - fresh
       title: LatestStatsResponse
       description: Response for /telemetry/latest/{mac}.
+    LogResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        site_id:
+          type: string
+          title: Site Id
+        timestamp:
+          type: string
+          title: Timestamp
+        event_type:
+          type: string
+          title: Event Type
+        ap_mac:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ap Mac
+        details:
+          additionalProperties: true
+          type: object
+          title: Details
+      type: object
+      required:
+      - id
+      - site_id
+      - timestamp
+      - event_type
+      - ap_mac
+      - details
+      title: LogResponse
     LoginRequest:
       properties:
         email:
@@ -6541,6 +8797,76 @@ components:
       type: object
       title: McpToolCallRequest
       description: Request to call a specific MCP tool.
+    MemoryEntryResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        key:
+          type: string
+          title: Key
+        value:
+          type: string
+          title: Value
+        category:
+          type: string
+          title: Category
+        source_thread_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Thread Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - key
+      - value
+      - category
+      - created_at
+      - updated_at
+      title: MemoryEntryResponse
+      description: A single user memory entry.
+    MemoryListResponse:
+      properties:
+        entries:
+          items:
+            $ref: '#/components/schemas/MemoryEntryResponse'
+          type: array
+          title: Entries
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - entries
+      - total
+      title: MemoryListResponse
+      description: Paginated list of memory entries.
+    MemoryUpdateRequest:
+      properties:
+        value:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Value
+          description: Updated memory value
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
+          description: 'Updated category: general, network, preference, troubleshooting'
+      type: object
+      title: MemoryUpdateRequest
+      description: Update a memory entry's value and/or category.
     ObjectDependencyResponse:
       properties:
         object_id:
@@ -6603,6 +8929,152 @@ components:
       - password
       title: OnboardRequest
       description: Onboarding request schema for first admin user.
+    PATCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+          description: Human-readable label
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+          description: Optional expiration time (UTC). Omit for no expiry.
+      type: object
+      required:
+      - name
+      title: PATCreateRequest
+      description: Request body for creating a new PAT.
+    PATCreateResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        token_prefix:
+          type: string
+          title: Token Prefix
+        scopes:
+          items:
+            type: string
+          type: array
+          title: Scopes
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        last_used_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Used At
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Revoked At
+        token:
+          type: string
+          title: Token
+          description: The plaintext token. Shown exactly once; store securely.
+      type: object
+      required:
+      - id
+      - name
+      - token_prefix
+      - scopes
+      - created_at
+      - expires_at
+      - last_used_at
+      - revoked_at
+      - token
+      title: PATCreateResponse
+      description: "Response for a newly created PAT \u2014 includes the plaintext\
+        \ token ONCE."
+    PATListResponse:
+      properties:
+        tokens:
+          items:
+            $ref: '#/components/schemas/PATResponse'
+          type: array
+          title: Tokens
+        total:
+          type: integer
+          title: Total
+        max_per_user:
+          type: integer
+          title: Max Per User
+      type: object
+      required:
+      - tokens
+      - total
+      - max_per_user
+      title: PATListResponse
+      description: List of PATs owned by the caller.
+    PATResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        token_prefix:
+          type: string
+          title: Token Prefix
+        scopes:
+          items:
+            type: string
+          type: array
+          title: Scopes
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        last_used_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Used At
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Revoked At
+      type: object
+      required:
+      - id
+      - name
+      - token_prefix
+      - scopes
+      - created_at
+      - expires_at
+      - last_used_at
+      - revoked_at
+      title: PATResponse
+      description: PAT metadata (no plaintext).
     ParentReference:
       properties:
         target_type:
@@ -6634,6 +9106,185 @@ components:
       - exists_in_backup
       title: ParentReference
       description: A parent object that this object depends on.
+    PasskeyDeleteRequest:
+      properties:
+        password:
+          type: string
+          title: Password
+          description: Current password for re-authentication
+      type: object
+      required:
+      - password
+      title: PasskeyDeleteRequest
+      description: Request to delete a passkey (requires password re-auth).
+    PasskeyListResponse:
+      properties:
+        passkeys:
+          items:
+            $ref: '#/components/schemas/PasskeyResponse'
+          type: array
+          title: Passkeys
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - passkeys
+      - total
+      title: PasskeyListResponse
+      description: List of user's passkeys.
+    PasskeyLoginBeginResponse:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+          description: Challenge session ID
+        options:
+          additionalProperties: true
+          type: object
+          title: Options
+          description: PublicKeyCredentialRequestOptions
+      type: object
+      required:
+      - session_id
+      - options
+      title: PasskeyLoginBeginResponse
+      description: Response from passkey login begin.
+    PasskeyLoginCompleteRequest:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+          description: Challenge session ID from begin step
+        credential:
+          type: string
+          title: Credential
+          description: JSON-encoded assertion response from browser
+      type: object
+      required:
+      - session_id
+      - credential
+      title: PasskeyLoginCompleteRequest
+      description: Request to complete passkey login.
+    PasskeyRegisterBeginResponse:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+          description: Challenge session ID
+        options:
+          additionalProperties: true
+          type: object
+          title: Options
+          description: PublicKeyCredentialCreationOptions
+      type: object
+      required:
+      - session_id
+      - options
+      title: PasskeyRegisterBeginResponse
+      description: Response from passkey registration begin.
+    PasskeyRegisterCompleteRequest:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+          description: Challenge session ID from begin step
+        credential:
+          type: string
+          title: Credential
+          description: JSON-encoded attestation response from browser
+        name:
+          type: string
+          maxLength: 100
+          title: Name
+          description: User-friendly name for this passkey
+          default: Passkey
+      type: object
+      required:
+      - session_id
+      - credential
+      title: PasskeyRegisterCompleteRequest
+      description: Request to complete passkey registration.
+    PasskeyResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Base64url credential ID
+        name:
+          type: string
+          title: Name
+          description: User-given name
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: When the passkey was registered
+        last_used_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Used At
+          description: Last successful authentication
+        transports:
+          items:
+            type: string
+          type: array
+          title: Transports
+          description: Transport hints
+      type: object
+      required:
+      - id
+      - name
+      - created_at
+      title: PasskeyResponse
+      description: A registered passkey (public info only).
+    PredictionReportResponse:
+      properties:
+        total_checks:
+          type: integer
+          title: Total Checks
+          default: 0
+        passed:
+          type: integer
+          title: Passed
+          default: 0
+        warnings:
+          type: integer
+          title: Warnings
+          default: 0
+        errors:
+          type: integer
+          title: Errors
+          default: 0
+        critical:
+          type: integer
+          title: Critical
+          default: 0
+        skipped:
+          type: integer
+          title: Skipped
+          default: 0
+        check_results:
+          items:
+            $ref: '#/components/schemas/CheckResultResponse'
+          type: array
+          title: Check Results
+        overall_severity:
+          type: string
+          title: Overall Severity
+          default: clean
+        summary:
+          type: string
+          title: Summary
+          default: ''
+        execution_safe:
+          type: boolean
+          title: Execution Safe
+          default: true
+      type: object
+      title: PredictionReportResponse
     PublishAsRecipeRequest:
       properties:
         name:
@@ -6969,6 +9620,44 @@ components:
       - reconnected
       title: ReconnectResponse
       description: Response for POST /telemetry/reconnect.
+    RemediationAttemptResponse:
+      properties:
+        attempt:
+          type: integer
+          title: Attempt
+        changed_writes:
+          items:
+            type: integer
+          type: array
+          title: Changed Writes
+        previous_severity:
+          type: string
+          title: Previous Severity
+          default: ''
+        new_severity:
+          type: string
+          title: New Severity
+          default: ''
+        fixed_checks:
+          items:
+            type: string
+          type: array
+          title: Fixed Checks
+        introduced_checks:
+          items:
+            type: string
+          type: array
+          title: Introduced Checks
+        timestamp:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Timestamp
+      type: object
+      required:
+      - attempt
+      title: RemediationAttemptResponse
     ReportJobDetailResponse:
       properties:
         id:
@@ -7093,6 +9782,131 @@ components:
       - created_at
       title: ReportJobResponse
       description: Response schema for a report job.
+    SLEDeltaResponse:
+      properties:
+        metric:
+          type: string
+          title: Metric
+        baseline:
+          type: number
+          title: Baseline
+        current:
+          type: number
+          title: Current
+        delta_pct:
+          type: number
+          title: Delta Pct
+      type: object
+      required:
+      - metric
+      - baseline
+      - current
+      - delta_pct
+      title: SLEDeltaResponse
+    ScheduleResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        site_id:
+          type: string
+          title: Site Id
+        site_name:
+          type: string
+          title: Site Name
+        timezone:
+          type: string
+          title: Timezone
+        windows:
+          items:
+            $ref: '#/components/schemas/ScheduleWindow'
+          type: array
+          title: Windows
+        off_profile_id:
+          type: string
+          title: Off Profile Id
+        grace_period_minutes:
+          type: integer
+          title: Grace Period Minutes
+        neighbor_rssi_threshold_dbm:
+          type: integer
+          title: Neighbor Rssi Threshold Dbm
+        roam_rssi_threshold_dbm:
+          type: integer
+          title: Roam Rssi Threshold Dbm
+        critical_ap_macs:
+          items:
+            type: string
+          type: array
+          title: Critical Ap Macs
+        enabled:
+          type: boolean
+          title: Enabled
+        current_status:
+          type: string
+          title: Current Status
+      type: object
+      required:
+      - id
+      - site_id
+      - site_name
+      - timezone
+      - windows
+      - off_profile_id
+      - grace_period_minutes
+      - neighbor_rssi_threshold_dbm
+      - roam_rssi_threshold_dbm
+      - critical_ap_macs
+      - enabled
+      - current_status
+      title: ScheduleResponse
+    ScheduleStatusResponse:
+      properties:
+        site_id:
+          type: string
+          title: Site Id
+        status:
+          type: string
+          title: Status
+        disabled_ap_count:
+          type: integer
+          title: Disabled Ap Count
+        pending_disable_count:
+          type: integer
+          title: Pending Disable Count
+        client_ap_count:
+          type: integer
+          title: Client Ap Count
+      type: object
+      required:
+      - site_id
+      - status
+      - disabled_ap_count
+      - pending_disable_count
+      - client_ap_count
+      title: ScheduleStatusResponse
+    ScheduleWindow:
+      properties:
+        days:
+          items:
+            type: integer
+          type: array
+          title: Days
+          description: "0=Mon \u2026 6=Sun"
+        start:
+          type: string
+          title: Start
+          description: HH:MM in site local time
+        end:
+          type: string
+          title: End
+          description: HH:MM in site local time
+      type: object
+      required:
+      - days
+      - start
+      - end
+      title: ScheduleWindow
     ScopeDevicesResponse:
       properties:
         total:
@@ -7220,6 +10034,11 @@ components:
           type: string
           title: Impact Severity
           default: none
+        change_group_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Change Group Id
         duration_minutes:
           type: integer
           title: Duration Minutes
@@ -7406,6 +10225,16 @@ components:
           title: Total
           description: Total sessions
           default: 0
+        active_groups:
+          type: integer
+          title: Active Groups
+          description: Active change groups
+          default: 0
+        impacted_groups_24h:
+          type: integer
+          title: Impacted Groups 24H
+          description: Impacted groups in last 24h
+          default: 0
       type: object
       title: SessionSummaryResponse
       description: Dashboard counts for impact analysis sessions.
@@ -7438,6 +10267,44 @@ components:
       type: object
       title: SimulateRequest
       description: Simulation request schema.
+    SimulationLogEntry:
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          title: Timestamp
+        level:
+          type: string
+          enum:
+          - debug
+          - info
+          - warning
+          - error
+          title: Level
+        event:
+          type: string
+          title: Event
+        phase:
+          type: string
+          enum:
+          - simulate
+          - remediate
+          - approve
+          - execute
+          - other
+          title: Phase
+        context:
+          additionalProperties: true
+          type: object
+          title: Context
+      type: object
+      required:
+      - timestamp
+      - level
+      - event
+      - phase
+      title: SimulationLogEntry
+      description: A single structlog entry captured during a Twin session phase.
     SiteSummaryRecord:
       properties:
         site_id:
@@ -7498,6 +10365,54 @@ components:
           title: Smee Channel Url
       type: object
       title: SmeeStartRequest
+    StagedWriteResponse:
+      properties:
+        sequence:
+          type: integer
+          title: Sequence
+        method:
+          type: string
+          title: Method
+        endpoint:
+          type: string
+          title: Endpoint
+        body:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Body
+        object_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Object Type
+        site_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Site Id
+        object_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Object Id
+        diff:
+          items:
+            $ref: '#/components/schemas/WriteDiffField'
+          type: array
+          title: Diff
+        diff_summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Diff Summary
+      type: object
+      required:
+      - sequence
+      - method
+      - endpoint
+      title: StagedWriteResponse
     SubflowSchemaResponse:
       properties:
         id:
@@ -7527,7 +10442,7 @@ components:
       - id
       - name
       title: SubflowSchemaResponse
-      description: Sub-flow schema response — input/output parameter definitions.
+      description: "Sub-flow schema response \u2014 input/output parameter definitions."
     SummarizeDiffRequest:
       properties:
         version_id_1:
@@ -7856,6 +10771,35 @@ components:
           - type: boolean
           - type: 'null'
           title: Llm Enabled
+        memory_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Memory Enabled
+        memory_max_entries_per_user:
+          anyOf:
+          - type: integer
+            maximum: 500.0
+            minimum: 10.0
+          - type: 'null'
+          title: Memory Max Entries Per User
+        memory_entry_max_length:
+          anyOf:
+          - type: integer
+            maximum: 2000.0
+            minimum: 100.0
+          - type: 'null'
+          title: Memory Entry Max Length
+        memory_consolidation_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Memory Consolidation Enabled
+        memory_consolidation_cron:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Memory Consolidation Cron
         impact_analysis_enabled:
           anyOf:
           - type: boolean
@@ -7891,7 +10835,8 @@ components:
           title: Impact Analysis Retention Days
       type: object
       title: SystemSettingsUpdate
-      description: Schema for PUT /admin/settings — partial update of system configuration.
+      description: "Schema for PUT /admin/settings \u2014 partial update of system\
+        \ configuration."
     TelemetrySettingsResponse:
       properties:
         influxdb_url:
@@ -7934,6 +10879,11 @@ components:
           additionalProperties: true
           type: object
           title: Data
+        device_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device Name
       type: object
       required:
       - timestamp
@@ -7962,6 +10912,189 @@ components:
       - expires_in
       title: TokenResponse
       description: Token response schema.
+    TriggerRequest:
+      properties:
+        action:
+          type: string
+          title: Action
+      type: object
+      required:
+      - action
+      title: TriggerRequest
+    TwinSessionDetailResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        status:
+          type: string
+          title: Status
+        source:
+          type: string
+          title: Source
+        source_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Ref
+        overall_severity:
+          type: string
+          title: Overall Severity
+        writes_count:
+          type: integer
+          title: Writes Count
+        affected_sites:
+          items:
+            type: string
+          type: array
+          title: Affected Sites
+        affected_site_labels:
+          items:
+            type: string
+          type: array
+          title: Affected Site Labels
+        affected_object_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Affected Object Label
+        affected_object_types:
+          items:
+            type: string
+          type: array
+          title: Affected Object Types
+        remediation_count:
+          type: integer
+          title: Remediation Count
+          default: 0
+        prediction_report:
+          anyOf:
+          - $ref: '#/components/schemas/PredictionReportResponse'
+          - type: 'null'
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        ai_assessment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ai Assessment
+        execution_safe:
+          type: boolean
+          title: Execution Safe
+          default: true
+        staged_writes:
+          items:
+            $ref: '#/components/schemas/StagedWriteResponse'
+          type: array
+          title: Staged Writes
+        remediation_history:
+          items:
+            $ref: '#/components/schemas/RemediationAttemptResponse'
+          type: array
+          title: Remediation History
+      type: object
+      required:
+      - id
+      - status
+      - source
+      - overall_severity
+      - writes_count
+      title: TwinSessionDetailResponse
+    TwinSessionListResponse:
+      properties:
+        sessions:
+          items:
+            $ref: '#/components/schemas/TwinSessionResponse'
+          type: array
+          title: Sessions
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - sessions
+      - total
+      title: TwinSessionListResponse
+    TwinSessionResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        status:
+          type: string
+          title: Status
+        source:
+          type: string
+          title: Source
+        source_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Ref
+        overall_severity:
+          type: string
+          title: Overall Severity
+        writes_count:
+          type: integer
+          title: Writes Count
+        affected_sites:
+          items:
+            type: string
+          type: array
+          title: Affected Sites
+        affected_site_labels:
+          items:
+            type: string
+          type: array
+          title: Affected Site Labels
+        affected_object_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Affected Object Label
+        affected_object_types:
+          items:
+            type: string
+          type: array
+          title: Affected Object Types
+        remediation_count:
+          type: integer
+          title: Remediation Count
+          default: 0
+        prediction_report:
+          anyOf:
+          - $ref: '#/components/schemas/PredictionReportResponse'
+          - type: 'null'
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+      type: object
+      required:
+      - id
+      - status
+      - source
+      - overall_severity
+      - writes_count
+      title: TwinSessionResponse
     UpdateProfileRequest:
       properties:
         first_name:
@@ -8088,6 +11221,27 @@ components:
       type: object
       title: UserUpdate
       description: User update schema.
+    ValidationCheckSummaryResponse:
+      properties:
+        check_name:
+          type: string
+          title: Check Name
+        passed:
+          type: integer
+          title: Passed
+          default: 0
+        failed:
+          type: integer
+          title: Failed
+          default: 0
+        skipped:
+          type: integer
+          title: Skipped
+          default: 0
+      type: object
+      required:
+      - check_name
+      title: ValidationCheckSummaryResponse
     ValidationError:
       properties:
         loc:
@@ -8120,6 +11274,11 @@ components:
           type: string
           title: Site Id
           description: Mist site ID to validate
+        include_cable_tests:
+          type: boolean
+          title: Include Cable Tests
+          description: Run cable tests on connected switch ports
+          default: false
       type: object
       required:
       - site_id
@@ -8668,7 +11827,7 @@ components:
       - name
       - nodes
       title: WorkflowCreate
-      description: Workflow creation schema — graph model.
+      description: "Workflow creation schema \u2014 graph model."
     WorkflowListResponse:
       properties:
         workflows:
@@ -8817,7 +11976,7 @@ components:
       - created_at
       - updated_at
       title: WorkflowResponse
-      description: Workflow response schema — graph model.
+      description: "Workflow response schema \u2014 graph model."
     WorkflowUpdate:
       properties:
         name:
@@ -8907,7 +12066,34 @@ components:
           description: Sub-flow output parameters
       type: object
       title: WorkflowUpdate
-      description: Workflow update schema — graph model.
+      description: "Workflow update schema \u2014 graph model."
+    WriteDiffField:
+      properties:
+        path:
+          type: string
+          title: Path
+        change:
+          type: string
+          enum:
+          - added
+          - removed
+          - modified
+          title: Change
+        before:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Before
+        after:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: After
+      type: object
+      required:
+      - path
+      - change
+      title: WriteDiffField
     app__modules__impact_analysis__schemas__SessionListResponse:
       properties:
         sessions:
@@ -8960,6 +12146,11 @@ components:
           type: string
           title: Impact Severity
           default: none
+        change_group_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Change Group Id
         duration_minutes:
           type: integer
           title: Duration Minutes
@@ -9117,6 +12308,11 @@ components:
           type: boolean
           title: Totp Enabled
           description: Whether 2FA is enabled
+        has_passkeys:
+          type: boolean
+          title: Has Passkeys
+          description: Whether user has registered passkeys
+          default: false
         created_at:
           type: string
           format: date-time
@@ -9180,6 +12376,11 @@ components:
           type: boolean
           title: Totp Enabled
           description: Whether 2FA is enabled
+        has_passkeys:
+          type: boolean
+          title: Has Passkeys
+          description: Whether user has registered passkeys
+          default: false
         created_at:
           type: string
           format: date-time
