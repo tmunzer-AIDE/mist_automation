@@ -80,10 +80,9 @@ Why this matters: without scoped filtering and seeding, VLAN/routing/config chec
 ## Check Semantics That Matter Operationally
 
 - Port impact (`PORT-DISC`, `PORT-CLIENT`) is `skipped` (not `pass`) when infra exists but LLDP is missing.
-- Port-impact check IDs are split by risk class:
-	- `PORT-DISC`: physical disconnect (removed/disabled LLDP-linked port)
-	- `PORT-VLAN`: VLAN isolation on LLDP-linked ports (baseline VLANs no longer carried)
-	- `PORT-L2`: mixed case containing both physical disconnect and VLAN isolation in one simulation.
+- Port-impact findings keep a stable `check_id` of `PORT-DISC` for infrastructure-side L2 regressions.
+	- Physical disconnect (removed/disabled LLDP-linked port), VLAN isolation (baseline VLANs no longer carried), and mixed L2 cases are differentiated via `check_name`/summary.
+	- Do not expect separate port-impact IDs such as `PORT-VLAN` or `PORT-L2` in API/UI results.
 - `ROUTE-GW` validates only routed networks (L3 indicators present), not pure L2 VLAN entries.
 - `ROUTE-OSPF`/`ROUTE-BGP` are device-scoped (peer checked against that same device's interfaces).
 - If protocol config exists but peer telemetry is absent, routing peer checks return `skipped` (not `pass`).
