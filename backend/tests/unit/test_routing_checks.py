@@ -201,6 +201,62 @@ class TestRouteGw:
         assert r.status == "error"
         assert len(r.details) == 2
 
+    def test_detail_includes_vlan_and_wlan_context(self):
+        """ROUTE-GW details should include impacted VLAN and WLAN correlation."""
+        baseline = _snap()
+        predicted = _snap(
+            networks={"net-1": {"name": "Corp", "subnet": "10.0.0.0/24", "vlan_id": 10}},
+            wlans={
+                "wlan-1": {"ssid": "Corp-SSID", "enabled": True, "vlan_id": 10},
+                "wlan-2": {"ssid": "IoT-SSID", "enabled": True, "vlan_id": 30},
+            },
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={},
+                ),
+            },
+        )
+
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-GW")
+        assert r is not None
+        assert r.status == "error"
+        assert len(r.details) == 1
+        assert "network VLAN=10" in r.details[0]
+        assert "referenced by WLAN(s): Corp-SSID" in r.details[0]
+
+    def test_detail_calls_out_implicit_native_vlan_mapping(self):
+        """ROUTE-GW details should mention native/default VLAN ambiguity."""
+        baseline = _snap()
+        predicted = _snap(
+            networks={"net-1": {"name": "Corp", "subnet": "10.0.0.0/24"}},
+            wlans={
+                "wlan-1": {"ssid": "Guest-SSID", "enabled": True},
+            },
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={},
+                ),
+            },
+        )
+
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-GW")
+        assert r is not None
+        assert r.status == "error"
+        assert len(r.details) == 1
+        assert "network VLAN is undefined" in r.details[0]
+        assert "implicit vlan_id may map through native/default VLAN" in r.details[0]
+        assert "Guest-SSID" in r.details[0]
+
 
 # ---------------------------------------------------------------------------
 # TestRouteOspf

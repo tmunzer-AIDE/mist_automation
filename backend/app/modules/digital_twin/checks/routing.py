@@ -17,6 +17,7 @@ from typing import Any
 
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
+from app.modules.digital_twin.services.topology_utils import resolve_vlan_id
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,65 @@ def _network_requires_gateway(net_cfg: dict[str, Any]) -> bool:
     return False
 
 
+def _wlan_vlan_context(snapshot: SiteSnapshot) -> tuple[dict[int, list[str]], list[str]]:
+    """Return WLAN names grouped by explicit VLAN plus implicit-VLAN WLAN names.
+
+    WLANs without a resolvable ``vlan_id`` are tracked separately because they
+    may ride native/default VLAN behavior depending on AP uplink and switchport
+    configuration.
+    """
+    vars_map = snapshot.site_setting.get("vars") or {}
+    vlan_to_wlans: dict[int, list[str]] = {}
+    implicit_wlans: list[str] = []
+
+    for wlan in snapshot.wlans.values():
+        if not wlan.get("enabled", True):
+            continue
+        name = str(wlan.get("ssid") or wlan.get("name") or "").strip()
+        if not name:
+            continue
+
+        vid = resolve_vlan_id(wlan.get("vlan_id"), vars_map)
+        if vid is None:
+            implicit_wlans.append(name)
+            continue
+
+        vlan_to_wlans.setdefault(vid, []).append(name)
+
+    for names in vlan_to_wlans.values():
+        names.sort()
+    implicit_wlans.sort()
+    return vlan_to_wlans, implicit_wlans
+
+
+def _format_route_gw_detail(
+    network_name: str,
+    network_cfg: dict[str, Any],
+    vars_map: dict[str, Any],
+    wlan_names_by_vlan: dict[int, list[str]],
+    implicit_vlan_wlans: list[str],
+) -> str:
+    """Render a ROUTE-GW detail with VLAN/WLAN context for operators."""
+    parts: list[str] = [f"Network '{network_name}' has no gateway L3 interface"]
+
+    network_vlan = resolve_vlan_id(network_cfg.get("vlan_id"), vars_map)
+    if network_vlan is None:
+        parts.append("network VLAN is undefined")
+    else:
+        parts.append(f"network VLAN={network_vlan}")
+        tied_wlans = wlan_names_by_vlan.get(network_vlan, [])
+        if tied_wlans:
+            parts.append(f"referenced by WLAN(s): {', '.join(tied_wlans)}")
+
+    if implicit_vlan_wlans:
+        parts.append(
+            "WLAN(s) with implicit vlan_id may map through native/default VLAN: "
+            f"{', '.join(implicit_vlan_wlans)}"
+        )
+
+    return "; ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # ROUTE-GW: Default Gateway Gap — Layer 3, error
 # ---------------------------------------------------------------------------
@@ -89,11 +149,12 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
     """
     # Collect routed network names only; intentional L2-only networks are
     # excluded to avoid false positives.
-    network_names: set[str] = set()
+    routed_networks: dict[str, dict[str, Any]] = {}
     for _net_id, net_cfg in predicted.networks.items():
         name = net_cfg.get("name", "")
         if name and _network_requires_gateway(net_cfg):
-            network_names.add(name)
+            routed_networks.setdefault(name, net_cfg)
+    network_names = set(routed_networks)
 
     if not network_names:
         return CheckResult(
@@ -125,10 +186,21 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
             description="Detects routed networks (with subnet/gateway config) that have no corresponding L3 interface on any gateway device.",
         )
 
+    vars_map = predicted.site_setting.get("vars") or {}
+    wlan_names_by_vlan, implicit_vlan_wlans = _wlan_vlan_context(predicted)
+
     details: list[str] = []
     affected_objects: list[str] = []
     for name in sorted(missing):
-        details.append(f"Network '{name}' has no gateway L3 interface")
+        details.append(
+            _format_route_gw_detail(
+                network_name=name,
+                network_cfg=routed_networks.get(name, {}),
+                vars_map=vars_map,
+                wlan_names_by_vlan=wlan_names_by_vlan,
+                implicit_vlan_wlans=implicit_vlan_wlans,
+            )
+        )
         affected_objects.append(name)
 
     return CheckResult(
