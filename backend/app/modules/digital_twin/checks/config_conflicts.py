@@ -69,6 +69,7 @@ def _check_subnet_overlap(snap: SiteSnapshot) -> CheckResult:
             affected_objects=affected_objects,
             affected_sites=[snap.site_id],
             remediation_hint="Assign non-overlapping subnets to each network.",
+            description="Checks all network subnets pairwise for IP address range overlaps.",
         )
 
     return CheckResult(
@@ -77,6 +78,7 @@ def _check_subnet_overlap(snap: SiteSnapshot) -> CheckResult:
         layer=1,
         status="pass",
         summary="No subnet overlaps detected",
+        description="Checks all network subnets pairwise for IP address range overlaps.",
     )
 
 
@@ -123,6 +125,7 @@ def _check_vlan_collision(snap: SiteSnapshot) -> CheckResult:
             affected_objects=affected_objects,
             affected_sites=[snap.site_id],
             remediation_hint="Assign unique VLAN IDs to each network, or merge networks that share the same VLAN.",
+            description="Detects VLAN IDs assigned to more than one network, which causes forwarding ambiguity.",
         )
 
     return CheckResult(
@@ -131,6 +134,7 @@ def _check_vlan_collision(snap: SiteSnapshot) -> CheckResult:
         layer=1,
         status="pass",
         summary="No VLAN ID collisions detected",
+        description="Detects VLAN IDs assigned to more than one network, which causes forwarding ambiguity.",
     )
 
 
@@ -171,6 +175,7 @@ def _check_duplicate_ssid(snap: SiteSnapshot) -> CheckResult:
             affected_objects=affected_objects,
             affected_sites=[snap.site_id],
             remediation_hint="Remove or rename duplicate SSIDs. Each SSID should be unique within a site.",
+            description="Flags duplicate SSIDs among enabled WLANs on the same site.",
         )
 
     return CheckResult(
@@ -179,6 +184,7 @@ def _check_duplicate_ssid(snap: SiteSnapshot) -> CheckResult:
         layer=1,
         status="pass",
         summary="No duplicate SSIDs detected",
+        description="Flags duplicate SSIDs among enabled WLANs on the same site.",
     )
 
 
@@ -313,6 +319,7 @@ def _check_dhcp_scope_overlap(snap: SiteSnapshot) -> CheckResult:
             affected_objects=affected_objects,
             affected_sites=[snap.site_id],
             remediation_hint="Ensure DHCP ranges do not overlap across devices.",
+            description="Checks all DHCP server scopes pairwise for overlapping address ranges.",
         )
 
     return CheckResult(
@@ -321,6 +328,7 @@ def _check_dhcp_scope_overlap(snap: SiteSnapshot) -> CheckResult:
         layer=1,
         status="pass",
         summary="No overlapping DHCP scopes detected",
+        description="Checks all DHCP server scopes pairwise for overlapping address ranges.",
     )
 
 
@@ -400,6 +408,7 @@ def _check_dhcp_misconfiguration(snap: SiteSnapshot) -> CheckResult:
             affected_objects=affected_objects,
             affected_sites=[snap.site_id],
             remediation_hint="Ensure DHCP gateway and address range are within the network's subnet.",
+            description="Validates that each DHCP scope's gateway and address range fall within the network's subnet.",
         )
 
     return CheckResult(
@@ -408,6 +417,7 @@ def _check_dhcp_misconfiguration(snap: SiteSnapshot) -> CheckResult:
         layer=1,
         status="pass",
         summary="No DHCP misconfigurations detected",
+        description="Validates that each DHCP scope's gateway and address range fall within the network's subnet.",
     )
 
 

@@ -575,3 +575,40 @@ class TestCheckConfigConflictsIntegration:
         results = check_config_conflicts(snap)
         for r in results:
             assert r.status == "pass", f"{r.check_id} should pass on empty snapshot but got {r.status}"
+
+
+# ---------------------------------------------------------------------------
+# TestCheckDescriptions
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDescriptions:
+    """Every config conflict check must return a non-empty description."""
+
+    def _empty_snap(self) -> SiteSnapshot:
+        return _snap()
+
+    def test_cfg_subnet_description_populated(self):
+        results = check_config_conflicts(self._empty_snap())
+        by_id = {r.check_id: r for r in results}
+        assert by_id["CFG-SUBNET"].description != ""
+
+    def test_cfg_vlan_description_populated(self):
+        results = check_config_conflicts(self._empty_snap())
+        by_id = {r.check_id: r for r in results}
+        assert by_id["CFG-VLAN"].description != ""
+
+    def test_cfg_ssid_description_populated(self):
+        results = check_config_conflicts(self._empty_snap())
+        by_id = {r.check_id: r for r in results}
+        assert by_id["CFG-SSID"].description != ""
+
+    def test_cfg_dhcp_rng_description_populated(self):
+        results = check_config_conflicts(self._empty_snap())
+        by_id = {r.check_id: r for r in results}
+        assert by_id["CFG-DHCP-RNG"].description != ""
+
+    def test_cfg_dhcp_cfg_description_populated(self):
+        results = check_config_conflicts(self._empty_snap())
+        by_id = {r.check_id: r for r in results}
+        assert by_id["CFG-DHCP-CFG"].description != ""
