@@ -12,13 +12,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import re
-
 import networkx as nx
 
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 from app.modules.digital_twin.services.topology_utils import (
+    build_network_name_to_vlan,
+    materialize_device_port_config,
+    materialize_port_config_entry,
     merge_infra_neighbor_ports,
+    resolve_vlan_id,
     resolve_port_config_entry,
 )
 
@@ -40,118 +42,28 @@ class SiteGraph:
 # ---------------------------------------------------------------------------
 
 
-def _build_network_name_to_vlan(networks: dict[str, dict[str, Any]], site_vars: dict[str, Any]) -> dict[str, int]:
-    """Map network name -> VLAN ID from the snapshot networks dict.
-
-    Networks are keyed by network_id and contain ``name`` and ``vlan_id`` fields.
-    Handles both literal integers and Jinja variables resolved against ``site_vars``.
-    """
-    mapping: dict[str, int] = {}
-    for _net_id, net_cfg in networks.items():
-        name = net_cfg.get("name", "")
-        vlan_id = _resolve_vlan_var(net_cfg.get("vlan_id"), site_vars)
-        if name and vlan_id is not None:
-            mapping[name] = vlan_id
-    return mapping
-
-
 def _resolve_port_vlan(
     port_cfg: dict[str, Any],
     port_usages: dict[str, dict[str, Any]],
     network_name_to_vlan: dict[str, int],
 ) -> set[int]:
-    """Resolve which VLANs a port participates in.
-
-    Args:
-        port_cfg: Single port entry from ``DeviceSnapshot.port_config``.
-        port_usages: Site-level or device-level port usage profiles.
-        network_name_to_vlan: Mapping from network name to VLAN ID.
-
-    Returns:
-        Set of VLAN IDs the port carries. An empty set means the port carries
-        no tagged VLANs (disabled or unresolvable).
-    """
-    usage = port_cfg.get("usage", "")
-
-    # Direct trunk — carries all VLANs
-    if usage == "trunk":
-        return set(network_name_to_vlan.values())
-
-    # Disabled port — no VLANs
-    if usage == "disabled":
-        return set()
-
-    # Named usage — look up in port_usages profiles
-    profile = port_usages.get(usage)
-    if profile is None:
-        # Unknown usage — cannot resolve, treat as no VLANs
-        return set()
-
-    mode = profile.get("mode", "")
-    vlans: set[int] = set()
-
-    if mode == "trunk":
-        # Trunk profile — carries all VLANs
-        return set(network_name_to_vlan.values())
-
-    # Access or other mode — check port_network and vlan_id
-    port_network = profile.get("port_network", "")
-    if port_network and port_network in network_name_to_vlan:
-        vlans.add(network_name_to_vlan[port_network])
-
-    # Some profiles specify vlan_id directly
-    vlan_id = profile.get("vlan_id")
-    if vlan_id is not None:
-        try:
-            vlans.add(int(vlan_id))
-        except (TypeError, ValueError):
-            pass
-
-    return vlans
+    """Resolve VLANs for one port via profile-flattened materialization."""
+    materialized = materialize_port_config_entry(
+        port_cfg,
+        port_usages,
+        network_name_to_vlan,
+        site_vars={},
+    )
+    return {int(vid) for vid in materialized.get("resolved_vlan_ids", [])}
 
 
-def _resolve_device_vlans(
-    device: DeviceSnapshot,
-    site_port_usages: dict[str, dict[str, Any]],
-    network_name_to_vlan: dict[str, int],
-) -> set[int]:
-    """Collect all VLANs a device participates in from its port_config."""
-    # Merge site-level and device-level port_usages (device overrides)
-    effective_usages = {**site_port_usages}
-    if device.port_usages:
-        effective_usages.update(device.port_usages)
-
+def _resolve_device_vlans(materialized_port_config: dict[str, dict[str, Any]]) -> set[int]:
+    """Collect all VLANs a device participates in from materialized ports."""
     all_vlans: set[int] = set()
-    for _port_name, port_cfg in device.port_config.items():
-        all_vlans |= _resolve_port_vlan(port_cfg, effective_usages, network_name_to_vlan)
+    for port_cfg in materialized_port_config.values():
+        all_vlans |= {int(vid) for vid in port_cfg.get("resolved_vlan_ids", [])}
 
     return all_vlans
-
-
-def _resolve_vlan_var(value: Any, site_vars: dict[str, Any]) -> int | None:
-    """Resolve a VLAN ID that might be a Jinja template string."""
-    if value is None:
-        return None
-    if isinstance(value, int):
-        return value
-    
-    str_val = str(value)
-    if "{{" in str_val and "}}" in str_val:
-        # Simple extraction for "{{var_name}}"
-        m = re.search(r"\{\{\s*([^}\s]+)\s*\}\}", str_val)
-        if m:
-            var_name = m.group(1)
-            resolved = site_vars.get(var_name)
-            if resolved is not None:
-                try:
-                    return int(resolved)
-                except (TypeError, ValueError):
-                    pass
-    
-    try:
-        return int(str_val)
-    except (TypeError, ValueError):
-        return None
 
 
 def _wlan_vlan_ids(wlans: dict[str, dict[str, Any]], site_vars: dict[str, Any]) -> set[int]:
@@ -164,7 +76,7 @@ def _wlan_vlan_ids(wlans: dict[str, dict[str, Any]], site_vars: dict[str, Any]) 
     """
     result: set[int] = set()
     for wlan in wlans.values():
-        vid = _resolve_vlan_var(wlan.get("vlan_id"), site_vars)
+        vid = resolve_vlan_id(wlan.get("vlan_id"), site_vars)
         if vid is not None:
             result.add(vid)
     return result
@@ -200,7 +112,7 @@ def build_site_graph(snapshot: SiteSnapshot) -> SiteGraph:
     - Gateway metadata: which devices are gateways, which VLANs they have L3 on.
     """
     site_vars = snapshot.site_setting.get("vars") or {}
-    network_name_to_vlan = _build_network_name_to_vlan(snapshot.networks, site_vars)
+    network_name_to_vlan = build_network_name_to_vlan(snapshot.networks, site_vars)
 
     # -- Physical graph --
     physical = nx.Graph()
@@ -249,6 +161,20 @@ def build_site_graph(snapshot: SiteSnapshot) -> SiteGraph:
         )
 
     device_by_mac: dict[str, DeviceSnapshot] = {d.mac: d for d in snapshot.devices.values() if d.mac}
+    materialized_ports_by_mac: dict[str, dict[str, dict[str, Any]]] = {}
+    for device in snapshot.devices.values():
+        if not device.mac:
+            continue
+        materialized_ports = device.resolved_port_config
+        if materialized_ports is None:
+            materialized_ports = materialize_device_port_config(
+                device.port_config,
+                snapshot.port_usages,
+                device.port_usages,
+                network_name_to_vlan,
+                site_vars,
+            )
+        materialized_ports_by_mac[device.mac] = materialized_ports
 
     # Determine per-device VLAN membership
     ap_wlan_vlans = _wlan_vlan_ids(snapshot.wlans, site_vars)
@@ -267,7 +193,7 @@ def build_site_graph(snapshot: SiteSnapshot) -> SiteGraph:
             # per-AP WLAN filter modelling.
             device_vlans[device.mac] = set(ap_wlan_vlans)
         else:
-            device_vlans[device.mac] = _resolve_device_vlans(device, snapshot.port_usages, network_name_to_vlan)
+            device_vlans[device.mac] = _resolve_device_vlans(materialized_ports_by_mac.get(device.mac, {}))
 
     def _switch_port_carries_vlan(
         mac: str,
@@ -287,14 +213,12 @@ def build_site_graph(snapshot: SiteSnapshot) -> SiteGraph:
         if not port:
             return True
 
-        port_cfg = resolve_port_config_entry(dev.port_config, port)
+        materialized_port_cfg = resolve_port_config_entry(materialized_ports_by_mac.get(mac, {}), port)
 
-        if not port_cfg.get("usage"):
+        if not materialized_port_cfg.get("usage"):
             return True
-        effective_usages = {**snapshot.port_usages}
-        if dev.port_usages:
-            effective_usages.update(dev.port_usages)
-        return vlan_id in _resolve_port_vlan(port_cfg, effective_usages, network_name_to_vlan)
+
+        return vlan_id in {int(vid) for vid in materialized_port_cfg.get("resolved_vlan_ids", [])}
 
     # Collect all VLANs present across all devices
     all_vlans: set[int] = set()

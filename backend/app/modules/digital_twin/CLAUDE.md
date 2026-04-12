@@ -80,10 +80,26 @@ Why this matters: without scoped filtering and seeding, VLAN/routing/config chec
 ## Check Semantics That Matter Operationally
 
 - Port impact (`PORT-DISC`, `PORT-CLIENT`) is `skipped` (not `pass`) when infra exists but LLDP is missing.
+- Port-impact check IDs are split by risk class:
+	- `PORT-DISC`: physical disconnect (removed/disabled LLDP-linked port)
+	- `PORT-VLAN`: VLAN isolation on LLDP-linked ports (baseline VLANs no longer carried)
+	- `PORT-L2`: mixed case containing both physical disconnect and VLAN isolation in one simulation.
 - `ROUTE-GW` validates only routed networks (L3 indicators present), not pure L2 VLAN entries.
 - `ROUTE-OSPF`/`ROUTE-BGP` are device-scoped (peer checked against that same device's interfaces).
 - If protocol config exists but peer telemetry is absent, routing peer checks return `skipped` (not `pass`).
 - `CONN-VLAN-PATH` uses per-VLAN subgraphs and flags baseline-reachable -> predicted-unreachable regressions; AP impact escalates severity.
+
+### Change-Aware Check Profiles
+
+- `analyze_site_with_context()` supports change-type aware execution.
+- For `devices`-only changes (e.g. `site_devices` switch updates), the analyzer runs topology/L3 checks only:
+	- connectivity (`CONN-PHYS`, `CONN-VLAN`, `CONN-VLAN-PATH`)
+	- config conflicts except Wi-Fi SSID (`CFG-SUBNET`, `CFG-VLAN`, `CFG-DHCP-*`; excludes `CFG-SSID`)
+	- port impact (`PORT-*`)
+	- routing (`ROUTE-*`)
+	- STP (`STP-*`)
+- Wi-Fi-centric categories are skipped in this profile (`CFG-SSID`, `SEC-GUEST`, `TMPL-VAR`, etc.).
+- Any change set touching non-device object types falls back to the full check suite.
 
 ## Topology Normalization Contract
 
@@ -92,6 +108,9 @@ Shared helpers in `topology_utils.py` are the single source for:
 - port-id normalization (`ge-0/0/9.0`, `xe-0/0/0:0` -> base port),
 - tolerant port lookup candidates (`p`, `p.0`, `p:0`),
 - merged infra-neighbor maps (`port_devices` seeded, LLDP overlay).
+- interface materialization (profile attributes flattened per port + explicit `resolved_vlan_ids`).
+
+`build_site_snapshot()` persists this materialized view as `DeviceSnapshot.resolved_port_config`; graph/check logic should prefer that field and only fallback to on-the-fly materialization when tests construct snapshots manually.
 
 `site_graph` and `port_impact` must stay aligned to these helpers to avoid diverging reachability vs impact conclusions.
 

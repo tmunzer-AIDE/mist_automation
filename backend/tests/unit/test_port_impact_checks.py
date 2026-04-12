@@ -39,17 +39,20 @@ def _snap(
     lldp_neighbors: dict[str, dict[str, str]] | None = None,
     ap_clients: dict[str, int] | None = None,
     port_devices: dict[str, dict[str, str]] | None = None,
+    networks: dict[str, dict] | None = None,
+    port_usages: dict[str, dict] | None = None,
+    site_setting: dict | None = None,
     site_id: str = "site-1",
 ) -> SiteSnapshot:
     """Create a minimal SiteSnapshot."""
     return SiteSnapshot(
         site_id=site_id,
         site_name="Branch-1",
-        site_setting={},
-        networks={},
+        site_setting=site_setting or {},
+        networks=networks or {},
         wlans={},
         devices=devices or {},
-        port_usages={},
+        port_usages=port_usages or {},
         lldp_neighbors=lldp_neighbors or {},
         port_status={},
         ap_clients=ap_clients or {},
@@ -129,6 +132,41 @@ class TestPortDisc:
         assert disc.status == "pass"
         assert disc.details == []
 
+    def test_disabled_to_disabled_is_not_a_disconnect(self):
+        """A port that is already disabled should not be re-flagged as a change."""
+        ap = _dev("ap-1", mac="aa:bb:cc:00:00:01", device_type="ap", name="AP-Lobby")
+        sw = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            device_type="switch",
+            name="SW-Core",
+            port_config={"ge-0/0/8": {"usage": "disabled"}},
+        )
+
+        baseline = _snap(
+            devices={"sw-1": sw, "ap-1": ap},
+            lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/8": "aa:bb:cc:00:00:01"}},
+        )
+
+        sw_pred = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            device_type="switch",
+            name="SW-Core",
+            port_config={"ge-0/0/8": {"usage": "disabled"}},
+        )
+        predicted = _snap(
+            devices={"sw-1": sw_pred, "ap-1": ap},
+            lldp_neighbors=baseline.lldp_neighbors,
+        )
+
+        results = check_port_impact(baseline, predicted)
+        disc = results[0]
+
+        assert disc.check_id == "PORT-DISC"
+        assert disc.status == "pass"
+        assert disc.details == []
+
     def test_port_removed_with_neighbor(self):
         """Port removed from predicted config while neighbor exists -> disconnect."""
         sw_baseline = _dev(
@@ -164,8 +202,8 @@ class TestPortDisc:
         assert "SW-Access" in disc.details[0]
         assert "ge-0/0/0" in disc.details[0]
 
-    def test_usage_change_is_disconnect(self):
-        """Changing port usage with LLDP neighbor -> disconnect."""
+    def test_usage_change_that_removes_vlans_is_flagged(self):
+        """Changing usage that drops VLANs should be flagged as VLAN isolation risk."""
         gw = _dev("gw-1", mac="aa:bb:cc:00:00:99", device_type="gateway", name="GW-Edge")
         sw = _dev(
             "sw-1",
@@ -173,28 +211,124 @@ class TestPortDisc:
             name="SW-Core",
             port_config={"ge-0/0/0": {"usage": "trunk"}},
         )
+        networks = {
+            "n-1": {"name": "mgmt", "vlan_id": 10},
+            "n-2": {"name": "data", "vlan_id": 20},
+        }
 
         baseline = _snap(
             devices={"sw-1": sw, "gw-1": gw},
             lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/0": "aa:bb:cc:00:00:99"}},
+            networks=networks,
         )
 
         sw_pred = _dev(
             "sw-1",
             mac="aa:bb:cc:00:00:10",
             name="SW-Core",
-            port_config={"ge-0/0/0": {"usage": "access"}},
+            port_config={"ge-0/0/0": {"usage": "access", "vlan_id": 10}},
         )
         predicted = _snap(
             devices={"sw-1": sw_pred, "gw-1": gw},
             lldp_neighbors=baseline.lldp_neighbors,
+            networks=networks,
         )
 
         results = check_port_impact(baseline, predicted)
         disc = results[0]
 
-        assert disc.status == "error"  # gateway is not ap or switch
+        assert disc.check_id == "PORT-VLAN"
+        assert disc.status == "warning"
         assert "GW-Edge" in disc.details[0]
+        assert "may isolate VLAN traffic" in disc.details[0]
+
+    def test_same_usage_name_with_profile_semantic_change_is_vlan_isolation(self):
+        """Changing semantics of a named profile should be detected as VLAN impact.
+
+        Example: profile 'uplink' changes from trunk to access while ports still
+        reference 'uplink'.
+        """
+        sw_peer = _dev("sw-2", mac="aa:bb:cc:00:00:20", device_type="switch", name="SW-Aggregation")
+        sw = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/1": {"usage": "uplink"}},
+        )
+        # Baseline profile: uplink behaves as trunk.
+        sw.port_usages = {"uplink": {"mode": "trunk", "all_networks": True}}
+        networks = {
+            "n-1": {"name": "mgmt", "vlan_id": 10},
+            "n-2": {"name": "data", "vlan_id": 20},
+        }
+
+        baseline = _snap(
+            devices={"sw-1": sw, "sw-2": sw_peer},
+            lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/1": "aa:bb:cc:00:00:20"}},
+            networks=networks,
+        )
+
+        sw_pred = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/1": {"usage": "uplink"}},
+        )
+        # Predicted profile: same usage name, different forwarding semantics.
+        sw_pred.port_usages = {"uplink": {"mode": "access", "port_network": "mgmt", "all_networks": False}}
+
+        predicted = _snap(
+            devices={"sw-1": sw_pred, "sw-2": sw_peer},
+            lldp_neighbors=baseline.lldp_neighbors,
+            networks=networks,
+        )
+
+        results = check_port_impact(baseline, predicted)
+        disc = results[0]
+
+        assert disc.check_id == "PORT-VLAN"
+        assert disc.status == "critical"  # peer is switch
+        assert len(disc.details) == 1
+        assert "may isolate VLAN traffic" in disc.details[0]
+        assert "[20]" in disc.details[0]
+        assert "SW-Aggregation" in disc.details[0]
+
+    def test_usage_change_that_adds_vlans_is_not_flagged(self):
+        """Changes that increase carried VLANs should not be flagged as isolation."""
+        sw_peer = _dev("sw-2", mac="aa:bb:cc:00:00:20", device_type="switch", name="SW-Aggregation")
+        sw = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/1": {"usage": "access", "vlan_id": 10}},
+        )
+        networks = {
+            "n-1": {"name": "mgmt", "vlan_id": 10},
+            "n-2": {"name": "data", "vlan_id": 20},
+        }
+
+        baseline = _snap(
+            devices={"sw-1": sw, "sw-2": sw_peer},
+            lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/1": "aa:bb:cc:00:00:20"}},
+            networks=networks,
+        )
+
+        sw_pred = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/1": {"usage": "trunk"}},
+        )
+        predicted = _snap(
+            devices={"sw-1": sw_pred, "sw-2": sw_peer},
+            lldp_neighbors=baseline.lldp_neighbors,
+            networks=networks,
+        )
+
+        disc, _client = check_port_impact(baseline, predicted)
+
+        assert disc.status == "pass"
+        assert disc.details == []
 
     def test_neighbor_not_in_devices_still_flagged(self):
         """LLDP neighbor MAC not found in devices -> uses MAC as name, type unknown -> error."""

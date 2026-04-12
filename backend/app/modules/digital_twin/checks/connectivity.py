@@ -236,6 +236,12 @@ def _check_conn_vlan_path(
         - ``critical`` when any AP is affected (wireless blackhole)
         - ``error`` otherwise (switch or other device lost a VLAN path)
         - ``pass`` when every baseline-reachable device is still reachable
+
+    Fallback mode:
+        When a VLAN graph has no gateway node, we still detect VLAN path loss
+        by checking baseline VLAN edges that disappear in predicted while the
+        physical LLDP edge remains up. This catches inter-switch trunk changes
+        that silently drop VLAN carriage on still-up links.
     """
     baseline_vlans = baseline_graph.vlan_graphs
     predicted_vlans = predicted_graph.vlan_graphs
@@ -257,18 +263,15 @@ def _check_conn_vlan_path(
     affected_objects: list[str] = []
     affected_macs: set[str] = set()
     has_ap_impact = False
+    seen_edge_losses: set[tuple[int, str, str]] = set()
 
-    for vid in vlan_ids:
-        b_graph = baseline_vlans[vid]
-        p_graph = predicted_vlans[vid]
+    mac_to_device_id = {
+        dev.mac: dev.device_id
+        for dev in baseline.devices.values()
+        if dev.mac and dev.device_id
+    }
 
-        b_reachable = _reachable_in_vlan_subgraph(b_graph, baseline_graph.gateways)
-        p_reachable = _reachable_in_vlan_subgraph(p_graph, predicted_graph.gateways)
-
-        lost = b_reachable - p_reachable - baseline_graph.gateways - predicted_graph.gateways
-        if not lost:
-            continue
-
+    def _vlan_label(vid: int) -> str:
         label_parts: list[str] = []
         net_names = vlan_to_names.get(vid, [])
         if net_names:
@@ -279,17 +282,64 @@ def _check_conn_vlan_path(
         label = f"VLAN {vid}"
         if label_parts:
             label += f" ({', '.join(label_parts)})"
+        return label
 
-        for mac in sorted(lost):
-            node_data = b_graph.nodes.get(mac) or baseline_graph.physical.nodes.get(mac, {})
-            name = node_data.get("name") or mac
-            dtype = node_data.get("type", "unknown")
-            device_id = node_data.get("device_id", "")
-            details.append(f"{name} ({dtype}) lost gateway path on {label}")
-            if device_id and device_id not in affected_objects:
-                affected_objects.append(device_id)
-            affected_macs.add(mac)
-            if dtype == "ap":
+    for vid in vlan_ids:
+        b_graph = baseline_vlans[vid]
+        p_graph = predicted_vlans[vid]
+
+        b_reachable = _reachable_in_vlan_subgraph(b_graph, baseline_graph.gateways)
+        p_reachable = _reachable_in_vlan_subgraph(p_graph, predicted_graph.gateways)
+
+        lost = b_reachable - p_reachable - baseline_graph.gateways - predicted_graph.gateways
+        label = _vlan_label(vid)
+
+        if lost:
+            for mac in sorted(lost):
+                node_data = b_graph.nodes.get(mac) or baseline_graph.physical.nodes.get(mac, {})
+                name = node_data.get("name") or mac
+                dtype = node_data.get("type", "unknown")
+                device_id = node_data.get("device_id", "")
+                details.append(f"{name} ({dtype}) lost gateway path on {label}")
+                if device_id and device_id not in affected_objects:
+                    affected_objects.append(device_id)
+                affected_macs.add(mac)
+                if dtype == "ap":
+                    has_ap_impact = True
+
+        # Fallback path-loss detection when no gateway participates in this VLAN.
+        has_baseline_gateway_anchor = any(gw in b_graph.nodes for gw in baseline_graph.gateways)
+        if has_baseline_gateway_anchor:
+            continue
+
+        for u, v in b_graph.edges:
+            edge_key = tuple(sorted((u, v)))
+            if p_graph.has_edge(u, v) or p_graph.has_edge(v, u):
+                continue
+            if not predicted_graph.physical.has_edge(u, v):
+                # Physical link also down; CONN-PHYS already captures this.
+                continue
+            if (vid, edge_key[0], edge_key[1]) in seen_edge_losses:
+                continue
+            seen_edge_losses.add((vid, edge_key[0], edge_key[1]))
+
+            u_node = b_graph.nodes.get(u) or baseline_graph.physical.nodes.get(u, {})
+            v_node = b_graph.nodes.get(v) or baseline_graph.physical.nodes.get(v, {})
+            u_name = u_node.get("name") or u
+            v_name = v_node.get("name") or v
+            u_type = u_node.get("type", "unknown")
+            v_type = v_node.get("type", "unknown")
+
+            details.append(f"{u_name} ({u_type}) <-> {v_name} ({v_type}) lost L2 path on {label}")
+
+            for mac in (u, v):
+                if mac not in affected_macs:
+                    affected_macs.add(mac)
+                dev_id = mac_to_device_id.get(mac)
+                if dev_id and dev_id not in affected_objects:
+                    affected_objects.append(dev_id)
+
+            if u_type == "ap" or v_type == "ap":
                 has_ap_impact = True
 
     if not details:

@@ -422,6 +422,8 @@ class TestBuildSiteSnapshot:
         assert snap.port_usages["trunk"]["mode"] == "trunk"
         assert snap.lldp_neighbors == live_data.lldp_neighbors
         assert snap.ap_clients == live_data.ap_clients
+        assert snap.devices["dev-1"].resolved_port_config is not None
+        assert snap.devices["dev-1"].resolved_port_config["ge-0/0/0"]["resolved_vlan_ids"] == [100, 200]
 
     async def test_state_overrides_replace_backup(self, live_data, mock_backup_data):
         overrides = {

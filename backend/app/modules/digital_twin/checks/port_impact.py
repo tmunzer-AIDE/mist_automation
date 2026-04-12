@@ -2,8 +2,9 @@
 Port impact checks: PORT-DISC (disconnect risk) and PORT-CLIENT (client impact estimation).
 
 These are Layer 2 checks that compare baseline vs predicted SiteSnapshot objects
-to detect port configuration changes that would disconnect LLDP neighbors and
-estimate the wireless client impact of disconnected APs.
+to detect port configuration changes that either disconnect LLDP neighbors or
+remove VLAN reachability on existing LLDP links, and estimate the wireless
+client impact of physically disconnected APs.
 """
 
 from __future__ import annotations
@@ -13,12 +14,29 @@ import structlog
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 from app.modules.digital_twin.services.topology_utils import (
+    build_network_name_to_vlan,
+    materialize_port_config_entry,
     merge_infra_neighbor_ports,
     normalize_port_id,
     resolve_port_config_entry,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+_SEVERITY_RANK: dict[str, int] = {
+    "pass": 0,
+    "warning": 1,
+    "error": 2,
+    "critical": 3,
+}
+
+
+def _max_severity(current: str, candidate: str) -> str:
+    """Return the higher-priority severity."""
+    if _SEVERITY_RANK.get(candidate, 0) > _SEVERITY_RANK.get(current, 0):
+        return candidate
+    return current
 
 
 def _find_device_by_mac(snapshot: SiteSnapshot, mac: str) -> tuple[str, str, str]:
@@ -37,8 +55,9 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
     """Run PORT-DISC and PORT-CLIENT checks on baseline vs predicted snapshots.
 
     PORT-DISC (Layer 2): For each device, compare port_config between baseline and
-    predicted. For ports with LLDP neighbors, detect removals, disabling, and usage
-    changes that would disconnect the neighbor.
+    predicted. For ports with LLDP neighbors, detect:
+    - physical disconnect risk (port removed/disabled), and
+    - VLAN isolation risk (the port stops carrying one or more baseline VLANs).
 
     PORT-CLIENT (Layer 2): For each disconnected AP found by PORT-DISC, sum the
     wireless clients from baseline.ap_clients and report the impact.
@@ -86,6 +105,12 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
     disc_affected: list[str] = []
     disc_max_severity: str = "pass"
     disconnected_ap_ids: list[str] = []
+    has_physical_disconnect = False
+    has_vlan_isolation = False
+    baseline_site_vars = baseline.site_setting.get("vars") or {}
+    predicted_site_vars = predicted.site_setting.get("vars") or {}
+    baseline_network_map = build_network_name_to_vlan(baseline.networks, baseline_site_vars)
+    predicted_network_map = build_network_name_to_vlan(predicted.networks, predicted_site_vars)
 
     for dev_id, baseline_dev in baseline.devices.items():
         predicted_dev = predicted.devices.get(dev_id)
@@ -141,19 +166,41 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
             old_usage = old_cfg.get("usage", "")
             new_usage = new_cfg.get("usage", "")
 
-            disconnect = False
+            old_effective_usages = dict(baseline.port_usages)
+            if baseline_dev.port_usages:
+                old_effective_usages.update(baseline_dev.port_usages)
+            new_effective_usages = dict(predicted.port_usages)
+            if predicted_dev.port_usages:
+                new_effective_usages.update(predicted_dev.port_usages)
+
+            old_materialized = materialize_port_config_entry(
+                old_cfg,
+                old_effective_usages,
+                baseline_network_map,
+                baseline_site_vars,
+            )
+            new_materialized = materialize_port_config_entry(
+                new_cfg,
+                new_effective_usages,
+                predicted_network_map,
+                predicted_site_vars,
+            )
+            old_vlans = {int(vlan) for vlan in old_materialized.get("resolved_vlan_ids", [])}
+            new_vlans = {int(vlan) for vlan in new_materialized.get("resolved_vlan_ids", [])}
+            removed_vlans = sorted(old_vlans - new_vlans)
+
+            physical_disconnect = False
+            change_label_old = old_usage or "(none)"
+            change_label_new = new_usage or "(removed)"
 
             if old_cfg and not new_cfg:
                 # Port removed from predicted config
-                disconnect = True
-            elif new_usage == "disabled":
-                # Port explicitly disabled
-                disconnect = True
-            elif old_usage and new_usage and old_usage != new_usage:
-                # Usage changed to a different value
-                disconnect = True
+                physical_disconnect = True
+            elif old_usage != "disabled" and (new_usage == "disabled" or bool(new_materialized.get("disabled"))):
+                # Port transitioned to disabled in predicted state.
+                physical_disconnect = True
 
-            if not disconnect:
+            if not physical_disconnect and not removed_vlans:
                 continue
 
             # Resolve connected device info
@@ -163,37 +210,66 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
             if not connected_type:
                 connected_type = "unknown"
 
-            # Determine severity based on connected device type
-            if connected_type in ("ap", "switch"):
-                severity = "critical"
-            else:
-                severity = "error"
+            if physical_disconnect:
+                has_physical_disconnect = True
+                # Determine severity based on connected device type
+                if connected_type in ("ap", "switch"):
+                    severity = "critical"
+                else:
+                    severity = "error"
+                disc_max_severity = _max_severity(disc_max_severity, severity)
 
-            if severity == "critical" or (severity == "error" and disc_max_severity != "critical"):
-                disc_max_severity = severity
+                detail = (
+                    f"{baseline_dev.name} port {port}: '{change_label_old}' -> '{change_label_new}', "
+                    f"disconnects {connected_name} ({connected_type})"
+                )
+                disc_details.append(detail)
+                disc_affected.append(f"{baseline_dev.name}:{port}")
 
-            detail_usage_old = old_usage or "(none)"
-            detail_usage_new = new_usage or "(removed)"
-            detail = (
-                f"{baseline_dev.name} port {port}: '{detail_usage_old}' -> '{detail_usage_new}', "
-                f"disconnects {connected_name} ({connected_type})"
-            )
-            disc_details.append(detail)
-            disc_affected.append(f"{baseline_dev.name}:{port}")
+                # Track physically disconnected APs for PORT-CLIENT.
+                if connected_type == "ap" and connected_id:
+                    disconnected_ap_ids.append(connected_id)
 
-            # Track disconnected APs for PORT-CLIENT
-            if connected_type == "ap" and connected_id:
-                disconnected_ap_ids.append(connected_id)
+            elif removed_vlans:
+                has_vlan_isolation = True
+                if connected_type in ("ap", "switch"):
+                    severity = "critical"
+                else:
+                    severity = "warning"
+                disc_max_severity = _max_severity(disc_max_severity, severity)
+
+                detail = (
+                    f"{baseline_dev.name} port {port}: '{change_label_old}' -> '{change_label_new}', "
+                    f"no longer carries VLAN(s) {removed_vlans}; may isolate VLAN traffic with "
+                    f"{connected_name} ({connected_type})"
+                )
+                disc_details.append(detail)
+                disc_affected.append(f"{baseline_dev.name}:{port}")
 
     # Build PORT-DISC result
+    disc_check_id = "PORT-DISC"
+    disc_check_name = "Port Profile Disconnect Risk"
+
+    if has_vlan_isolation and not has_physical_disconnect:
+        disc_check_id = "PORT-VLAN"
+        disc_check_name = "Port VLAN Isolation Risk"
+    elif has_vlan_isolation and has_physical_disconnect:
+        disc_check_id = "PORT-L2"
+        disc_check_name = "Port Link and VLAN Reachability Risk"
+
     if disc_details:
-        disc_summary = f"{len(disc_details)} port change(s) will disconnect active LLDP neighbors"
+        if has_vlan_isolation and not has_physical_disconnect:
+            disc_summary = f"{len(disc_details)} port change(s) may isolate VLAN traffic on active LLDP neighbors"
+        elif has_physical_disconnect and not has_vlan_isolation:
+            disc_summary = f"{len(disc_details)} port change(s) will disconnect active LLDP neighbors"
+        else:
+            disc_summary = f"{len(disc_details)} port change(s) may disconnect LLDP neighbors or isolate VLAN traffic"
     else:
-        disc_summary = "No port changes affect connected LLDP neighbors"
+        disc_summary = "No port changes disconnect connected LLDP neighbors or remove VLAN reachability"
 
     port_disc = CheckResult(
-        check_id="PORT-DISC",
-        check_name="Port Profile Disconnect Risk",
+        check_id=disc_check_id,
+        check_name=disc_check_name,
         layer=2,
         status=disc_max_severity,
         summary=disc_summary,
@@ -201,7 +277,7 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
         affected_objects=disc_affected,
         affected_sites=[baseline.site_id] if disc_details else [],
         remediation_hint=(
-            "Review port profile changes and verify no critical infrastructure is connected to affected ports."
+            "Review port/profile changes and verify affected links still carry required VLANs for downstream devices."
             if disc_details
             else None
         ),

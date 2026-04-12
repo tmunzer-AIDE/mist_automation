@@ -88,6 +88,24 @@ class TestResolvePortVlan:
         result = _resolve_port_vlan({"usage": "uplink"}, port_usages, net_map)
         assert result == {100, 200}
 
+    def test_named_usage_trunk_all_networks_true_returns_all_vlans(self):
+        port_usages = {"uplink": {"mode": "trunk", "all_networks": True}}
+        net_map = {"mgmt": 100, "data": 200, "voice": 300}
+        result = _resolve_port_vlan({"usage": "uplink"}, port_usages, net_map)
+        assert result == {100, 200, 300}
+
+    def test_named_usage_trunk_all_networks_false_uses_explicit_networks(self):
+        port_usages = {
+            "uplink": {
+                "mode": "trunk",
+                "all_networks": False,
+                "networks": ["mgmt", "voice"],
+            }
+        }
+        net_map = {"mgmt": 100, "data": 200, "voice": 300}
+        result = _resolve_port_vlan({"usage": "uplink"}, port_usages, net_map)
+        assert result == {100, 300}
+
     def test_named_usage_with_direct_vlan_id(self):
         port_usages = {"legacy": {"mode": "access", "vlan_id": 999}}
         net_map = {"data": 200}

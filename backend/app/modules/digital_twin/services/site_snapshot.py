@@ -42,6 +42,7 @@ class DeviceSnapshot:
     port_config: dict[str, dict[str, Any]]  # port_name -> {usage, vlan_id, ...}
     ip_config: dict[str, dict[str, Any]]  # network_name -> {ip, netmask, type}
     dhcpd_config: dict[str, Any]
+    resolved_port_config: dict[str, dict[str, Any]] | None = None
     oob_ip_config: dict[str, Any] | None = None
     port_usages: dict[str, dict[str, Any]] | None = None  # device-level overrides
     ospf_config: dict[str, Any] | None = None
@@ -552,6 +553,7 @@ def _build_device_snapshot(config: dict[str, Any]) -> DeviceSnapshot:
         type=config.get("type", ""),
         model=config.get("model", ""),
         port_config=config.get("port_config") or {},
+        resolved_port_config=config.get("resolved_port_config"),
         ip_config=ip_config,
         dhcpd_config=config.get("dhcpd_config") or {},
         oob_ip_config=config.get("oob_ip_config"),
@@ -804,6 +806,25 @@ async def build_site_snapshot(
         dev_id = dev_config.get("id", "")
         if dev_id:
             devices[dev_id] = _build_device_snapshot(dev_config)
+
+    # Materialize per-interface profile attributes and explicit VLAN lists once
+    # so all downstream checks/graphs share the same fully-resolved interface view.
+    site_vars = site_setting.get("vars") or {}
+    if devices:
+        from app.modules.digital_twin.services.topology_utils import (
+            build_network_name_to_vlan,
+            materialize_device_port_config,
+        )
+
+        network_name_to_vlan = build_network_name_to_vlan(networks, site_vars)
+        for device in devices.values():
+            device.resolved_port_config = materialize_device_port_config(
+                device.port_config,
+                port_usages,
+                device.port_usages,
+                network_name_to_vlan,
+                site_vars,
+            )
 
     return SiteSnapshot(
         site_id=site_id,

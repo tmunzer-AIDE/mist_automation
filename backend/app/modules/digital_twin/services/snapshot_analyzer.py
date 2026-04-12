@@ -60,6 +60,35 @@ def _run_all_checks(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[Che
     return results
 
 
+def _run_checks_for_change_profile(
+    baseline: SiteSnapshot,
+    predicted: SiteSnapshot,
+    affected_object_types: list[str] | None,
+) -> list[CheckResult]:
+    """Run checks according to change profile.
+
+    For ``devices``-only changes we prioritize switch/gateway topology and
+    routing checks (L1/L2/L3) and skip Wi-Fi-centric categories.
+    """
+    if not affected_object_types:
+        return _run_all_checks(baseline, predicted)
+
+    affected = {t for t in affected_object_types if t}
+    if affected == {"devices"}:
+        results: list[CheckResult] = []
+        results.extend(check_connectivity(baseline, predicted))
+        # Run L1 config checks relevant to switch/gateway changes, but skip
+        # Wi-Fi-specific duplicate-SSID checks in this profile.
+        cfg_results = [r for r in check_config_conflicts(predicted) if r.check_id != "CFG-SSID"]
+        results.extend(cfg_results)
+        results.extend(check_port_impact(baseline, predicted))
+        results.extend(check_routing(baseline, predicted))
+        results.extend(check_stp(baseline, predicted))
+        return results
+
+    return _run_all_checks(baseline, predicted)
+
+
 def _classify_pre_existing(
     predicted_results: list[CheckResult],
     baseline_results: list[CheckResult],
@@ -99,7 +128,7 @@ def analyze_site(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[CheckR
     Every failing check is additionally classified as ``pre_existing`` when
     the same issue already existed in the baseline snapshot.
     """
-    predicted_results = _run_all_checks(baseline, predicted)
+    predicted_results = _run_checks_for_change_profile(baseline, predicted, None)
 
     if baseline is predicted:
         # Degenerate case — nothing changed, every failing check is inherently pre-existing.
@@ -108,7 +137,26 @@ def analyze_site(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[CheckR
                 r.pre_existing = True
         return predicted_results
 
-    baseline_results = _run_all_checks(baseline, baseline)
+    baseline_results = _run_checks_for_change_profile(baseline, baseline, None)
+    _classify_pre_existing(predicted_results, baseline_results)
+    return predicted_results
+
+
+def analyze_site_with_context(
+    baseline: SiteSnapshot,
+    predicted: SiteSnapshot,
+    affected_object_types: list[str] | None,
+) -> list[CheckResult]:
+    """Run checks with optional change-type context for profile selection."""
+    predicted_results = _run_checks_for_change_profile(baseline, predicted, affected_object_types)
+
+    if baseline is predicted:
+        for r in predicted_results:
+            if r.status in _FAILING_STATUSES:
+                r.pre_existing = True
+        return predicted_results
+
+    baseline_results = _run_checks_for_change_profile(baseline, baseline, affected_object_types)
     _classify_pre_existing(predicted_results, baseline_results)
     return predicted_results
 

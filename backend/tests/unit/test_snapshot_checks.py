@@ -568,3 +568,64 @@ class TestConnVlanPath:
 
         assert path.status == "error"
         assert any("sw-down" in d and "VLAN 10" in d for d in path.details)
+
+    def test_detects_vlan_path_loss_without_gateway_anchor(self):
+        """Even without a gateway node in the VLAN graph, dropping VLAN carriage
+        on an existing LLDP link should be flagged by CONN-VLAN-PATH.
+        """
+        networks = {
+            "net-mgmt": {"name": "mgmt", "vlan_id": 10},
+            "net-data": {"name": "data", "vlan_id": 20},
+        }
+        port_usages = {
+            "uplink": {"mode": "trunk", "all_networks": True},
+            "mgmt-only": {"mode": "access", "port_network": "mgmt", "vlan_id": 10},
+        }
+
+        sw_a_base = _dev(
+            "sw-a",
+            "aa:00:00:00:00:11",
+            "US-NY-SWA-01",
+            "switch",
+            port_config={"ge-0/0/1": {"usage": "uplink"}},
+        )
+        sw_a_pred = _dev(
+            "sw-a",
+            "aa:00:00:00:00:11",
+            "US-NY-SWA-01",
+            "switch",
+            port_config={"ge-0/0/1": {"usage": "mgmt-only"}},
+        )
+        sw_c = _dev(
+            "sw-c",
+            "aa:00:00:00:00:12",
+            "US-NY-SWC-01",
+            "switch",
+            port_config={"ge-0/0/1": {"usage": "uplink"}},
+        )
+
+        lldp = {
+            "aa:00:00:00:00:11": {"ge-0/0/1": "aa:00:00:00:00:12"},
+            "aa:00:00:00:00:12": {"ge-0/0/1": "aa:00:00:00:00:11"},
+        }
+
+        baseline = _snap(
+            devices={"sw-a": sw_a_base, "sw-c": sw_c},
+            networks=networks,
+            port_usages=port_usages,
+            lldp_neighbors=lldp,
+        )
+        predicted = _snap(
+            devices={"sw-a": sw_a_pred, "sw-c": sw_c},
+            networks=networks,
+            port_usages=port_usages,
+            lldp_neighbors=lldp,
+        )
+
+        results = check_connectivity(baseline, predicted)
+        path = next(r for r in results if r.check_id == "CONN-VLAN-PATH")
+
+        assert path.status == "error"
+        assert any("lost L2 path" in d and "VLAN 20" in d for d in path.details)
+        assert "sw-a" in path.affected_objects
+        assert "sw-c" in path.affected_objects

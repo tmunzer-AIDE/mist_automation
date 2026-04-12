@@ -21,7 +21,7 @@ from app.modules.digital_twin.models import (
 )
 from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
 from app.modules.digital_twin.services.snapshot_analyzer import (
-    analyze_site,
+    analyze_site_with_context,
     build_prediction_report,
 )
 from app.modules.digital_twin.services.site_snapshot import (
@@ -325,7 +325,11 @@ async def simulate(
                     state_overrides=virtual_state,
                     source_data=snapshot_source_data,
                 )
-                return analyze_site(baseline_snap, predicted_snap)
+                return analyze_site_with_context(
+                    baseline_snap,
+                    predicted_snap,
+                    affected_types,
+                )
 
         if affected_sites:
             site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])

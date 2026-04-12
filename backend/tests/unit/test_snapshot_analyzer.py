@@ -8,6 +8,7 @@ from app.modules.digital_twin.models import CheckResult, PredictionReport
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 from app.modules.digital_twin.services.snapshot_analyzer import (
     analyze_site,
+    analyze_site_with_context,
     build_prediction_report,
     compute_overall_severity,
 )
@@ -158,6 +159,49 @@ class TestAnalyzeSite:
 
         # Total: 3 + 5 + 1 + 2 + 4 + 3 + 3 = 21
         assert len(results) == 21
+
+    def test_devices_only_context_runs_topology_and_routing_profile(self):
+        """For devices-only changes, run topology/L3 checks and skip Wi-Fi-centric categories."""
+        sw = _dev("sw-1", "aa:bb:cc:dd:ee:01", "core-sw-1", dtype="switch")
+        gw = _dev(
+            "gw-1",
+            "aa:bb:cc:dd:ee:02",
+            "gw-1",
+            dtype="gateway",
+            ip_config={"mgmt": {"ip": "10.0.0.1", "netmask": "255.255.255.0"}},
+        )
+
+        snap = _snap(
+            devices={"sw-1": sw, "gw-1": gw},
+            networks={"net-1": {"name": "mgmt", "vlan_id": 10, "subnet": "10.0.0.0/24"}},
+            lldp={"aa:bb:cc:dd:ee:01": {"ge-0/0/0": "aa:bb:cc:dd:ee:02"}},
+        )
+
+        results = analyze_site_with_context(snap, snap, ["devices"])
+        check_ids = {r.check_id for r in results}
+
+        # L1/L2/L3-oriented set.
+        assert "CONN-PHYS" in check_ids
+        assert "CONN-VLAN" in check_ids
+        assert "CONN-VLAN-PATH" in check_ids
+        assert "CFG-SUBNET" in check_ids
+        assert "CFG-VLAN" in check_ids
+        assert "CFG-DHCP-RNG" in check_ids
+        assert "CFG-DHCP-CFG" in check_ids
+        assert "PORT-DISC" in check_ids or "PORT-VLAN" in check_ids or "PORT-L2" in check_ids
+        assert "PORT-CLIENT" in check_ids
+        assert "ROUTE-GW" in check_ids
+        assert "ROUTE-OSPF" in check_ids
+        assert "ROUTE-BGP" in check_ids
+        assert "ROUTE-WAN" in check_ids
+        assert "STP-ROOT" in check_ids
+        assert "STP-BPDU" in check_ids
+        assert "STP-LOOP" in check_ids
+
+        # Wi-Fi-centric/non-topology categories should be absent in this mode.
+        assert "CFG-SSID" not in check_ids
+        assert "SEC-GUEST" not in check_ids
+        assert "TMPL-VAR" not in check_ids
 
     def test_baseline_equals_predicted_mostly_pass(self):
         """When baseline == predicted, most checks should pass or be skipped."""

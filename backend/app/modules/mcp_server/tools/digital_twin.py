@@ -673,6 +673,15 @@ async def digital_twin(
                 'errors': report.errors,
                 'critical': report.critical,
             }
+            result['executed_checks'] = [
+                {
+                    'check': r.check_id,
+                    'name': r.check_name,
+                    'layer': r.layer,
+                    'status': r.status,
+                }
+                for r in sorted(report.check_results, key=lambda c: (c.layer, c.check_id))
+            ]
             result['issues'] = [
                 {
                     'check': r.check_id,
