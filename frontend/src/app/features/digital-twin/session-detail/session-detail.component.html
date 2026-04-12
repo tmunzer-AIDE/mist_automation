@@ -119,7 +119,12 @@
                             <mat-icon class="check-icon icon-pass">check_circle</mat-icon>
                           }
                           <span class="check-id">{{ check.check_id }}</span>
-                          <span class="check-name">{{ check.check_name }}</span>
+                          <div class="check-name-block">
+                            <span class="check-name">{{ check.check_name }}</span>
+                            @if (check.description) {
+                              <span class="check-description">{{ check.description }}</span>
+                            }
+                          </div>
                           @if (check.status === 'info') {
                             <span class="check-severity severity-info">Info</span>
                           }
@@ -133,7 +138,12 @@
                           <div class="check-summary-row">
                             <mat-icon class="check-icon icon-fail">cancel</mat-icon>
                             <span class="check-id">{{ check.check_id }}</span>
-                            <span class="check-name">{{ check.check_name }}</span>
+                            <div class="check-name-block">
+                              <span class="check-name">{{ check.check_name }}</span>
+                              @if (check.description) {
+                                <span class="check-description">{{ check.description }}</span>
+                              }
+                            </div>
                             <span class="check-severity severity-{{ check.status }}">
                               {{ severityLabel(check.status) }}
                             </span>

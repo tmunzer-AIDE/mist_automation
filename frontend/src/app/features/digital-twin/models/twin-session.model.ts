@@ -8,6 +8,7 @@ export interface CheckResultModel {
   affected_objects: string[];
   affected_sites: string[];
   remediation_hint: string | null;
+  description: string;
 }
 
 export interface PredictionReportModel {
