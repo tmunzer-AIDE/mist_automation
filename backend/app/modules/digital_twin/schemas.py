@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+
+from app.modules.digital_twin.models import StagedWrite
 
 if TYPE_CHECKING:
     from app.modules.digital_twin.models import TwinSession
@@ -38,6 +40,13 @@ class PredictionReportResponse(BaseModel):
     execution_safe: bool = True
 
 
+class WriteDiffField(BaseModel):
+    path: str
+    change: Literal["added", "removed", "modified"]
+    before: Any | None = None
+    after: Any | None = None
+
+
 class StagedWriteResponse(BaseModel):
     sequence: int
     method: str
@@ -46,6 +55,8 @@ class StagedWriteResponse(BaseModel):
     object_type: str | None = None
     site_id: str | None = None
     object_id: str | None = None
+    diff: list[WriteDiffField] = Field(default_factory=list)
+    diff_summary: str | None = None
 
 
 class RemediationAttemptResponse(BaseModel):
@@ -128,12 +139,23 @@ def session_to_response(session: TwinSession) -> TwinSessionResponse:
 
 def session_to_detail_response(session: TwinSession) -> TwinSessionDetailResponse:
     """Convert a TwinSession document to a detail response DTO with full write and remediation history."""
+    from app.modules.digital_twin.services.state_resolver import canonicalize_object_type
+    from app.modules.digital_twin.services.write_diff import build_write_diff
+
     base = session_to_response(session)
-    return TwinSessionDetailResponse(
-        **base.model_dump(),
-        ai_assessment=session.ai_assessment,
-        execution_safe=session.prediction_report.execution_safe if session.prediction_report else True,
-        staged_writes=[
+
+    base_state = session.resolved_state or {}
+
+    def _base_body_for(write: StagedWrite) -> dict[str, Any] | None:
+        canonical = canonicalize_object_type(write.object_type) or ""
+        key = (canonical, write.site_id, write.object_id)
+        value = base_state.get(key) or base_state.get(str(key))
+        return value if isinstance(value, dict) else None
+
+    staged_writes: list[StagedWriteResponse] = []
+    for w in session.staged_writes:
+        diff_entries, diff_summary = build_write_diff(w, _base_body_for(w))
+        staged_writes.append(
             StagedWriteResponse(
                 sequence=w.sequence,
                 method=w.method,
@@ -142,9 +164,16 @@ def session_to_detail_response(session: TwinSession) -> TwinSessionDetailRespons
                 object_type=w.object_type,
                 site_id=w.site_id,
                 object_id=w.object_id,
+                diff=[WriteDiffField(**d) for d in diff_entries],
+                diff_summary=diff_summary,
             )
-            for w in session.staged_writes
-        ],
+        )
+
+    return TwinSessionDetailResponse(
+        **base.model_dump(),
+        ai_assessment=session.ai_assessment,
+        execution_safe=session.prediction_report.execution_safe if session.prediction_report else True,
+        staged_writes=staged_writes,
         remediation_history=[
             RemediationAttemptResponse(
                 attempt=r.attempt,
