@@ -150,3 +150,22 @@ class TestTmplVar:
         results = check_template_variables(snap)
         assert results[0].status == "error"
         assert any("gw_addr" in d for d in results[0].details)
+
+
+class TestCheckDescriptions:
+    def test_tmpl_var_description_populated(self):
+        """TMPL-VAR populates the description field for both pass and fail outcomes."""
+        # fail path
+        snap_fail = _make_snapshot(
+            site_setting={
+                "vars": {},
+                "dns": ["{{ undefined_var }}"],
+            }
+        )
+        fail_results = check_template_variables(snap_fail)
+        assert fail_results[0].description != ""
+
+        # pass path
+        snap_pass = _make_snapshot(site_setting={"vars": {"x": "1"}, "dns": ["{{ x }}"]})
+        pass_results = check_template_variables(snap_pass)
+        assert pass_results[0].description != ""

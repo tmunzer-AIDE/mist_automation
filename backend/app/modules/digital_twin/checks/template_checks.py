@@ -84,6 +84,7 @@ def check_template_variables(predicted: SiteSnapshot) -> list[CheckResult]:
                 details=details,
                 affected_sites=[predicted.site_id],
                 remediation_hint=f"Define missing variables in site vars: {', '.join(unresolved)}",
+                description="Detects Jinja2 {{ variable }} placeholders in device or site config that are not defined in site vars.",
             )
         ]
 
@@ -94,5 +95,6 @@ def check_template_variables(predicted: SiteSnapshot) -> list[CheckResult]:
             layer=1,
             status="pass",
             summary="All template variables resolved in site vars.",
+            description="Detects Jinja2 {{ variable }} placeholders in device or site config that are not defined in site vars.",
         )
     ]
