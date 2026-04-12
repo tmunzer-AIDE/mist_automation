@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 from app.modules.digital_twin.models import SimulationLogEntry
 
-_MAX_ENTRIES_PER_SESSION = 1000
+_MAX_ENTRIES_PER_SESSION = 5000
 
 twin_session_id_var: ContextVar[str | None] = ContextVar("twin_session_id", default=None)
 twin_session_phase_var: ContextVar[str | None] = ContextVar("twin_session_phase", default=None)

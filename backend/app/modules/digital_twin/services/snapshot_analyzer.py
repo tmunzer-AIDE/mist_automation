@@ -17,6 +17,8 @@ Pre-existing issue classification:
 
 from __future__ import annotations
 
+import structlog
+
 from app.modules.digital_twin.checks.config_conflicts import check_config_conflicts
 from app.modules.digital_twin.checks.connectivity import check_connectivity
 from app.modules.digital_twin.checks.port_impact import check_port_impact
@@ -35,6 +37,64 @@ _SEVERITY_ORDER = {"pass": 0, "skipped": 0, "info": 1, "warning": 2, "error": 3,
 _SEVERITY_LABELS = {0: "clean", 1: "info", 2: "warning", 3: "error", 4: "critical"}
 _FAILING_STATUSES = frozenset({"warning", "error", "critical"})
 
+logger = structlog.get_logger(__name__)
+
+
+def _status_counts(results: list[CheckResult]) -> dict[str, int]:
+    """Return status bucket counts for a set of check results."""
+    return {
+        "pass": sum(1 for r in results if r.status == "pass"),
+        "info": sum(1 for r in results if r.status == "info"),
+        "warning": sum(1 for r in results if r.status == "warning"),
+        "error": sum(1 for r in results if r.status == "error"),
+        "critical": sum(1 for r in results if r.status == "critical"),
+        "skipped": sum(1 for r in results if r.status == "skipped"),
+    }
+
+
+def _run_check_category(
+    category: str,
+    check_fn,
+    *args,
+) -> list[CheckResult]:
+    """Run one check category with start/end logging."""
+    logger.info("twin_check_category_started", category=category)
+    results = check_fn(*args)
+    counts = _status_counts(results)
+    logger.info(
+        "twin_check_category_completed",
+        category=category,
+        total=len(results),
+        **counts,
+    )
+    return results
+
+
+def _log_check_results(
+    *,
+    stage: str,
+    site_id: str,
+    results: list[CheckResult],
+) -> None:
+    """Emit one structured log entry per check result for UI troubleshooting."""
+    for result in results:
+        logger.info(
+            "twin_check_result",
+            stage=stage,
+            site_id=site_id,
+            check_id=result.check_id,
+            check_name=result.check_name,
+            layer=result.layer,
+            status=result.status,
+            pre_existing=result.pre_existing,
+            summary=result.summary,
+            details=result.details,
+            affected_objects=result.affected_objects,
+            affected_sites=result.affected_sites,
+            remediation_hint=result.remediation_hint,
+            description=result.description,
+        )
+
 
 def compute_overall_severity(results: list[CheckResult]) -> str:
     """Compute worst severity from a list of check results."""
@@ -50,13 +110,13 @@ def compute_overall_severity(results: list[CheckResult]) -> str:
 def _run_all_checks(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[CheckResult]:
     """Run every check category against a (baseline, predicted) pair."""
     results: list[CheckResult] = []
-    results.extend(check_connectivity(baseline, predicted))
-    results.extend(check_config_conflicts(predicted))
-    results.extend(check_template_variables(predicted))
-    results.extend(check_port_impact(baseline, predicted))
-    results.extend(check_routing(baseline, predicted))
-    results.extend(check_security(baseline, predicted))
-    results.extend(check_stp(baseline, predicted))
+    results.extend(_run_check_category("connectivity", check_connectivity, baseline, predicted))
+    results.extend(_run_check_category("config_conflicts", check_config_conflicts, predicted))
+    results.extend(_run_check_category("template_variables", check_template_variables, predicted))
+    results.extend(_run_check_category("port_impact", check_port_impact, baseline, predicted))
+    results.extend(_run_check_category("routing", check_routing, baseline, predicted))
+    results.extend(_run_check_category("security", check_security, baseline, predicted))
+    results.extend(_run_check_category("stp", check_stp, baseline, predicted))
     return results
 
 
@@ -76,14 +136,14 @@ def _run_checks_for_change_profile(
     affected = {t for t in affected_object_types if t}
     if affected == {"devices"}:
         results: list[CheckResult] = []
-        results.extend(check_connectivity(baseline, predicted))
+        results.extend(_run_check_category("connectivity", check_connectivity, baseline, predicted))
         # Run L1 config checks relevant to switch/gateway changes, but skip
         # Wi-Fi-specific duplicate-SSID checks in this profile.
-        cfg_results = [r for r in check_config_conflicts(predicted) if r.check_id != "CFG-SSID"]
+        cfg_results = [r for r in _run_check_category("config_conflicts", check_config_conflicts, predicted) if r.check_id != "CFG-SSID"]
         results.extend(cfg_results)
-        results.extend(check_port_impact(baseline, predicted))
-        results.extend(check_routing(baseline, predicted))
-        results.extend(check_stp(baseline, predicted))
+        results.extend(_run_check_category("port_impact", check_port_impact, baseline, predicted))
+        results.extend(_run_check_category("routing", check_routing, baseline, predicted))
+        results.extend(_run_check_category("stp", check_stp, baseline, predicted))
         return results
 
     return _run_all_checks(baseline, predicted)
@@ -111,6 +171,12 @@ def _classify_pre_existing(
         predicted_details = set(r.details)
         if not predicted_details or predicted_details <= baseline_details:
             r.pre_existing = True
+            logger.info(
+                "twin_check_marked_pre_existing",
+                check_id=r.check_id,
+                status=r.status,
+                details=r.details,
+            )
 
 
 def analyze_site(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[CheckResult]:
@@ -148,6 +214,11 @@ def analyze_site_with_context(
     affected_object_types: list[str] | None,
 ) -> list[CheckResult]:
     """Run checks with optional change-type context for profile selection."""
+    logger.info(
+        "twin_site_checks_started",
+        site_id=predicted.site_id,
+        affected_object_types=affected_object_types or [],
+    )
     predicted_results = _run_checks_for_change_profile(baseline, predicted, affected_object_types)
 
     if baseline is predicted:
@@ -158,6 +229,14 @@ def analyze_site_with_context(
 
     baseline_results = _run_checks_for_change_profile(baseline, baseline, affected_object_types)
     _classify_pre_existing(predicted_results, baseline_results)
+    _log_check_results(stage="predicted", site_id=predicted.site_id, results=predicted_results)
+    counts = _status_counts(predicted_results)
+    logger.info(
+        "twin_site_checks_completed",
+        site_id=predicted.site_id,
+        total=len(predicted_results),
+        **counts,
+    )
     return predicted_results
 
 

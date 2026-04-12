@@ -48,6 +48,55 @@ from app.modules.digital_twin.services.twin_logging import (
 logger = structlog.get_logger(__name__)
 
 _SITE_ANALYSIS_CONCURRENCY = 8
+_REDACTED = "***"
+_SENSITIVE_KEYS = {
+    "password",
+    "secret",
+    "token",
+    "api_token",
+    "access_token",
+    "ssh_key",
+    "private_key",
+    "psk",
+}
+
+
+def _sanitize_for_log(value: Any, *, depth: int = 0) -> Any:
+    """Redact sensitive keys and trim deeply nested payloads for log readability."""
+    if depth > 4:
+        return "<truncated>"
+
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            key_lower = str(key).lower()
+            if key_lower in _SENSITIVE_KEYS or key_lower.endswith("_password") or key_lower.endswith("_secret"):
+                sanitized[key] = _REDACTED
+            else:
+                sanitized[key] = _sanitize_for_log(item, depth=depth + 1)
+        return sanitized
+
+    if isinstance(value, list):
+        if len(value) > 50:
+            return [_sanitize_for_log(v, depth=depth + 1) for v in value[:50]] + ["<truncated>"]
+        return [_sanitize_for_log(v, depth=depth + 1) for v in value]
+
+    return value
+
+
+def _write_log_context(write: StagedWrite) -> dict[str, Any]:
+    """Return a stable log context payload for one staged write."""
+    body = write.body or {}
+    return {
+        "sequence": write.sequence,
+        "method": write.method,
+        "endpoint": write.endpoint,
+        "object_type": write.object_type,
+        "site_id": write.site_id,
+        "object_id": write.object_id,
+        "body_keys": sorted(body.keys()),
+        "body": _sanitize_for_log(body),
+    }
 
 
 def _has_blocking_preflight_errors(check_results: list[CheckResult]) -> bool:
@@ -304,17 +353,57 @@ async def simulate(
 
     simulation_phase = "remediate" if session.remediation_count > 0 else "simulate"
     with bind_twin_session(str(session.id), phase=simulation_phase):
+        logger.info(
+            "twin_simulation_started",
+            session_id=str(session.id),
+            source=source,
+            source_ref=source_ref,
+            remediation_count=session.remediation_count,
+            writes_count=len(staged_writes),
+            affected_sites=affected_sites,
+            affected_object_types=affected_types,
+            affected_object_label=affected_object_label,
+        )
+
+        for write in sorted(staged_writes, key=lambda w: w.sequence):
+            logger.info("twin_write_staged", **_write_log_context(write))
+
         # Include parser/target validation errors in the report.
         check_results: list[CheckResult] = [*parse_errors, *target_errors]
 
+        logger.info(
+            "twin_preflight_completed",
+            has_errors=preflight_errors,
+            parse_error_count=len(parse_errors),
+            target_error_count=len(target_errors),
+        )
+
+        for issue in check_results:
+            if issue.layer == 0 and issue.check_id.startswith("SYS-"):
+                logger.warning(
+                    "twin_preflight_issue",
+                    check_id=issue.check_id,
+                    status=issue.status,
+                    summary=issue.summary,
+                    details=issue.details,
+                    remediation_hint=issue.remediation_hint,
+                )
+
         if not preflight_errors:
+            logger.info("twin_state_resolution_started")
             # Resolve virtual state
             base_state, refs = await load_base_state_from_backup(org_id, staged_writes)
+            logger.info(
+                "twin_base_state_loaded",
+                base_state_objects=len(base_state),
+                base_snapshot_refs=len(refs),
+            )
             # Persist the resolved base state so the detail view can compute diffs
             # for each staged write against the original backup snapshot.
             # Tuple keys are stringified because Mongo can't store tuple keys directly.
             session.resolved_state = {str(k): v for k, v in base_state.items()}
             virtual_state = apply_staged_writes(base_state, staged_writes)
+            logger.info("twin_virtual_state_applied", virtual_state_objects=len(virtual_state))
 
             # Compile effective device configs (template inheritance + variable resolution)
             from app.modules.digital_twin.services.config_compiler import compile_base_state, compile_virtual_state
@@ -323,11 +412,22 @@ async def simulate(
             # Expand affected_sites with template-impacted sites
             affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
             session.affected_sites = affected_sites
+            logger.info(
+                "twin_virtual_state_compiled",
+                virtual_state_objects=len(virtual_state),
+                impacted_sites=all_impacted_sites,
+                effective_affected_sites=affected_sites,
+            )
 
             # Resolve site labels once the full fan-out is known (template edits may
             # expand the scoped sites — we want labels for ALL tested sites).
             session.affected_site_labels = await fetch_site_names(
                 org_id=org_id, site_ids=affected_sites
+            )
+            logger.info(
+                "twin_site_labels_resolved",
+                site_ids=affected_sites,
+                site_labels=session.affected_site_labels,
             )
 
             # Compile the baseline the same way as predicted so port-based checks
@@ -336,6 +436,7 @@ async def simulate(
             # asymmetric port_config data that silently defeats PORT-DISC and the
             # per-VLAN reachability diff.
             baseline_state = await compile_base_state(affected_sites, org_id)
+            logger.info("twin_baseline_state_compiled", baseline_state_objects=len(baseline_state))
 
             session.base_snapshot_refs = refs
             session.live_fetched_at = datetime.now(timezone.utc)
@@ -346,6 +447,7 @@ async def simulate(
 
             async def _analyze_one_site(sid: str) -> list:
                 async with semaphore:
+                    logger.info("twin_site_analysis_started", site_id=sid)
                     live_data = await fetch_live_data(sid, org_id)
                     snapshot_source_data = await load_site_snapshot_source_data(sid, org_id)
                     baseline_snap = await build_site_snapshot(
@@ -362,11 +464,27 @@ async def simulate(
                         state_overrides=virtual_state,
                         source_data=snapshot_source_data,
                     )
-                    return analyze_site_with_context(
+                    logger.info(
+                        "twin_site_snapshot_built",
+                        site_id=sid,
+                        baseline_devices=len(baseline_snap.devices),
+                        baseline_networks=len(baseline_snap.networks),
+                        baseline_wlans=len(baseline_snap.wlans),
+                        predicted_devices=len(predicted_snap.devices),
+                        predicted_networks=len(predicted_snap.networks),
+                        predicted_wlans=len(predicted_snap.wlans),
+                    )
+                    site_check_results = analyze_site_with_context(
                         baseline_snap,
                         predicted_snap,
                         affected_types,
                     )
+                    logger.info(
+                        "twin_site_analysis_completed",
+                        site_id=sid,
+                        check_results=len(site_check_results),
+                    )
+                    return site_check_results
 
             if affected_sites:
                 site_results = await asyncio.gather(*[_analyze_one_site(sid) for sid in affected_sites])
@@ -375,6 +493,18 @@ async def simulate(
 
         # Build report
         report = build_prediction_report(check_results)
+        logger.info(
+            "twin_prediction_report_built",
+            total_checks=report.total_checks,
+            passed=report.passed,
+            warnings=report.warnings,
+            errors=report.errors,
+            critical=report.critical,
+            skipped=report.skipped,
+            overall_severity=report.overall_severity,
+            execution_safe=report.execution_safe,
+            summary=report.summary,
+        )
 
         # Track remediation history
         if existing_session_id and session.remediation_count > 0:
