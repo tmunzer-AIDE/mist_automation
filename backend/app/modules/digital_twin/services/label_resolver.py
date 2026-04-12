@@ -83,13 +83,11 @@ async def fetch_object_names_by_type(
                 }
             ).first_or_none()
             if doc:
-                data = getattr(doc, "data", None) or {}
-                name = data.get("name") or data.get("ssid")
+                config = doc.configuration or {}
+                name = doc.object_name or config.get("name") or config.get("ssid")
 
-        if not name:
-            name = (w.object_id[:8] if w.object_id else canonical)
-
-        result.setdefault(canonical, []).append(name)
+        resolved = name or (w.object_id[:8] if w.object_id else canonical)
+        result.setdefault(canonical, []).append(resolved)
 
     return result
 
@@ -114,9 +112,9 @@ async def fetch_site_names(*, org_id: str, site_ids: list[str]) -> list[str]:
     )
     id_to_name: dict[str, str] = {}
     async for doc in cursor:
-        data = getattr(doc, "data", None) or {}
-        sid = getattr(doc, "site_id", None)
+        sid = doc.site_id
         if sid:
-            id_to_name[sid] = data.get("name") or sid[:8]
+            config = doc.configuration or {}
+            id_to_name[sid] = doc.object_name or config.get("name") or sid[:8]
 
     return [id_to_name.get(sid, sid[:8]) for sid in site_ids]
