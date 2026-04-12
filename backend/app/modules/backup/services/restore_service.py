@@ -1091,6 +1091,100 @@ class RestoreService:
         endpoint = self._build_endpoint(object_type, object_id, site_id)
         return await self.mist_service.api_get(endpoint)
 
+    async def simulate_restore(
+        self,
+        backup: BackupObject,
+        user_id: str,
+        cascade: bool = False,
+    ) -> dict[str, Any]:
+        """Simulate a backup restore through Digital Twin without applying to Mist."""
+        try:
+            from app.modules.digital_twin.services import twin_service
+        except ImportError as exc:
+            raise ValidationError("Digital Twin module is not available for restore simulation") from exc
+
+        validation = await self._validate_restore(backup)
+
+        org_id = backup.org_id or self.mist_service.org_id
+        readonly_fields = ["id", "org_id", "site_id", "created_time", "modified_time"]
+
+        if validation.get("exists_in_mist", True):
+            method = "PUT"
+            endpoint = self._build_endpoint(backup.object_type, backup.object_id, backup.site_id, backup.org_id)
+            payload = backup.configuration.copy()
+            for field in readonly_fields:
+                payload.pop(field, None)
+        else:
+            method = "POST"
+            endpoint = (
+                f"/api/v1/sites/{backup.site_id}/{backup.object_type}"
+                if backup.site_id
+                else f"/api/v1/orgs/{org_id}/{backup.object_type}"
+            )
+            payload = await self._prepare_deleted_object_config(backup)
+            for field in readonly_fields:
+                payload.pop(field, None)
+
+        logger.info(
+            "restore_simulation_started",
+            object_id=backup.object_id,
+            object_type=backup.object_type,
+            version=backup.version,
+            method=method,
+            endpoint=endpoint,
+            cascade_requested=cascade,
+            user_id=user_id,
+        )
+
+        source_ref = f"backup:{backup.object_type}:{backup.object_id}:v{backup.version}"
+        session = await twin_service.simulate(
+            user_id=user_id,
+            org_id=org_id,
+            writes=[{"method": method, "endpoint": endpoint, "body": payload}],
+            source="backup_restore",
+            source_ref=source_ref,
+        )
+
+        report = session.prediction_report
+        warnings = list(validation.get("warnings", []))
+        if cascade:
+            warnings.append(
+                "Cascade restore dependencies are not included in this simulation; only the target object write was simulated."
+            )
+
+        logger.info(
+            "restore_simulation_completed",
+            object_id=backup.object_id,
+            version=backup.version,
+            twin_session_id=str(session.id),
+            severity=session.overall_severity,
+            execution_safe=report.execution_safe if report else True,
+            warnings=len(warnings),
+        )
+
+        return {
+            "status": "simulated",
+            "object_id": backup.object_id,
+            "object_type": backup.object_type,
+            "object_name": backup.object_name,
+            "version": backup.version,
+            "twin_session_id": str(session.id),
+            "overall_severity": session.overall_severity,
+            "execution_safe": report.execution_safe if report else True,
+            "summary": report.summary if report else "Simulation completed",
+            "counts": {
+                "total": report.total_checks if report else 0,
+                "warnings": report.warnings if report else 0,
+                "errors": report.errors if report else 0,
+                "critical": report.critical if report else 0,
+            },
+            "warnings": warnings,
+            "simulate_write": {
+                "method": method,
+                "endpoint": endpoint,
+            },
+        }
+
     def _find_differences(
         self,
         config1: dict[str, Any],

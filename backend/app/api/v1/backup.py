@@ -872,6 +872,7 @@ async def restore_object_version(
     version_id: str,
     dry_run: bool = Query(False, description="Preview restore without applying"),
     cascade: bool = Query(False, description="Cascade restore parents and children"),
+    simulate: bool = Query(False, description="Run Digital Twin simulation without applying restore"),
     current_user: User = Depends(require_backup_role),
 ):
     """Restore a backed-up object to a specific version in Mist.
@@ -901,6 +902,7 @@ async def restore_object_version(
         version=backup.version,
         dry_run=dry_run,
         cascade=cascade,
+        simulate=simulate,
         user_id=str(current_user.id),
     )
 
@@ -918,6 +920,13 @@ async def restore_object_version(
     restore_service = RestoreService(mist_service=mist_service)
 
     try:
+        if simulate:
+            return await restore_service.simulate_restore(
+                backup=backup,
+                user_id=str(current_user.id),
+                cascade=cascade,
+            )
+
         if cascade:
             result = await restore_service.cascade_restore(
                 version_id=doc_id,

@@ -1,6 +1,7 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -12,6 +13,7 @@ import {
   CascadeRestorePlanItem,
   CascadeRestoreResult,
   ActiveChildInfo,
+  RestoreSimulationResponse,
 } from '../../../core/models/backup.model';
 
 interface DialogData {
@@ -173,26 +175,35 @@ type DialogStep = 'loading' | 'confirm-simple' | 'show-deps' | 'plan' | 'result'
 
       @if (step() === 'confirm-simple') {
         <button mat-button mat-dialog-close>Cancel</button>
-        <button mat-flat-button color="warn" (click)="executeSimple()" [disabled]="executing()">
+        <button mat-stroked-button (click)="simulateRestore()" [disabled]="executing() || simulating()">
+          {{ simulating() ? 'Simulating...' : 'Simulate' }}
+        </button>
+        <button mat-flat-button color="warn" (click)="executeSimple()" [disabled]="executing() || simulating()">
           {{ executing() ? 'Restoring...' : data.isDeleted ? 'Re-create' : 'Restore' }}
         </button>
       }
 
       @if (step() === 'show-deps') {
         <button mat-button mat-dialog-close>Cancel</button>
+        <button mat-stroked-button (click)="simulateRestore()" [disabled]="executing() || simulating()">
+          {{ simulating() ? 'Simulating...' : 'Simulate' }}
+        </button>
         @if (!dryRunResult()?.deleted_dependencies?.length) {
-          <button mat-stroked-button (click)="executeSimple()" [disabled]="executing()">
+          <button mat-stroked-button (click)="executeSimple()" [disabled]="executing() || simulating()">
             Restore Only This
           </button>
         }
-        <button mat-flat-button color="warn" (click)="loadCascadePlan()" [disabled]="executing()">
+        <button mat-flat-button color="warn" (click)="loadCascadePlan()" [disabled]="executing() || simulating()">
           {{ executing() ? 'Loading...' : 'Restore All' }}
         </button>
       }
 
       @if (step() === 'plan') {
         <button mat-button mat-dialog-close>Cancel</button>
-        <button mat-flat-button color="warn" (click)="executeCascade()" [disabled]="executing()">
+        <button mat-stroked-button (click)="simulateRestore(true)" [disabled]="executing() || simulating()">
+          {{ simulating() ? 'Simulating...' : 'Simulate' }}
+        </button>
+        <button mat-flat-button color="warn" (click)="executeCascade()" [disabled]="executing() || simulating()">
           {{ executing() ? 'Restoring...' : 'Confirm Cascade Restore' }}
         </button>
       }
@@ -395,9 +406,11 @@ export class CascadeRestoreDialogComponent implements OnInit {
   private readonly dialogRef = inject(MatDialogRef<CascadeRestoreDialogComponent>);
   private readonly api = inject(ApiService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly router = inject(Router);
 
   step = signal<DialogStep>('loading');
   executing = signal(false);
+  simulating = signal(false);
   error = signal<string | null>(null);
 
   dryRunResult = signal<DryRunRestoreResponse | null>(null);
@@ -501,6 +514,34 @@ export class CascadeRestoreDialogComponent implements OnInit {
         error: (err) => {
           this.executing.set(false);
           this.error.set(extractErrorMessage(err) || 'Cascade restore failed');
+        },
+      });
+  }
+
+  simulateRestore(cascade = false): void {
+    this.simulating.set(true);
+    this.error.set(null);
+
+    const query = cascade ? '?simulate=true&cascade=true' : '?simulate=true';
+    this.api
+      .post<RestoreSimulationResponse>(
+        `/backups/objects/versions/${this.data.versionId}/restore${query}`,
+      )
+      .subscribe({
+        next: (res) => {
+          this.simulating.set(false);
+          const msg = res.execution_safe
+            ? `Simulation passed (${res.overall_severity})`
+            : `Simulation found issues (${res.overall_severity})`;
+          const toast = this.snackBar.open(msg, 'View Twin', { duration: 8000 });
+          toast.onAction().subscribe(() => {
+            this.dialogRef.close({ simulated: true, twinSessionId: res.twin_session_id });
+            this.router.navigate(['/digital-twin', res.twin_session_id]);
+          });
+        },
+        error: (err) => {
+          this.simulating.set(false);
+          this.error.set(extractErrorMessage(err) || 'Simulation failed');
         },
       });
   }

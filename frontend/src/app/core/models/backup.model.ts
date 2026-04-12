@@ -256,3 +256,26 @@ export interface CascadeRestoreResult {
   }[];
   id_remap: Record<string, string>;
 }
+
+export interface RestoreSimulationResponse {
+  status: string;
+  object_id: string;
+  object_type: string;
+  object_name: string | null;
+  version: number;
+  twin_session_id: string;
+  overall_severity: 'clean' | 'info' | 'warning' | 'error' | 'critical' | string;
+  execution_safe: boolean;
+  summary: string;
+  counts: {
+    total: number;
+    warnings: number;
+    errors: number;
+    critical: number;
+  };
+  warnings: string[];
+  simulate_write: {
+    method: 'POST' | 'PUT' | 'DELETE' | string;
+    endpoint: string;
+  };
+}
