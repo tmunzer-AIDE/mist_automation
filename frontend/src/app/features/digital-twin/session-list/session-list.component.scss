@@ -27,19 +27,111 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.source-label {
-  font-weight: 500;
-  line-height: 1.4;
+.source-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  .source-main {
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .source-sub {
+    font-size: 11px;
+    color: var(--mat-sys-on-surface-variant);
+  }
 }
 
-.source-ref {
+.object-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 180px;
+
+  .object-type {
+    align-self: flex-start;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--app-purple-bg);
+    color: var(--app-purple);
+  }
+
+  .object-name {
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 12px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.sites-count-pill {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--app-neutral-bg);
   font-size: 12px;
-  color: var(--mat-sys-on-surface-variant);
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.4;
+  color: var(--mat-sys-on-surface);
+  cursor: help;
+}
+
+.layers {
+  display: inline-flex;
+  gap: 6px;
+
+  .layer-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .layer-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .layer-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--app-neutral-bg);
+    color: var(--mat-sys-on-surface-variant);
+
+    &.pill-pass {
+      background: var(--app-success-bg);
+      color: var(--app-success);
+    }
+    &.pill-warn {
+      background: var(--app-warning-bg);
+      color: var(--app-warning);
+    }
+    &.pill-err {
+      background: var(--app-error-status-bg);
+      color: var(--app-error-status);
+    }
+    &.pill-crit {
+      background: var(--app-error-status-bg);
+      color: var(--app-spinner-disconnected);
+    }
+    &.pill-skip {
+      opacity: 0.4;
+    }
+  }
 }
 
 .severity-chip {
@@ -74,16 +166,6 @@
 .severity-clean {
   background: var(--app-success-bg);
   color: var(--app-success);
-}
-
-.failed-count {
-  color: var(--app-error-status);
-  font-size: 12px;
-}
-
-.warn-count {
-  color: var(--app-warning);
-  font-size: 12px;
 }
 
 .muted {

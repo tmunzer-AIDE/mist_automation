@@ -34,12 +34,12 @@
   <app-empty-state
     icon="science"
     title="No digital twin sessions"
-    message="Sessions are created when configuration changes are simulated via LLM Chat, Workflows, or Backup Restore."
+    message="Sessions are created when configuration changes are simulated via MCP, Workflows, or Backup Restore."
   ></app-empty-state>
 } @else {
   <div class="table-card">
     @if (loading()) {
-      <app-skeleton-loader [rows]="8" [columns]="6"></app-skeleton-loader>
+      <app-skeleton-loader [rows]="8" [columns]="7"></app-skeleton-loader>
     } @else {
       <table mat-table [dataSource]="sessions()" class="mat-elevation-z0">
         <!-- Status -->
@@ -53,17 +53,34 @@
         <!-- Source -->
         <ng-container matColumnDef="source">
           <th mat-header-cell *matHeaderCellDef>Source</th>
-          <td mat-cell *matCellDef="let row">
-            <div class="source-label">{{ sourceLabel(row.source) }}</div>
-            @if (row.source_ref) {
-              <div
-                class="source-ref"
-                [matTooltip]="row.source_ref"
-                matTooltipShowDelay="400"
-              >
-                {{ row.source_ref }}
-              </div>
-            }
+          <td mat-cell *matCellDef="let s">
+            <div class="source-cell">
+              <span class="source-main">{{ sourceLabel(s) }}</span>
+              @if (sourceSubLabel(s)) {
+                <span class="source-sub">{{ sourceSubLabel(s) }}</span>
+              }
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Object Changed -->
+        <ng-container matColumnDef="object">
+          <th mat-header-cell *matHeaderCellDef>Object Changed</th>
+          <td mat-cell *matCellDef="let s">
+            <div class="object-cell">
+              <span class="object-type">{{ objectTypeBadge(s) }}</span>
+              <span class="object-name">{{ objectLabel(s) }}</span>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Sites -->
+        <ng-container matColumnDef="sites">
+          <th mat-header-cell *matHeaderCellDef>Sites</th>
+          <td mat-cell *matCellDef="let s">
+            <span class="sites-count-pill" [matTooltip]="sitesTooltip(s)">
+              {{ sitesLabel(s) }}
+            </span>
           </td>
         </ng-container>
 
@@ -77,28 +94,32 @@
           </td>
         </ng-container>
 
-        <!-- Checks -->
-        <ng-container matColumnDef="checks">
-          <th mat-header-cell *matHeaderCellDef>Checks</th>
-          <td mat-cell *matCellDef="let row">
-            @if (row.prediction_report) {
-              <span>{{ row.prediction_report.passed }}/{{ row.prediction_report.total_checks }} passed</span>
-              @if (failedCount(row) > 0) {
-                <span class="failed-count">&nbsp;· {{ failedCount(row) }} failed</span>
+        <!-- Checks by Layer -->
+        <ng-container matColumnDef="layers">
+          <th mat-header-cell *matHeaderCellDef>Checks by Layer</th>
+          <td mat-cell *matCellDef="let s">
+            <div class="layers">
+              @for (rollup of layerRollupFor(s); track rollup.layer) {
+                <div class="layer-col">
+                  <span class="layer-label">L{{ rollup.layer }}</span>
+                  <span
+                    class="layer-pill"
+                    [class.pill-pass]="rollup.status === 'pass'"
+                    [class.pill-warn]="rollup.status === 'warn'"
+                    [class.pill-err]="rollup.status === 'err'"
+                    [class.pill-crit]="rollup.status === 'crit'"
+                    [class.pill-skip]="rollup.status === 'skip'"
+                  >
+                    @if (rollup.status === 'skip') {
+                      —
+                    } @else {
+                      {{ rollup.passed }}/{{ rollup.total }}
+                    }
+                  </span>
+                </div>
               }
-              @if (warnCount(row) > 0) {
-                <span class="warn-count">&nbsp;· {{ warnCount(row) }} warn</span>
-              }
-            } @else {
-              <span class="muted">—</span>
-            }
+            </div>
           </td>
-        </ng-container>
-
-        <!-- Writes -->
-        <ng-container matColumnDef="writes">
-          <th mat-header-cell *matHeaderCellDef>Writes</th>
-          <td mat-cell *matCellDef="let row">{{ row.writes_count }}</td>
         </ng-container>
 
         <!-- Created At -->

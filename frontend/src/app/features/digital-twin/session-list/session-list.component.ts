@@ -18,6 +18,7 @@ import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { TopbarService } from '../../../core/services/topbar.service';
 import { DigitalTwinService } from '../digital-twin.service';
 import { TwinSessionSummary } from '../models/twin-session.model';
+import { LayerRollup, computeLayerRollup } from '../utils/layer-rollup';
 
 @Component({
   selector: 'app-digital-twin-session-list',
@@ -65,12 +66,20 @@ export class SessionListComponent implements OnInit, OnDestroy {
   ];
 
   readonly sourceOptions = [
-    { value: 'llm_chat', label: 'LLM Chat' },
+    { value: 'mcp', label: 'MCP' },
     { value: 'workflow', label: 'Workflow' },
     { value: 'backup_restore', label: 'Backup Restore' },
   ];
 
-  readonly displayedColumns = ['status', 'source', 'severity', 'checks', 'writes', 'created_at'];
+  readonly displayedColumns = [
+    'status',
+    'source',
+    'object',
+    'sites',
+    'severity',
+    'layers',
+    'created_at',
+  ];
 
   ngOnInit(): void {
     this.topbarService.setTitle('Digital Twin');
@@ -159,16 +168,48 @@ export class SessionListComponent implements OnInit, OnDestroy {
     return severity.charAt(0).toUpperCase() + severity.slice(1);
   }
 
-  sourceLabel(source: string): string {
-    return this.sourceOptions.find((o) => o.value === source)?.label ?? source;
+  layerRollupFor(summary: TwinSessionSummary): LayerRollup[] {
+    return computeLayerRollup(summary.prediction_report);
   }
 
-  failedCount(session: TwinSessionSummary): number {
-    if (!session.prediction_report) return 0;
-    return (session.prediction_report.errors ?? 0) + (session.prediction_report.critical ?? 0);
+  sourceLabel(summary: TwinSessionSummary): string {
+    switch (summary.source) {
+      case 'mcp':
+        return 'MCP';
+      case 'workflow':
+        return 'Workflow';
+      case 'backup_restore':
+        return 'Backup Restore';
+      default:
+        return summary.source;
+    }
   }
 
-  warnCount(session: TwinSessionSummary): number {
-    return session.prediction_report?.warnings ?? 0;
+  sourceSubLabel(summary: TwinSessionSummary): string | null {
+    if (summary.source === 'mcp') return summary.source_ref ?? 'Internal Chat';
+    return summary.source_ref;
+  }
+
+  objectTypeBadge(summary: TwinSessionSummary): string {
+    if (summary.affected_object_types.length === 0) return '—';
+    if (summary.affected_object_types.length === 1) return summary.affected_object_types[0];
+    return 'multiple';
+  }
+
+  objectLabel(summary: TwinSessionSummary): string {
+    return summary.affected_object_label ?? '—';
+  }
+
+  sitesLabel(summary: TwinSessionSummary): string {
+    const count = summary.affected_sites.length;
+    if (count === 0) return '—';
+    return `${count} site${count === 1 ? '' : 's'}`;
+  }
+
+  sitesTooltip(summary: TwinSessionSummary): string {
+    const names = summary.affected_site_labels ?? [];
+    if (names.length === 0) return '';
+    if (names.length <= 10) return names.join(', ');
+    return `${names.slice(0, 10).join(', ')}, +${names.length - 10} more`;
   }
 }
