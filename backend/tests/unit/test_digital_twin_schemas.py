@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.schemas import (
     RemediationAttemptResponse,
     StagedWriteResponse,
@@ -308,3 +309,29 @@ class TestSessionToDetailResponse:
         session = _make_session(source_ref="chat_xyz")
         r = session_to_detail_response(session)
         assert r.source_ref == "chat_xyz"
+
+
+@pytest.mark.unit
+class TestCheckResultDescription:
+    """Tests for CheckResult description field."""
+
+    def test_description_defaults_to_empty_string(self):
+        result = CheckResult(
+            check_id="TEST-01",
+            check_name="Test check",
+            layer=1,
+            status="pass",
+            summary="All good",
+        )
+        assert result.description == ""
+
+    def test_description_accepts_string(self):
+        result = CheckResult(
+            check_id="TEST-01",
+            check_name="Test check",
+            layer=1,
+            status="pass",
+            summary="All good",
+            description="Validates that the test thing works.",
+        )
+        assert result.description == "Validates that the test thing works."
