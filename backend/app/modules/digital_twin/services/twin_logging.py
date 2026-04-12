@@ -122,7 +122,7 @@ def capture_twin_session_logs(
     level = event_dict.get("level", method_name) or method_name
     context = _sanitize_context(
         {
-        k: v for k, v in event_dict.items() if k not in {"event", "level", "timestamp"}
+            k: v for k, v in event_dict.items() if k not in {"event", "level", "timestamp"}
         }
     )
 

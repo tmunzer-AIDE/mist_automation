@@ -286,3 +286,29 @@ class TestParseEndpoint:
         result = parse_endpoint("POST", "/api/v1/some/unknown/path/")
         assert result.error is not None
         assert "does not match Mist API pattern" in result.error
+
+    def test_query_string_is_ignored(self):
+        result = parse_endpoint("PUT", "/api/v1/sites/site-789/wlans/wlan-abc?foo=bar")
+        assert result.object_type == "wlans"
+        assert result.site_id == "site-789"
+        assert result.object_id == "wlan-abc"
+        assert result.error is None
+
+    def test_fragment_is_ignored(self):
+        result = parse_endpoint("PUT", "/api/v1/orgs/org-123/settings#section")
+        assert result.object_type == "settings"
+        assert result.org_id == "org-123"
+        assert result.is_singleton is True
+        assert result.error is None
+
+    def test_site_root_singleton_post_rejected(self):
+        result = parse_endpoint("POST", "/api/v1/sites/site-789")
+        assert result.object_type == "info"
+        assert result.error is not None
+        assert "only supports method 'PUT'" in result.error
+
+    def test_org_root_singleton_delete_rejected(self):
+        result = parse_endpoint("DELETE", "/api/v1/orgs/org-123")
+        assert result.object_type == "data"
+        assert result.error is not None
+        assert "only supports method 'PUT'" in result.error

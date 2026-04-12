@@ -233,6 +233,21 @@ class TestPatEndpoints:
         assert r.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_list_excludes_expired_tokens(self, client, test_user):
+        expired = PersonalAccessToken(
+            user_id=test_user.id,
+            name="expired",
+            token_hash="expired-hash",
+            token_prefix="mist_pat_exp",
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        await expired.insert()
+
+        lst = await client.get("/api/v1/users/me/tokens")
+        assert lst.status_code == 200
+        assert lst.json()["tokens"] == []
+
+    @pytest.mark.asyncio
     async def test_create_enforces_name(self, client):
         r = await client.post(
             "/api/v1/users/me/tokens",

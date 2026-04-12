@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 import structlog
@@ -60,6 +61,22 @@ _SENSITIVE_KEYS = {
     "private_key",
     "psk",
 }
+
+
+class TwinApprovalErrorCode(str, Enum):
+    NOT_FOUND = "not_found"
+    NOT_AWAITING_APPROVAL = "not_awaiting_approval"
+    NO_VALIDATION_REPORT = "no_validation_report"
+    BLOCKING_VALIDATION_ISSUES = "blocking_validation_issues"
+    PREFLIGHT_VALIDATION_ERRORS = "preflight_validation_errors"
+
+
+class TwinApprovalError(ValueError):
+    """Structured approval failure that API/tool layers can map deterministically."""
+
+    def __init__(self, code: TwinApprovalErrorCode, message: str):
+        self.code = code
+        super().__init__(message)
 
 
 def _sanitize_for_log(value: Any, *, depth: int = 0) -> Any:
@@ -567,17 +584,26 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
 
     session = await TwinSession.get(PydanticObjectId(session_id))
     if not session:
-        raise ValueError(f"Twin session {session_id} not found")
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found")
     if user_id and str(session.user_id) != user_id:
-        raise ValueError("Session not found")
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, "Session not found")
     if session.status != TwinSessionStatus.AWAITING_APPROVAL:
-        raise ValueError(f"Session is in '{session.status.value}' state, not awaiting_approval")
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.NOT_AWAITING_APPROVAL,
+            f"Session is in '{session.status.value}' state, not awaiting_approval",
+        )
     if not session.prediction_report:
-        raise ValueError("Session has no validation report")
+        raise TwinApprovalError(TwinApprovalErrorCode.NO_VALIDATION_REPORT, "Session has no validation report")
     if not session.prediction_report.execution_safe:
-        raise ValueError("Session has blocking validation issues and cannot be approved")
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.BLOCKING_VALIDATION_ISSUES,
+            "Session has blocking validation issues and cannot be approved",
+        )
     if _has_blocking_preflight_errors(session.prediction_report.check_results):
-        raise ValueError("Session has preflight validation errors and cannot be approved")
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.PREFLIGHT_VALIDATION_ERRORS,
+            "Session has preflight validation errors and cannot be approved",
+        )
 
     session.status = TwinSessionStatus.APPROVED
     session.update_timestamp()

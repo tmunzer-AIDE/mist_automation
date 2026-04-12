@@ -43,22 +43,31 @@ def _filter_logs(
     return results
 
 
-def _approve_error_response(error_msg: str) -> tuple[int, str]:
-    """Map service ValueError messages to safe, actionable API responses."""
-    msg = (error_msg or "").lower()
-
-    if "not found" in msg:
-        return status.HTTP_404_NOT_FOUND, "Session not found"
-    if "not awaiting_approval" in msg:
-        return status.HTTP_400_BAD_REQUEST, "Session is not awaiting approval"
-    if "no validation report" in msg:
-        return status.HTTP_400_BAD_REQUEST, "Session has no validation report"
-    if "blocking validation issues" in msg:
-        return status.HTTP_400_BAD_REQUEST, "Session has blocking validation issues"
-    if "preflight validation errors" in msg:
-        return status.HTTP_400_BAD_REQUEST, "Session has preflight validation errors"
-
-    return status.HTTP_400_BAD_REQUEST, "Session cannot be approved"
+def _approve_error_response(error: "twin_service.TwinApprovalError") -> tuple[int, str]:
+    """Return deterministic API responses for Twin approval failures."""
+    mapping: dict[twin_service.TwinApprovalErrorCode, tuple[int, str]] = {
+        twin_service.TwinApprovalErrorCode.NOT_FOUND: (
+            status.HTTP_404_NOT_FOUND,
+            "Session not found",
+        ),
+        twin_service.TwinApprovalErrorCode.NOT_AWAITING_APPROVAL: (
+            status.HTTP_400_BAD_REQUEST,
+            "Session is not awaiting approval",
+        ),
+        twin_service.TwinApprovalErrorCode.NO_VALIDATION_REPORT: (
+            status.HTTP_400_BAD_REQUEST,
+            "Session has no validation report",
+        ),
+        twin_service.TwinApprovalErrorCode.BLOCKING_VALIDATION_ISSUES: (
+            status.HTTP_400_BAD_REQUEST,
+            "Session has blocking validation issues",
+        ),
+        twin_service.TwinApprovalErrorCode.PREFLIGHT_VALIDATION_ERRORS: (
+            status.HTTP_400_BAD_REQUEST,
+            "Session has preflight validation errors",
+        ),
+    }
+    return mapping.get(error.code, (status.HTTP_400_BAD_REQUEST, "Session cannot be approved"))
 
 
 @router.get("/digital-twin/sessions", response_model=TwinSessionListResponse)
@@ -123,8 +132,11 @@ async def approve_twin_session(
             session_id, user_id=str(current_user.id)
         )
         return session_to_detail_response(session)
-    except ValueError as e:
-        status_code, detail = _approve_error_response(str(e))
+    except twin_service.TwinApprovalError as e:
+        status_code, detail = _approve_error_response(e)
+        raise HTTPException(status_code=status_code, detail=detail) from None
+    except ValueError:
+        status_code, detail = status.HTTP_400_BAD_REQUEST, "Session cannot be approved"
         raise HTTPException(status_code=status_code, detail=detail) from None
 
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import os
 import ssl
 from time import monotonic
+from typing import Any
 
 import structlog
 
@@ -70,24 +71,26 @@ def _resolve_openai_ssl_verify() -> bool | str | ssl.SSLContext:
     return True
 
 
-def _build_openai_client_kwargs(provider: str, api_key: str, base_url: str | None) -> dict:
-    """Build kwargs for openai.AsyncOpenAI with shared TLS/base-url behavior."""
+def _build_openai_client_kwargs(provider: str, api_key: str, base_url: str | None) -> tuple[dict, Any | None]:
+    """Build kwargs for openai.AsyncOpenAI and return optional custom http client."""
     import httpx
 
     kwargs: dict = {"api_key": api_key}
+    custom_http_client: httpx.AsyncClient | None = None
     normalized_base_url = _normalize_openai_base_url(provider, base_url)
     if normalized_base_url:
         kwargs["base_url"] = normalized_base_url
 
     verify = _resolve_openai_ssl_verify()
     if verify is not True:
-        kwargs["http_client"] = httpx.AsyncClient(
+        custom_http_client = httpx.AsyncClient(
             verify=verify,
             timeout=httpx.Timeout(60.0, connect=15.0),
             trust_env=True,
         )
+        kwargs["http_client"] = custom_http_client
 
-    return kwargs
+    return kwargs, custom_http_client
 
 
 @dataclass
@@ -144,12 +147,21 @@ class LLMService:
     # OpenAI SDK path (openai, lm_studio, azure_openai, mistral)
     # ------------------------------------------------------------------
 
-    def _get_openai_client(self):
-        """Create an ``openai.AsyncOpenAI`` client for OpenAI-compatible providers."""
+    def _get_openai_client(self) -> tuple[Any, Any | None]:
+        """Create an ``openai.AsyncOpenAI`` client and optional custom HTTP client."""
         from openai import AsyncOpenAI
 
-        kwargs = _build_openai_client_kwargs(self.provider, self.api_key, self.base_url)
-        return AsyncOpenAI(**kwargs)
+        kwargs, custom_http_client = _build_openai_client_kwargs(self.provider, self.api_key, self.base_url)
+        return AsyncOpenAI(**kwargs), custom_http_client
+
+    @staticmethod
+    async def _close_openai_client(client: Any, custom_http_client: Any | None) -> None:
+        """Close OpenAI SDK client and explicitly close any custom httpx client."""
+        try:
+            await client.close()
+        finally:
+            if custom_http_client is not None and not getattr(custom_http_client, "is_closed", True):
+                await custom_http_client.aclose()
 
     @staticmethod
     def _parse_openai_response(response, model_fallback: str, start: float) -> LLMResponse:
@@ -175,7 +187,7 @@ class LLMService:
         )
 
     async def _complete_openai(self, messages: list[LLMMessage], json_mode: bool = False) -> LLMResponse:
-        client = self._get_openai_client()
+        client, custom_http_client = self._get_openai_client()
         kwargs: dict = {
             "model": self.model,
             "messages": self._messages_to_dicts(messages),
@@ -205,12 +217,12 @@ class LLMService:
                 logger.exception("llm_completion_failed", model=self.model, provider=self.provider)
                 raise
         finally:
-            await client.close()
+            await self._close_openai_client(client, custom_http_client)
 
         return self._parse_openai_response(response, self.model, start)
 
     async def _stream_openai(self, messages: list[LLMMessage]) -> AsyncGenerator[str, None]:
-        client = self._get_openai_client()
+        client, custom_http_client = self._get_openai_client()
         try:
             stream = await client.chat.completions.create(
                 model=self.model,
@@ -226,7 +238,7 @@ class LLMService:
             logger.exception("llm_stream_failed", model=self.model, provider=self.provider)
             raise
         finally:
-            await client.close()
+            await self._close_openai_client(client, custom_http_client)
 
     async def _complete_openai_with_tools(
         self,
@@ -234,7 +246,7 @@ class LLMService:
         tools: list[dict],
         tool_choice: dict | str | None = None,
     ) -> LLMResponse:
-        client = self._get_openai_client()
+        client, custom_http_client = self._get_openai_client()
         start = monotonic()
         kwargs: dict = {
             "model": self.model,
@@ -251,7 +263,7 @@ class LLMService:
             logger.exception("llm_tool_completion_failed", model=self.model, provider=self.provider)
             raise
         finally:
-            await client.close()
+            await self._close_openai_client(client, custom_http_client)
 
         result = self._parse_openai_response(response, self.model, start)
         choices = response.choices or []
@@ -271,7 +283,7 @@ class LLMService:
         so intermediate text (e.g. "Let me search...") is captured and broadcast
         even though non-streaming responses drop it.
         """
-        client = self._get_openai_client()
+        client, custom_http_client = self._get_openai_client()
         start = monotonic()
         kwargs: dict = {
             "model": self.model,
@@ -322,7 +334,7 @@ class LLMService:
             logger.exception("llm_stream_tool_failed", model=self.model, provider=self.provider)
             raise
         finally:
-            await client.close()
+            await self._close_openai_client(client, custom_http_client)
 
         # Assemble the response
         duration_ms = int((monotonic() - start) * 1000)

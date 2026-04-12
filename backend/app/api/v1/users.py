@@ -199,7 +199,7 @@ async def delete_user(user_id: str, current_user: User = Depends(require_admin))
 async def list_my_tokens(
     current_user: User = Depends(get_current_user_from_token),
 ):
-    """List the caller's active (non-revoked) personal access tokens."""
+    """List the caller's active (usable) personal access tokens."""
     config = await SystemConfig.get_config()
     tokens = (
         await PersonalAccessToken.find(
@@ -209,9 +209,10 @@ async def list_my_tokens(
         .sort("-created_at")
         .to_list()
     )
+    active_tokens = [t for t in tokens if t.is_usable()]
     return PATListResponse(
-        tokens=[_pat_to_response(t) for t in tokens],
-        total=len(tokens),
+        tokens=[_pat_to_response(t) for t in active_tokens],
+        total=len(active_tokens),
         max_per_user=config.max_pats_per_user,
     )
 
@@ -230,10 +231,11 @@ async def create_my_token(
     """Create a new PAT. The plaintext token is returned exactly once."""
     config = await SystemConfig.get_config()
 
-    active_count = await PersonalAccessToken.find(
+    existing_tokens = await PersonalAccessToken.find(
         PersonalAccessToken.user_id == current_user.id,
         PersonalAccessToken.revoked_at == None,  # noqa: E711
-    ).count()
+    ).to_list()
+    active_count = sum(1 for token in existing_tokens if token.is_usable())
     if active_count >= config.max_pats_per_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
