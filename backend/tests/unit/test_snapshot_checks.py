@@ -629,3 +629,33 @@ class TestConnVlanPath:
         assert any("lost L2 path" in d and "VLAN 20" in d for d in path.details)
         assert "sw-a" in path.affected_objects
         assert "sw-c" in path.affected_objects
+
+
+# ---------------------------------------------------------------------------
+# TestCheckDescriptions
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDescriptions:
+    """Verify connectivity checks populate the description field."""
+
+    def test_conn_phys_description_populated(self):
+        """CONN-PHYS populates description on pass and fail paths."""
+        snap = _snap()
+        results = check_connectivity(snap, snap)
+        conn_phys = next(r for r in results if r.check_id == "CONN-PHYS")
+        assert conn_phys.description != ""
+
+    def test_conn_vlan_description_populated(self):
+        """CONN-VLAN populates description on pass path."""
+        snap = _snap()
+        results = check_connectivity(snap, snap)
+        conn_vlan = next(r for r in results if r.check_id == "CONN-VLAN")
+        assert conn_vlan.description != ""
+
+    def test_conn_vlan_path_description_populated(self):
+        """CONN-VLAN-PATH populates description on pass path."""
+        snap = _snap()
+        results = check_connectivity(snap, snap)
+        conn_path = next(r for r in results if r.check_id == "CONN-VLAN-PATH")
+        assert conn_path.description != ""

@@ -101,6 +101,7 @@ def _check_conn_phys(
             layer=2,
             status="skipped",
             summary="No gateways in topology -- connectivity check not applicable.",
+            description="Detects devices that were reachable from a gateway in baseline but become isolated after the change.",
         )
 
     baseline_reachable = _reachable_from_gateways(baseline_graph)
@@ -116,6 +117,7 @@ def _check_conn_phys(
             layer=2,
             status="pass",
             summary="All devices retain gateway reachability.",
+            description="Detects devices that were reachable from a gateway in baseline but become isolated after the change.",
         )
 
     details: list[str] = []
@@ -154,6 +156,7 @@ def _check_conn_phys(
         affected_objects=affected_objects,
         affected_sites=[baseline.site_id],
         remediation_hint="Verify that uplink connections are maintained or add an alternate path.",
+        description="Detects devices that were reachable from a gateway in baseline but become isolated after the change.",
     )
 
 
@@ -181,6 +184,7 @@ def _check_conn_vlan(
             layer=2,
             status="pass",
             summary="All VLANs retain gateway L3 interfaces.",
+            description="Detects VLANs that lose all gateway L3 interfaces after the change, cutting off inter-VLAN routing.",
         )
 
     # Map VLAN IDs back to network names for readable output
@@ -208,6 +212,7 @@ def _check_conn_vlan(
         affected_objects=affected_objects,
         affected_sites=[baseline.site_id],
         remediation_hint="Ensure gateway retains ip_config entries for all required VLANs.",
+        description="Detects VLANs that lose all gateway L3 interfaces after the change, cutting off inter-VLAN routing.",
     )
 
 
@@ -254,6 +259,7 @@ def _check_conn_vlan_path(
             layer=2,
             status="pass",
             summary="No VLAN subgraphs to compare.",
+            description="Detects devices that lose gateway reachability within a specific VLAN's L2 subgraph (e.g., a switchport trunk change silently drops an AP's WLAN VLAN).",
         )
 
     vlan_to_names = _vlan_id_to_network_names(baseline)
@@ -349,6 +355,7 @@ def _check_conn_vlan_path(
             layer=2,
             status="pass",
             summary="All VLANs retain device-to-gateway L2 paths.",
+            description="Detects devices that lose gateway reachability within a specific VLAN's L2 subgraph (e.g., a switchport trunk change silently drops an AP's WLAN VLAN).",
         )
 
     return CheckResult(
@@ -365,6 +372,7 @@ def _check_conn_vlan_path(
             "downstream APs / devices require. Changing an AP-facing port to a "
             "profile that omits a WLAN's VLAN will blackhole clients on that WLAN."
         ),
+        description="Detects devices that lose gateway reachability within a specific VLAN's L2 subgraph (e.g., a switchport trunk change silently drops an AP's WLAN VLAN).",
     )
 
 
