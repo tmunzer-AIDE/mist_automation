@@ -76,9 +76,47 @@ def test_diff_for_put_with_removed_field():
         object_id="t1",
     )
     diff, summary = build_write_diff(write, base)
-    removed = [d for d in diff if d["change"] == "removed"]
-    assert len(removed) == 1
-    assert removed[0]["path"] == "description"
-    assert removed[0]["before"] == "old desc"
-    assert removed[0]["after"] is None
-    assert summary == "1 field changed"
+    assert diff == []
+    assert summary == "0 fields changed"
+
+
+def test_diff_for_put_empty_body_has_no_changes():
+    base = {"name": "default", "enabled": True}
+    write = StagedWrite(
+        sequence=0,
+        method="PUT",
+        endpoint="/api/v1/orgs/org-id/networktemplates/t1",
+        body={},
+        object_type="networktemplates",
+        object_id="t1",
+    )
+    diff, summary = build_write_diff(write, base)
+    assert diff == []
+    assert summary == "0 fields changed"
+
+
+def test_diff_for_put_replaces_only_specified_root_key():
+    base = {
+        "name": "default",
+        "key1": {"nested_a": 1, "nested_b": 2},
+        "key2": "preserved",
+    }
+    write = StagedWrite(
+        sequence=0,
+        method="PUT",
+        endpoint="/api/v1/orgs/org-id/networktemplates/t1",
+        body={"key1": {"nested_a": 9}},
+        object_type="networktemplates",
+        object_id="t1",
+    )
+    diff, summary = build_write_diff(write, base)
+
+    by_path = {d["path"]: d for d in diff}
+    assert "key2" not in by_path
+    assert by_path["key1.nested_a"]["change"] == "modified"
+    assert by_path["key1.nested_a"]["before"] == 1
+    assert by_path["key1.nested_a"]["after"] == 9
+    assert by_path["key1.nested_b"]["change"] == "removed"
+    assert by_path["key1.nested_b"]["before"] == 2
+    assert by_path["key1.nested_b"]["after"] is None
+    assert summary == "2 fields changed"

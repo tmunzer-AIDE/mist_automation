@@ -8,6 +8,18 @@ from app.modules.backup.utils import deep_diff
 from app.modules.digital_twin.models import StagedWrite
 
 
+def _apply_put_body(old_body: dict[str, Any], put_body: dict[str, Any]) -> dict[str, Any]:
+    """Apply Mist PUT semantics used by Twin UI diffing.
+
+    PUT payloads are treated as partial updates at the root level:
+    only keys present in ``put_body`` are replaced; other root keys are preserved.
+    """
+    merged = dict(old_body)
+    for key, value in put_body.items():
+        merged[key] = value
+    return merged
+
+
 def build_write_diff(
     write: StagedWrite,
     base_body: dict[str, Any] | None,
@@ -31,8 +43,9 @@ def build_write_diff(
         ]
         return entries, "new object"
 
-    # PUT — deep diff
-    raw_changes = deep_diff(old_body, new_body)
+    # PUT — compare against the effective body after root-level partial update.
+    effective_new_body = _apply_put_body(old_body, new_body)
+    raw_changes = deep_diff(old_body, effective_new_body)
     entries: list[dict[str, Any]] = []
     for change in raw_changes:
         ctype = change["type"]
