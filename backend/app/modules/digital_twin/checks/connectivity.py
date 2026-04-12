@@ -15,7 +15,6 @@ from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_graph import SiteGraph, build_site_graph
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -45,12 +44,42 @@ def _vlan_id_to_network_names(snapshot: SiteSnapshot) -> dict[int, list[str]]:
     return mapping
 
 
+def _vlan_id_to_wlan_names(snapshot: SiteSnapshot) -> dict[int, list[str]]:
+    """Build a reverse mapping from VLAN ID -> list of WLAN SSIDs/names.
+
+    Used by CONN-VLAN-PATH to label affected VLANs with the WLAN(s) that
+    ride on them, so messages like ``VLAN 10 (Guest/Corp)`` are obvious to
+    operators.
+    """
+    mapping: dict[int, list[str]] = {}
+    for wlan in snapshot.wlans.values():
+        name = wlan.get("ssid") or wlan.get("name") or ""
+        vid = wlan.get("vlan_id")
+        if not name or vid is None:
+            continue
+        try:
+            key = int(vid)
+        except (TypeError, ValueError):
+            continue
+        mapping.setdefault(key, []).append(name)
+    return mapping
+
+
 def _all_gateway_vlans(graph: SiteGraph) -> set[int]:
     """Return the union of all VLANs that have at least one gateway L3 interface."""
     result: set[int] = set()
     for vlans in graph.gateway_vlans.values():
         result |= vlans
     return result
+
+
+def _reachable_in_vlan_subgraph(vlan_graph: nx.Graph, gateways: set[str]) -> set[str]:
+    """Return MACs reachable from any gateway within a single VLAN subgraph."""
+    reachable: set[str] = set()
+    for gw_mac in gateways:
+        if gw_mac in vlan_graph.nodes:
+            reachable |= nx.node_connected_component(vlan_graph, gw_mac)
+    return reachable
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +212,119 @@ def _check_conn_vlan(
 
 
 # ---------------------------------------------------------------------------
+# CONN-VLAN-PATH: Per-VLAN gateway path reachability
+# ---------------------------------------------------------------------------
+
+
+def _check_conn_vlan_path(
+    baseline: SiteSnapshot,
+    predicted: SiteSnapshot,
+    baseline_graph: SiteGraph,
+    predicted_graph: SiteGraph,
+) -> CheckResult:
+    """Detect devices that lost gateway reachability inside a VLAN subgraph.
+
+    For each VLAN present in both baseline and predicted, compute the set of
+    device MACs that are connected to any gateway within that VLAN's nx
+    subgraph. Any device that was reachable in baseline but not in predicted is
+    treated as blackholed inside that VLAN. This is the canonical detection for
+    "a port profile change on an AP uplink removes the AP's WLAN VLAN from the
+    switchport trunk" — the AP and its clients can no longer reach the gateway
+    on that VLAN even though the physical link is still up.
+
+    Status:
+        - ``critical`` when any AP is affected (wireless blackhole)
+        - ``error`` otherwise (switch or other device lost a VLAN path)
+        - ``pass`` when every baseline-reachable device is still reachable
+    """
+    baseline_vlans = baseline_graph.vlan_graphs
+    predicted_vlans = predicted_graph.vlan_graphs
+
+    vlan_ids = sorted(set(baseline_vlans) & set(predicted_vlans))
+    if not vlan_ids:
+        return CheckResult(
+            check_id="CONN-VLAN-PATH",
+            check_name="Per-VLAN gateway path reachability",
+            layer=2,
+            status="pass",
+            summary="No VLAN subgraphs to compare.",
+        )
+
+    vlan_to_names = _vlan_id_to_network_names(baseline)
+    vlan_to_wlan_names = _vlan_id_to_wlan_names(baseline)
+
+    details: list[str] = []
+    affected_objects: list[str] = []
+    affected_macs: set[str] = set()
+    has_ap_impact = False
+
+    for vid in vlan_ids:
+        b_graph = baseline_vlans[vid]
+        p_graph = predicted_vlans[vid]
+
+        b_reachable = _reachable_in_vlan_subgraph(b_graph, baseline_graph.gateways)
+        p_reachable = _reachable_in_vlan_subgraph(p_graph, predicted_graph.gateways)
+
+        lost = b_reachable - p_reachable - baseline_graph.gateways - predicted_graph.gateways
+        if not lost:
+            continue
+
+        label_parts: list[str] = []
+        net_names = vlan_to_names.get(vid, [])
+        if net_names:
+            label_parts.append("/".join(sorted(net_names)))
+        wlan_names = vlan_to_wlan_names.get(vid, [])
+        if wlan_names:
+            label_parts.append(f"WLAN {'/'.join(sorted(wlan_names))}")
+        label = f"VLAN {vid}"
+        if label_parts:
+            label += f" ({', '.join(label_parts)})"
+
+        for mac in sorted(lost):
+            node_data = b_graph.nodes.get(mac) or baseline_graph.physical.nodes.get(mac, {})
+            name = node_data.get("name") or mac
+            dtype = node_data.get("type", "unknown")
+            device_id = node_data.get("device_id", "")
+            details.append(f"{name} ({dtype}) lost gateway path on {label}")
+            if device_id and device_id not in affected_objects:
+                affected_objects.append(device_id)
+            affected_macs.add(mac)
+            if dtype == "ap":
+                has_ap_impact = True
+
+    if not details:
+        return CheckResult(
+            check_id="CONN-VLAN-PATH",
+            check_name="Per-VLAN gateway path reachability",
+            layer=2,
+            status="pass",
+            summary="All VLANs retain device-to-gateway L2 paths.",
+        )
+
+    return CheckResult(
+        check_id="CONN-VLAN-PATH",
+        check_name="Per-VLAN gateway path reachability",
+        layer=2,
+        status="critical" if has_ap_impact else "error",
+        summary=(f"{len(affected_macs)} device(s) lost gateway reachability on one or more VLANs."),
+        details=details,
+        affected_objects=affected_objects,
+        affected_sites=[baseline.site_id],
+        remediation_hint=(
+            "Verify switch port profiles still trunk every VLAN that the "
+            "downstream APs / devices require. Changing an AP-facing port to a "
+            "profile that omits a WLAN's VLAN will blackhole clients on that WLAN."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
 
 def check_connectivity(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[CheckResult]:
-    """Run all connectivity checks (CONN-PHYS + CONN-VLAN).
+    """Run all connectivity checks (CONN-PHYS + CONN-VLAN + CONN-VLAN-PATH).
 
     Builds SiteGraphs from both snapshots, then runs each sub-check.
     """
@@ -198,4 +334,5 @@ def check_connectivity(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[
     return [
         _check_conn_phys(baseline, predicted, baseline_graph, predicted_graph),
         _check_conn_vlan(baseline, predicted, baseline_graph, predicted_graph),
+        _check_conn_vlan_path(baseline, predicted, baseline_graph, predicted_graph),
     ]

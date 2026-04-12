@@ -279,21 +279,28 @@ def _check_stp_loop(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             summary="No new L2 loops detected in predicted topology.",
         )
 
-    # Resolve MACs to device names for readable output
+    # Resolve MACs to device names for readable output. Fall back to the MAC
+    # when a device has no name (avoids rendering "a ->  -> b" with an empty
+    # cell in the detail string). Note: the previous ``mac_to_name.get(mac, mac)``
+    # call wasn't enough because ``dev.name`` can be stored as an empty string,
+    # which is still a *present* key and suppresses the default.
     mac_to_name: dict[str, str] = {}
     for dev in predicted.devices.values():
         if dev.mac:
-            mac_to_name[dev.mac] = dev.name
+            mac_to_name[dev.mac] = dev.name or dev.mac
+
+    def _label(mac: str) -> str:
+        return mac_to_name.get(mac) or mac
 
     details: list[str] = []
     all_affected: set[str] = set()
 
     for cycle_set in sorted(new_cycles, key=lambda s: sorted(s))[:_MAX_REPORTED_CYCLES]:
-        names = [mac_to_name.get(mac, mac) for mac in sorted(cycle_set)]
+        names = [_label(mac) for mac in sorted(cycle_set)]
         details.append(f"New cycle: {' -> '.join(names)}")
         all_affected |= cycle_set
 
-    affected_names = sorted(mac_to_name.get(mac, mac) for mac in all_affected)
+    affected_names = sorted({_label(mac) for mac in all_affected if mac})
 
     return CheckResult(
         check_id="STP-LOOP",

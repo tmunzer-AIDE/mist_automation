@@ -191,6 +191,14 @@ def _collect_dhcp_ranges(snap: SiteSnapshot) -> list[dict[str, Any]]:
     """Collect DHCP ranges from all devices' dhcpd_config where enabled=True and type='local'."""
     ranges: list[dict[str, Any]] = []
 
+    def _canonical_network_name(name: str) -> str:
+        # Mist DHCP keys can appear as "<gateway>/<network>" aliases.
+        # Normalize to the final segment to compare equivalent scopes.
+        raw = str(name or "").strip()
+        if "/" in raw:
+            return raw.rsplit("/", 1)[-1]
+        return raw
+
     for dev_id, dev in snap.devices.items():
         dhcpd = dev.dhcpd_config
         if not dhcpd:
@@ -212,13 +220,50 @@ def _collect_dhcp_ranges(snap: SiteSnapshot) -> list[dict[str, Any]]:
                         "device_id": dev_id,
                         "device_name": dev.name,
                         "network_name": net_name,
+                        "network_name_canonical": _canonical_network_name(net_name),
                         "ip_start": ip_start,
                         "ip_end": ip_end,
                         "gateway": net_cfg.get("gateway"),
                     }
                 )
 
-    return ranges
+    # Deduplicate equivalent entries from template/device aliasing.
+    deduped: list[dict[str, Any]] = []
+    seen_by_device: set[tuple[str, str, str, str, str]] = set()
+    named_scope_keys: set[tuple[str, str, str, str]] = set()
+
+    for entry in ranges:
+        device_key = (
+            entry.get("device_id", ""),
+            entry.get("network_name_canonical", ""),
+            str(entry.get("ip_start", "")),
+            str(entry.get("ip_end", "")),
+            str(entry.get("gateway") or ""),
+        )
+        if device_key in seen_by_device:
+            continue
+        seen_by_device.add(device_key)
+
+        if str(entry.get("device_name", "")).strip():
+            named_scope_keys.add(device_key[1:])
+
+        deduped.append(entry)
+
+    # If the same DHCP scope appears both with and without a device name,
+    # keep the named version and drop the anonymous shadow entry.
+    filtered: list[dict[str, Any]] = []
+    for entry in deduped:
+        scope_key = (
+            entry.get("network_name_canonical", ""),
+            str(entry.get("ip_start", "")),
+            str(entry.get("ip_end", "")),
+            str(entry.get("gateway") or ""),
+        )
+        if not str(entry.get("device_name", "")).strip() and scope_key in named_scope_keys:
+            continue
+        filtered.append(entry)
+
+    return filtered
 
 
 def _check_dhcp_scope_overlap(snap: SiteSnapshot) -> CheckResult:

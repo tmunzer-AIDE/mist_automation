@@ -499,6 +499,7 @@ async def _search_backup_objects(
                 "_id": "$object_id",
                 "object_type": {"$first": "$object_type"},
                 "object_name": {"$first": "$object_name"},
+                "org_id": {"$first": "$org_id"},
                 "site_id": {"$first": "$site_id"},
                 "is_deleted": {"$first": "$is_deleted"},
                 "version_count": {"$sum": 1},
@@ -520,6 +521,8 @@ async def _search_backup_objects(
             "status": "deleted" if item.get("is_deleted") else "active",
             "summary": f"v{item.get('latest_version', 0)}, {item.get('version_count', 0)} versions",
             "date": item.get("last_modified_at"),
+            "org_id": item.get("org_id"),
+            "site_id": item.get("site_id"),
         }
         for item in items
     ]

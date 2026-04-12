@@ -8,8 +8,17 @@ estimate the wireless client impact of disconnected APs.
 
 from __future__ import annotations
 
+import structlog
+
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
+from app.modules.digital_twin.services.topology_utils import (
+    merge_infra_neighbor_ports,
+    normalize_port_id,
+    resolve_port_config_entry,
+)
+
+logger = structlog.get_logger(__name__)
 
 
 def _find_device_by_mac(snapshot: SiteSnapshot, mac: str) -> tuple[str, str, str]:
@@ -42,7 +51,8 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
         A list of two CheckResult objects: [PORT-DISC result, PORT-CLIENT result].
     """
     has_l2_device = any(dev.type in ("switch", "gateway") for dev in baseline.devices.values())
-    if has_l2_device and not baseline.lldp_neighbors:
+    neighbor_ports = merge_infra_neighbor_ports(baseline, include_unknown_lldp_neighbors=True)
+    if has_l2_device and not any(neighbor_ports.values()):
         skipped_summary = (
             "Live LLDP data unavailable — cannot verify which ports connect to neighbors. "
             "Port disconnect impact was not evaluated."
@@ -84,16 +94,49 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
             continue
 
         mac = baseline_dev.mac
-        lldp_for_device = baseline.lldp_neighbors.get(mac, {})
-        if not lldp_for_device:
-            continue
+        neighbors_for_device = neighbor_ports.get(mac, {})
 
         old_port_config = baseline_dev.port_config
         new_port_config = predicted_dev.port_config
 
-        for port, neighbor_mac in lldp_for_device.items():
-            old_cfg = old_port_config.get(port, {})
-            new_cfg = new_port_config.get(port, {})
+        # Diagnostic: when a staged write touches a port_config on a device
+        # that has live LLDP data, log what PORT-DISC is actually comparing
+        # so we can tell whether the check is silently missing a port change
+        # because the LLDP table is empty for that port (MAC/port_id mismatch)
+        # or because the baseline's port_config doesn't carry the usage
+        # (compile_base_state didn't surface it). Fires only when the device's
+        # compiled port_config actually differs between baseline and predicted.
+        all_ports = {
+            normalize_port_id(p)
+            for p in set(old_port_config) | set(new_port_config)
+            if normalize_port_id(p)
+        }
+        changed_ports = sorted(
+            {
+                p
+                for p in all_ports
+                if resolve_port_config_entry(old_port_config, p).get("usage")
+                != resolve_port_config_entry(new_port_config, p).get("usage")
+            }
+        )
+        if changed_ports:
+            logger.info(
+                "port_disc_diagnostic",
+                device=baseline_dev.name,
+                mac=mac,
+                changed_ports=changed_ports,
+                lldp_ports_for_device=sorted(neighbors_for_device.keys()),
+                missing_lldp_for_changed_ports=sorted(set(changed_ports) - set(neighbors_for_device.keys())),
+                baseline_usage={p: resolve_port_config_entry(old_port_config, p).get("usage", "") for p in changed_ports},
+                predicted_usage={p: resolve_port_config_entry(new_port_config, p).get("usage", "") for p in changed_ports},
+            )
+
+        if not neighbors_for_device:
+            continue
+
+        for port, neighbor_mac in neighbors_for_device.items():
+            old_cfg = resolve_port_config_entry(old_port_config, port)
+            new_cfg = resolve_port_config_entry(new_port_config, port)
 
             old_usage = old_cfg.get("usage", "")
             new_usage = new_cfg.get("usage", "")

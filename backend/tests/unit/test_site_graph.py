@@ -43,13 +43,14 @@ def _make_snapshot(
     networks: dict[str, dict] | None = None,
     port_usages: dict[str, dict] | None = None,
     lldp_neighbors: dict[str, dict[str, str]] | None = None,
+    wlans: dict[str, dict] | None = None,
 ) -> SiteSnapshot:
     return SiteSnapshot(
         site_id="site-1",
         site_name="Test Site",
         site_setting={},
         networks=networks or {},
-        wlans={},
+        wlans=wlans or {},
         devices=devices or {},
         port_usages=port_usages or {},
         lldp_neighbors=lldp_neighbors or {},
@@ -346,3 +347,126 @@ class TestBuildSiteGraph:
         assert 200 in graph.vlan_graphs
         # Guest VLAN not present because no device participates
         assert 300 not in graph.vlan_graphs
+
+
+# ---------------------------------------------------------------------------
+# AP WLAN VLAN membership + port-aware edge filtering
+# ---------------------------------------------------------------------------
+
+
+class TestApWlanVlanMembership:
+    """APs should land in vlan_graphs for every WLAN they serve, so
+    CONN-VLAN-PATH can detect WLAN blackholes.
+    """
+
+    def test_ap_participates_in_wlan_vlans(self):
+        gw = _make_device(
+            "gw",
+            "aa:bb:cc:00:00:01",
+            "gw-1",
+            "gateway",
+            ip_config={"data": {"ip": "10.0.10.1", "netmask": "255.255.255.0"}},
+        )
+        sw = _make_device(
+            "sw",
+            "aa:bb:cc:00:00:02",
+            "sw-1",
+            "switch",
+            port_config={
+                "ge-0/0/0": {"usage": "trunk"},
+                "ge-0/0/9": {"usage": "trunk"},
+            },
+        )
+        ap = _make_device("ap", "aa:bb:cc:00:00:03", "ap-1", "ap")
+        snapshot = _make_snapshot(
+            devices={"gw": gw, "sw": sw, "ap": ap},
+            networks={"n1": {"name": "data", "vlan_id": 10}},
+            wlans={"w1": {"id": "w1", "ssid": "Corp", "vlan_id": 10}},
+            lldp_neighbors={
+                "aa:bb:cc:00:00:01": {"ge-0/0/0": "aa:bb:cc:00:00:02"},
+                "aa:bb:cc:00:00:02": {
+                    "ge-0/0/0": "aa:bb:cc:00:00:01",
+                    "ge-0/0/9": "aa:bb:cc:00:00:03",
+                },
+            },
+        )
+
+        graph = build_site_graph(snapshot)
+
+        assert "aa:bb:cc:00:00:03" in graph.vlan_graphs[10].nodes
+        # Full path gw -- sw -- ap in VLAN 10
+        assert graph.vlan_graphs[10].has_edge("aa:bb:cc:00:00:02", "aa:bb:cc:00:00:03")
+
+    def test_ap_excluded_when_wlan_vlan_is_jinja(self):
+        ap = _make_device("ap", "aa:bb:cc:00:00:03", "ap-1", "ap")
+        snapshot = _make_snapshot(
+            devices={"ap": ap},
+            networks={"n1": {"name": "data", "vlan_id": 10}},
+            wlans={"w1": {"id": "w1", "ssid": "Corp", "vlan_id": "{{wlan_vlan}}"}},
+        )
+
+        graph = build_site_graph(snapshot)
+
+        # Unresolved Jinja vlan_id is skipped -> no VLAN subgraphs generated
+        # by WLAN participation, and AP has no other VLAN source.
+        assert 10 not in graph.vlan_graphs or "aa:bb:cc:00:00:03" not in graph.vlan_graphs[10].nodes
+
+    def test_switch_port_drops_vlan_excludes_edge(self):
+        """If a switch port's profile only carries VLAN 20, the LLDP edge on
+        that port is NOT added to vlan_graphs[10] even though both endpoints
+        otherwise participate in VLAN 10.
+        """
+        port_usages = {
+            "ap": {"mode": "trunk"},
+            "iot": {"mode": "access", "vlan_id": 20, "port_network": "iot"},
+        }
+        networks = {
+            "n1": {"name": "data", "vlan_id": 10},
+            "n2": {"name": "iot", "vlan_id": 20},
+        }
+        gw = _make_device(
+            "gw",
+            "aa:bb:cc:00:00:01",
+            "gw-1",
+            "gateway",
+            ip_config={
+                "data": {"ip": "10.0.10.1", "netmask": "255.255.255.0"},
+                "iot": {"ip": "10.0.20.1", "netmask": "255.255.255.0"},
+            },
+        )
+        sw = _make_device(
+            "sw",
+            "aa:bb:cc:00:00:02",
+            "sw-1",
+            "switch",
+            port_config={
+                "ge-0/0/0": {"usage": "ap"},  # uplink to gw: full trunk
+                "ge-0/0/9": {"usage": "iot"},  # to AP: only VLAN 20
+            },
+        )
+        ap = _make_device("ap", "aa:bb:cc:00:00:03", "ap-1", "ap")
+        snapshot = _make_snapshot(
+            devices={"gw": gw, "sw": sw, "ap": ap},
+            networks=networks,
+            port_usages=port_usages,
+            wlans={"w1": {"id": "w1", "ssid": "Corp", "vlan_id": 10}},
+            lldp_neighbors={
+                "aa:bb:cc:00:00:01": {"ge-0/0/0": "aa:bb:cc:00:00:02"},
+                "aa:bb:cc:00:00:02": {
+                    "ge-0/0/0": "aa:bb:cc:00:00:01",
+                    "ge-0/0/9": "aa:bb:cc:00:00:03",
+                },
+            },
+        )
+
+        graph = build_site_graph(snapshot)
+
+        # sw still in VLAN 10 (because ge-0/0/0 is full trunk via "ap" profile)
+        assert "aa:bb:cc:00:00:02" in graph.vlan_graphs[10].nodes
+        # ap still in VLAN 10 (from WLAN)
+        assert "aa:bb:cc:00:00:03" in graph.vlan_graphs[10].nodes
+        # BUT the edge from sw to ap is excluded from VLAN 10 subgraph because
+        # sw's ge-0/0/9 is "iot" (only VLAN 20)
+        assert not graph.vlan_graphs[10].has_edge("aa:bb:cc:00:00:02", "aa:bb:cc:00:00:03")
+        # gw -- sw edge is still in VLAN 10 (both sides trunk)
+        assert graph.vlan_graphs[10].has_edge("aa:bb:cc:00:00:01", "aa:bb:cc:00:00:02")

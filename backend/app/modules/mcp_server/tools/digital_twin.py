@@ -149,12 +149,25 @@ def _normalize_optional_uuid(value: UUID | str | None, field_name: str) -> str |
 
 def _resolve_twin_org_id(
     explicit_org_id: UUID | str | None,
+    default_org_id: str | None = None,
 ) -> str:
-    """Resolve and validate the org ID for Digital Twin simulation."""
+    """Resolve and validate the org ID for Digital Twin simulation.
+
+    Priority: explicit_org_id > default_org_id (from system config). The default
+    lets single-org installs omit org_id entirely — the LLM then cannot confuse
+    org_id with a site_id it saw in a search result.
+    """
     resolved = _normalize_optional_uuid(explicit_org_id, 'org_id')
-    if not resolved:
-        raise ToolError("org_id is required when action='simulate'")
-    return resolved
+    if resolved:
+        return resolved
+    if default_org_id:
+        normalized_default = _normalize_optional_uuid(default_org_id, 'org_id')
+        if normalized_default:
+            return normalized_default
+    raise ToolError(
+        "org_id is required when action='simulate' and no default org is configured "
+        "(set SystemConfig.mist_org_id)."
+    )
 
 
 def _coerce_action_type(action_type: Action_type | str | None) -> Action_type | None:
@@ -300,8 +313,13 @@ def _validate_twin_inputs(
     payload: dict[str, Any] | None,
     object_id: UUID | str | None,
     session_id: str,
+    default_org_id: str | None = None,
 ) -> dict[str, Any]:
-    """Validate action-specific input coherence for the Digital Twin tool."""
+    """Validate action-specific input coherence for the Digital Twin tool.
+
+    `default_org_id` is the async-resolved system-wide fallback (from
+    `SystemConfig.mist_org_id`) used when the caller omits an explicit `org_id`.
+    """
 
     normalized_action = action.value if isinstance(action, TwinActionType) else str(action).strip().lower()
     if normalized_action not in _TWIN_ACTIONS:
@@ -350,7 +368,7 @@ def _validate_twin_inputs(
         if normalized_object_type is None:
             raise ToolError("object_type is required when action='simulate'")
 
-        resolved_org_id = _resolve_twin_org_id(normalized_org_id)
+        resolved_org_id = _resolve_twin_org_id(normalized_org_id, default_org_id)
         simulation_write = _build_simulation_write(
             action_type=normalized_action_type,
             org_id=resolved_org_id,
@@ -414,7 +432,13 @@ async def digital_twin(
         UUID|None ,
         Field(
             description=(
-                "Organization ID. Required when action='simulate'."
+                "Organization ID. Required when action='simulate' UNLESS the system has a default "
+                "org configured (SystemConfig.mist_org_id) — in that case, omit this field and the "
+                "tool resolves it automatically. NEVER copy an id from a search result and pass it as "
+                "org_id unless the search result explicitly labels it 'org_id'. Search results for "
+                "sites/devices/wlans return object-level ids, not org ids; passing a site_id as "
+                "org_id will compile a valid-looking write that fails at runtime with a misleading "
+                "'site not found in backup' error."
             ),
             examples=['8aa21779-1178-4357-b3e0-42c02b93b870'],
             default=None,
@@ -573,11 +597,21 @@ async def digital_twin(
     """
     _ = ctx
 
+    from app.models.system import SystemConfig
     from app.modules.digital_twin.services import twin_service
 
     user_id = mcp_user_id_var.get()
     if not user_id:
         raise ToolError('User context not available')
+
+    default_org_id: str | None = None
+    try:
+        system_config = await SystemConfig.get_config()
+        default_org_id = system_config.mist_org_id
+    except Exception:
+        # SystemConfig lookup failures should not block simulate — the validator
+        # still raises a clear ToolError if org_id ends up unresolvable.
+        default_org_id = None
 
     validated = _validate_twin_inputs(
         action=action,
@@ -588,6 +622,7 @@ async def digital_twin(
         payload=payload,
         object_id=object_id,
         session_id=session_id,
+        default_org_id=default_org_id,
     )
 
     action_value = validated['action']

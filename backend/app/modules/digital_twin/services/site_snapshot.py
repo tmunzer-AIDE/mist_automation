@@ -10,6 +10,7 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import copy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -74,6 +75,20 @@ class SiteSnapshot:
     port_devices: dict[str, dict[str, str]]
     ospf_peers: dict[str, list[dict]] = field(default_factory=dict)
     bgp_peers: dict[str, list[dict]] = field(default_factory=dict)
+
+
+@dataclass
+class SiteSnapshotSourceData:
+    """Preloaded backup objects used to build one or more site snapshots."""
+
+    site_devices: list[dict[str, Any]]
+    site_networks: list[dict[str, Any]]
+    org_networks: list[dict[str, Any]]
+    site_wlans: list[dict[str, Any]]
+    site_settings_list: list[dict[str, Any]]
+    site_info_cfg: dict[str, Any]
+    org_networktemplates: list[dict[str, Any]]
+    org_gatewaytemplates: list[dict[str, Any]]
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +172,65 @@ def _extract_port_devices(device_stats: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def _extract_peer_ip(peer: dict[str, Any]) -> str:
+    """Extract peer IP from heterogeneous protocol telemetry schemas."""
+    for key in ("peer_ip", "neighbor_ip", "peer", "neighbor", "ip"):
+        value = peer.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _extract_peer_entries(raw: Any) -> list[dict[str, Any]]:
+    """Normalize protocol peer payloads to a list of dict entries."""
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+
+    if isinstance(raw, dict):
+        entries: list[dict[str, Any]] = []
+        for key in ("neighbors", "peers", "sessions", "adjacencies", "results"):
+            items = raw.get(key)
+            if isinstance(items, list):
+                entries.extend(item for item in items if isinstance(item, dict))
+        return entries
+
+    return []
+
+
+def _extract_protocol_peers(device_stats: dict[str, Any], protocol: str) -> list[dict[str, Any]]:
+    """Extract protocol peers from common stats payload shapes.
+
+    Supports flat and nested forms seen in Mist telemetry payloads.
+    """
+    candidates: list[Any] = [
+        device_stats.get(f"{protocol}_neighbors"),
+        device_stats.get(f"{protocol}_peers"),
+        device_stats.get(f"{protocol}_sessions"),
+        device_stats.get(f"{protocol}_adjacencies"),
+        device_stats.get(f"{protocol}_stats"),
+    ]
+
+    routing = device_stats.get("routing")
+    if isinstance(routing, dict):
+        candidates.append(routing.get(protocol))
+        candidates.append(routing.get(f"{protocol}_stats"))
+
+    peers: list[dict[str, Any]] = []
+    seen_peer_ips: set[str] = set()
+
+    for candidate in candidates:
+        for entry in _extract_peer_entries(candidate):
+            peer_ip = _extract_peer_ip(entry)
+            if not peer_ip or peer_ip in seen_peer_ips:
+                continue
+            normalized = dict(entry)
+            normalized["peer_ip"] = peer_ip
+            peers.append(normalized)
+            seen_peer_ips.add(peer_ip)
+
+    return peers
+
+
 # ---------------------------------------------------------------------------
 # fetch_live_data — parallel org/site API calls
 # ---------------------------------------------------------------------------
@@ -173,12 +247,30 @@ def _normalize_mac(value: Any) -> str:
     return str(value).replace(":", "").replace("-", "").lower()
 
 
+def _extract_lldp_from_ap_stat(device_stats: dict[str, Any]) -> tuple[str, str] | None:
+    """Extract switch MAC and port from an AP's ``lldp_stat`` field.
+
+    Returns:
+        (switch_mac, switch_port) or None.
+    """
+    lldp_stat = device_stats.get("lldp_stat")
+    if not isinstance(lldp_stat, dict):
+        return None
+
+    chassis_id = _normalize_mac(lldp_stat.get("chassis_id"))
+    port_id = lldp_stat.get("port_id")
+
+    if chassis_id and port_id:
+        return chassis_id, str(port_id)
+    return None
+
+
 async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
     """Fetch live device stats and port/LLDP data for a site.
 
     Runs two Mist API calls in parallel:
     - ``listOrgDevicesStats(fields="*")`` — AP client counts and AP-side LLDP
-      neighbours (``clients[]`` with ``source="lldp"``)
+      neighbours (``clients[]`` with ``source="lldp"`` AND ``lldp_stat``)
     - ``searchSiteSwOrGwPorts(limit=1000)`` — switch/gateway port records
       including ``neighbor_mac`` / ``up`` / ``port_id``, which is the
       authoritative LLDP source for switches and gateways
@@ -190,6 +282,8 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
     port_status: dict[str, dict[str, bool]] = {}
     ap_clients: dict[str, int] = {}
     port_devices: dict[str, dict[str, str]] = {}
+    ospf_peers: dict[str, list[dict[str, Any]]] = {}
+    bgp_peers: dict[str, list[dict[str, Any]]] = {}
 
     try:
         import mistapi
@@ -218,7 +312,7 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
             return_exceptions=True,
         )
 
-        # ── listOrgDevicesStats: AP client counts + AP-side LLDP fallback ──
+        # ── listOrgDevicesStats: AP client counts + AP-side LLDP ──
         devices_list: list[dict[str, Any]] = []
         has_l2_device = False
         if isinstance(stats_resp, BaseException):
@@ -233,8 +327,9 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
             for device_stats in devices_list:
                 mac = _normalize_mac(device_stats.get("mac", ""))
                 device_id = device_stats.get("id", "")
+                dtype = device_stats.get("type")
 
-                if device_stats.get("type") in ("switch", "gateway"):
+                if dtype in ("switch", "gateway"):
                     has_l2_device = True
 
                 if mac:
@@ -243,6 +338,18 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
                         lldp_neighbors.setdefault(mac, {}).update(
                             {p: _normalize_mac(n) for p, n in neighbors.items() if n}
                         )
+
+                    # AP-side LLDP: use lldp_stat to find the upstream switch and port.
+                    # This allows us to "symmetrize" the link even when the switch
+                    # side LLDP is missing or disabled, ensuring PORT-DISC on the
+                    # switch side correctly identifies the connected AP.
+                    if dtype == "ap":
+                        upstream = _extract_lldp_from_ap_stat(device_stats)
+                        if upstream:
+                            sw_mac, sw_port = upstream
+                            # Add reverse edge: Switch MAC -> {Port -> AP MAC}
+                            lldp_neighbors.setdefault(sw_mac, {})[sw_port] = mac
+                            port_devices.setdefault(sw_mac, {})[sw_port] = mac
 
                     ports = _extract_port_status(device_stats)
                     if ports:
@@ -256,6 +363,14 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
                     count = _extract_client_count(device_stats)
                     if count > 0:
                         ap_clients[device_id] = count
+
+                    ospf = _extract_protocol_peers(device_stats, "ospf")
+                    if ospf:
+                        ospf_peers[device_id] = ospf
+
+                    bgp = _extract_protocol_peers(device_stats, "bgp")
+                    if bgp:
+                        bgp_peers[device_id] = bgp
 
         # ── searchSiteSwOrGwPorts: authoritative switch/gateway LLDP + port state ──
         port_stats_list: list[dict[str, Any]] = []
@@ -315,6 +430,8 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
         port_status=port_status,
         ap_clients=ap_clients,
         port_devices=port_devices,
+        ospf_peers=ospf_peers,
+        bgp_peers=bgp_peers,
     )
 
 
@@ -391,6 +508,35 @@ async def _load_site_info_config(org_id: str, site_id: str) -> dict[str, Any]:
     return {}
 
 
+async def load_site_snapshot_source_data(site_id: str, org_id: str) -> SiteSnapshotSourceData:
+    """Load backup objects required by build_site_snapshot for one site.
+
+    This allows callers to reuse the same preloaded data for baseline and
+    predicted snapshot builds in a simulation pass.
+    """
+    gathered = await asyncio.gather(
+        _load_site_objects(org_id, "devices", site_id=site_id),
+        _load_site_objects(org_id, "networks", site_id=site_id),
+        _load_site_objects(org_id, "networks"),
+        _load_site_objects(org_id, "wlans", site_id=site_id),
+        _load_site_objects(org_id, "settings", site_id=site_id),
+        _load_site_info_config(org_id, site_id),
+        _load_site_objects(org_id, "networktemplates"),
+        _load_site_objects(org_id, "gatewaytemplates"),
+    )
+
+    return SiteSnapshotSourceData(
+        site_devices=gathered[0],
+        site_networks=gathered[1],
+        org_networks=gathered[2],
+        site_wlans=gathered[3],
+        site_settings_list=gathered[4],
+        site_info_cfg=gathered[5],
+        org_networktemplates=gathered[6],
+        org_gatewaytemplates=gathered[7],
+    )
+
+
 def _build_device_snapshot(config: dict[str, Any]) -> DeviceSnapshot:
     """Convert a raw/compiled device config dict into a DeviceSnapshot.
 
@@ -427,6 +573,7 @@ async def build_site_snapshot(
     org_id: str,
     live_data: LiveSiteData,
     state_overrides: dict[StateKey, dict[str, Any]] | None = None,
+    source_data: SiteSnapshotSourceData | None = None,
 ) -> SiteSnapshot:
     """Assemble a full SiteSnapshot from backup data, live data, and optional overrides.
 
@@ -436,31 +583,23 @@ async def build_site_snapshot(
         live_data: Pre-fetched live data from fetch_live_data().
         state_overrides: Optional dict of (object_type, site_id, object_id) -> config
             to replace backup values (e.g. from staged writes).
+        source_data: Optional preloaded backup object set for this site.
     """
     overrides = state_overrides or {}
 
-    # Load all backup objects in parallel. Site info is resolved from any of the
-    # three backup shapes Mist uses (info / site / sites) because older backups
-    # store it at the org level. Templates are loaded so the snapshot only
-    # considers networks actually assigned to this site, not every org template.
-    gathered = await asyncio.gather(
-        _load_site_objects(org_id, "devices", site_id=site_id),
-        _load_site_objects(org_id, "networks", site_id=site_id),
-        _load_site_objects(org_id, "networks"),  # org-level pool (filtered below)
-        _load_site_objects(org_id, "wlans", site_id=site_id),
-        _load_site_objects(org_id, "settings", site_id=site_id),
-        _load_site_info_config(org_id, site_id),
-        _load_site_objects(org_id, "networktemplates"),
-        _load_site_objects(org_id, "gatewaytemplates"),
-    )
-    site_devices: list[dict[str, Any]] = gathered[0]  # type: ignore[assignment]
-    site_networks: list[dict[str, Any]] = gathered[1]  # type: ignore[assignment]
-    org_networks: list[dict[str, Any]] = gathered[2]  # type: ignore[assignment]
-    site_wlans: list[dict[str, Any]] = gathered[3]  # type: ignore[assignment]
-    site_settings_list: list[dict[str, Any]] = gathered[4]  # type: ignore[assignment]
-    site_info_cfg: dict[str, Any] = gathered[5]  # type: ignore[assignment]
-    org_networktemplates: list[dict[str, Any]] = gathered[6]  # type: ignore[assignment]
-    org_gatewaytemplates: list[dict[str, Any]] = gathered[7]  # type: ignore[assignment]
+    if source_data is None:
+        source_data = await load_site_snapshot_source_data(site_id, org_id)
+
+    # Build from deep-copied source_data so baseline/predicted builds can reuse
+    # one loaded source object safely without cross-mutation.
+    site_devices: list[dict[str, Any]] = copy.deepcopy(source_data.site_devices)
+    site_networks: list[dict[str, Any]] = copy.deepcopy(source_data.site_networks)
+    org_networks: list[dict[str, Any]] = copy.deepcopy(source_data.org_networks)
+    site_wlans: list[dict[str, Any]] = copy.deepcopy(source_data.site_wlans)
+    site_settings_list: list[dict[str, Any]] = copy.deepcopy(source_data.site_settings_list)
+    site_info_cfg: dict[str, Any] = copy.deepcopy(source_data.site_info_cfg)
+    org_networktemplates: list[dict[str, Any]] = copy.deepcopy(source_data.org_networktemplates)
+    org_gatewaytemplates: list[dict[str, Any]] = copy.deepcopy(source_data.org_gatewaytemplates)
 
     # Normalize site info to the list-wrapped shape the singleton-override helper expects.
     site_info_list: list[dict[str, Any]] = [site_info_cfg] if site_info_cfg else []
@@ -615,6 +754,35 @@ async def build_site_snapshot(
         net_id = net.get("id", "") or net.get("name", "") or ""
         if net_id:
             networks[net_id] = net
+
+    # Seed template-only and site-setting-only networks. In templated Mist orgs,
+    # network definitions frequently live *only* inline inside the network /
+    # gateway template's ``networks`` dict (keyed by name), and there are zero
+    # standalone ``BackupObject(type="networks")`` records. The loop above then
+    # produces nothing and ``snapshot.networks`` ends up empty — every
+    # VLAN-aware check (CONN-VLAN, CONN-VLAN-PATH, ROUTE-GW, CFG-SUBNET,
+    # CFG-DHCP-*) silently degrades to "not applicable". The passes below add
+    # entries for names that have no existing backing, preserving the existing
+    # merge semantics for names that *do* have standalone backups.
+    existing_names = {cfg.get("name") for cfg in networks.values() if cfg.get("name")}
+    for name, tmpl_frag in template_overrides.items():
+        if not name or name in existing_names:
+            continue
+        entry: dict[str, Any] = {"name": name, **tmpl_frag}
+        if isinstance(site_setting_networks, dict) and isinstance(site_setting_networks.get(name), dict):
+            entry = {**entry, **site_setting_networks[name]}
+        net_id = entry.get("id") or name
+        networks[net_id] = entry
+        existing_names.add(name)
+
+    if isinstance(site_setting_networks, dict):
+        for name, site_frag in site_setting_networks.items():
+            if not name or not isinstance(site_frag, dict) or name in existing_names:
+                continue
+            entry = {"name": name, **site_frag}
+            net_id = entry.get("id") or name
+            networks[net_id] = entry
+            existing_names.add(name)
 
     # Deterministic iteration order — MongoDB's $group stage does not guarantee
     # output order, so consecutive base-state loads of the same collection can

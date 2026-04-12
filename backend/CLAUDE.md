@@ -54,6 +54,8 @@ Three middleware layers execute in order (all inherit from `_SkipWebSocketMiddle
 
 JWT with session tracking. `get_current_user_from_token()` (in `app/dependencies.py`) extracts the Bearer token, decodes JWT, looks up `UserSession` by `token_jti`, verifies expiration, returns the `User` document. Admin-only routes use `require_admin` which chains on top.
 
+**Personal Access Tokens** (`app/models/personal_access_token.py`, `app/core/pat.py`) are a long-lived, revocable Bearer credential used by external MCP clients (Claude Desktop, VS Code, Cursor). PATs are scoped to the MCP endpoint — `MCPAuthMiddleware` accepts either a JWT or a PAT on `/mcp`, but the REST API (`get_current_user_from_token`) is JWT-only. Users manage their own PATs via `/api/v1/users/me/tokens`. Tokens start with `mist_pat_`, are SHA-256 hashed, and the plaintext is returned exactly once on creation.
+
 ### Exception Hierarchy (app/core/exceptions.py)
 
 All custom exceptions inherit from `MistAutomationException(message, status_code, details)`. Subclasses are organized by domain: Auth (`InvalidCredentialsException`, `TokenExpiredException`, `TwoFactorRequiredException`), Workflow (`WorkflowNotFoundException`, `WorkflowValidationException`), Backup (`RestoreException`, `GitOperationException`), etc. The `ExceptionHandlerMiddleware` catches these and returns proper HTTP responses.

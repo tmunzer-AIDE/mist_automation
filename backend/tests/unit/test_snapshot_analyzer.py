@@ -121,9 +121,10 @@ class TestAnalyzeSite:
         # Collect all check_ids
         check_ids = {r.check_id for r in results}
 
-        # Connectivity (2)
+        # Connectivity (3)
         assert "CONN-PHYS" in check_ids
         assert "CONN-VLAN" in check_ids
+        assert "CONN-VLAN-PATH" in check_ids
 
         # Config conflicts (5)
         assert "CFG-SUBNET" in check_ids
@@ -155,8 +156,8 @@ class TestAnalyzeSite:
         assert "STP-BPDU" in check_ids
         assert "STP-LOOP" in check_ids
 
-        # Total: 2 + 5 + 1 + 2 + 4 + 3 + 3 = 20
-        assert len(results) == 20
+        # Total: 3 + 5 + 1 + 2 + 4 + 3 + 3 = 21
+        assert len(results) == 21
 
     def test_baseline_equals_predicted_mostly_pass(self):
         """When baseline == predicted, most checks should pass or be skipped."""

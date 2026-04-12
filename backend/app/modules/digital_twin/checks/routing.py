@@ -50,17 +50,30 @@ def _peer_reachable(peer_ip: str, ip_configs: dict[str, dict[str, Any]]) -> bool
     return False
 
 
-def _collect_all_ip_configs(snap: SiteSnapshot) -> dict[str, dict[str, Any]]:
-    """Merge ip_config from all devices in the snapshot into a single dict.
+def _extract_peer_ip(peer_info: dict[str, Any]) -> str:
+    """Extract peer IP from heterogeneous telemetry field names."""
+    for key in ("peer_ip", "neighbor_ip", "peer", "neighbor", "ip"):
+        value = peer_info.get(key)
+        if value:
+            return str(value)
+    return ""
 
-    Returns a flat dict: "device_name/iface_name" -> {ip, netmask, ...}.
+
+def _network_requires_gateway(net_cfg: dict[str, Any]) -> bool:
+    """Return True when a network config appears to require L3 gatewaying.
+
+    Keep this conservative to avoid false positives on intentional L2-only
+    VLANs: only treat a network as routed when an L3 indicator is present.
     """
-    merged: dict[str, dict[str, Any]] = {}
-    for _dev_id, dev in snap.devices.items():
-        for iface_name, cfg in dev.ip_config.items():
-            key = f"{dev.name}/{iface_name}"
-            merged[key] = cfg
-    return merged
+    if not isinstance(net_cfg, dict):
+        return False
+    subnet = net_cfg.get("subnet")
+    if subnet:
+        return True
+    for key in ("gateway", "ip_start", "ip_end", "prefix_length", "netmask"):
+        if net_cfg.get(key):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +87,12 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
     Collects all network names from predicted.networks, then checks whether
     any gateway device has an ip_config entry keyed by that network name.
     """
-    # Collect all network names
+    # Collect routed network names only; intentional L2-only networks are
+    # excluded to avoid false positives.
     network_names: set[str] = set()
     for _net_id, net_cfg in predicted.networks.items():
         name = net_cfg.get("name", "")
-        if name:
+        if name and _network_requires_gateway(net_cfg):
             network_names.add(name)
 
     if not network_names:
@@ -87,7 +101,7 @@ def _check_route_gw(predicted: SiteSnapshot) -> CheckResult:
             check_name="Default Gateway Gap",
             layer=3,
             status="pass",
-            summary="No networks defined -- gateway check not applicable.",
+            summary="No routed networks defined -- gateway check not applicable.",
         )
 
     # Collect network names that have a gateway L3 interface
@@ -141,6 +155,22 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
     reachable from any subnet, flag the break.
     """
     if not baseline.ospf_peers:
+        has_ospf_config = any(
+            dev.type == "gateway" and bool(dev.ospf_config)
+            for dev in list(baseline.devices.values()) + list(predicted.devices.values())
+        )
+        if has_ospf_config:
+            return CheckResult(
+                check_id="ROUTE-OSPF",
+                check_name="OSPF Adjacency Break",
+                layer=3,
+                status="skipped",
+                summary="OSPF appears configured but live peer telemetry is unavailable.",
+                affected_sites=[baseline.site_id],
+                remediation_hint=(
+                    "Ensure live telemetry exposes OSPF peers (peer_ip), then re-run simulation."
+                ),
+            )
         return CheckResult(
             check_id="ROUTE-OSPF",
             check_name="OSPF Adjacency Break",
@@ -149,19 +179,28 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
             summary="No OSPF peers in baseline -- check not applicable.",
         )
 
-    all_ip_configs = _collect_all_ip_configs(predicted)
     breaks: list[str] = []
     affected_objects: list[str] = []
 
     for device_id, peers in baseline.ospf_peers.items():
         dev = baseline.devices.get(device_id)
         dev_name = dev.name if dev else device_id
+        predicted_dev = predicted.devices.get(device_id)
+
+        if predicted_dev is None:
+            for peer_info in peers:
+                peer_ip = _extract_peer_ip(peer_info)
+                if peer_ip:
+                    breaks.append(f"{dev_name}: OSPF peer {peer_ip} is unreachable (device removed)")
+            if device_id not in affected_objects:
+                affected_objects.append(device_id)
+            continue
 
         for peer_info in peers:
-            peer_ip = peer_info.get("peer_ip")
+            peer_ip = _extract_peer_ip(peer_info)
             if not peer_ip:
                 continue
-            if not _peer_reachable(peer_ip, all_ip_configs):
+            if not _peer_reachable(peer_ip, predicted_dev.ip_config):
                 breaks.append(f"{dev_name}: OSPF peer {peer_ip} is no longer reachable from any interface")
                 if device_id not in affected_objects:
                     affected_objects.append(device_id)
@@ -199,6 +238,22 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
     Same logic as OSPF but using baseline.bgp_peers.
     """
     if not baseline.bgp_peers:
+        has_bgp_config = any(
+            dev.type == "gateway" and bool(dev.bgp_config)
+            for dev in list(baseline.devices.values()) + list(predicted.devices.values())
+        )
+        if has_bgp_config:
+            return CheckResult(
+                check_id="ROUTE-BGP",
+                check_name="BGP Adjacency Break",
+                layer=3,
+                status="skipped",
+                summary="BGP appears configured but live peer telemetry is unavailable.",
+                affected_sites=[baseline.site_id],
+                remediation_hint=(
+                    "Ensure live telemetry exposes BGP peers (peer_ip), then re-run simulation."
+                ),
+            )
         return CheckResult(
             check_id="ROUTE-BGP",
             check_name="BGP Adjacency Break",
@@ -207,19 +262,28 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             summary="No BGP peers in baseline -- check not applicable.",
         )
 
-    all_ip_configs = _collect_all_ip_configs(predicted)
     breaks: list[str] = []
     affected_objects: list[str] = []
 
     for device_id, peers in baseline.bgp_peers.items():
         dev = baseline.devices.get(device_id)
         dev_name = dev.name if dev else device_id
+        predicted_dev = predicted.devices.get(device_id)
+
+        if predicted_dev is None:
+            for peer_info in peers:
+                peer_ip = _extract_peer_ip(peer_info)
+                if peer_ip:
+                    breaks.append(f"{dev_name}: BGP peer {peer_ip} is unreachable (device removed)")
+            if device_id not in affected_objects:
+                affected_objects.append(device_id)
+            continue
 
         for peer_info in peers:
-            peer_ip = peer_info.get("peer_ip")
+            peer_ip = _extract_peer_ip(peer_info)
             if not peer_ip:
                 continue
-            if not _peer_reachable(peer_ip, all_ip_configs):
+            if not _peer_reachable(peer_ip, predicted_dev.ip_config):
                 breaks.append(f"{dev_name}: BGP peer {peer_ip} is no longer reachable from any interface")
                 if device_id not in affected_objects:
                     affected_objects.append(device_id)

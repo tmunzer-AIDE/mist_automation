@@ -164,6 +164,26 @@ class TestRouteGw:
         assert r is not None
         assert r.status == "pass"
 
+    def test_l2_only_network_without_subnet_is_not_flagged(self):
+        """L2-only networks (no L3 indicators) should not require a gateway."""
+        baseline = _snap()
+        predicted = _snap(
+            networks={"net-1": {"name": "IoT-L2", "vlan_id": 30}},
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={},
+                ),
+            },
+        )
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-GW")
+        assert r is not None
+        assert r.status == "pass"
+
     def test_multiple_missing_networks(self):
         """Multiple networks without gateway coverage should all be listed."""
         predicted = _snap(
@@ -263,6 +283,73 @@ class TestRouteOspf:
         r = _get_result(results, "ROUTE-OSPF")
         assert r.status == "pass"
 
+    def test_configured_but_no_peer_telemetry_is_skipped(self):
+        """When OSPF config exists but no peers are reported, return skipped."""
+        baseline = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ospf_config={"enabled": True},
+                )
+            },
+            ospf_peers={},
+        )
+        predicted = _snap(devices=baseline.devices)
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-OSPF")
+        assert r is not None
+        assert r.status == "skipped"
+
+    def test_peer_reachability_is_device_scoped(self):
+        """Peer for GW-1 must be evaluated against GW-1 interfaces only."""
+        baseline = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={"Corp": {"ip": "10.0.0.1", "netmask": "255.255.255.0"}},
+                ),
+                "gw-2": _dev(
+                    "gw-2",
+                    "aa:bb:cc:dd:ee:02",
+                    "GW-2",
+                    dtype="gateway",
+                    ip_config={"Alt": {"ip": "172.16.0.1", "netmask": "255.255.255.0"}},
+                ),
+            },
+            ospf_peers={"gw-1": [{"peer_ip": "10.0.0.2"}]},
+        )
+        predicted = _snap(
+            devices={
+                # GW-1 moved away from 10.0.0.0/24
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={"Corp": {"ip": "192.168.1.1", "netmask": "255.255.255.0"}},
+                ),
+                # GW-2 now happens to have 10.0.0.0/24 — should NOT mask GW-1 break
+                "gw-2": _dev(
+                    "gw-2",
+                    "aa:bb:cc:dd:ee:02",
+                    "GW-2",
+                    dtype="gateway",
+                    ip_config={"Alt": {"ip": "10.0.0.5", "netmask": "255.255.255.0"}},
+                ),
+            }
+        )
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-OSPF")
+        assert r is not None
+        assert r.status == "critical"
+        assert any("GW-1" in d and "10.0.0.2" in d for d in r.details)
+
 
 # ---------------------------------------------------------------------------
 # TestRouteBgp
@@ -343,6 +430,72 @@ class TestRouteBgp:
         results = check_routing(baseline, predicted)
         r = _get_result(results, "ROUTE-BGP")
         assert r.status == "pass"
+
+    def test_configured_but_no_peer_telemetry_is_skipped(self):
+        """When BGP config exists but no peers are reported, return skipped."""
+        baseline = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    bgp_config={"enabled": True},
+                )
+            },
+            bgp_peers={},
+        )
+        predicted = _snap(devices=baseline.devices)
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-BGP")
+        assert r is not None
+        assert r.status == "skipped"
+
+    def test_peer_reachability_is_device_scoped(self):
+        """Peer for GW-1 must be evaluated against GW-1 interfaces only."""
+        baseline = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={"WAN": {"ip": "203.0.113.1", "netmask": "255.255.255.252"}},
+                ),
+                "gw-2": _dev(
+                    "gw-2",
+                    "aa:bb:cc:dd:ee:02",
+                    "GW-2",
+                    dtype="gateway",
+                    ip_config={"WAN": {"ip": "198.51.100.1", "netmask": "255.255.255.252"}},
+                ),
+            },
+            bgp_peers={"gw-1": [{"peer_ip": "203.0.113.2"}]},
+        )
+        predicted = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    ip_config={"WAN": {"ip": "10.10.10.1", "netmask": "255.255.255.0"}},
+                ),
+                "gw-2": _dev(
+                    "gw-2",
+                    "aa:bb:cc:dd:ee:02",
+                    "GW-2",
+                    dtype="gateway",
+                    # Another device owns 203.0.113.0/30 now; must not mask GW-1 adjacency break
+                    ip_config={"WAN": {"ip": "203.0.113.5", "netmask": "255.255.255.252"}},
+                ),
+            }
+        )
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-BGP")
+        assert r is not None
+        assert r.status == "critical"
+        assert any("GW-1" in d and "203.0.113.2" in d for d in r.details)
 
 
 # ---------------------------------------------------------------------------

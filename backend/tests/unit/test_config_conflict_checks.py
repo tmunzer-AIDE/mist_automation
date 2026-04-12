@@ -291,6 +291,82 @@ class TestCfgDhcp:
         assert "SW-2" in r.details[0]
         assert r.affected_sites == ["site-1"]
 
+    def test_duplicate_shadow_scope_ignored(self):
+        """Ignore duplicate DHCP scopes when one shadow copy lacks a device name."""
+        snap = _snap(
+            devices={
+                "dev-gw": _dev(
+                    "dev-gw",
+                    "aa:bb:cc:dd:ee:01",
+                    "DNT-E2E-GW",
+                    dtype="gateway",
+                    dhcpd_config={
+                        "enabled": True,
+                        "DNT-E2E-LAN": {
+                            "type": "local",
+                            "ip_start": "10.42.10.100",
+                            "ip_end": "10.42.10.199",
+                        },
+                    },
+                ),
+                "dev-shadow": _dev(
+                    "dev-shadow",
+                    "aa:bb:cc:dd:ee:02",
+                    "",
+                    dtype="gateway",
+                    dhcpd_config={
+                        "enabled": True,
+                        "DNT-E2E-LAN": {
+                            "type": "local",
+                            "ip_start": "10.42.10.100",
+                            "ip_end": "10.42.10.199",
+                        },
+                    },
+                ),
+            }
+        )
+
+        results = check_config_conflicts(snap)
+        r = _get_result(results, "CFG-DHCP-RNG")
+        assert r is not None
+        assert r.status == "pass"
+
+    def test_same_device_gateway_and_alias_keys_are_deduplicated(self):
+        """Do not self-overlap when the same gateway DHCP scope appears under alias keys.
+
+        Example seen in real payloads:
+        - "GW-NAME/LAN"
+        - "/LAN"
+        """
+        snap = _snap(
+            devices={
+                "dev-gw": _dev(
+                    "dev-gw",
+                    "aa:bb:cc:dd:ee:03",
+                    "DNT-E2E-GW",
+                    dtype="gateway",
+                    dhcpd_config={
+                        "enabled": True,
+                        "DNT-E2E-GW/DNT-E2E-LAN": {
+                            "type": "local",
+                            "ip_start": "10.42.10.100",
+                            "ip_end": "10.42.10.199",
+                        },
+                        "/DNT-E2E-LAN": {
+                            "type": "local",
+                            "ip_start": "10.42.10.100",
+                            "ip_end": "10.42.10.199",
+                        },
+                    },
+                ),
+            }
+        )
+
+        results = check_config_conflicts(snap)
+        r = _get_result(results, "CFG-DHCP-RNG")
+        assert r is not None
+        assert r.status == "pass"
+
     def test_non_overlapping_ranges_pass(self):
         """Non-overlapping DHCP ranges should pass."""
         snap = _snap(

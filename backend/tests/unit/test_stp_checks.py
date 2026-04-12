@@ -13,7 +13,6 @@ import pytest
 from app.modules.digital_twin.checks.stp import check_stp
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # Test data helpers
 # ---------------------------------------------------------------------------
@@ -363,3 +362,56 @@ class TestStpLoop:
         results = check_stp(snap, snap)
         assert results[2].check_id == "STP-LOOP"
         assert results[2].status == "pass"
+
+    def test_cycle_detail_falls_back_to_mac_when_name_missing(self):
+        """A cycle node whose DeviceSnapshot.name is empty must render as its
+        MAC in the detail string instead of producing "a ->  -> b" (double
+        space where the name would be). Also guards against empty strings
+        creeping into affected_objects.
+        """
+        sw_named = _dev("sw-a", mac="aa:00:00:00:00:01", name="SW-A")
+        # Bypass the _dev helper because it would fall back to dev_id.upper()
+        # for an empty name — we need the DeviceSnapshot to actually carry an
+        # empty string so we exercise the real production code path.
+        sw_unnamed = DeviceSnapshot(
+            device_id="sw-b",
+            mac="aa:00:00:00:00:02",
+            name="",
+            type="switch",
+            model="EX4100-48P",
+            port_config={},
+            ip_config={},
+            dhcpd_config={},
+        )
+        sw_also_named = _dev("sw-c", mac="aa:00:00:00:00:03", name="SW-C")
+
+        devices = {"sw-a": sw_named, "sw-b": sw_unnamed, "sw-c": sw_also_named}
+
+        baseline = _snap(
+            devices=devices,
+            lldp_neighbors={
+                "aa:00:00:00:00:01": {"ge-0/0/0": "aa:00:00:00:00:02"},
+                "aa:00:00:00:00:02": {"ge-0/0/0": "aa:00:00:00:00:01", "ge-0/0/1": "aa:00:00:00:00:03"},
+                "aa:00:00:00:00:03": {"ge-0/0/0": "aa:00:00:00:00:02"},
+            },
+        )
+        predicted = _snap(
+            devices=devices,
+            lldp_neighbors={
+                "aa:00:00:00:00:01": {"ge-0/0/0": "aa:00:00:00:00:02", "ge-0/0/1": "aa:00:00:00:00:03"},
+                "aa:00:00:00:00:02": {"ge-0/0/0": "aa:00:00:00:00:01", "ge-0/0/1": "aa:00:00:00:00:03"},
+                "aa:00:00:00:00:03": {"ge-0/0/0": "aa:00:00:00:00:02", "ge-0/0/1": "aa:00:00:00:00:01"},
+            },
+        )
+
+        results = check_stp(baseline, predicted)
+        loop_result = results[2]
+
+        assert loop_result.status == "warning"
+        joined_details = " ".join(loop_result.details)
+        # The unnamed switch should render as its MAC, not as an empty cell
+        assert "aa:00:00:00:00:02" in joined_details
+        # No double-space artefact like "SW-A ->  -> SW-C"
+        assert " ->  -> " not in joined_details
+        # affected_objects must never contain an empty string
+        assert "" not in loop_result.affected_objects

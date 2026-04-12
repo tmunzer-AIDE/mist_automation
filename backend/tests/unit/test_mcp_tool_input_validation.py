@@ -194,6 +194,36 @@ class TestDigitalTwinValidation:
         with pytest.raises(ToolError, match="org_id is required"):
             resolve_twin_org_id("")
 
+    def test_falls_back_to_default_org_id_when_explicit_missing(self):
+        # Single-org installs: caller omits org_id, system default fills in.
+        resolved = resolve_twin_org_id("", default_org_id=self.ORG_ID)
+        assert resolved == self.ORG_ID
+
+    def test_explicit_org_id_wins_over_default(self):
+        other_org = "11111111-1111-1111-1111-111111111111"
+        resolved = resolve_twin_org_id(self.ORG_ID, default_org_id=other_org)
+        assert resolved == self.ORG_ID
+
+    def test_no_explicit_no_default_raises(self):
+        with pytest.raises(ToolError, match="org_id is required"):
+            resolve_twin_org_id(None, default_org_id=None)
+
+    def test_simulate_uses_default_org_when_explicit_missing(self):
+        # End-to-end through _validate_twin_inputs — simulate with no org_id but a default.
+        validated = validate_twin(
+            action="simulate",
+            action_type="update",
+            org_id=None,
+            site_id=self.SITE_ID,
+            object_type="site_info",
+            payload={"name": "new"},
+            object_id=None,
+            session_id="",
+            default_org_id=self.ORG_ID,
+        )
+        assert validated["org_id"] == self.ORG_ID
+        assert validated["writes"][0]["endpoint"] == f"/api/v1/sites/{self.SITE_ID}"
+
     def test_simulate_requires_action_type(self):
         with pytest.raises(ToolError, match="action_type is required"):
             validate_twin(

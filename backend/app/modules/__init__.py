@@ -48,6 +48,7 @@ MODULES: list[AppModule] = [
         model_imports=[
             ("app.models.user", "User"),
             ("app.models.session", "UserSession"),
+            ("app.models.personal_access_token", "PersonalAccessToken"),
         ],
         tags=["Authentication"],
     ),

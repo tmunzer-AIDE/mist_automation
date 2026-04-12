@@ -38,6 +38,7 @@ def _snap(
     devices: dict[str, DeviceSnapshot] | None = None,
     lldp_neighbors: dict[str, dict[str, str]] | None = None,
     ap_clients: dict[str, int] | None = None,
+    port_devices: dict[str, dict[str, str]] | None = None,
     site_id: str = "site-1",
 ) -> SiteSnapshot:
     """Create a minimal SiteSnapshot."""
@@ -52,7 +53,7 @@ def _snap(
         lldp_neighbors=lldp_neighbors or {},
         port_status={},
         ap_clients=ap_clients or {},
-        port_devices={},
+        port_devices=port_devices or {},
     )
 
 
@@ -255,6 +256,46 @@ class TestPortDisc:
 
         assert client.check_id == "PORT-CLIENT"
         assert client.status == "skipped"
+
+    def test_port_devices_fallback_detects_disconnect_on_logical_port(self):
+        """When LLDP is missing but port_devices shows an AP on ge-0/0/5.0,
+        disabling ge-0/0/5 must still be detected.
+        """
+        ap = _dev("ap-1", mac="aa:bb:cc:00:00:01", device_type="ap", name="AP-Lobby")
+        sw = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/5": {"usage": "ap"}},
+        )
+
+        baseline = _snap(
+            devices={"sw-1": sw, "ap-1": ap},
+            lldp_neighbors={},
+            port_devices={"aa:bb:cc:00:00:10": {"ge-0/0/5.0": "aa:bb:cc:00:00:01"}},
+        )
+
+        sw_pred = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/5": {"usage": "disabled"}},
+        )
+        predicted = _snap(
+            devices={"sw-1": sw_pred, "ap-1": ap},
+            lldp_neighbors={},
+            port_devices=baseline.port_devices,
+        )
+
+        disc, client = check_port_impact(baseline, predicted)
+
+        assert disc.check_id == "PORT-DISC"
+        assert disc.status == "critical"
+        assert disc.summary.startswith("1 port change")
+        assert any("ge-0/0/5" in d and "AP-Lobby" in d for d in disc.details)
+
+        assert client.check_id == "PORT-CLIENT"
+        assert client.status == "pass"
 
     def test_no_switches_no_lldp_passes(self):
         """No switches or gateways in snapshot -> pass (check not applicable)."""

@@ -27,6 +27,7 @@ from app.modules.digital_twin.services.snapshot_analyzer import (
 from app.modules.digital_twin.services.site_snapshot import (
     build_site_snapshot,
     fetch_live_data,
+    load_site_snapshot_source_data,
 )
 from app.modules.digital_twin.services.state_resolver import (
     apply_staged_writes,
@@ -43,8 +44,7 @@ _SITE_ANALYSIS_CONCURRENCY = 8
 def _has_blocking_preflight_errors(check_results: list[CheckResult]) -> bool:
     """Return True when Layer-0 SYS checks report blocking errors."""
     return any(
-        r.layer == 0 and r.check_id.startswith("SYS-") and r.status in ("error", "critical")
-        for r in check_results
+        r.layer == 0 and r.check_id.startswith("SYS-") and r.status in ("error", "critical") for r in check_results
     )
 
 
@@ -188,9 +188,7 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
                     check_name="Write Target Validation",
                     layer=0,
                     status="error",
-                    summary=(
-                        f"Write #{write.sequence}: site_id '{write.site_id}' was not found in backup data"
-                    ),
+                    summary=(f"Write #{write.sequence}: site_id '{write.site_id}' was not found in backup data"),
                     details=[
                         f"Endpoint: {write.endpoint}",
                         "Simulation requires site context in backup snapshots for the selected org.",
@@ -223,9 +221,7 @@ async def _validate_write_targets(org_id: str, staged_writes: list[StagedWrite])
                             f"Endpoint: {write.endpoint}",
                             "PUT/DELETE simulations require existing object IDs to build baseline state.",
                         ],
-                        remediation_hint=(
-                            "Use a real object UUID for the target resource (or POST for new objects)."
-                        ),
+                        remediation_hint=("Use a real object UUID for the target resource (or POST for new objects)."),
                     )
                 )
 
@@ -255,6 +251,10 @@ async def simulate(
         session = await TwinSession.get(PydanticObjectId(existing_session_id))
         if not session:
             raise ValueError(f"Twin session {existing_session_id} not found")
+        if str(session.user_id) != user_id:
+            raise ValueError("Twin session not found")
+        if session.org_id != org_id:
+            raise ValueError("Twin session org mismatch")
         old_severity = session.overall_severity
         session.staged_writes = staged_writes
         session.affected_sites = affected_sites
@@ -286,12 +286,19 @@ async def simulate(
         virtual_state = apply_staged_writes(base_state, staged_writes)
 
         # Compile effective device configs (template inheritance + variable resolution)
-        from app.modules.digital_twin.services.config_compiler import compile_virtual_state
+        from app.modules.digital_twin.services.config_compiler import compile_base_state, compile_virtual_state
 
         virtual_state, all_impacted_sites = await compile_virtual_state(virtual_state, staged_writes, org_id)
         # Expand affected_sites with template-impacted sites
         affected_sites = sorted(set(all_impacted_sites) | set(affected_sites))
         session.affected_sites = affected_sites
+
+        # Compile the baseline the same way as predicted so port-based checks
+        # compare apples-to-apples. Without this, baseline reads raw backup
+        # device configs while predicted is template-merged, producing
+        # asymmetric port_config data that silently defeats PORT-DISC and the
+        # per-VLAN reachability diff.
+        baseline_state = await compile_base_state(affected_sites, org_id)
 
         session.base_snapshot_refs = refs
         session.live_fetched_at = datetime.now(timezone.utc)
@@ -303,8 +310,21 @@ async def simulate(
         async def _analyze_one_site(sid: str) -> list:
             async with semaphore:
                 live_data = await fetch_live_data(sid, org_id)
-                baseline_snap = await build_site_snapshot(sid, org_id, live_data)
-                predicted_snap = await build_site_snapshot(sid, org_id, live_data, state_overrides=virtual_state)
+                snapshot_source_data = await load_site_snapshot_source_data(sid, org_id)
+                baseline_snap = await build_site_snapshot(
+                    sid,
+                    org_id,
+                    live_data,
+                    state_overrides=baseline_state,
+                    source_data=snapshot_source_data,
+                )
+                predicted_snap = await build_site_snapshot(
+                    sid,
+                    org_id,
+                    live_data,
+                    state_overrides=virtual_state,
+                    source_data=snapshot_source_data,
+                )
                 return analyze_site(baseline_snap, predicted_snap)
 
         if affected_sites:

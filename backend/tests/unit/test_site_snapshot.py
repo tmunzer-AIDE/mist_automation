@@ -608,10 +608,13 @@ class TestBuildSiteSnapshot:
         ):
             snap = await build_site_snapshot("site-1", "org-1", live_data)
 
-        # Only the assigned template's referenced org network is included.
+        # Only the assigned template's networks are included. "corp" comes
+        # from the org_networks pool (merged with the template override),
+        # and "guest" is seeded from template_overrides even though there's
+        # no standalone org_network backup for it — that's the template-only
+        # networks fix. The unrelated templates' networks must NOT appear.
         names = {n.get("name") for n in snap.networks.values()}
-        assert names == {"corp"}
-        # The unrelated networks causing the false CFG-SUBNET overlap must NOT appear.
+        assert names == {"corp", "guest"}
         assert "DNT-E2E-DPLM" not in names
         assert "PRD-MXE-data-0" not in names
 
@@ -649,6 +652,54 @@ class TestBuildSiteSnapshot:
 
         assert snap.networks["n-corp"]["vlan_id"] == 100  # override won over org value 50
         assert snap.networks["n-corp"]["subnet"] == "10.1.0.0/24"  # org-level field preserved
+
+    async def test_networks_seeded_from_template_only(self, live_data):
+        """In templated orgs, network definitions may live *only* inline in the
+        network template's ``networks`` dict, with zero standalone
+        ``BackupObject(type='networks')`` records. ``snapshot.networks`` must
+        still surface those entries — otherwise every VLAN-aware check
+        (CONN-VLAN, CONN-VLAN-PATH, ROUTE-GW, CFG-SUBNET, CFG-DHCP-*) degrades
+        to 'not applicable' and bugs like the original ge-0/0/9 AP blackhole
+        go undetected.
+        """
+        net_templates = [
+            {
+                "id": "nt-only",
+                "name": "SiteNT",
+                "networks": {
+                    "corp-data": {"vlan_id": 10, "subnet": "10.0.10.0/24"},
+                    "guest-net": {"vlan_id": 20, "subnet": "10.0.20.0/24"},
+                },
+            }
+        ]
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            if object_type == "networktemplates":
+                return net_templates
+            # Deliberately return no standalone org_networks for any call —
+            # this is the exact data shape that triggered the bug in production.
+            return []
+
+        async def mock_site_info(_org_id, _site_id):
+            return {"name": "Site1", "networktemplate_id": "nt-only"}
+
+        with (
+            patch(
+                "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+                side_effect=mock_load,
+            ),
+            patch(
+                "app.modules.digital_twin.services.site_snapshot._load_site_info_config",
+                side_effect=mock_site_info,
+            ),
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data)
+
+        # Both template-only networks must be in the snapshot with their vlan_id
+        # preserved so downstream VLAN resolution works.
+        names_to_vlans = {cfg.get("name"): cfg.get("vlan_id") for cfg in snap.networks.values()}
+        assert names_to_vlans.get("corp-data") == 10
+        assert names_to_vlans.get("guest-net") == 20
 
 
 # ---------------------------------------------------------------------------
@@ -785,3 +836,53 @@ class TestFetchLiveData:
         assert live.lldp_neighbors == {}
         warning_events = [call.args[0] for call in fake_logger.warning.call_args_list]
         assert "live_data_no_lldp" in warning_events
+
+    async def test_extracts_ospf_and_bgp_peers_from_org_stats(self):
+        """fetch_live_data should map protocol peers by device_id when present."""
+        org_stats_resp = _FakeResp(
+            [
+                {
+                    "id": "gw-1",
+                    "mac": "aa:bb:cc:dd:ee:01",
+                    "type": "gateway",
+                    "ospf_neighbors": [{"peer_ip": "10.0.0.2", "state": "full"}],
+                    "routing": {
+                        "bgp": {
+                            "neighbors": [
+                                {"neighbor_ip": "203.0.113.2", "state": "established"},
+                            ]
+                        }
+                    },
+                }
+            ]
+        )
+        port_stats_resp = _FakeResp([])
+
+        async def fake_arun(fn, *args, **kwargs):
+            name = getattr(fn, "__name__", "")
+            if name == "listOrgDevicesStats":
+                return org_stats_resp
+            if name == "searchSiteSwOrGwPorts":
+                return port_stats_resp
+            raise AssertionError(f"unexpected call: {name}")
+
+        class _FakeMist:
+            def get_session(self):
+                return object()
+
+        async def fake_factory():
+            return _FakeMist()
+
+        with (
+            patch("mistapi.arun", side_effect=fake_arun),
+            patch(
+                "app.services.mist_service_factory.create_mist_service",
+                side_effect=fake_factory,
+            ),
+        ):
+            live = await fetch_live_data("site-1", "org-1")
+
+        assert "gw-1" in live.ospf_peers
+        assert live.ospf_peers["gw-1"][0]["peer_ip"] == "10.0.0.2"
+        assert "gw-1" in live.bgp_peers
+        assert live.bgp_peers["gw-1"][0]["peer_ip"] == "203.0.113.2"

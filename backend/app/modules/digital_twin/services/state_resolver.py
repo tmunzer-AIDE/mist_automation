@@ -26,6 +26,9 @@ _OBJECT_TYPE_ALIASES: dict[str, str] = {
     "setting": "settings",
     "site_setting": "settings",
     "site": "info",
+    "site_devices": "devices",
+    "site_networks": "networks",
+    "site_wlans": "wlans",
 }
 
 _SINGLETON_OBJECT_TYPES: set[str] = {"settings", "info", "data"}
@@ -89,8 +92,32 @@ def merge_write_into_state(
     existing = state.get(key, {})
     if existing.get(DELETED_SENTINEL_KEY):
         existing = {}
+    
     if write.body:
-        existing.update(write.body)
+        # Mist merges port_config and port_usages at the sub-key level.
+        # Shallow update on the whole object would wipe out unrelated ports.
+        for field in ("port_config", "port_usages"):
+            if field in write.body and isinstance(write.body[field], dict):
+                existing_field = existing.get(field) or {}
+                # Ensure we don't mutate the original if it came from base_state
+                merged_field = dict(existing_field)
+                new_field = write.body[field]
+                for k, v in new_field.items():
+                    if isinstance(v, dict) and isinstance(merged_field.get(k), dict):
+                        merged_field[k] = {**merged_field[k], **v}
+                    else:
+                        merged_field[k] = v
+                existing[field] = merged_field
+        
+        # Merge other fields
+        for k, v in write.body.items():
+            if k in ("port_config", "port_usages"):
+                continue
+            if isinstance(v, dict) and isinstance(existing.get(k), dict):
+                existing[k] = {**existing.get(k, {}), **v}
+            else:
+                existing[k] = v
+                
     state[key] = existing
 
 

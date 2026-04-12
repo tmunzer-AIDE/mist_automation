@@ -49,6 +49,14 @@ import { TopbarService } from '../../core/services/topbar.service';
         [active]="mem.isActive"
         >Memory</a
       >
+      <a
+        mat-tab-link
+        routerLink="tokens"
+        routerLinkActive
+        #tok="routerLinkActive"
+        [active]="tok.isActive"
+        >Tokens</a
+      >
     </nav>
     <mat-tab-nav-panel #tabPanel>
       <router-outlet></router-outlet>
