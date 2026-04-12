@@ -310,6 +310,61 @@ class TestSessionToDetailResponse:
         r = session_to_detail_response(session)
         assert r.source_ref == "chat_xyz"
 
+    def test_prediction_report_preserves_check_decision_context(self):
+        issue = CheckResult(
+            check_id="ROUTE-GW",
+            check_name="Default Gateway Gap",
+            layer=3,
+            status="error",
+            summary="1 network missing a gateway L3 interface.",
+            details=["Network 'Corp' has no gateway L3 interface; network VLAN=10"],
+            affected_objects=["Corp"],
+            affected_sites=["site-1"],
+            remediation_hint="Add ip_config entries on a gateway for routed networks.",
+            pre_existing=True,
+            description="Detects routed networks with no corresponding gateway interface.",
+        )
+        passed = CheckResult(
+            check_id="CONN-PHYS",
+            check_name="Physical connectivity loss",
+            layer=2,
+            status="pass",
+            summary="All devices retain gateway reachability.",
+            description="Detects devices that become isolated from gateways.",
+        )
+
+        report = MagicMock()
+        report.total_checks = 2
+        report.passed = 1
+        report.warnings = 0
+        report.errors = 1
+        report.critical = 0
+        report.skipped = 0
+        report.check_results = [issue, passed]
+        report.overall_severity = "error"
+        report.summary = "1 error(s), 1 pass"
+        report.execution_safe = False
+
+        session = _make_session(prediction_report=report)
+        response = session_to_detail_response(session)
+
+        assert response.prediction_report is not None
+        assert response.prediction_report.total_checks == 2
+        assert len(response.prediction_report.check_results) == 2
+
+        route = next(c for c in response.prediction_report.check_results if c.check_id == "ROUTE-GW")
+        assert route.status == "error"
+        assert route.summary != ""
+        assert route.details and "VLAN=10" in route.details[0]
+        assert route.remediation_hint is not None
+        assert route.description != ""
+        assert route.pre_existing is True
+
+        conn = next(c for c in response.prediction_report.check_results if c.check_id == "CONN-PHYS")
+        assert conn.status == "pass"
+        assert conn.summary != ""
+        assert conn.description != ""
+
 
 @pytest.mark.unit
 class TestCheckResultDescription:
