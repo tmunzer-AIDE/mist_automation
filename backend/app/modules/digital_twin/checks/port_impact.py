@@ -89,6 +89,7 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
                 summary=skipped_summary,
                 affected_sites=[baseline.site_id],
                 remediation_hint=skipped_hint,
+                description="Compares switch/gateway port profiles to find LLDP-confirmed neighbors that would be disconnected or lose VLAN membership.",
             ),
             CheckResult(
                 check_id="PORT-CLIENT",
@@ -98,6 +99,7 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
                 summary="Live LLDP data unavailable — client impact was not estimated.",
                 affected_sites=[baseline.site_id],
                 remediation_hint=skipped_hint,
+                description="Estimates the number of wireless clients affected by APs disconnected by port profile changes.",
             ),
         ]
 
@@ -281,6 +283,7 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
             if disc_details
             else None
         ),
+        description="Compares switch/gateway port profiles to find LLDP-confirmed neighbors that would be disconnected or lose VLAN membership.",
     )
 
     # Build PORT-CLIENT result
@@ -322,6 +325,7 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
             if total_clients > 0
             else None
         ),
+        description="Estimates the number of wireless clients affected by APs disconnected by port profile changes.",
     )
 
     return [port_disc, port_client]

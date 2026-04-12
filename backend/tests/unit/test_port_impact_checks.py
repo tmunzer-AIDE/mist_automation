@@ -595,3 +595,55 @@ class TestPortClient:
             or "no wireless" in client.summary.lower()
             or "AP(s) disconnected" in client.summary
         )
+
+
+# ---------------------------------------------------------------------------
+# TestCheckDescriptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCheckDescriptions:
+    """Verify port impact checks populate the description field."""
+
+    def test_port_disc_description_on_skipped(self):
+        """PORT-DISC skipped path has a description."""
+        # A snapshot with a switch but no LLDP data triggers the skipped path
+        sw = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/0": {"usage": "ap"}},
+        )
+        snap = _snap(devices={"sw-1": sw}, lldp_neighbors={})
+        results = check_port_impact(snap, snap)
+        port_disc = next(r for r in results if r.check_id == "PORT-DISC")
+        assert port_disc.description != ""
+
+    def test_port_client_description_on_skipped(self):
+        """PORT-CLIENT skipped path has a description."""
+        sw = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Core",
+            port_config={"ge-0/0/0": {"usage": "ap"}},
+        )
+        snap = _snap(devices={"sw-1": sw}, lldp_neighbors={})
+        results = check_port_impact(snap, snap)
+        port_client = next(r for r in results if r.check_id == "PORT-CLIENT")
+        assert port_client.description != ""
+
+    def test_port_disc_description_on_pass(self):
+        """PORT-DISC pass path has a description."""
+        # Empty snapshot, no devices
+        snap = _snap()
+        results = check_port_impact(snap, snap)
+        port_disc = results[0]
+        assert port_disc.description != ""
+
+    def test_port_client_description_on_pass(self):
+        """PORT-CLIENT pass path has a description."""
+        snap = _snap()
+        results = check_port_impact(snap, snap)
+        port_client = results[1]
+        assert port_client.description != ""
