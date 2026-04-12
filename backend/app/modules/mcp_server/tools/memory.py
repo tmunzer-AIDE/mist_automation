@@ -156,8 +156,8 @@ async def _recall_memory(
             .to_list()
         )
     else:
-        # Most recent 20 entries
-        entries = await MemoryEntry.find(MemoryEntry.user_id == uid).sort(-MemoryEntry.updated_at).limit(20).to_list()
+        # Most recent entries (same cap as search results)
+        entries = await MemoryEntry.find(MemoryEntry.user_id == uid).sort(-MemoryEntry.updated_at).limit(max_results).to_list()
 
     if not entries:
         return "No memories found."
@@ -260,7 +260,7 @@ async def memory_recall(
                 "Keyword(s) to search across memory keys and values. "
                 "Uses MongoDB text-index keyword match — NOT semantic/embedding search. "
                 "Phrase as keywords, not questions: 'region emea' beats 'what region is org X in'. "
-                "Leave empty to list the 20 most recent memories."
+                "Leave empty to list the 30 most recent memories."
             )
         ),
     ] = "",

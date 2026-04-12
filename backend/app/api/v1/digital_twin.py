@@ -141,14 +141,13 @@ async def get_session_logs(
     search: str | None = Query(None, max_length=200),
     current_user: User = Depends(require_admin),
 ) -> list[SimulationLogEntry]:
-    """Return the persisted simulation logs for a Twin session (admin only).
-
-    Admins can inspect logs for any session across all users — this is the
-    primary debugging surface for investigating failed or unexpected runs.
-    """
-    _ = current_user  # admin enforcement happens via require_admin dependency
+    """Return persisted simulation logs for an owned Twin session (admin role required)."""
     session = await twin_service.get_session(session_id)
     if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if str(session.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )

@@ -58,6 +58,7 @@ async def get_site_template_context(
         backup = (
             await BackupObject.find(
                 {
+                    "org_id": org_id,
                     "object_type": {"$in": object_type_query_values("info")},
                     "site_id": site_id,
                     "is_deleted": False,
@@ -102,6 +103,7 @@ async def get_site_template_context(
             backup = (
                 await BackupObject.find(
                     {
+                        "org_id": org_id,
                         "object_type": {"$in": object_type_query_values(tmpl_type)},
                         "object_id": tmpl_id,
                         "is_deleted": False,

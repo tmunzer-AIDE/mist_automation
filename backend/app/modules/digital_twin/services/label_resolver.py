@@ -126,7 +126,7 @@ async def fetch_object_names_by_type(
                     "object_id": w.object_id,
                     "is_deleted": False,
                 }
-            ).first_or_none()
+            ).sort("-version").first_or_none()
             if doc:
                 config = doc.configuration or {}
                 # WLANs should always prefer SSID over object_name/name.
@@ -161,11 +161,11 @@ async def fetch_site_names(*, org_id: str, site_ids: list[str]) -> list[str]:
                 {"object_type": "sites", "object_id": {"$in": site_ids}},
             ],
         }
-    )
+    ).sort([("version", -1)])
     id_to_name: dict[str, str] = {}
     async for doc in cursor:
         sid = doc.site_id or doc.object_id
-        if sid:
+        if sid and sid not in id_to_name:
             config = doc.configuration or {}
             id_to_name[sid] = doc.object_name or config.get("name") or sid
 

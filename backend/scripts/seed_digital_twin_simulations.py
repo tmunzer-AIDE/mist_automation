@@ -8,12 +8,12 @@ The script connects to the app MCP server over streamable HTTP using FastMCP.
 Pass the MCP URL and an Authorization bearer token via flags or env vars.
 
 Run from backend directory:
-    .venv/bin/python scripts/seed_digital_twin_simulations.py --mcp-url http://localhost:8000/mcp --auth-token <TOKEN>
+    .venv/bin/python scripts/seed_digital_twin_simulations.py --mcp-url http://localhost:8000/mcp/ --auth-token <TOKEN>
 
 Examples:
   .venv/bin/python scripts/seed_digital_twin_simulations.py --list-scenarios
-    .venv/bin/python scripts/seed_digital_twin_simulations.py --mcp-url http://localhost:8000/mcp --auth-token <TOKEN>
-    .venv/bin/python scripts/seed_digital_twin_simulations.py --only single-switch-safe,multi-risky --mcp-url http://localhost:8000/mcp --auth-token <TOKEN>
+        .venv/bin/python scripts/seed_digital_twin_simulations.py --mcp-url http://localhost:8000/mcp/ --auth-token <TOKEN>
+        .venv/bin/python scripts/seed_digital_twin_simulations.py --only single-switch-safe,multi-risky --mcp-url http://localhost:8000/mcp/ --auth-token <TOKEN>
 
 Environment variable alternatives:
     MCP_SERVER_URL
@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
@@ -65,6 +66,15 @@ def _resolve_required_value(cli_value: str | None, env_var: str, cli_flag: str) 
             f"Missing required value. Provide {cli_flag} or set {env_var}."
         )
     return value
+
+
+def _normalize_mcp_url(raw_url: str) -> str:
+    """Normalize MCP URL so mounted /mcp endpoint resolves to streamable /mcp/."""
+    parts = urlsplit(raw_url.strip())
+    path = parts.path or "/"
+    if path.endswith("/mcp"):
+        path = f"{path}/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
 
 DEFAULT_ORG_ID = "8aa21779-1178-4357-b3e0-42c02b93b870"
@@ -655,7 +665,10 @@ async def main() -> None:
             print(f"- {scenario.name} [{scenario.suite}]: {scenario.description}")
         return
 
-    mcp_url = _resolve_required_value(args.mcp_url, "MCP_SERVER_URL", "--mcp-url")
+    raw_mcp_url = _resolve_required_value(args.mcp_url, "MCP_SERVER_URL", "--mcp-url")
+    mcp_url = _normalize_mcp_url(raw_mcp_url)
+    if mcp_url != raw_mcp_url:
+        print(f"[INFO] Normalized MCP URL to streamable endpoint: {mcp_url}")
     auth_token = _resolve_required_value(args.auth_token, "MCP_AUTH_TOKEN", "--auth-token")
 
     try:

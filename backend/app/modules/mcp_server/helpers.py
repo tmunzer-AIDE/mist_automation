@@ -144,13 +144,13 @@ def _prune_value(
 
 
 def prune_config(
-    config: dict,
+    config: Any,
     max_keys: int = 30,
     max_value_len: int = MAX_VALUE_LEN,
     inline_keys: set[str] | None = None,
     small_dict_threshold: int = 3,
     max_depth: int = 3,
-) -> dict:
+) -> Any:
     """Prune a configuration dict for compact LLM-friendly rendering.
 
     - Strings are truncated to `max_value_len`.

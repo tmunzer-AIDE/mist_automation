@@ -166,6 +166,10 @@ def _validate_method_target_shape(
         result.error = f"Singleton resource '{resource}' does not accept object_id in the endpoint path"
         return False
 
+    if is_singleton and verb != "PUT":
+        result.error = f"Singleton resource '{resource}' only supports method 'PUT'"
+        return False
+
     if verb in {"PUT", "DELETE"} and not is_singleton and not object_id:
         result.error = (
             f"Method '{verb}' requires object_id for collection resource '{resource}'. "

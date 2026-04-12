@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pymongo.errors import DuplicateKeyError
 
 from app.core.pat import generate_pat
 from app.core.security import hash_password, validate_password_with_policy
@@ -249,16 +250,33 @@ async def create_my_token(
                 detail="expires_at must be in the future",
             )
 
-    plaintext, token_hash, token_prefix = generate_pat()
+    plaintext = ""
+    pat: PersonalAccessToken | None = None
+    for attempt in range(3):
+        plaintext, token_hash, token_prefix = generate_pat()
+        candidate = PersonalAccessToken(
+            user_id=current_user.id,
+            name=payload.name,
+            token_hash=token_hash,
+            token_prefix=token_prefix,
+            expires_at=payload.expires_at,
+        )
+        try:
+            await candidate.insert()
+            pat = candidate
+            break
+        except DuplicateKeyError:
+            logger.warning(
+                "pat_token_hash_collision",
+                user_id=str(current_user.id),
+                attempt=attempt + 1,
+            )
 
-    pat = PersonalAccessToken(
-        user_id=current_user.id,
-        name=payload.name,
-        token_hash=token_hash,
-        token_prefix=token_prefix,
-        expires_at=payload.expires_at,
-    )
-    await pat.insert()
+    if pat is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Unable to create token due to token collision. Please retry.",
+        )
 
     await AuditLog.log_event(
         event_type="pat_created",

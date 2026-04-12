@@ -147,7 +147,7 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
             }
         )
         if changed_ports:
-            logger.info(
+            logger.debug(
                 "port_disc_diagnostic",
                 device=baseline_dev.name,
                 mac=mac,

@@ -262,3 +262,34 @@ class TestPatEndpoints:
     async def test_revoke_bad_id_400(self, client):
         r = await client.delete("/api/v1/users/me/tokens/not-an-id")
         assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_create_retries_on_token_hash_collision(self, client, test_user, monkeypatch):
+        from app.api.v1 import users as users_api
+
+        # Seed a token hash collision so the first generated PAT fails insert.
+        existing = PersonalAccessToken(
+            user_id=test_user.id,
+            name="existing",
+            token_hash="collision-hash",
+            token_prefix="mist_pat_coll",
+        )
+        await existing.insert()
+
+        generated = [
+            ("mist_pat_collision", "collision-hash", "mist_pat_coll"),
+            ("mist_pat_unique", "unique-hash", "mist_pat_uniq"),
+        ]
+
+        def _fake_generate_pat():
+            return generated.pop(0)
+
+        monkeypatch.setattr(users_api, "generate_pat", _fake_generate_pat)
+
+        r = await client.post("/api/v1/users/me/tokens", json={"name": "retry-token"})
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["token"] == "mist_pat_unique"
+
+        created = await PersonalAccessToken.find_one(PersonalAccessToken.token_hash == "unique-hash")
+        assert created is not None

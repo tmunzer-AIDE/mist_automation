@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import structlog
+from fastmcp.exceptions import ToolError
 
 from app.modules.llm.services.llm_service import LLMMessage, LLMService
 from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPTool
@@ -283,7 +284,7 @@ def _mcp_tool_to_openai(tool: MCPTool) -> dict:
 
 def _safe_tool_error_message(error: Exception) -> str:
     """Return a tool error message safe to send back to the LLM loop."""
-    if error.__class__.__name__ == "ToolError":
+    if isinstance(error, ToolError):
         message = str(error).strip()
         return message[:400] if message else "tool rejected the call"
     return f"{error.__class__.__name__}: tool execution failed"

@@ -234,6 +234,18 @@ class TestParseEndpoint:
         assert result.error is not None
         assert "does not accept object_id" in result.error
 
+    def test_singleton_post_rejected(self):
+        result = parse_endpoint("POST", "/api/v1/sites/site-789/settings")
+        assert result.object_type == "settings"
+        assert result.error is not None
+        assert "only supports method 'PUT'" in result.error
+
+    def test_singleton_delete_rejected(self):
+        result = parse_endpoint("DELETE", "/api/v1/orgs/org-123/settings")
+        assert result.object_type == "settings"
+        assert result.error is not None
+        assert "only supports method 'PUT'" in result.error
+
     # --- Placeholder validation tests ---
 
     def test_rejects_placeholder_site_id(self):

@@ -1,4 +1,5 @@
 from app.modules.digital_twin.services.twin_logging import (
+    _MAX_ENTRIES_PER_SESSION,
     bind_twin_session,
     capture_twin_session_logs,
     drain_buffer,
@@ -32,13 +33,14 @@ def test_processor_captures_events_when_session_is_bound():
 
 def test_buffer_is_bounded():
     with bind_twin_session("sess-B", phase="simulate"):
-        for i in range(1100):
+        total = _MAX_ENTRIES_PER_SESSION + 100
+        for i in range(total):
             capture_twin_session_logs(
                 None, "info", {"event": f"ev{i}", "level": "info"}
             )
 
     entries = drain_buffer("sess-B")
-    assert len(entries) == 1000
+    assert len(entries) == _MAX_ENTRIES_PER_SESSION
     assert entries[0].event == "ev100"
 
 
