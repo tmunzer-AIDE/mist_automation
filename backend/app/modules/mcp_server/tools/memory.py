@@ -202,14 +202,21 @@ async def _forget_memory(user_id: str, key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+)
 async def memory_store(
     key: Annotated[
         str,
         Field(
             description=(
                 "Short unique label for this memory (max 100 chars). "
-                "WARNING: if a memory with this key already exists, it will be overwritten."
+                "If a memory with this key already exists for the current user, it is overwritten (upsert)."
             ),
         ),
     ],
@@ -226,7 +233,17 @@ async def memory_store(
         ),
     ] = "general",
 ) -> str:
-    """Save a fact to the user's personal memory store. Memories persist across conversations."""
+    """Save a fact to the CURRENT USER's personal memory store. Memories persist across conversations.
+
+    DO NOT store passwords, API tokens, API keys, certificates, secrets, personal identifiers, or any
+    credential material. Memory is stored as plain text and full-text indexed in MongoDB; it is not a
+    vault. For secrets use the configured credential store.
+
+    Good uses: user preferences ("prefers compact output"), domain facts the LLM keeps forgetting
+    ("org X uses EMEA region"), troubleshooting context ("site Y has intermittent APC3 issues").
+
+    Memories are scoped per user — one user cannot read another user's memories. Upserts by (user_id, key).
+    """
     user_id = mcp_user_id_var.get()
     if not user_id:
         raise ToolError("User context not available")
@@ -234,36 +251,48 @@ async def memory_store(
     return await _store_memory(user_id, key, value, category, thread_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def memory_recall(
     query: Annotated[
         str,
-        Field(description="Text to search for across memory keys and values. Leave empty to list recent memories."),
+        Field(
+            description=(
+                "Keyword(s) to search across memory keys and values. "
+                "Uses MongoDB text-index keyword match — NOT semantic/embedding search. "
+                "Phrase as keywords, not questions: 'region emea' beats 'what region is org X in'. "
+                "Leave empty to list the 20 most recent memories."
+            )
+        ),
     ] = "",
     category: Annotated[
         str,
         Field(
             description=(
-                "Filter by category: general, network, preference, troubleshooting. " "Leave empty for all categories."
-            ),
+                "Filter by category: general, network, preference, troubleshooting. "
+                "Leave empty for all categories."
+            )
         ),
     ] = "",
 ) -> str:
-    """Search the user's personal memory store."""
+    """Search the CURRENT USER's personal memory store (read-only).
+
+    Returns matching entries scored by MongoDB text index. This is keyword matching, not semantic
+    search — if the stored value doesn't share words with the query, it won't surface.
+    """
     user_id = mcp_user_id_var.get()
     if not user_id:
         raise ToolError("User context not available")
     return await _recall_memory(user_id, query or None, category or None)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
 async def memory_forget(
     key: Annotated[
         str,
-        Field(description="The exact key of the memory to delete."),
+        Field(description="The exact key of the memory to delete (case-sensitive; must match what was stored)."),
     ],
 ) -> str:
-    """Delete a specific memory by its exact key."""
+    """Delete a specific memory by exact key from the CURRENT USER's store. Irreversible."""
     user_id = mcp_user_id_var.get()
     if not user_id:
         raise ToolError("User context not available")

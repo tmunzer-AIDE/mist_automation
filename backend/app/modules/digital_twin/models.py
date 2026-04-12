@@ -54,6 +54,7 @@ class CheckResult(BaseModel):
     affected_objects: list[str] = Field(default_factory=list)
     affected_sites: list[str] = Field(default_factory=list)
     remediation_hint: str | None = None
+    pre_existing: bool = False
 
 
 class PredictionReport(BaseModel):

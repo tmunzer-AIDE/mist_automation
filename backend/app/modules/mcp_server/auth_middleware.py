@@ -10,7 +10,6 @@ goes through ASGI.
 """
 
 import json
-from typing import Any
 
 import structlog
 from starlette.types import ASGIApp, Receive, Scope, Send

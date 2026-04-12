@@ -34,6 +34,32 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 - Singleton writes use `object_id=None`; base-state loading handles singleton lookups by `(object_type, site_id/org scope)` without requiring an explicit object ID.
 - `site_snapshot.py` loads inherited org networks with an org-level-only filter (`site_id == null`) to avoid leaking other sites' network backups into a single-site snapshot.
 
+### Site info resolution
+
+`site_snapshot._load_site_info_config()` resolves the per-site config from whichever backup shape carries it — Mist has stored site identity in three forms over time:
+
+- `object_type="info"` at site scope (newer site-level singleton)
+- `object_type="site"` at site scope (legacy alias, canonicalized to `info`)
+- `object_type="sites"` at the org level, keyed by `object_id=<site_id>` (an entry of the org-wide sites list)
+
+The first two are routed through `_load_site_objects` so mocks in tests keep working; the third is a direct `BackupObject` query because it lives outside the `(object_type, site_id)` shape. Missing all three gracefully degrades to an empty site info dict with a log, and network filtering falls back to including all org networks.
+
+### Site-scoped network filtering
+
+Only networks referenced by the **templates actually assigned to the site** are included in `SiteSnapshot.networks`. `build_site_snapshot()`:
+
+1. Reads `site_info.networktemplate_id` and `site_info.gatewaytemplate_id`.
+2. Loads those specific templates from the backup and collects the set of network names they reference (via the inline `networks` dict keyed by name).
+3. Also collects network names defined inline in `site_setting.networks`.
+4. Filters the standalone `org_networks` pool down to just those referenced names, applies the template overrides on top, then layers site-scoped standalone network backups by id.
+5. Finally sorts the resulting `networks` dict by key for deterministic iteration order.
+
+Why this matters: without the filter, `org_networks` contains every network from every network template in the org, which triggers false CFG-SUBNET overlaps between networks that never co-exist on any real site (two different templates each defining a `10.10.10.0/24` network with different names). With the filter, the snapshot only contains networks the site actually consumes.
+
+If no template assignment is discoverable (incomplete backup, or a legitimate site with no template), the filter is skipped and all org networks are included — preserving the old behaviour for partial backups instead of returning an empty snapshot. A `site_snapshot_no_template_refs` info log records when this fallback is used.
+
+MongoDB's `$group` aggregation does not guarantee output order, so repeated calls to `load_all_objects_of_type` can return the same networks in different orders. Sorting the final `networks` dict by key keeps CFG-SUBNET detail strings stable across the baseline and predicted analysis passes, which the `pre_existing` classification relies on.
+
 ### Simulation Preflight Validation
 
 - `endpoint_parser.py` rejects unresolved placeholders in path segments (e.g. `{site_id}`, `<device_id>`, `:site_id`) and marks them as parse errors.
@@ -44,6 +70,31 @@ Pre-deployment simulation engine. Validates proposed Mist configuration changes 
 - Sessions with blocking preflight errors (`layer=0`, `check_id` prefixed `SYS-`, status `error|critical`) are marked `failed` instead of `awaiting_approval`.
 - `approve_and_execute()` enforces server-side safety: approval is rejected when `prediction_report.execution_safe` is false or blocking preflight errors are present.
 - Snapshot analysis fan-out is concurrency-limited (semaphore) to avoid unbounded per-site parallelism on large affected-site sets.
+
+### Diff-based `execution_safe` / pre-existing classification
+
+- `snapshot_analyzer.analyze_site()` runs every check twice: once against `(baseline, baseline)` to capture the current baseline state, once against `(baseline, predicted)` for the proposed change.
+- Any failing predicted check whose `details` are a subset of the matching baseline result is marked `CheckResult.pre_existing=True`. New/worsened details disqualify the mark, so a change that introduces *new* issues in an already-failing check is still treated as introduced.
+- `build_prediction_report()` then computes `execution_safe` using only non-pre-existing `error`/`critical` results. Pre-existing config debt (e.g. an unrelated subnet overlap in baseline) is surfaced in the report but does not block approval.
+- `overall_severity` continues to reflect the true worst severity (including pre-existing issues) so the UI can show the real site state; only approval gating is diff-based.
+
+### Live data sources — `fetch_live_data()`
+
+Runs **two** Mist API calls in parallel to build `LiveSiteData`:
+
+| Endpoint | Purpose | Best for |
+|----------|---------|----------|
+| `listOrgDevicesStats(org_id, site_id=..., fields="*")` | Device stats incl. `clients[]` (with `source="lldp"`), `if_stat`, `clients_stats.total` | AP client counts, AP-side LLDP (fallback) |
+| `searchSiteSwOrGwPorts(site_id, limit=1000)` | Per-port records with `mac`, `port_id`, `neighbor_mac`, `neighbor_system_name`, `up` | **Authoritative switch/gateway LLDP and port state** |
+
+Switch and gateway LLDP neighbours almost never appear in `listOrgDevicesStats.clients[]` — they live in the port stats endpoint. This mirrors how `impact_analysis` and `reports` fetch topology data. Both responses are merged into the same `lldp_neighbors` / `port_status` / `port_devices` dicts; per-source failures are logged (`live_data_org_stats_failed`, `live_data_port_stats_failed`, `live_data_port_stats_error`) without aborting the whole fetch.
+
+All MACs are normalized via `_normalize_mac()` (strip `:`/`-`, lowercase) on both the live-data side and inside `_build_device_snapshot()`, so device lookups in `check_port_impact()` match regardless of the case/format each API returns.
+
+### Port impact checks — missing live data
+
+- When `baseline` contains any switch or gateway but `baseline.lldp_neighbors` is empty, `check_port_impact()` returns `PORT-DISC` and `PORT-CLIENT` with status `skipped` (not `pass`). This avoids a silent false-clear when live telemetry was unavailable.
+- `fetch_live_data()` logs a `live_data_no_lldp` warning when neither `listOrgDevicesStats` nor `searchSiteSwOrGwPorts` returns LLDP neighbours for a site with switches/gateways, so operators can diagnose why port-impact checks were skipped.
 
 ### Key Services
 

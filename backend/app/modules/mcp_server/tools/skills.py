@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Annotated
 from xml.sax.saxutils import escape
 
+import structlog
 from fastmcp.exceptions import ToolError
 from pydantic import Field
-import structlog
 
 from app.modules.mcp_server.server import mcp
 from app.modules.mcp_server.tools.utils import is_placeholder
@@ -26,25 +26,26 @@ def _validate_skill_name(name: str) -> str:
     return skill_name
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def activate_skill(
     name: Annotated[
         str,
         Field(
             description=(
                 "Exact skill name from the skill catalog (case-sensitive). "
-                "Use only listed skills; do not use placeholders."
+                "Use only names listed in your system prompt; do not use placeholders or guesses."
             )
         ),
     ]
 ) -> str:
     """Load the full instructions for a named Agent Skill.
 
-    Call this tool when the user's request matches a skill's description.
-    The skill catalog in your system prompt lists available skill names.
+    Call this tool when the user's request matches a skill's description. Prefer activate_skill over
+    reading general documentation when a named skill applies — skills are kept in sync with current
+    project conventions and contain the exact procedure the platform expects you to follow.
 
-    Returns the skill's markdown instructions wrapped in <skill_content> tags,
-    along with a list of any bundled resource files in the skill directory.
+    Returns the skill's markdown instructions wrapped in <skill_content> tags, along with a list of
+    any bundled resource files in the skill directory.
     """
     from app.modules.llm.models import Skill
     from app.modules.llm.services.skills_service import list_skill_resources, parse_skill_md

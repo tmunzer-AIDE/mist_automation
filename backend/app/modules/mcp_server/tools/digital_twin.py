@@ -9,6 +9,8 @@ from enum import Enum
 from typing import Annotated, Any
 from uuid import UUID
 
+import structlog
+from fastmcp.dependencies import CurrentContext
 from fastmcp.exceptions import ToolError
 from mcp.server.fastmcp import Context
 from pydantic import Field
@@ -16,6 +18,8 @@ from pydantic import Field
 from app.modules.mcp_server.helpers import _elicit, to_json
 from app.modules.mcp_server.server import mcp, mcp_user_id_var
 from app.modules.mcp_server.tools.utils import is_placeholder, is_uuid
+
+logger = structlog.get_logger(__name__)
 
 
 class TwinActionType(str, Enum):
@@ -51,7 +55,9 @@ class Object_type(str, Enum):
     ORG_WXTAGS = 'org_wxtags'
     SITE_DEVICES = 'site_devices'
     SITE_EVPN_TOPOLOGIES = 'site_evpn_topologies'
+    SITE_INFO = 'site_info'
     SITE_PSKS = 'site_psks'
+    SITE_SETTING = 'site_setting'
     SITE_WEBHOOKS = 'site_webhooks'
     SITE_WLANS = 'site_wlans'
     SITE_WXRULES = 'site_wxrules'
@@ -78,6 +84,14 @@ _MONGO_OBJECT_ID_RE = re.compile(r'^[0-9a-fA-F]{24}$')
 _OBJECT_RESOURCE_OVERRIDES: dict[Object_type, str] = {
     # Mist uses /templates for WLAN template CRUD.
     Object_type.ORG_WLANTEMPLATES: 'templates',
+}
+
+# Singleton object types map directly to an explicit URL template instead of the
+# generic `{scope}/{id}/{resource}/{object_id}` builder. These endpoints have no
+# object_id (the site_id IS the identifier) and only UPDATE is meaningful.
+_SINGLETON_OAS_PATHS: dict[Object_type, str] = {
+    Object_type.SITE_INFO: '/api/v1/sites/{site_id}',
+    Object_type.SITE_SETTING: '/api/v1/sites/{site_id}/setting',
 }
 
 _ORG_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if obj.value.startswith('org_')))
@@ -211,6 +225,7 @@ def _build_simulation_write(
 
     scope, resource = _scope_and_resource(object_type)
     method = _ACTION_TO_METHOD[action_type]
+    is_singleton = object_type in _SINGLETON_OAS_PATHS
 
     if scope == 'site':
         if not site_id:
@@ -218,10 +233,21 @@ def _build_simulation_write(
     elif site_id:
         raise ToolError(f"site_id is not supported when object_type='{object_type.value}'")
 
-    if action_type in {Action_type.UPDATE, Action_type.DELETE} and not object_id:
-        raise ToolError("object_id is required when action_type is 'update' or 'delete'")
-    if action_type == Action_type.CREATE and object_id:
-        raise ToolError("object_id is not supported when action_type is 'create'")
+    if is_singleton:
+        if action_type != Action_type.UPDATE:
+            raise ToolError(
+                f"object_type='{object_type.value}' is a singleton — only action_type='update' is supported"
+            )
+        if object_id:
+            raise ToolError(
+                f"object_id must not be provided for singleton object_type='{object_type.value}' — "
+                "the site_id is the identifier"
+            )
+    else:
+        if action_type in {Action_type.UPDATE, Action_type.DELETE} and not object_id:
+            raise ToolError("object_id is required when action_type is 'update' or 'delete'")
+        if action_type == Action_type.CREATE and object_id:
+            raise ToolError("object_id is not supported when action_type is 'create'")
 
     if action_type in {Action_type.CREATE, Action_type.UPDATE}:
         if payload is None or not isinstance(payload, dict):
@@ -234,12 +260,15 @@ def _build_simulation_write(
     elif payload is not None:
         raise ToolError("payload is not supported when action_type is 'delete'")
 
-    if scope == 'org':
-        endpoint_base = f'/api/v1/orgs/{org_id}/{resource}'
+    if is_singleton:
+        endpoint = _SINGLETON_OAS_PATHS[object_type].format(site_id=site_id)
     else:
-        endpoint_base = f'/api/v1/sites/{site_id}/{resource}'
+        if scope == 'org':
+            endpoint_base = f'/api/v1/orgs/{org_id}/{resource}'
+        else:
+            endpoint_base = f'/api/v1/sites/{site_id}/{resource}'
 
-    endpoint = endpoint_base if action_type == Action_type.CREATE else f'{endpoint_base}/{object_id}'
+        endpoint = endpoint_base if action_type == Action_type.CREATE else f'{endpoint_base}/{object_id}'
 
     parsed = parse_endpoint(method, endpoint)
     if parsed.error:
@@ -354,9 +383,8 @@ def _validate_twin_inputs(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True})
 async def digital_twin(
-    ctx: Context,
     action: Annotated[
         TwinActionType,
         Field(
@@ -372,26 +400,28 @@ async def digital_twin(
         ),
     ],
     action_type: Annotated[
-        Action_type | None,
+        Action_type |None,
         Field(
             description=(
                 'Whether the simulation change creates, updates, or deletes an object. '
                 "Required when action='simulate'. When updating or deleting, object_id is required."
             ),
             examples=['create', 'update', 'delete'],
+            default=None,
         ),
-    ] = None,
+    ]=None,
     org_id: Annotated[
-        UUID | None,
+        UUID|None ,
         Field(
             description=(
                 "Organization ID. Required when action='simulate'."
             ),
             examples=['8aa21779-1178-4357-b3e0-42c02b93b870'],
+            default=None,
         ),
-    ] = None,
+    ] =None,
     site_id: Annotated[
-        UUID | None,
+        UUID |None,
         Field(
             default=None,
             description=(
@@ -400,21 +430,29 @@ async def digital_twin(
             ),
             examples=['2818e386-8dec-4562-9ede-5b8a0fbbdc71'],
         ),
-    ] = None,
+    ]=None ,
     object_type: Annotated[
-        Object_type | None,
+        Object_type |None,
         Field(
             description=(
-                'Type of configuration object to create, update, or delete. Required when action=\'simulate\'. '
+                "Type of configuration object to create, update, or delete. Required when action='simulate'. "
                 "Use one of the explicit enum values (org_* or site_*). "
                 f"Org-scoped values: {_ORG_OBJECT_TYPE_VALUES}. "
-                f"Site-scoped values: {_SITE_OBJECT_TYPE_VALUES}."
+                f"Site-scoped values: {_SITE_OBJECT_TYPE_VALUES}. "
+                "Singletons (no object_id, update only): "
+                "'site_info' updates the Site document itself — use this for template bindings "
+                "(networktemplate_id, rftemplate_id, gatewaytemplate_id, aptemplate_id, "
+                "alarmtemplate_id, sitetemplate_id, secpolicy_id, sitegroup_ids) and site identity "
+                "(name, timezone, latlng). 'site_setting' updates the site-level runtime settings "
+                "singleton — use this for wireless defaults, DNS/NTP, auto_upgrade, wids/rogue, "
+                "switch_mgmt, etc. Do NOT use site_setting for template bindings."
             ),
-            examples=['org_wlans', 'site_wlans', 'site_devices'],
+            examples=['org_wlans', 'site_wlans', 'site_devices', 'site_info', 'site_setting'],
+            default=None,
         ),
-    ] = None,
+    ] =None,
     payload: Annotated[
-        dict[str, Any] | None,
+        dict[str, Any]|None ,
         Field(
             description=(
                 "JSON payload for create/update simulation. Required when action_type is 'create' or 'update'. "
@@ -423,10 +461,11 @@ async def digital_twin(
                 "Do not include unresolved placeholders such as {{var}}, {id}, <id>, or :id."
             ),
             examples=[{'ssid': 'Guest', 'enabled': True, 'vlan_id': '200'}],
+            default=None,
         ),
-    ] = None,
+    ]=None,
     object_id: Annotated[
-        UUID | None,
+        UUID |None,
         Field(
             description=(
                 "Object ID for update/delete simulation target. Required when action_type is 'update' or 'delete'."
@@ -434,7 +473,7 @@ async def digital_twin(
             default=None,
             examples=['3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7'],
         ),
-    ] = None,
+    ] =None,
     session_id: Annotated[
         str,
         Field(
@@ -444,12 +483,24 @@ async def digital_twin(
                 'Format: 24-character hex MongoDB ObjectId.'
             ),
             examples=['67f1f77bcf86cd799439011a'],
+            default="",
         ),
-    ] = '',
+    ] ="",
+    ctx: Context = CurrentContext(),
 ) -> str:
     """Pre-deployment simulation engine (Digital Twin) for Mist config changes.
 
-    Simulation mode (`action='simulate'`) now uses a strict change-object contract:
+    IMPORTANT WORKFLOW:
+    1. Call get_configuration_object_schema(object_type, org_id, ...) first to discover required fields
+       and get an OAS-derived example payload.
+    2. (Optional but cheap) Call validate_configuration_payload(object_type, org_id, payload, ...) to
+       dry-validate your draft before burning a twin session.
+    3. Call digital_twin(action='simulate', ...) with the validated payload. The response will include
+       `execution_safe` and `next_action` — only call action='approve' when execution_safe is true.
+    4. Call digital_twin(action='approve', session_id=...) to deploy. Approve is DESTRUCTIVE and writes
+       the change to Mist.
+
+    Simulation mode (`action='simulate'`) uses a strict change-object contract:
     - `action_type`: create | update | delete
     - `org_id`: organization UUID
     - `site_id`: required for site-scoped object_type only
@@ -459,6 +510,9 @@ async def digital_twin(
 
     Session mode actions (`approve`, `reject`, `status`, `history`) only require
     session metadata and reject simulation fields to avoid ambiguous calls.
+
+    Calling simulate with an existing `session_id` appends another remediation iteration to that
+    session (the prior iterations are preserved; use action='status' to inspect history).
 
         Required/forbidden matrix:
         - action=simulate:
@@ -508,10 +562,14 @@ async def digital_twin(
         4) Approve safe session
              digital_twin(action='approve', session_id='67f1f77bcf86cd799439011a')
 
-        The simulate response includes:
+        The simulate response ALWAYS includes:
+        - session_id, status, overall_severity, remediation_count
         - requested_change: normalized change inputs
         - compiled_write: generated Mist API write (method/endpoint/body)
-        - execution_safe and next_action: deploy guidance for LLM orchestration
+        - execution_safe (bool): true only when deployment is safe to approve
+        - next_action: one of 'approve' | 'fix_and_resimulate' — follow this literally
+        If the internal prediction report is missing, execution_safe is false, next_action is
+        'fix_and_resimulate', and result includes a 'warning' field explaining the gap.
     """
     _ = ctx
 
@@ -564,6 +622,9 @@ async def digital_twin(
                 'object_id': validated['object_id'],
             },
             'compiled_write': write_list[0],
+            # Always populate execution_safe / next_action so LLMs can branch reliably.
+            'execution_safe': False,
+            'next_action': 'fix_and_resimulate',
         }
 
         if report:
@@ -589,6 +650,10 @@ async def digital_twin(
                 for r in report.check_results
                 if r.status not in ('pass', 'skipped')
             ]
+        else:
+            result['warning'] = (
+                'No prediction report generated for this simulation; treat as unsafe until resimulated.'
+            )
 
         return to_json(result)
 
@@ -597,7 +662,14 @@ async def digital_twin(
         if not session:
             raise ToolError(f'Session {session_id_value} not found')
         if str(session.user_id) != user_id:
-            raise ToolError('Session not found')
+            logger.warning(
+                'twin_session_access_denied',
+                session_id=session_id_value,
+                requested_by=user_id,
+                session_owner=str(session.user_id),
+                action='approve',
+            )
+            raise ToolError(f'Session {session_id_value} not found')
 
         write_count = len(session.staged_writes)
         report = session.prediction_report
@@ -660,7 +732,14 @@ async def digital_twin(
         if not session:
             raise ToolError(f'Session {session_id_value} not found')
         if str(session.user_id) != user_id:
-            raise ToolError('Session not found')
+            logger.warning(
+                'twin_session_access_denied',
+                session_id=session_id_value,
+                requested_by=user_id,
+                session_owner=str(session.user_id),
+                action='status',
+            )
+            raise ToolError(f'Session {session_id_value} not found')
 
         report = session.prediction_report
         status_result: dict[str, Any] = {
@@ -669,6 +748,9 @@ async def digital_twin(
             'severity': session.overall_severity,
             'writes': len(session.staged_writes),
             'remediation_count': session.remediation_count,
+            # Always populate execution_safe / next_action for reliable LLM branching.
+            'execution_safe': False,
+            'next_action': 'fix_and_resimulate',
         }
         if report:
             status_result['summary'] = report.summary
@@ -681,6 +763,8 @@ async def digital_twin(
                 'errors': report.errors,
                 'critical': report.critical,
             }
+        else:
+            status_result['warning'] = 'No prediction report on this session; treat as unsafe.'
 
         return to_json(status_result)
 

@@ -27,6 +27,7 @@ class TestBackupToolValidation:
                 action="unknown",
                 object_id="",
                 version_id="",
+                version_number=0,
                 version_id_1="",
                 version_id_2="",
                 backup_type="",
@@ -43,6 +44,7 @@ class TestBackupToolValidation:
                 action="trigger",
                 object_id="",
                 version_id="",
+                version_number=0,
                 version_id_1="",
                 version_id_2="",
                 backup_type="manual",
@@ -59,6 +61,7 @@ class TestBackupToolValidation:
                 action="trigger",
                 object_id="",
                 version_id="",
+                version_number=0,
                 version_id_1="",
                 version_id_2="",
                 backup_type="full",
@@ -75,6 +78,7 @@ class TestBackupToolValidation:
                 action="job_logs",
                 object_id="",
                 version_id="",
+                version_number=0,
                 version_id_1="",
                 version_id_2="",
                 backup_type="",
@@ -312,6 +316,90 @@ class TestDigitalTwinValidation:
         assert validated["writes"][0]["endpoint"] == (
             f"/api/v1/sites/{self.SITE_ID}/wlans/{self.OBJECT_ID}"
         )
+
+    def test_site_info_update_compiles_without_object_id(self):
+        # site_info is a singleton — the site_id IS the identifier, no object_id needed.
+        validated = validate_twin(
+            action="simulate",
+            action_type="update",
+            org_id=self.ORG_ID,
+            site_id=self.SITE_ID,
+            object_type="site_info",
+            payload={"networktemplate_id": self.OBJECT_ID},
+            object_id=None,
+            session_id="",
+        )
+
+        assert validated["writes"][0]["method"] == "PUT"
+        assert validated["writes"][0]["endpoint"] == f"/api/v1/sites/{self.SITE_ID}"
+        assert validated["writes"][0]["body"] == {"networktemplate_id": self.OBJECT_ID}
+
+    def test_site_info_rejects_object_id(self):
+        with pytest.raises(ToolError, match="object_id must not be provided"):
+            validate_twin(
+                action="simulate",
+                action_type="update",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="site_info",
+                payload={"networktemplate_id": "1b4d9684-8a4e-426c-beb8-3b2c352f8e1f"},
+                object_id=self.OBJECT_ID,
+                session_id="",
+            )
+
+    def test_site_info_rejects_create(self):
+        with pytest.raises(ToolError, match="only action_type='update' is supported"):
+            validate_twin(
+                action="simulate",
+                action_type="create",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="site_info",
+                payload={"name": "new"},
+                object_id=None,
+                session_id="",
+            )
+
+    def test_site_info_rejects_delete(self):
+        with pytest.raises(ToolError, match="only action_type='update' is supported"):
+            validate_twin(
+                action="simulate",
+                action_type="delete",
+                org_id=self.ORG_ID,
+                site_id=self.SITE_ID,
+                object_type="site_info",
+                payload=None,
+                object_id=None,
+                session_id="",
+            )
+
+    def test_site_info_requires_site_id(self):
+        with pytest.raises(ToolError, match="site_id is required"):
+            validate_twin(
+                action="simulate",
+                action_type="update",
+                org_id=self.ORG_ID,
+                site_id=None,
+                object_type="site_info",
+                payload={"name": "new"},
+                object_id=None,
+                session_id="",
+            )
+
+    def test_site_setting_update_compiles_without_object_id(self):
+        validated = validate_twin(
+            action="simulate",
+            action_type="update",
+            org_id=self.ORG_ID,
+            site_id=self.SITE_ID,
+            object_type="site_setting",
+            payload={"auto_upgrade": {"enabled": True}},
+            object_id=None,
+            session_id="",
+        )
+
+        assert validated["writes"][0]["method"] == "PUT"
+        assert validated["writes"][0]["endpoint"] == f"/api/v1/sites/{self.SITE_ID}/setting"
 
     def test_approve_requires_session_id(self):
         with pytest.raises(ToolError, match="session_id required"):

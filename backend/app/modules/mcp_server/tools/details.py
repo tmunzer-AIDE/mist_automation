@@ -48,34 +48,49 @@ def _validate_details_inputs(*, detail_type: str, id_value: str, section: str) -
     return {"type": dtype, "id": item_id, "section": section_name}
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def get_details(
     type: Annotated[
         str,
         Field(
             description=(
                 "What to get details for. One of:\n"
-                "- 'webhook_event': Full webhook event including payload, device info, matched workflows. Requires: id.\n"
-                "- 'report': Post-deployment validation report results. Returns summary counts "
-                "(pass/warn/fail per device type) by default. Use 'section' to get full data for one section. Requires: id.\n"
-                "- 'dashboard': System overview with 7-day stats for workflows, executions, backups, webhooks, and reports. No id needed."
+                "- 'webhook_event': full webhook event including raw payload, device info, and matched workflows.\n"
+                "    Required: id. Forbidden: section.\n"
+                "- 'report': post-deployment validation report. Returns summary counts (pass/warn/fail per device type).\n"
+                "    Required: id. Optional: section to fetch full data for one section.\n"
+                "- 'dashboard': compact system overview with 7-day stats (workflows, executions, backups, webhooks, reports).\n"
+                "    Required: none. Forbidden: id, section."
             ),
         ),
     ],
     id: Annotated[
         str,
         Field(
-            description="MongoDB document ID of the item. Required for type='webhook_event' and type='report'. Get this from search results."
+            description=(
+                "MongoDB ObjectId string (24 hex chars), obtained from the 'id' field of a search() result. "
+                "Required when type is 'webhook_event' or 'report'. Forbidden when type='dashboard'. "
+                "Example: '507f1f77bcf86cd799439011'."
+            )
         ),
     ] = "",
     section: Annotated[
         str,
         Field(
-            description="For type='report' only: return full data for one section instead of the summary. One of: 'aps', 'switches', 'gateways', 'template_variables'."
+            description=(
+                "ONLY valid when type='report'. Returns full data for one section instead of the summary. "
+                "One of: 'aps', 'switches', 'gateways', 'template_variables'."
+            )
         ),
     ] = "",
 ) -> str:
-    """Get detailed information about a webhook event (with full payload), a validation report (with health results), or the system dashboard overview."""
+    """Get full details for a single webhook event, validation report, or the system dashboard overview.
+
+    This tool is read-only. Typical workflow:
+    - First call search() to find an item and get its id.
+    - Then call get_details(type=..., id=...) to see its full payload.
+    - For Mist configuration object versions, use backup(action='object_info'/'version_detail') instead.
+    """
     validated = _validate_details_inputs(detail_type=type, id_value=id, section=section)
 
     dispatchers: dict[str, Any] = {
@@ -97,8 +112,10 @@ async def _webhook_event(*, id: str, **_kwargs) -> str:
 
     try:
         event = await WebhookEvent.get(PydanticObjectId(id))
-    except Exception:
-        raise ToolError(f"Invalid event id '{id}'")
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid webhook event id '{id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not event:
         raise ToolError(f"Webhook event '{id}' not found")
@@ -137,8 +154,10 @@ async def _report(*, id: str, section: str, **_kwargs) -> str:
 
     try:
         job = await ReportJob.get(PydanticObjectId(id))
-    except Exception:
-        raise ToolError(f"Invalid report id '{id}'")
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid report id '{id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not job:
         raise ToolError(f"Report '{id}' not found")

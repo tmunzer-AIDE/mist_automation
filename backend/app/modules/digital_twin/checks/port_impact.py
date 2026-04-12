@@ -34,9 +34,44 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
     PORT-CLIENT (Layer 2): For each disconnected AP found by PORT-DISC, sum the
     wireless clients from baseline.ap_clients and report the impact.
 
+    When baseline has switches/gateways but no LLDP data, both checks return
+    ``skipped`` — this signals that live telemetry was unavailable rather than
+    giving a false "all clear".
+
     Returns:
         A list of two CheckResult objects: [PORT-DISC result, PORT-CLIENT result].
     """
+    has_l2_device = any(dev.type in ("switch", "gateway") for dev in baseline.devices.values())
+    if has_l2_device and not baseline.lldp_neighbors:
+        skipped_summary = (
+            "Live LLDP data unavailable — cannot verify which ports connect to neighbors. "
+            "Port disconnect impact was not evaluated."
+        )
+        skipped_hint = (
+            "Re-run the simulation once live device telemetry is reachable. "
+            "Check that listOrgDevicesStats returns clients[] with source='lldp' for this site."
+        )
+        return [
+            CheckResult(
+                check_id="PORT-DISC",
+                check_name="Port Profile Disconnect Risk",
+                layer=2,
+                status="skipped",
+                summary=skipped_summary,
+                affected_sites=[baseline.site_id],
+                remediation_hint=skipped_hint,
+            ),
+            CheckResult(
+                check_id="PORT-CLIENT",
+                check_name="Client Impact Estimation",
+                layer=2,
+                status="skipped",
+                summary="Live LLDP data unavailable — client impact was not estimated.",
+                affected_sites=[baseline.site_id],
+                remediation_hint=skipped_hint,
+            ),
+        ]
+
     disc_details: list[str] = []
     disc_affected: list[str] = []
     disc_max_severity: str = "pass"
@@ -122,9 +157,11 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
         details=disc_details,
         affected_objects=disc_affected,
         affected_sites=[baseline.site_id] if disc_details else [],
-        remediation_hint="Review port profile changes and verify no critical infrastructure is connected to affected ports."
-        if disc_details
-        else None,
+        remediation_hint=(
+            "Review port profile changes and verify no critical infrastructure is connected to affected ports."
+            if disc_details
+            else None
+        ),
     )
 
     # Build PORT-CLIENT result
@@ -161,9 +198,11 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
         details=client_details,
         affected_objects=[f"ap:{ap_id}" for ap_id in disconnected_ap_ids] if disconnected_ap_ids else [],
         affected_sites=[baseline.site_id] if disconnected_ap_ids else [],
-        remediation_hint="Schedule port changes during a maintenance window to minimize client disruption."
-        if total_clients > 0
-        else None,
+        remediation_hint=(
+            "Schedule port changes during a maintenance window to minimize client disruption."
+            if total_clients > 0
+            else None
+        ),
     )
 
     return [port_disc, port_client]

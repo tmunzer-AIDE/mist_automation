@@ -73,39 +73,44 @@ def _validate_session_search_inputs(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def search_impact_sessions(
     status: Annotated[
         str,
         Field(
             description=(
-                "Filter by session status. "
-                "One of: 'pending', 'baseline_capture', 'awaiting_config', 'monitoring', "
-                "'validating', 'completed', 'failed', 'cancelled'. Empty string for all."
+                "Filter by session status. One of: 'pending', 'baseline_capture', 'awaiting_config', "
+                "'monitoring', 'validating', 'completed', 'failed', 'cancelled'. Empty string for all."
             ),
         ),
     ] = "",
     site_id: Annotated[
         str,
-        Field(description="Filter by Mist site UUID."),
+        Field(description="Filter by Mist site UUID (must be a real UUID, not a name)."),
     ] = "",
     device_type: Annotated[
         str,
-        Field(description="Filter by device type: 'ap', 'switch', or 'gateway'."),
+        Field(description="Filter by device type. One of: 'ap', 'switch', 'gateway'."),
     ] = "",
     device_mac: Annotated[
         str,
-        Field(description="Filter by device MAC address."),
+        Field(description="Filter by device MAC address. Format: 'aa:bb:cc:dd:ee:ff'."),
     ] = "",
     limit: Annotated[
         int,
         Field(description="Max results to return (1-25).", ge=1, le=25),
     ] = 10,
 ) -> str:
-    """Search impact analysis monitoring sessions with optional filters.
+    """Search impact analysis monitoring sessions (read-only).
 
-    Returns a compact list of sessions with id, site, device, status, and incident/change counts.
+    Impact sessions are created automatically when the platform observes a Mist config change via
+    webhook. They passively monitor a device for a time window and score the change's impact.
+
+    Returns a compact list with id, site, device, status, and incident/change counts.
     Use get_impact_session_detail for full details on a specific session.
+
+    NOTE: there is no MCP tool to cancel a running session. Use the web UI or REST API if you
+    need to stop a monitoring session early.
     """
     from app.modules.impact_analysis.models import MonitoringSession
 
@@ -137,16 +142,33 @@ async def search_impact_sessions(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def get_impact_session_detail(
     id: Annotated[
         str,
         Field(
-            description="MongoDB document ID of the monitoring session. Get this from search_impact_sessions results."
+            description=(
+                "MongoDB ObjectId (24 hex chars) of the monitoring session. "
+                "Get this from search_impact_sessions results."
+            )
         ),
     ],
 ) -> str:
-    """Get full details of an impact analysis monitoring session, including config changes, incidents, SLE delta, validation results, and AI assessment."""
+    """Get full details of an impact analysis monitoring session (read-only).
+
+    Returned fields:
+    - config_changes: list of {event_type, device_name, timestamp} — webhook-derived config events
+      the session is correlated with.
+    - incidents: list of {event_type, device_name, severity, is_revert, resolved, timestamp} —
+      device events observed during the monitoring window.
+    - sle_delta: Mist SLE (Service Level Expectation) deltas comparing pre-change vs. post-change
+      performance. Shape follows Mist SLE API; expect nested dicts per metric.
+    - validation_results: results from any configured post-deployment validation checks (list of
+      check outcomes with pass/warn/fail status).
+    - ai_assessment: short LLM-generated summary of the change's observed impact (may be null).
+
+    Use search_impact_sessions first to find a session id.
+    """
     from beanie import PydanticObjectId
 
     from app.modules.impact_analysis.models import MonitoringSession
@@ -159,8 +181,10 @@ async def get_impact_session_detail(
 
     try:
         session = await MonitoringSession.get(PydanticObjectId(session_id))
-    except Exception:
-        raise ToolError(f"Invalid session id '{id}'")
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid session id '{id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not session:
         raise ToolError(f"Monitoring session '{id}' not found")

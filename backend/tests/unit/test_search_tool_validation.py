@@ -4,6 +4,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from app.modules.mcp_server.tools import search as search_tool
+from app.modules.mcp_server.tools.search import _collect_duplicate_names
 
 validate_inputs = getattr(search_tool, "_validate_search_inputs")
 
@@ -11,7 +12,7 @@ validate_inputs = getattr(search_tool, "_validate_search_inputs")
 @pytest.mark.unit
 class TestSearchInputValidation:
     def test_rejects_unknown_type(self):
-        with pytest.raises(ToolError, match="Unknown type"):
+        with pytest.raises(ToolError, match="Unknown search_type"):
             validate_inputs(
                 search_type="unknown",
                 query="",
@@ -143,3 +144,54 @@ class TestSearchInputValidation:
         assert validated["object_type"] == "sites"
         assert validated["query"] == "DNT-NRT"
         assert validated["status"] == "active"
+
+
+@pytest.mark.unit
+class TestCollectDuplicateNames:
+    def test_returns_empty_when_all_names_unique(self):
+        results = [
+            {"id": "a", "name": "switch-01", "status": "active", "summary": "v1", "date": None},
+            {"id": "b", "name": "switch-02", "status": "active", "summary": "v1", "date": None},
+        ]
+
+        assert _collect_duplicate_names(results) == {}
+
+    def test_groups_two_entries_with_same_name(self):
+        results = [
+            {"id": "aaa", "name": "US-NY-SWA-01", "status": "active", "summary": "v7, 4 versions", "date": "2026-04-12"},
+            {"id": "bbb", "name": "US-NY-SWA-01", "status": "active", "summary": "v1, 1 versions", "date": "2026-03-28"},
+            {"id": "ccc", "name": "other", "status": "active", "summary": "v1, 1 versions", "date": None},
+        ]
+
+        duplicates = _collect_duplicate_names(results)
+
+        assert list(duplicates.keys()) == ["US-NY-SWA-01"]
+        matches = duplicates["US-NY-SWA-01"]
+        assert len(matches) == 2
+        assert {m["id"] for m in matches} == {"aaa", "bbb"}
+        assert matches[0]["summary"].startswith("v")
+
+    def test_ignores_empty_or_missing_names(self):
+        results = [
+            {"id": "a", "name": "", "status": "active", "summary": "x", "date": None},
+            {"id": "b", "name": "", "status": "active", "summary": "y", "date": None},
+            {"id": "c", "name": None, "status": "active", "summary": "z", "date": None},
+            {"id": "d", "status": "active", "summary": "w", "date": None},
+        ]
+
+        assert _collect_duplicate_names(results) == {}
+
+    def test_multiple_collision_groups(self):
+        results = [
+            {"id": "a1", "name": "alpha", "status": "active", "summary": "s", "date": None},
+            {"id": "a2", "name": "alpha", "status": "active", "summary": "s", "date": None},
+            {"id": "b1", "name": "beta", "status": "active", "summary": "s", "date": None},
+            {"id": "b2", "name": "beta", "status": "active", "summary": "s", "date": None},
+            {"id": "c1", "name": "gamma", "status": "active", "summary": "s", "date": None},
+        ]
+
+        duplicates = _collect_duplicate_names(results)
+
+        assert set(duplicates.keys()) == {"alpha", "beta"}
+        assert len(duplicates["alpha"]) == 2
+        assert len(duplicates["beta"]) == 2

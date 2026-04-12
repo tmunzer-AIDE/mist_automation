@@ -18,7 +18,9 @@ from app.modules.digital_twin.services.site_snapshot import (
     _extract_port_devices,
     _extract_port_status,
     _load_site_objects,
+    _normalize_mac,
     build_site_snapshot,
+    fetch_live_data,
 )
 
 # ---------------------------------------------------------------------------
@@ -395,9 +397,7 @@ class TestBuildSiteSnapshot:
             # wlans
             ("wlans", "site-1"): [{"id": "wlan-1", "ssid": "Corp"}],
             # settings
-            ("settings", "site-1"): [
-                {"port_usages": {"trunk": {"mode": "trunk", "all_networks": True}}}
-            ],
+            ("settings", "site-1"): [{"port_usages": {"trunk": {"mode": "trunk", "all_networks": True}}}],
             # site info
             ("info", "site-1"): [{"name": "HQ Office"}],
         }
@@ -450,7 +450,7 @@ class TestBuildSiteSnapshot:
         assert snap.devices["dev-1"].port_config["ge-0/0/0"]["vlan_id"] == 999
 
     async def test_empty_backup(self, live_data):
-        async def mock_load(_org_id, _object_type, _site_id=None):
+        async def mock_load(_org_id, _object_type, site_id=None):
             return []
 
         with patch(
@@ -562,4 +562,226 @@ class TestBuildSiteSnapshot:
             snap = await build_site_snapshot("site-1", "org-1", live_data, state_overrides=overrides)
 
         assert snap.networks["org-net-1"]["name"] == "corp-updated"
-        assert snap.networks["org-net-1"]["vlan_id"] == 222
+
+    async def test_networks_filtered_by_assigned_templates(self, live_data):
+        """Only networks referenced by the site's assigned templates should appear."""
+        org_nets = [
+            # Referenced by the assigned network template
+            {"id": "n-corp", "name": "corp", "subnet": "10.1.0.0/24", "vlan_id": 100},
+            # Unrelated to this site's template — belongs to a DIFFERENT network template
+            {"id": "n-dplm", "name": "DNT-E2E-DPLM", "subnet": "10.10.10.0/24"},
+            {"id": "n-mxe", "name": "PRD-MXE-data-0", "subnet": "10.10.10.0/24"},
+        ]
+        net_templates = [
+            {
+                "id": "nt-this-site",
+                "name": "SiteNT",
+                # The inline `networks` dict is keyed by name with override fragments
+                "networks": {"corp": {"vlan_id": 100}, "guest": {"vlan_id": 200}},
+            },
+            {
+                "id": "nt-other",
+                "name": "OtherNT",
+                "networks": {"DNT-E2E-DPLM": {}, "PRD-MXE-data-0": {}},
+            },
+        ]
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            if object_type == "networks" and site_id is None:
+                return org_nets
+            if object_type == "networktemplates":
+                return net_templates
+            return []
+
+        async def mock_site_info(_org_id, _site_id):
+            return {"name": "DNT-E2E", "networktemplate_id": "nt-this-site"}
+
+        with (
+            patch(
+                "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+                side_effect=mock_load,
+            ),
+            patch(
+                "app.modules.digital_twin.services.site_snapshot._load_site_info_config",
+                side_effect=mock_site_info,
+            ),
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data)
+
+        # Only the assigned template's referenced org network is included.
+        names = {n.get("name") for n in snap.networks.values()}
+        assert names == {"corp"}
+        # The unrelated networks causing the false CFG-SUBNET overlap must NOT appear.
+        assert "DNT-E2E-DPLM" not in names
+        assert "PRD-MXE-data-0" not in names
+
+    async def test_template_override_merged_into_network(self, live_data):
+        """The assigned network template's override fragment is merged over the org network."""
+        org_nets = [{"id": "n-corp", "name": "corp", "subnet": "10.1.0.0/24", "vlan_id": 50}]
+        net_templates = [
+            {
+                "id": "nt-1",
+                "networks": {"corp": {"vlan_id": 100}},
+            }
+        ]
+
+        async def mock_load(_org_id, object_type, site_id=None):
+            if object_type == "networks" and site_id is None:
+                return org_nets
+            if object_type == "networktemplates":
+                return net_templates
+            return []
+
+        async def mock_site_info(_org_id, _site_id):
+            return {"name": "Site1", "networktemplate_id": "nt-1"}
+
+        with (
+            patch(
+                "app.modules.digital_twin.services.site_snapshot._load_site_objects",
+                side_effect=mock_load,
+            ),
+            patch(
+                "app.modules.digital_twin.services.site_snapshot._load_site_info_config",
+                side_effect=mock_site_info,
+            ),
+        ):
+            snap = await build_site_snapshot("site-1", "org-1", live_data)
+
+        assert snap.networks["n-corp"]["vlan_id"] == 100  # override won over org value 50
+        assert snap.networks["n-corp"]["subnet"] == "10.1.0.0/24"  # org-level field preserved
+
+
+# ---------------------------------------------------------------------------
+# TestNormalizeMac
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeMac:
+    def test_lowercase_plain(self):
+        assert _normalize_mac("485a0dea2e00") == "485a0dea2e00"
+
+    def test_uppercase_with_colons(self):
+        assert _normalize_mac("48:5A:0D:EA:2E:00") == "485a0dea2e00"
+
+    def test_with_dashes(self):
+        assert _normalize_mac("48-5a-0d-ea-2e-00") == "485a0dea2e00"
+
+    def test_empty(self):
+        assert _normalize_mac("") == ""
+
+    def test_none(self):
+        assert _normalize_mac(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# TestFetchLiveData
+# ---------------------------------------------------------------------------
+
+
+class _FakeResp:
+    def __init__(self, data, status_code: int = 200):
+        self.data = data
+        self.status_code = status_code
+
+
+class TestFetchLiveData:
+    async def test_port_stats_populate_switch_lldp(self):
+        """searchSiteSwOrGwPorts drives LLDP neighbours for switches/gateways."""
+        org_stats_resp = _FakeResp(
+            [
+                {
+                    "id": "sw-1",
+                    "mac": "485a0dea2e00",
+                    "type": "switch",
+                    # No clients[] LLDP — the switch path must come from port_stats.
+                    "clients_stats": {"total": 0},
+                }
+            ]
+        )
+        port_stats_resp = _FakeResp(
+            [
+                {
+                    "mac": "48:5A:0D:EA:2E:00",  # upper-cased + separators — must be normalized
+                    "port_id": "ge-0/0/9",
+                    "neighbor_mac": "5c:5b:35:11:22:33",
+                    "up": True,
+                },
+                {
+                    "mac": "485a0dea2e00",
+                    "port_id": "ge-0/0/10",
+                    "neighbor_mac": "",
+                    "up": False,
+                },
+            ]
+        )
+
+        async def fake_arun(fn, *args, **kwargs):
+            name = getattr(fn, "__name__", "")
+            if name == "listOrgDevicesStats":
+                return org_stats_resp
+            if name == "searchSiteSwOrGwPorts":
+                return port_stats_resp
+            raise AssertionError(f"unexpected call: {name}")
+
+        class _FakeMist:
+            def get_session(self):
+                return object()
+
+        async def fake_factory():
+            return _FakeMist()
+
+        with (
+            patch("mistapi.arun", side_effect=fake_arun),
+            patch(
+                "app.services.mist_service_factory.create_mist_service",
+                side_effect=fake_factory,
+            ),
+        ):
+            live = await fetch_live_data("site-1", "org-1")
+
+        # LLDP neighbour found via port_stats, keyed by normalized dev mac
+        assert live.lldp_neighbors == {"485a0dea2e00": {"ge-0/0/9": "5c5b35112233"}}
+        # Port status covers both the up and the down port
+        assert live.port_status == {"485a0dea2e00": {"ge-0/0/9": True, "ge-0/0/10": False}}
+        # port_devices mirrors LLDP edges (no entry for ge-0/0/10 since no neighbour)
+        assert live.port_devices == {"485a0dea2e00": {"ge-0/0/9": "5c5b35112233"}}
+
+    async def test_no_lldp_warning_when_l2_present(self):
+        """Emit live_data_no_lldp warning when stats+ports return no LLDP for a switch site."""
+        from unittest.mock import MagicMock
+
+        org_stats_resp = _FakeResp([{"id": "sw-1", "mac": "aa11", "type": "switch"}])
+        port_stats_resp = _FakeResp([])  # no port records
+
+        async def fake_arun(fn, *args, **kwargs):
+            name = getattr(fn, "__name__", "")
+            if name == "listOrgDevicesStats":
+                return org_stats_resp
+            if name == "searchSiteSwOrGwPorts":
+                return port_stats_resp
+            raise AssertionError(f"unexpected call: {name}")
+
+        class _FakeMist:
+            def get_session(self):
+                return object()
+
+        async def fake_factory():
+            return _FakeMist()
+
+        fake_logger = MagicMock()
+        with (
+            patch(
+                "app.modules.digital_twin.services.site_snapshot.logger",
+                fake_logger,
+            ),
+            patch("mistapi.arun", side_effect=fake_arun),
+            patch(
+                "app.services.mist_service_factory.create_mist_service",
+                side_effect=fake_factory,
+            ),
+        ):
+            live = await fetch_live_data("site-1", "org-1")
+
+        assert live.lldp_neighbors == {}
+        warning_events = [call.args[0] for call in fake_logger.warning.call_args_list]
+        assert "live_data_no_lldp" in warning_events

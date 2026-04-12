@@ -9,7 +9,6 @@ import pytest
 from app.modules.digital_twin.checks.port_impact import check_port_impact
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # Test data helpers
 # ---------------------------------------------------------------------------
@@ -227,8 +226,8 @@ class TestPortDisc:
         assert disc.status == "error"  # unknown type -> error
         assert "ff:ff:ff:00:00:01" in disc.details[0]
 
-    def test_no_lldp_neighbors_passes(self):
-        """No LLDP data at all -> pass (nothing to disconnect)."""
+    def test_no_lldp_neighbors_with_switch_is_skipped(self):
+        """Switch present but LLDP data missing -> skipped (cannot verify)."""
         sw = _dev(
             "sw-1",
             mac="aa:bb:cc:00:00:10",
@@ -247,10 +246,26 @@ class TestPortDisc:
         predicted = _snap(devices={"sw-1": sw_pred}, lldp_neighbors={})
 
         results = check_port_impact(baseline, predicted)
-        disc = results[0]
+        disc, client = results
 
         assert disc.check_id == "PORT-DISC"
+        assert disc.status == "skipped"
+        assert "LLDP" in disc.summary
+        assert disc.affected_sites == ["site-1"]
+
+        assert client.check_id == "PORT-CLIENT"
+        assert client.status == "skipped"
+
+    def test_no_switches_no_lldp_passes(self):
+        """No switches or gateways in snapshot -> pass (check not applicable)."""
+        ap = _dev("ap-1", mac="aa:bb:cc:00:00:01", device_type="ap", name="AP-Lobby")
+        snap = _snap(devices={"ap-1": ap}, lldp_neighbors={})
+
+        results = check_port_impact(snap, snap)
+        disc, client = results
+
         assert disc.status == "pass"
+        assert client.status == "pass"
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +363,8 @@ class TestPortClient:
         assert "55" in client.summary
 
     def test_no_clients_pass(self):
-        """No disconnected APs -> pass."""
+        """LLDP data present but no APs disconnected -> pass."""
+        sw_uplink = _dev("sw-2", mac="aa:bb:cc:00:00:20", device_type="switch", name="SW-Uplink")
         sw = _dev(
             "sw-1",
             mac="aa:bb:cc:00:00:10",
@@ -356,7 +372,10 @@ class TestPortClient:
             port_config={"ge-0/0/0": {"usage": "trunk"}},
         )
 
-        snap = _snap(devices={"sw-1": sw})
+        snap = _snap(
+            devices={"sw-1": sw, "sw-2": sw_uplink},
+            lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/0": "aa:bb:cc:00:00:20"}},
+        )
 
         results = check_port_impact(snap, snap)
         client = results[1]
@@ -396,4 +415,8 @@ class TestPortClient:
 
         assert client.check_id == "PORT-CLIENT"
         assert client.status == "pass"
-        assert "0" not in client.summary or "no wireless" in client.summary.lower() or "AP(s) disconnected" in client.summary
+        assert (
+            "0" not in client.summary
+            or "no wireless" in client.summary.lower()
+            or "AP(s) disconnected" in client.summary
+        )

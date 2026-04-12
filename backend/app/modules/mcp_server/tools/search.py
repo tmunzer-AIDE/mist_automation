@@ -3,6 +3,7 @@ Universal search tool — single entry point for discovering data across all dom
 """
 
 import re
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
@@ -120,7 +121,7 @@ def _validate_search_inputs(
     """
     stype = search_type.strip().lower()
     if stype not in _SEARCH_TYPES:
-        raise ToolError(f"Unknown type '{search_type}'. Use: {', '.join(sorted(_SEARCH_TYPES))}")
+        raise ToolError(f"Unknown search_type '{search_type}'. Use: {', '.join(sorted(_SEARCH_TYPES))}")
 
     sby = sort_by.strip().lower()
     if sby not in _SORT_BY_VALUES:
@@ -147,7 +148,7 @@ def _validate_search_inputs(
     if sid:
         if stype not in _SITE_ID_SUPPORTED_TYPES:
             raise ToolError(
-                f"site_id is not supported for type='{stype}'. Supported types: "
+                f"site_id is not supported for search_type='{stype}'. Supported types: "
                 f"{', '.join(sorted(_SITE_ID_SUPPORTED_TYPES))}"
             )
         if is_placeholder(sid):
@@ -163,7 +164,7 @@ def _validate_search_inputs(
     normalized_object_type = ""
     if otype:
         if stype != "backup_objects":
-            raise ToolError("object_type is only supported when type='backup_objects'")
+            raise ToolError("object_type is only supported when search_type='backup_objects'")
         if is_placeholder(otype):
             raise ToolError(
                 f"Invalid object_type '{object_type}': unresolved placeholders are not allowed."
@@ -178,21 +179,20 @@ def _validate_search_inputs(
 
     if stype == "backup_objects" and not normalized_object_type and not sid:
         raise ToolError(
-            "For type='backup_objects', provide object_type or site_id to keep the query coherent. "
+            "For search_type='backup_objects', provide object_type or site_id to keep the query coherent. "
             "To find a site by name, use object_type='sites' (or 'info') with query='<site-name>'."
         )
 
     etype = event_type.strip()
     if etype and stype not in _EVENT_TYPE_SUPPORTED_TYPES:
-        raise ToolError("event_type is only supported when type='webhook_events'")
+        raise ToolError("event_type is only supported when search_type='webhook_events'")
 
     normalized_hours = hours
     if stype not in _HOURS_SUPPORTED_TYPES:
-        # hours defaults to 24 globally for the tool. Treat default/zero as unset
-        # for types that do not support time-window filtering.
+        # Tolerate the default (0) and legacy callers passing 24, but reject any other value.
         if hours not in (0, 24):
             raise ToolError(
-                f"hours is not supported for type='{stype}'. Supported types: "
+                f"hours is not supported for search_type='{stype}'. Supported types: "
                 f"{', '.join(sorted(_HOURS_SUPPORTED_TYPES))}"
             )
         normalized_hours = 0
@@ -201,10 +201,10 @@ def _validate_search_inputs(
     if sstatus:
         allowed_status = _STATUS_VALUES.get(stype)
         if not allowed_status:
-            raise ToolError(f"status is not supported for type='{stype}'")
+            raise ToolError(f"status is not supported for search_type='{stype}'")
         if sstatus not in allowed_status:
             raise ToolError(
-                f"Invalid status '{status}' for type='{stype}'. "
+                f"Invalid status '{status}' for search_type='{stype}'. "
                 f"Allowed: {', '.join(sorted(allowed_status))}"
             )
 
@@ -242,18 +242,21 @@ async def _paginated_query(
     return total, row.get("items", [])
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def search(
-    type: Annotated[
+    search_type: Annotated[
         str,
         Field(
             description=(
-                "What to search for. "
-                "One of: 'backup_objects' (Mist config snapshots), 'backup_jobs' (backup run history — list jobs with status/type/date filters), "
-                "'workflows' (automation workflows), "
-                "'executions' (workflow execution history), 'webhook_events' (received Mist webhooks), "
-                "'reports' (post-deployment validation reports). "
-                "For site lookup by name, use type='backup_objects' with object_type='sites' or object_type='info'."
+                "What to search for. One of:\n"
+                "- 'backup_objects': Mist config snapshots (versioned). Requires object_type or site_id.\n"
+                "- 'backup_jobs': backup run history with status/type/date filters.\n"
+                "- 'workflows': automation workflow definitions.\n"
+                "- 'executions': workflow execution history.\n"
+                "- 'webhook_events': received Mist webhook events (last 24h by default).\n"
+                "- 'reports': post-deployment validation reports.\n"
+                "To look up a site by name, call with search_type='backup_objects', "
+                "object_type='sites' (or 'info'), query='<site-name>'."
             ),
         ),
     ],
@@ -262,8 +265,8 @@ async def search(
         Field(
             description=(
                 "Text to search for (case-insensitive substring). "
-                "For type='backup_objects', this matches object name, object type, object ID, and configuration.name. "
-                "To find a site by name, combine query with object_type='sites' (or 'info')."
+                "For search_type='backup_objects', matches object name, object type, object ID, and configuration.name. "
+                "To find a site by name, combine with object_type='sites' (or 'info')."
             ),
         ),
     ] = "",
@@ -272,7 +275,8 @@ async def search(
         Field(
             description=(
                 "Filter backup objects by Mist object type (e.g. 'sites', 'info', 'settings', 'wlans', 'networks', 'devices'). "
-                "Only valid when type='backup_objects'. For coherent site-name lookup, set object_type to 'sites' or 'info'."
+                "ONLY valid when search_type='backup_objects'. "
+                "For coherent site-name lookup, set object_type to 'sites' or 'info'."
             ),
         ),
     ] = "",
@@ -281,7 +285,7 @@ async def search(
         Field(
             description=(
                 "Filter by Mist site UUID (must be a real UUID, not a name). "
-                "Applies to backup_objects, webhook_events, and reports."
+                "Applies to search_type='backup_objects', 'webhook_events', and 'reports' only."
             )
         ),
     ] = "",
@@ -289,49 +293,72 @@ async def search(
         str,
         Field(
             description=(
-                "Filter by status. Values depend on type: "
-                "backup_objects: 'active'|'deleted'; "
-                "backup_jobs: 'pending'|'in_progress'|'completed'|'failed'|'cancelled'; "
-                "workflows: 'enabled'|'disabled'|'draft'; "
-                "executions: 'success'|'failed'|'running'|'timeout'; "
-                "reports: 'completed'|'failed'|'pending'|'running'."
+                "Filter by status. Valid values depend on search_type:\n"
+                "- backup_objects: 'active' | 'deleted'\n"
+                "- backup_jobs: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled'\n"
+                "- workflows: 'enabled' | 'disabled' | 'draft'\n"
+                "- executions: 'success' | 'failed' | 'running' | 'timeout'\n"
+                "- reports: 'completed' | 'failed' | 'pending' | 'running'\n"
+                "Not supported for webhook_events."
             ),
         ),
     ] = "",
     event_type: Annotated[
         str,
-        Field(description="Filter webhook events by event type (e.g. 'AP_CONNECTED'). Only for type='webhook_events'."),
+        Field(
+            description=(
+                "Filter webhook events by event type (e.g. 'AP_CONNECTED', 'SW_CONFIGURED'). "
+                "ONLY valid when search_type='webhook_events'."
+            )
+        ),
     ] = "",
     hours: Annotated[
         int,
         Field(
-            description="Time window in hours. Filters webhook_events by received_at (default 24h if omitted). Set 0 to disable.",
+            description=(
+                "Time window in hours. Only supported when search_type is one of: "
+                "'backup_jobs', 'executions', 'webhook_events'. "
+                "Default 0 means no filter for backup_jobs/executions, and 24h for webhook_events. "
+                "Set >0 to filter to events within the last N hours."
+            ),
             ge=0,
         ),
     ] = 0,
-    skip: Annotated[int, Field(description="Number of results to skip for pagination.", ge=0)] = 0,
+    skip: Annotated[int, Field(description="Number of results to skip for pagination (0-based offset).", ge=0)] = 0,
     limit: Annotated[int, Field(description="Max results to return (1-25).", ge=1, le=25)] = 10,
     sort_by: Annotated[
         str,
         Field(
             description=(
-                "Field to sort results by. "
-                "One of: 'name', 'date', 'status', 'type'. Default 'date' (most recent first)."
+                "Field to sort results by. One of: 'name', 'date', 'status', 'type'. "
+                "Default: 'date'. Example: sort_by='date', sort_order='desc' for most recent first."
             ),
         ),
     ] = "date",
     sort_order: Annotated[
         str,
-        Field(description="Sort direction: 'asc' (ascending) or 'desc' (descending). Default 'desc'."),
+        Field(
+            description=(
+                "Sort direction: 'asc' (ascending) or 'desc' (descending). Default: 'desc'. "
+                "Example: sort_by='name', sort_order='asc' for alphabetical."
+            )
+        ),
     ] = "desc",
 ) -> str:
-    """Search across the platform: find backup objects, workflows, executions, webhook events, or reports.
+    """Discover items across the platform: backup objects, workflows, executions, webhook events, or reports.
 
-    Returns a compact list of matching items with id, name, type, status, summary, and date.
-    Use the 'backup', 'workflow', or 'get_details' tools to get full details for a specific item.
+    Returns a compact list with id, name, type, status, summary, and date per match.
+
+    Typical workflow (read-only):
+    - To inspect a webhook_event or report: pass the result id to get_details.
+    - To inspect a backup version history: pass the object_id to backup(action='object_info').
+    - To inspect a workflow definition: pass the workflow_id to workflow(action='detail').
+    - To inspect an execution: pass the execution_id to workflow(action='execution_detail').
+
+    This tool is read-only. It does NOT modify Mist configuration or trigger any side effects.
     """
     validated = _validate_search_inputs(
-        search_type=type,
+        search_type=search_type,
         query=query,
         object_type=object_type,
         site_id=site_id,
@@ -410,6 +437,35 @@ async def _search_backup_jobs(*, query: str, status: str, hours: int, sort: dict
     )
 
 
+def _collect_duplicate_names(results: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Group results that share a non-empty `name`, returning only the name-collisions.
+
+    Returns a dict mapping each colliding name to the list of {id, status, summary, date}
+    entries from the search results. Empty when all names are unique.
+    """
+    name_counts: Counter[str] = Counter()
+    for r in results:
+        name = r.get("name")
+        if isinstance(name, str) and name:
+            name_counts[name] += 1
+    duplicate_names = {name for name, count in name_counts.items() if count > 1}
+    if not duplicate_names:
+        return {}
+    return {
+        name: [
+            {
+                "id": r["id"],
+                "status": r.get("status", ""),
+                "summary": r.get("summary", ""),
+                "date": r.get("date"),
+            }
+            for r in results
+            if r.get("name") == name
+        ]
+        for name in duplicate_names
+    }
+
+
 async def _search_backup_objects(
     *, query: str, object_type: str, site_id: str, status: str, sort: dict[str, int], **_kwargs
 ) -> str:
@@ -456,22 +512,28 @@ async def _search_backup_objects(
 
     total, items = await _paginated_query(BackupObject, pipeline, skip, limit)
 
-    return to_json(
+    results = [
         {
-            "results": [
-                {
-                    "id": item["_id"],
-                    "name": item.get("object_name") or item.get("config_name", ""),
-                    "type": item.get("object_type", ""),
-                    "status": "deleted" if item.get("is_deleted") else "active",
-                    "summary": f"v{item.get('latest_version', 0)}, {item.get('version_count', 0)} versions",
-                    "date": item.get("last_modified_at"),
-                }
-                for item in items
-            ],
-            "total": total,
+            "id": item["_id"],
+            "name": item.get("object_name") or item.get("config_name", ""),
+            "type": item.get("object_type", ""),
+            "status": "deleted" if item.get("is_deleted") else "active",
+            "summary": f"v{item.get('latest_version', 0)}, {item.get('version_count', 0)} versions",
+            "date": item.get("last_modified_at"),
         }
-    )
+        for item in items
+    ]
+
+    response: dict[str, Any] = {"results": results, "total": total}
+    duplicates = _collect_duplicate_names(results)
+    if duplicates:
+        response["duplicate_names"] = duplicates
+        response["disambiguation_hint"] = (
+            "Multiple results share the same name. Use the object_id from duplicate_names to pick "
+            "the correct object — the entry with the most recent date and highest version count is "
+            "usually the live object."
+        )
+    return to_json(response)
 
 
 async def _search_workflows(*, query: str, status: str, sort: dict[str, int], **_kwargs) -> str:

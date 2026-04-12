@@ -12,7 +12,6 @@ from app.modules.digital_twin.services.snapshot_analyzer import (
     compute_overall_severity,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -75,7 +74,12 @@ def _get_result(results: list[CheckResult], check_id: str) -> CheckResult | None
     return None
 
 
-def _result(check_id: str, status: str) -> CheckResult:
+def _result(
+    check_id: str,
+    status: str,
+    pre_existing: bool = False,
+    details: list[str] | None = None,
+) -> CheckResult:
     """Create a minimal CheckResult with given id and status."""
     return CheckResult(
         check_id=check_id,
@@ -83,6 +87,8 @@ def _result(check_id: str, status: str) -> CheckResult:
         layer=1,
         status=status,
         summary=f"{check_id} {status}",
+        details=details or [],
+        pre_existing=pre_existing,
     )
 
 
@@ -164,6 +170,81 @@ class TestAnalyzeSite:
         # (e.g. ROUTE-GW might pass because no networks), but no critical/error expected
         # from an identical baseline/predicted pair with clean data
         assert all(r.status in ("pass", "skipped", "warning", "info") for r in non_pass)
+
+    def test_preexisting_subnet_overlap_marked(self):
+        """Baseline already has a subnet overlap; predicted keeps it -> pre_existing."""
+        # Two networks with the same subnet -> CFG-SUBNET critical in baseline.
+        # The change under test only swaps a switch port config, so CFG-SUBNET
+        # should be reported as pre_existing in the predicted results.
+        sw_base = _dev(
+            "sw-1",
+            "aa:bb:cc:dd:ee:01",
+            "core-sw-1",
+            dtype="switch",
+            port_config={"ge-0/0/9": {"usage": "ap"}},
+        )
+        sw_pred = _dev(
+            "sw-1",
+            "aa:bb:cc:dd:ee:01",
+            "core-sw-1",
+            dtype="switch",
+            port_config={"ge-0/0/9": {"usage": "disabled"}},
+        )
+
+        networks = {
+            "net-1": {"name": "DNT-E2E-DPLM", "vlan_id": 10, "subnet": "10.10.10.0/24"},
+            "net-2": {"name": "PRD-MXE-data-0", "vlan_id": 20, "subnet": "10.10.10.0/24"},
+        }
+
+        baseline = _snap(devices={"sw-1": sw_base}, networks=networks)
+        predicted = _snap(devices={"sw-1": sw_pred}, networks=networks)
+
+        results = analyze_site(baseline, predicted)
+
+        cfg = _get_result(results, "CFG-SUBNET")
+        route = _get_result(results, "ROUTE-GW")
+
+        assert cfg is not None
+        assert cfg.status == "critical"
+        assert cfg.pre_existing is True
+
+        # ROUTE-GW also fails (no gateway device) but existed in baseline -> pre_existing.
+        assert route is not None
+        assert route.status == "error"
+        assert route.pre_existing is True
+
+        report = build_prediction_report(results)
+        # Only pre-existing failures -> execution is not blocked by the simulation
+        assert report.execution_safe is True
+
+    def test_worsening_introduces_new_failure(self):
+        """Predicted adds a NEW subnet overlap not present in baseline -> not pre_existing."""
+        sw = _dev("sw-1", "aa:bb:cc:dd:ee:01", "core-sw-1", dtype="switch")
+
+        baseline = _snap(
+            devices={"sw-1": sw},
+            networks={
+                "net-1": {"name": "A", "vlan_id": 10, "subnet": "10.0.0.0/24"},
+                "net-2": {"name": "B", "vlan_id": 20, "subnet": "10.1.0.0/24"},
+            },
+        )
+        predicted = _snap(
+            devices={"sw-1": sw},
+            networks={
+                "net-1": {"name": "A", "vlan_id": 10, "subnet": "10.0.0.0/24"},
+                "net-2": {"name": "B", "vlan_id": 20, "subnet": "10.0.0.0/24"},  # new overlap
+            },
+        )
+
+        results = analyze_site(baseline, predicted)
+        cfg = _get_result(results, "CFG-SUBNET")
+
+        assert cfg is not None
+        assert cfg.status == "critical"
+        assert cfg.pre_existing is False
+
+        report = build_prediction_report(results)
+        assert report.execution_safe is False
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +351,34 @@ class TestBuildPredictionReport:
 
         assert report.overall_severity == "error"
         assert report.execution_safe is False
+
+    def test_pre_existing_errors_do_not_block_execution(self):
+        """Failing checks flagged pre_existing are not introduced by the change and must not block."""
+        results = [
+            _result("CHK-1", "pass"),
+            _result("CFG-SUBNET", "critical", pre_existing=True, details=["overlap A/B"]),
+            _result("ROUTE-GW", "error", pre_existing=True, details=["missing gw"]),
+        ]
+
+        report = build_prediction_report(results)
+
+        assert report.execution_safe is True
+        assert report.critical == 1
+        assert report.errors == 1
+        assert report.overall_severity == "critical"
+        assert "pre-existing" in report.summary
+
+    def test_new_failure_still_blocks_even_with_preexisting(self):
+        """A non-pre-existing failure still blocks, even alongside pre-existing ones."""
+        results = [
+            _result("CFG-SUBNET", "critical", pre_existing=True, details=["overlap A/B"]),
+            _result("PORT-DISC", "critical", pre_existing=False, details=["AP disconnect"]),
+        ]
+
+        report = build_prediction_report(results)
+
+        assert report.execution_safe is False
+        assert report.critical == 2
 
 
 # ---------------------------------------------------------------------------
