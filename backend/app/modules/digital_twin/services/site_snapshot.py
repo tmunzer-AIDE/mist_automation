@@ -49,6 +49,7 @@ class DeviceSnapshot:
     bgp_config: dict[str, Any] | None = None
     extra_routes: list[dict[str, Any]] | None = None
     stp_config: dict[str, Any] | None = None
+    effective_config: dict[str, Any] | None = None
 
 
 @dataclass
@@ -562,6 +563,7 @@ def _build_device_snapshot(config: dict[str, Any]) -> DeviceSnapshot:
         bgp_config=config.get("bgp_config"),
         extra_routes=config.get("extra_routes"),
         stp_config=config.get("stp_config"),
+        effective_config=config,
     )
 
 

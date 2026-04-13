@@ -8,6 +8,8 @@ from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, Site
 
 def _make_snapshot(
     site_setting: dict | None = None,
+    networks: dict | None = None,
+    wlans: dict | None = None,
     devices: dict | None = None,
 ) -> SiteSnapshot:
     """Build a minimal SiteSnapshot for testing."""
@@ -15,8 +17,8 @@ def _make_snapshot(
         site_id="site-1",
         site_name="Test Site",
         site_setting=site_setting or {},
-        networks={},
-        wlans={},
+        networks=networks or {},
+        wlans=wlans or {},
         devices=devices or {},
         port_usages={},
         lldp_neighbors={},
@@ -31,6 +33,7 @@ def _make_device(
     port_config: dict | None = None,
     ip_config: dict | None = None,
     dhcpd_config: dict | None = None,
+    effective_config: dict | None = None,
 ) -> DeviceSnapshot:
     return DeviceSnapshot(
         device_id=device_id,
@@ -41,6 +44,7 @@ def _make_device(
         port_config=port_config or {},
         ip_config=ip_config or {},
         dhcpd_config=dhcpd_config or {},
+        effective_config=effective_config,
     )
 
 
@@ -150,6 +154,51 @@ class TestTmplVar:
         results = check_template_variables(snap)
         assert results[0].status == "error"
         assert any("gw_addr" in d for d in results[0].details)
+
+    def test_scans_snapshot_networks(self):
+        """Template vars inside snapshot networks are detected."""
+        snap = _make_snapshot(
+            site_setting={"vars": {}},
+            networks={
+                "n1": {
+                    "name": "Corp",
+                    "vlan_id": "{{ corp_vlan }}",
+                }
+            },
+        )
+        results = check_template_variables(snap)
+        assert results[0].status == "error"
+        assert any("corp_vlan" in d for d in results[0].details)
+
+    def test_scans_snapshot_wlans(self):
+        """Template vars inside snapshot WLANs are detected."""
+        snap = _make_snapshot(
+            site_setting={"vars": {}},
+            wlans={
+                "w1": {
+                    "ssid": "guest",
+                    "vlan_id": "{{ guest_vlan }}",
+                }
+            },
+        )
+        results = check_template_variables(snap)
+        assert results[0].status == "error"
+        assert any("guest_vlan" in d for d in results[0].details)
+
+    def test_scans_device_effective_config_for_ntp_vars(self):
+        """Vars in template-derived switch globals (e.g. ntp_servers) are detected."""
+        device = _make_device(
+            effective_config={
+                "id": "dev-1",
+                "type": "switch",
+                "ntp_servers": ["{{ site_ntp_server }}"],
+            }
+        )
+        snap = _make_snapshot(site_setting={"vars": {}}, devices={"dev-1": device})
+
+        results = check_template_variables(snap)
+        assert results[0].status == "error"
+        assert any("site_ntp_server" in d for d in results[0].details)
 
 
 class TestCheckDescriptions:

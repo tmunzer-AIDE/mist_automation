@@ -49,7 +49,8 @@ def check_template_variables(predicted: SiteSnapshot) -> list[CheckResult]:
 
     Extracts defined vars from ``site_setting.vars``, then scans:
     - The site_setting dict (excluding the ``vars`` key itself)
-    - All device ``port_config``, ``ip_config``, and ``dhcpd_config``
+    - Snapshot networks and WLANs (including template-derived fragments)
+    - All device compiled config (falls back to ``port_config``/``ip_config``/``dhcpd_config``)
 
     Returns a single CheckResult: ``error`` if any unresolved vars, ``pass`` otherwise.
     """
@@ -64,8 +65,18 @@ def check_template_variables(predicted: SiteSnapshot) -> list[CheckResult]:
             continue
         referenced.update(_extract_vars(value))
 
+    # Scan snapshot network and WLAN config. These include template-derived
+    # fragments when template assignments change via site_info writes.
+    for network in predicted.networks.values():
+        referenced.update(_extract_vars(network))
+    for wlan in predicted.wlans.values():
+        referenced.update(_extract_vars(wlan))
+
     # Scan all device configs
     for device in predicted.devices.values():
+        if device.effective_config is not None:
+            referenced.update(_extract_vars(device.effective_config))
+            continue
         referenced.update(_extract_vars(device.port_config))
         referenced.update(_extract_vars(device.ip_config))
         referenced.update(_extract_vars(device.dhcpd_config))
