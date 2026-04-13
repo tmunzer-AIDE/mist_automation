@@ -60,12 +60,21 @@ class TestPruneConfig:
         assert result["name"] == "short"
         assert result["description"] == "x" * 500 + "..."
 
-    def test_nested_dict_shows_summary(self):
+    def test_small_nested_dict_auto_expands(self):
+        # Nested dicts with <= small_dict_threshold (default 3) keys now render inline
+        # so the LLM can see their content on the first call.
         config = {"nested": {"a": 1, "b": 2, "c": 3}}
         result = prune_config(config)
-        assert result["nested"] == "{...} (3 keys)"
+        assert result["nested"] == {"a": 1, "b": 2, "c": 3}
+
+    def test_large_nested_dict_still_summarizes(self):
+        # Nested dicts with more keys than the threshold still summarize.
+        config = {"nested": {f"k{i}": i for i in range(10)}}
+        result = prune_config(config)
+        assert result["nested"] == "{...} (10 keys)"
 
     def test_nested_list_shows_summary(self):
+        # 5 items exceeds small_dict_threshold (default 3) → summarized.
         config = {"items": [1, 2, 3, 4, 5]}
         result = prune_config(config)
         assert result["items"] == "[...] (5 items)"

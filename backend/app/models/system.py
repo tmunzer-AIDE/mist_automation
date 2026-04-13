@@ -45,6 +45,11 @@ class SystemConfig(TimestampMixin, Document):
     session_timeout_hours: int = Field(default=24, description="Session timeout in hours")
     max_concurrent_sessions: int = Field(default=5, description="Max concurrent sessions per user")
 
+    # Personal Access Tokens (for external MCP clients)
+    max_pats_per_user: int = Field(
+        default=10, ge=1, le=100, description="Maximum active personal access tokens per user"
+    )
+
     # Backup Configuration
     backup_enabled: bool = Field(default=True, description="Enable automatic backups")
     backup_full_schedule_cron: str = Field(default="0 2 * * *", description="Full backup cron schedule")

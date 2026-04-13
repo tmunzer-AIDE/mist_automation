@@ -1,11 +1,14 @@
 """Unit tests for the Digital Twin state resolver."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.modules.digital_twin.models import StagedWrite
 from app.modules.digital_twin.services.state_resolver import (
     apply_staged_writes,
     collect_affected_metadata,
+    load_base_state_from_backup,
     merge_write_into_state,
 )
 
@@ -45,7 +48,7 @@ class TestMergeWriteIntoState:
         obj = state[keys[0]]
         assert obj["ssid"] == "Guest"
 
-    def test_delete_removes_object(self):
+    def test_delete_marks_object_tombstone(self):
         state = {("wlans", "site-1", "wlan-1"): {"ssid": "Old", "vlan_id": "100"}}
         write = StagedWrite(
             sequence=0,
@@ -56,7 +59,7 @@ class TestMergeWriteIntoState:
             object_id="wlan-1",
         )
         merge_write_into_state(state, write)
-        assert ("wlans", "site-1", "wlan-1") not in state
+        assert state[("wlans", "site-1", "wlan-1")]["__twin_deleted__"] is True
 
     def test_put_creates_if_missing(self):
         state: dict = {}
@@ -69,7 +72,33 @@ class TestMergeWriteIntoState:
             site_id="site-1",
         )
         merge_write_into_state(state, write)
-        assert ("setting", "site-1", None) in state
+        assert ("settings", "site-1", None) in state
+
+    def test_put_replaces_nested_dict_root_key(self):
+        state = {
+            ("devices", "site-1", "dev-1"): {
+                "port_config": {
+                    "ge-0/0/1": {"usage": "ap", "description": "old"},
+                    "ge-0/0/2": {"usage": "trunk"},
+                },
+                "name": "sw1",
+            }
+        }
+        write = StagedWrite(
+            sequence=0,
+            method="PUT",
+            endpoint="/api/v1/sites/site-1/devices/dev-1",
+            body={"port_config": {"ge-0/0/1": {"usage": "disabled"}}},
+            object_type="devices",
+            site_id="site-1",
+            object_id="dev-1",
+        )
+
+        merge_write_into_state(state, write)
+
+        obj = state[("devices", "site-1", "dev-1")]
+        assert obj["name"] == "sw1"
+        assert obj["port_config"] == {"ge-0/0/1": {"usage": "disabled"}}
 
 
 class TestApplyStagedWrites:
@@ -117,3 +146,70 @@ class TestCollectAffectedMetadata:
         sites, types = collect_affected_metadata(writes)
         assert sites == []
         assert types == ["templates"]
+
+
+@pytest.mark.unit
+class TestLoadBaseStateFromBackup:
+    class FakeCursor:
+        def __init__(self, docs, query):
+            self.docs = docs
+            self.query = query
+
+        def sort(self, *_args, **_kwargs):
+            return self
+
+        async def first_or_none(self):
+            for doc in self.docs:
+                if all(doc.get(k) == v for k, v in self.query.items()):
+                    return SimpleNamespace(**doc)
+            return None
+
+    class _FakeBackupObject:
+        docs = []
+
+        @classmethod
+        def find(cls, query):
+            return TestLoadBaseStateFromBackup.FakeCursor(cls.docs, query)
+
+    async def test_site_info_put_uses_sites_fallback_shape(self, monkeypatch):
+        from app.modules.backup import models as backup_models
+
+        self._FakeBackupObject.docs = [
+            {
+                "object_type": "sites",
+                "object_id": "site-1",
+                "site_id": "site-1",
+                "org_id": "org-1",
+                "is_deleted": False,
+                "version": 4,
+                "id": "backup-doc-1",
+                "configuration": {
+                    "name": "Site Current",
+                    "networktemplate_id": "nt-1",
+                    "gatewaytemplate_id": "gt-1",
+                },
+            }
+        ]
+        monkeypatch.setattr(backup_models, "BackupObject", self._FakeBackupObject)
+
+        writes = [
+            StagedWrite(
+                sequence=0,
+                method="PUT",
+                endpoint="/api/v1/sites/site-1",
+                body={"name": "Site Renamed"},
+                object_type="info",
+                site_id="site-1",
+                object_id=None,
+            )
+        ]
+
+        base_state, _refs = await load_base_state_from_backup("org-1", writes)
+        assert ("info", "site-1", None) in base_state
+        assert base_state[("info", "site-1", None)]["networktemplate_id"] == "nt-1"
+
+        predicted_state = apply_staged_writes(base_state, writes)
+        predicted_info = predicted_state[("info", "site-1", None)]
+        assert predicted_info["name"] == "Site Renamed"
+        assert predicted_info["networktemplate_id"] == "nt-1"
+        assert predicted_info["gatewaytemplate_id"] == "gt-1"

@@ -6,6 +6,7 @@ directly — no MCP protocol involved.
 """
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from app.modules.llm.models import MemoryEntry
 from app.modules.mcp_server.tools.memory import _forget_memory, _recall_memory, _store_memory
@@ -58,29 +59,22 @@ class TestStoreMemory:
             )
             await entry.insert()
 
-        result = await _store_memory(str(test_user.id), "one_more", "should fail", "general", None)
-        assert "limit" in result.lower()
+        with pytest.raises(ToolError, match="Memory limit"):
+            await _store_memory(str(test_user.id), "one_more", "should fail", "general", None)
 
     async def test_store_validates_key_length(self, test_db, test_user):
         long_key = "k" * 101
-        result = await _store_memory(str(test_user.id), long_key, "val", "general", None)
-        assert "100" in result or "key" in result.lower()
+        with pytest.raises(ToolError, match="Key too long"):
+            await _store_memory(str(test_user.id), long_key, "val", "general", None)
 
     async def test_store_validates_value_length(self, test_db, test_user):
         long_value = "v" * 501
-        result = await _store_memory(str(test_user.id), "mykey", long_value, "general", None)
-        assert "500" in result or "value" in result.lower()
+        with pytest.raises(ToolError, match="Value too long"):
+            await _store_memory(str(test_user.id), "mykey", long_value, "general", None)
 
-    async def test_store_falls_back_to_general_category(self, test_db, test_user):
-        result = await _store_memory(str(test_user.id), "test_key", "test_val", "invalid_cat", None)
-        assert "stored" in result.lower() or "saved" in result.lower()
-
-        entry = await MemoryEntry.find_one(
-            MemoryEntry.user_id == test_user.id,
-            MemoryEntry.key == "test_key",
-        )
-        assert entry is not None
-        assert entry.category == "general"
+    async def test_store_rejects_invalid_category(self, test_db, test_user):
+        with pytest.raises(ToolError, match="Invalid category"):
+            await _store_memory(str(test_user.id), "test_key", "test_val", "invalid_cat", None)
 
 
 @pytest.mark.unit
@@ -133,5 +127,5 @@ class TestForgetMemory:
         assert entry is None
 
     async def test_forget_nonexistent(self, test_db, test_user):
-        result = await _forget_memory(str(test_user.id), "nonexistent_key")
-        assert "no memory found" in result.lower()
+        with pytest.raises(ToolError, match="No memory found"):
+            await _forget_memory(str(test_user.id), "nonexistent_key")

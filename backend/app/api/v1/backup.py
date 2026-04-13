@@ -872,13 +872,22 @@ async def restore_object_version(
     version_id: str,
     dry_run: bool = Query(False, description="Preview restore without applying"),
     cascade: bool = Query(False, description="Cascade restore parents and children"),
+    simulate: bool = Query(False, description="Run Digital Twin simulation without applying restore"),
     current_user: User = Depends(require_backup_role),
 ):
     """Restore a backed-up object to a specific version in Mist.
 
     When ``cascade=True``, deleted parents are restored first (with new UUIDs),
     then the target object, then deleted children — all with ID remapping.
+
+    ``dry_run`` and ``simulate`` are mutually exclusive no-apply modes.
     """
+    if dry_run and simulate:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="dry_run and simulate are mutually exclusive; choose only one mode",
+        )
+
     try:
         doc_id = PydanticObjectId(version_id)
     except Exception as exc:
@@ -901,6 +910,7 @@ async def restore_object_version(
         version=backup.version,
         dry_run=dry_run,
         cascade=cascade,
+        simulate=simulate,
         user_id=str(current_user.id),
     )
 
@@ -918,6 +928,13 @@ async def restore_object_version(
     restore_service = RestoreService(mist_service=mist_service)
 
     try:
+        if simulate:
+            return await restore_service.simulate_restore(
+                backup=backup,
+                user_id=str(current_user.id),
+                cascade=cascade,
+            )
+
         if cascade:
             result = await restore_service.cascade_restore(
                 version_id=doc_id,

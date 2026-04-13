@@ -26,7 +26,7 @@ Multi-provider AI integration enabling conversational assistants, automated summ
 
 ## Features
 
-- **Multi-provider support** — OpenAI, Anthropic, Azure OpenAI, Ollama, LM Studio, AWS Bedrock, Google Vertex, and any OpenAI-compatible endpoint
+- **Multi-provider support** — OpenAI, Anthropic, Mistral, Azure OpenAI, Ollama, LM Studio, AWS Bedrock, Google Vertex, and any OpenAI-compatible endpoint
 - **Conversational threads** — Per-user, per-feature conversation history with automatic token compaction
 - **MCP tool-calling** — Bidirectional tool calling: the app exposes an in-process MCP server, and the agent can also connect to external MCP servers
 - **Real-time streaming** — WebSocket-based token + tool event streaming to the frontend

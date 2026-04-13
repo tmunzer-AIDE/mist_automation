@@ -7,51 +7,101 @@ Types: webhook_event, report, dashboard.
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from app.modules.mcp_server.helpers import cap_list, to_json, truncate_value
 from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.tools.utils import is_placeholder
+
+_DETAIL_TYPES: set[str] = {"webhook_event", "report", "dashboard"}
+_REPORT_SECTIONS: set[str] = {"aps", "switches", "gateways", "template_variables"}
 
 
-@mcp.tool()
+def _validate_details_inputs(*, detail_type: str, id_value: str, section: str) -> dict[str, str]:
+    dtype = detail_type.strip().lower()
+    if dtype not in _DETAIL_TYPES:
+        raise ToolError(f"Unknown type '{detail_type}'. Use: {', '.join(sorted(_DETAIL_TYPES))}")
+
+    item_id = id_value.strip()
+    if item_id and is_placeholder(item_id):
+        raise ToolError(f"Invalid id '{id_value}': unresolved placeholders are not allowed")
+
+    section_name = section.strip().lower()
+    if section_name and dtype != "report":
+        raise ToolError("section is only supported when type='report'")
+
+    if dtype in {"webhook_event", "report"} and not item_id:
+        raise ToolError(f"id is required for type='{dtype}'")
+
+    if dtype == "dashboard":
+        if item_id:
+            raise ToolError("id is not supported when type='dashboard'")
+        if section_name:
+            raise ToolError("section is not supported when type='dashboard'")
+
+    if section_name and section_name not in _REPORT_SECTIONS:
+        raise ToolError(
+            f"Invalid section '{section}'. Use: {', '.join(sorted(_REPORT_SECTIONS))}"
+        )
+
+    return {"type": dtype, "id": item_id, "section": section_name}
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def get_details(
     type: Annotated[
         str,
         Field(
             description=(
                 "What to get details for. One of:\n"
-                "- 'webhook_event': Full webhook event including payload, device info, matched workflows. Requires: id.\n"
-                "- 'report': Post-deployment validation report results. Returns summary counts "
-                "(pass/warn/fail per device type) by default. Use 'section' to get full data for one section. Requires: id.\n"
-                "- 'dashboard': System overview with 7-day stats for workflows, executions, backups, webhooks, and reports. No id needed."
+                "- 'webhook_event': full webhook event including raw payload, device info, and matched workflows.\n"
+                "    Required: id. Forbidden: section.\n"
+                "- 'report': post-deployment validation report. Returns summary counts (pass/warn/fail per device type).\n"
+                "    Required: id. Optional: section to fetch full data for one section.\n"
+                "- 'dashboard': compact system overview with 7-day stats (workflows, executions, backups, webhooks, reports).\n"
+                "    Required: none. Forbidden: id, section."
             ),
         ),
     ],
     id: Annotated[
         str,
         Field(
-            description="MongoDB document ID of the item. Required for type='webhook_event' and type='report'. Get this from search results."
+            description=(
+                "MongoDB ObjectId string (24 hex chars), obtained from the 'id' field of a search() result. "
+                "Required when type is 'webhook_event' or 'report'. Forbidden when type='dashboard'. "
+                "Example: '507f1f77bcf86cd799439011'."
+            )
         ),
     ] = "",
     section: Annotated[
         str,
         Field(
-            description="For type='report' only: return full data for one section instead of the summary. One of: 'aps', 'switches', 'gateways', 'template_variables'."
+            description=(
+                "ONLY valid when type='report'. Returns full data for one section instead of the summary. "
+                "One of: 'aps', 'switches', 'gateways', 'template_variables'."
+            )
         ),
     ] = "",
 ) -> str:
-    """Get detailed information about a webhook event (with full payload), a validation report (with health results), or the system dashboard overview."""
+    """Get full details for a single webhook event, validation report, or the system dashboard overview.
+
+    This tool is read-only. Typical workflow:
+    - First call search() to find an item and get its id.
+    - Then call get_details(type=..., id=...) to see its full payload.
+    - For Mist configuration object versions, use backup(action='object_info'/'version_detail') instead.
+    """
+    validated = _validate_details_inputs(detail_type=type, id_value=id, section=section)
+
     dispatchers: dict[str, Any] = {
         "webhook_event": _webhook_event,
         "report": _report,
         "dashboard": _dashboard,
     }
 
-    handler = dispatchers.get(type)
-    if not handler:
-        return to_json({"error": f"Unknown type '{type}'. Use: {', '.join(dispatchers)}"})
+    handler = dispatchers[validated["type"]]
 
-    return await handler(id=id, section=section)
+    return await handler(id=validated["id"], section=validated["section"])
 
 
 async def _webhook_event(*, id: str, **_kwargs) -> str:
@@ -60,16 +110,15 @@ async def _webhook_event(*, id: str, **_kwargs) -> str:
 
     from app.modules.automation.models.webhook import WebhookEvent
 
-    if not id:
-        return to_json({"error": "id is required for type=webhook_event"})
-
     try:
         event = await WebhookEvent.get(PydanticObjectId(id))
-    except Exception:
-        return to_json({"error": f"Invalid event id '{id}'"})
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid webhook event id '{id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not event:
-        return to_json({"error": f"Webhook event '{id}' not found"})
+        raise ToolError(f"Webhook event '{id}' not found")
 
     # Truncate payload if excessively large
     payload = event.payload
@@ -103,16 +152,15 @@ async def _report(*, id: str, section: str, **_kwargs) -> str:
 
     from app.modules.reports.models import ReportJob
 
-    if not id:
-        return to_json({"error": "id is required for type=report"})
-
     try:
         job = await ReportJob.get(PydanticObjectId(id))
-    except Exception:
-        return to_json({"error": f"Invalid report id '{id}'"})
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid report id '{id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not job:
-        return to_json({"error": f"Report '{id}' not found"})
+        raise ToolError(f"Report '{id}' not found")
 
     result = job.result or {}
 
@@ -120,7 +168,7 @@ async def _report(*, id: str, section: str, **_kwargs) -> str:
         # Return full section data capped at 50 items
         section_data = result.get(section)
         if section_data is None:
-            return to_json({"error": f"Section '{section}' not found. Available: {', '.join(result.keys())}"})
+            raise ToolError(f"Section '{section}' not found. Available: {', '.join(result.keys())}")
         if isinstance(section_data, list):
             section_data = cap_list(section_data, 50)
         return to_json({"id": str(job.id), "site_name": job.site_name, "section": section, "data": section_data})

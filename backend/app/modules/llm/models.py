@@ -16,7 +16,7 @@ class LLMConfig(TimestampMixin, Document):
     """A named LLM provider configuration."""
 
     name: str = Field(..., description="Display name (e.g., 'GPT-4o Cloud', 'Local Qwen')")
-    provider: str = Field(..., description="Provider: openai, anthropic, ollama, lm_studio, azure_openai, bedrock, vertex")
+    provider: str = Field(..., description="Provider: openai, anthropic, mistral, ollama, lm_studio, azure_openai, bedrock, vertex")
     api_key: str | None = Field(default=None, description="Encrypted API key")
     model: str | None = Field(default=None, description="Model name")
     base_url: str | None = Field(default=None, description="Custom API base URL")
@@ -61,7 +61,7 @@ class LLMUsageLog(Document):
     user_id: PydanticObjectId = Field(..., description="User who made the request")
     feature: str = Field(..., description="Feature that triggered the call (backup_summary, workflow_assist, etc.)")
     model: str = Field(..., description="LLM model used")
-    provider: str = Field(..., description="LLM provider (openai, anthropic, ollama, etc.)")
+    provider: str = Field(..., description="LLM provider (openai, anthropic, mistral, ollama, etc.)")
     prompt_tokens: int = Field(default=0, description="Input tokens consumed")
     completion_tokens: int = Field(default=0, description="Output tokens generated")
     total_tokens: int = Field(default=0, description="Total tokens consumed")

@@ -50,12 +50,20 @@ async def get_site_template_context(
         }
     """
     from app.modules.backup.models import BackupObject
+    from app.modules.digital_twin.services.state_resolver import object_type_query_values
 
     # Get site info (may be in virtual state if being modified)
     site_info = virtual_state.get(("info", site_id, None), {})
     if not site_info:
         backup = (
-            await BackupObject.find({"object_type": "info", "site_id": site_id, "is_deleted": False})
+            await BackupObject.find(
+                {
+                    "org_id": org_id,
+                    "object_type": {"$in": object_type_query_values("info")},
+                    "site_id": site_id,
+                    "is_deleted": False,
+                }
+            )
             .sort([("version", -1)])
             .first_or_none()
         )
@@ -64,16 +72,23 @@ async def get_site_template_context(
     site_name = site_info.get("name", site_id)
 
     # Get site setting for vars
-    site_setting = virtual_state.get(("setting", site_id, None), {})
+    site_setting = virtual_state.get(("settings", site_id, None), {})
     if not site_setting:
         backup = (
-            await BackupObject.find({"object_type": "setting", "site_id": site_id, "is_deleted": False})
+            await BackupObject.find(
+                {
+                    "object_type": {"$in": object_type_query_values("settings")},
+                    "site_id": site_id,
+                    "org_id": org_id,
+                    "is_deleted": False,
+                }
+            )
             .sort([("version", -1)])
             .first_or_none()
         )
         site_setting = backup.configuration if backup else {}
 
-    site_vars = site_setting.get("vars", {})
+    site_vars = site_setting.get("vars") or {}
 
     # Resolve assigned templates
     assigned_templates = []
@@ -86,7 +101,14 @@ async def get_site_template_context(
         tmpl_config = virtual_state.get((tmpl_type, None, tmpl_id), {})
         if not tmpl_config:
             backup = (
-                await BackupObject.find({"object_type": tmpl_type, "object_id": tmpl_id, "is_deleted": False})
+                await BackupObject.find(
+                    {
+                        "org_id": org_id,
+                        "object_type": {"$in": object_type_query_values(tmpl_type)},
+                        "object_id": tmpl_id,
+                        "is_deleted": False,
+                    }
+                )
                 .sort([("version", -1)])
                 .first_or_none()
             )

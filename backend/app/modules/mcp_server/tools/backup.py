@@ -4,10 +4,13 @@ Backup tool — consolidated backup operations with action dispatch.
 Actions: object_info, version_detail, compare, trigger, restore.
 """
 
+import re
 from typing import Annotated, Any
 
 import structlog
 from fastmcp import Context
+from fastmcp.dependencies import CurrentContext
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from app.modules.mcp_server.helpers import (
@@ -20,109 +23,354 @@ from app.modules.mcp_server.helpers import (
     truncate_value,
 )
 from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.tools.utils import is_placeholder
 
 logger = structlog.get_logger(__name__)
 
+_BACKUP_ACTIONS: set[str] = {
+    "object_info",
+    "version_detail",
+    "compare",
+    "trigger",
+    "restore",
+    "job_detail",
+    "job_logs",
+}
+_BACKUP_TYPES: set[str] = {"full", "manual"}
+_LOG_LEVELS: set[str] = {"info", "warning", "error"}
+_OBJECT_TYPE_PATTERN = re.compile(r"^(org|site):[a-z0-9_]+$")
 
-@mcp.tool()
+# Event types whose captured configuration reflects the actual live state of the object
+# (vs. events like 'restored' and 'deleted' that may leave partial or stale config).
+_DATA_EVENT_TYPES: set[str] = {"full_backup", "updated", "created", "incremental"}
+
+
+def _event_type_str(event_type: Any) -> str:
+    """Coerce a BackupEventType enum or raw string into its string value."""
+    return event_type.value if hasattr(event_type, "value") else str(event_type)
+
+
+def _is_data_event(event_type: Any) -> bool:
+    """Return True when a version's event_type captures the live object configuration."""
+    return _event_type_str(event_type) in _DATA_EVENT_TYPES
+
+
+def _validate_backup_inputs(
+    *,
+    action: str,
+    object_id: str,
+    version_id: str,
+    version_number: int,
+    version_id_1: str,
+    version_id_2: str,
+    backup_type: str,
+    object_type: str,
+    site_id: str,
+    object_ids: list[str] | None,
+    backup_id: str,
+    level: str,
+) -> dict[str, Any]:
+    normalized_action = action.strip().lower()
+    if normalized_action not in _BACKUP_ACTIONS:
+        raise ToolError(f"Unknown action '{action}'. Use: {', '.join(sorted(_BACKUP_ACTIONS))}")
+
+    normalized_object_id = object_id.strip()
+    normalized_version_id = version_id.strip()
+    normalized_version_number = version_number if version_number and version_number > 0 else 0
+    normalized_version_id_1 = version_id_1.strip()
+    normalized_version_id_2 = version_id_2.strip()
+    normalized_backup_type = backup_type.strip().lower()
+    normalized_object_type = object_type.strip().lower()
+    normalized_site_id = site_id.strip()
+    normalized_backup_id = backup_id.strip()
+    normalized_level = level.strip().lower()
+    normalized_object_ids = [oid.strip() for oid in (object_ids or []) if oid and oid.strip()]
+
+    for label, value in (
+        ("object_id", normalized_object_id),
+        ("version_id", normalized_version_id),
+        ("version_id_1", normalized_version_id_1),
+        ("version_id_2", normalized_version_id_2),
+        ("site_id", normalized_site_id),
+        ("backup_id", normalized_backup_id),
+    ):
+        if value and is_placeholder(value):
+            raise ToolError(f"Invalid {label} '{value}': unresolved placeholders are not allowed")
+
+    for oid in normalized_object_ids:
+        if is_placeholder(oid):
+            raise ToolError(f"Invalid object_ids entry '{oid}': unresolved placeholders are not allowed")
+
+    if normalized_action == "object_info" and not normalized_object_id:
+        raise ToolError("object_id is required for action='object_info'")
+
+    if normalized_action == "version_detail" and not normalized_version_id:
+        raise ToolError("version_id is required for action='version_detail'")
+
+    if normalized_action == "compare":
+        if not normalized_version_id_1 or not normalized_version_id_2:
+            raise ToolError("version_id_1 and version_id_2 are required for action='compare'")
+        if normalized_version_id_1 == normalized_version_id_2:
+            raise ToolError("version_id_1 and version_id_2 must be different")
+
+    if normalized_action == "trigger":
+        if normalized_backup_type not in _BACKUP_TYPES:
+            raise ToolError("backup_type must be 'full' or 'manual'")
+
+        if normalized_backup_type == "full":
+            if normalized_object_type or normalized_site_id or normalized_object_ids:
+                raise ToolError(
+                    "For backup_type='full', do not pass object_type, site_id, or object_ids"
+                )
+        else:
+            if not normalized_object_type:
+                raise ToolError(
+                    "object_type is required for manual backups (example: 'org:wlans' or 'site:devices')"
+                )
+            if not _OBJECT_TYPE_PATTERN.match(normalized_object_type):
+                raise ToolError(
+                    "object_type must use 'scope:key' format, e.g. 'org:wlans' or 'site:devices'"
+                )
+            if normalized_object_type.startswith("site:") and not normalized_site_id:
+                raise ToolError("site_id is required for site-scoped manual backups")
+
+    if normalized_action == "restore":
+        if normalized_version_id and normalized_version_number:
+            raise ToolError(
+                "Pass either version_id (MongoDB ObjectId) OR version_number (integer), not both."
+            )
+        if not normalized_version_id and not normalized_version_number:
+            raise ToolError(
+                "action='restore' requires version_id (MongoDB ObjectId) or version_number + object_id."
+            )
+        if normalized_version_number and not normalized_object_id:
+            raise ToolError(
+                "object_id is required when using version_number for action='restore'."
+            )
+
+    if normalized_action in {"job_detail", "job_logs"} and not normalized_backup_id:
+        raise ToolError(f"backup_id is required for action='{normalized_action}'")
+
+    if normalized_action == "job_logs" and normalized_level and normalized_level not in _LOG_LEVELS:
+        raise ToolError(
+            f"Invalid level '{level}'. Use: {', '.join(sorted(_LOG_LEVELS))}"
+        )
+
+    return {
+        "action": normalized_action,
+        "object_id": normalized_object_id,
+        "version_id": normalized_version_id,
+        "version_number": normalized_version_number,
+        "version_id_1": normalized_version_id_1,
+        "version_id_2": normalized_version_id_2,
+        "backup_type": normalized_backup_type,
+        "object_type": normalized_object_type,
+        "site_id": normalized_site_id,
+        "object_ids": normalized_object_ids or None,
+        "backup_id": normalized_backup_id,
+        "level": normalized_level,
+    }
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True})
 async def backup(
-    ctx: Context,
     action: Annotated[
         str,
         Field(
             description=(
-                "The backup operation to perform. One of:\n"
-                "- 'object_info': Get a backed-up object's metadata, full version history (without config), "
-                "and dependency graph. Requires: object_id (Mist UUID).\n"
-                "- 'version_detail': Get a specific version's full configuration. "
-                "Requires: version_id (MongoDB document ID from object_info results). "
-                "Optional: fields (list of dot-notation paths to extract specific config keys).\n"
-                "- 'compare': Diff two backup versions side by side. "
-                "Requires: version_id_1, version_id_2 (MongoDB document IDs from object_info).\n"
-                "- 'trigger': Start a backup job (asks user for confirmation). "
-                "Requires: backup_type ('full' or 'manual'). "
-                "For manual: also requires object_type (e.g. 'org:wlans', 'site:devices').\n"
-                "- 'restore': Restore an object to a specific backup version. "
-                "Automatically shows the user a diff of what will change and asks for confirmation. "
-                "Requires: version_id (MongoDB document ID or version number). "
-                "If using a version number, also provide object_id (Mist UUID).\n"
-                "- 'job_detail': Get backup job metadata and aggregated failure/warning counts from "
-                "execution logs, broken down by phase and object type. Use this to drill into a "
-                "specific backup run after finding it via search(type='backup_jobs'). Requires: backup_id.\n"
-                "- 'job_logs': Browse execution log entries for a specific backup job, useful for "
-                "reading exact error messages. Requires: backup_id. "
-                "Optional: level ('info'|'warning'|'error'), skip, limit (default 25, max 50)."
+                "The backup operation to perform.\n\n"
+                "READ-ONLY actions (safe, no Mist side effects):\n"
+                "- 'object_info': fetch an object's metadata, version history (without config), and dependency graph.\n"
+                "    Required: object_id (Mist UUID).\n"
+                "- 'version_detail': fetch a specific version's full configuration.\n"
+                "    Required: version_id (MongoDB ObjectId from object_info results).\n"
+                "    Optional: fields (dot-notation paths to extract only some keys).\n"
+                "- 'compare': diff two backup versions side by side (the tool rejects reversed order).\n"
+                "    Required: version_id_1 (older), version_id_2 (newer). Both MongoDB ObjectIds.\n"
+                "- 'job_detail': job metadata and aggregated failure/warning counts from execution logs.\n"
+                "    Required: backup_id (from search(search_type='backup_jobs')).\n"
+                "- 'job_logs': browse execution log entries for a backup job.\n"
+                "    Required: backup_id. Optional: level ('info'|'warning'|'error'), skip, limit (default 25, max 50).\n\n"
+                "WRITE actions (mutate Mist state; require 'backup' or 'admin' role; always confirm with user):\n"
+                "- 'trigger': start a new backup job. Asks user for confirmation.\n"
+                "    Required: backup_type. For backup_type='full': no other params. "
+                "For backup_type='manual': also object_type (e.g. 'org:wlans') and site_id when site-scoped.\n"
+                "- 'restore': restore an object to a specific backup version. Auto-shows a diff card and asks for confirmation.\n"
+                "    Required: EXACTLY ONE of version_id (MongoDB ObjectId) OR (version_number + object_id)."
             ),
         ),
     ],
     object_id: Annotated[
         str,
-        Field(description="Mist object UUID. Used by action='object_info' to look up all versions of an object."),
-    ] = "",
+        Field(
+            description=(
+                "Mist object UUID. Used by action='object_info' to look up all versions of an object, "
+                "and by action='restore' when version_number is provided instead of version_id."
+            ),
+        default="",
+        ),
+    ]="",
     version_id: Annotated[
         str,
         Field(
-            description="Backup version identifier. Used by action='version_detail' and action='restore'. Can be a MongoDB document ID (from 'version_id' in object_info results) or a version number (requires object_id too)."
+            description=(
+                "Backup version MongoDB ObjectId (from 'version_id' in object_info results). "
+                "Used by action='version_detail' and action='restore'. "
+                "For action='restore', pass EITHER version_id OR (version_number + object_id), not both."
+            ),
+        default="",
         ),
-    ] = "",
+    ]="",
+    version_number: Annotated[
+        int,
+        Field(
+            description=(
+                "Integer version number from the object's history (1, 2, 3, ...). "
+                "ONLY used by action='restore' as an alternative to version_id. "
+                "When set, object_id is required and version_id must be empty."
+            ),
+            ge=0,
+        default=0,
+        ),
+    ]=0,
     version_id_1: Annotated[
         str,
-        Field(description="First (older) version MongoDB document ID. Used by action='compare'."),
-    ] = "",
+        Field(
+            description=(
+                "First (OLDER) version MongoDB ObjectId. Used by action='compare'. "
+                "Must be older than version_id_2; the tool rejects reversed order."
+            ),
+        default="",
+        ),
+    ]="",
     version_id_2: Annotated[
         str,
-        Field(description="Second (newer) version MongoDB document ID. Used by action='compare'."),
-    ] = "",
-    fields: Annotated[
-        list[str] | None,
         Field(
-            description="Dot-notation config paths to extract (e.g. ['ssid', 'auth.type']). Used by action='version_detail' to return only specific fields instead of the full config."
+            description=(
+                "Second (NEWER) version MongoDB ObjectId. Used by action='compare'. "
+                "Must be newer than version_id_1."
+            ),
+        default="",
         ),
-    ] = None,
+    ]="",
+    fields: Annotated[
+        list[str]|None,
+        Field(
+            description=(
+                "Dot-notation config paths to extract (e.g. ['ssid', 'auth.type']). "
+                "Used by action='version_detail' to return only specific fields instead of the full config."
+            ),
+        default=None,
+        ),
+    ]=None,
     backup_type: Annotated[
         str,
-        Field(description="Backup type for action='trigger': 'full' (entire org) or 'manual' (specific objects)."),
-    ] = "",
+        Field(
+            description=(
+                "Backup type for action='trigger'. One of: "
+                "'full' (entire organization; no other params), "
+                "'manual' (specific objects; requires object_type)."
+            ),
+        default="",
+        ),
+    ]="",
     object_type: Annotated[
         str,
         Field(
-            description="Object type in 'scope:key' format (e.g. 'org:wlans', 'site:devices'). Required for action='trigger' with backup_type='manual'."
+            description=(
+                "Object type in 'scope:key' format. Required for action='trigger' with backup_type='manual'. "
+                "Examples: 'org:wlans', 'org:networks', 'org:devices', 'org:networktemplates', "
+                "'org:gatewaytemplates', 'site:devices', 'site:wlans', 'site:settings'. "
+                "Use search(search_type='backup_objects', object_type='info') to discover valid keys."
+            ),
+        default="",
         ),
-    ] = "",
+    ]="",
     site_id: Annotated[
         str,
-        Field(description="Mist site UUID for site-scoped manual backups. Used by action='trigger'."),
-    ] = "",
+        Field(
+            description=(
+                "Mist site UUID. Required when object_type starts with 'site:' for action='trigger' "
+                "with backup_type='manual'."
+            ),
+        default="",
+        ),
+    ]="",
     object_ids: Annotated[
-        list[str] | None,
-        Field(description="Specific Mist object UUIDs to back up. Used by action='trigger' with backup_type='manual'."),
-    ] = None,
+        list[str]|None,
+        Field(
+            description=(
+                "Specific Mist object UUIDs to back up. Used by action='trigger' with backup_type='manual'. "
+                "Omit to back up all objects of object_type."
+            ),
+        default=None,
+        ),
+    ]=None,
     backup_id: Annotated[
         str,
         Field(
-            description="BackupJob MongoDB document ID. Required for action='job_detail' and action='job_logs'. Get this from search(type='backup_jobs') results."
+            description=(
+                "BackupJob MongoDB ObjectId. Required for action='job_detail' and action='job_logs'. "
+                "Get this from search(search_type='backup_jobs') results."
+            ),
+        default="",
         ),
-    ] = "",
+    ]="",
     level: Annotated[
         str,
         Field(
-            description="Log level filter for action='job_logs'. One of: 'info', 'warning', 'error'. Omit to return all levels."
+            description=(
+                "Log level filter for action='job_logs'. One of: 'info', 'warning', 'error'. "
+                "Omit to return all levels."
+            ),
+        default="",
         ),
-    ] = "",
+    ]="",
     skip: Annotated[
         int,
-        Field(description="Pagination offset for action='job_logs'.", ge=0),
-    ] = 0,
+        Field(
+            description="Pagination offset for action='job_logs' (0-based).",
+            ge=0,
+        default=0,
+            ),
+    ]=0,
     limit: Annotated[
         int,
-        Field(description="Max log entries to return for action='job_logs' (1-50).", ge=1, le=50),
-    ] = 25,
+        Field(
+            description="Max log entries to return for action='job_logs' (1-50).",
+            ge=1,
+            le=50,
+        default=25,
+        ),
+    ]=25,
+    ctx: Context = CurrentContext(),
 ) -> str:
-    """Manage Mist configuration backups: inspect versioned config snapshots, compare changes between versions, or trigger new backups.
+    """Manage Mist configuration backups: inspect versioned snapshots, diff versions, trigger backups, or restore.
 
-    Each backed-up object has a version history. Use 'object_info' first to see all versions,
-    then 'version_detail' or 'compare' with the version_ids from the results.
+    Typical READ workflow:
+    1. Use search(search_type='backup_objects', object_type=..., query=...) to find an object.
+    2. Use backup(action='object_info', object_id=...) to list all versions.
+    3. Use backup(action='version_detail', version_id=...) or backup(action='compare', ...) to inspect.
+
+    WRITE actions (trigger, restore) require the 'backup' or 'admin' role and always prompt the user
+    for confirmation via elicitation. Restore auto-computes a diff and shows a rich diff card before
+    executing.
     """
+    validated = _validate_backup_inputs(
+        action=action,
+        object_id=object_id,
+        version_id=version_id,
+        version_number=version_number,
+        version_id_1=version_id_1,
+        version_id_2=version_id_2,
+        backup_type=backup_type,
+        object_type=object_type,
+        site_id=site_id,
+        object_ids=object_ids,
+        backup_id=backup_id,
+        level=level,
+    )
+
     dispatchers: dict[str, Any] = {
         "object_info": _object_info,
         "version_detail": _version_detail,
@@ -133,23 +381,22 @@ async def backup(
         "job_logs": _job_logs,
     }
 
-    handler = dispatchers.get(action)
-    if not handler:
-        return to_json({"error": f"Unknown action '{action}'. Use: {', '.join(dispatchers)}"})
+    handler = dispatchers[validated["action"]]
 
     return await handler(
         ctx=ctx,
-        object_id=object_id,
-        version_id=version_id,
-        version_id_1=version_id_1,
-        version_id_2=version_id_2,
+        object_id=validated["object_id"],
+        version_id=validated["version_id"],
+        version_number=validated["version_number"],
+        version_id_1=validated["version_id_1"],
+        version_id_2=validated["version_id_2"],
         fields=fields,
-        backup_type=backup_type,
-        object_type=object_type,
-        site_id=site_id,
-        object_ids=object_ids,
-        backup_id=backup_id,
-        level=level,
+        backup_type=validated["backup_type"],
+        object_type=validated["object_type"],
+        site_id=validated["site_id"],
+        object_ids=validated["object_ids"],
+        backup_id=validated["backup_id"],
+        level=validated["level"],
         skip=skip,
         limit=limit,
     )
@@ -160,26 +407,30 @@ async def _object_info(*, object_id: str, **_kwargs) -> str:
 
     from app.modules.backup.models import BackupObject
 
-    if not object_id:
-        return to_json({"error": "object_id is required for action=object_info"})
-
-    versions = await BackupObject.find(BackupObject.object_id == object_id).sort("-version").to_list()
+    versions = await BackupObject.find(BackupObject.object_id == object_id).sort(-BackupObject.version).to_list()
     if not versions:
-        return to_json({"error": f"No backup found for object_id '{object_id}'"})
+        raise ToolError(f"No backup found for object_id '{object_id}'")
 
     latest = versions[0]
 
-    # Build version list (no configuration)
-    version_list = [
-        {
-            "version_id": str(v.id),
-            "version": v.version,
-            "event_type": v.event_type.value if hasattr(v.event_type, "value") else str(v.event_type),
-            "changed_fields": v.changed_fields[:10] if v.changed_fields else [],
-            "backed_up_at": v.backed_up_at,
-        }
-        for v in versions
-    ]
+    # Build version list (no configuration) with event-type semantics.
+    version_list: list[dict[str, Any]] = []
+    latest_data_version: BackupObject | None = None
+    for v in versions:
+        event_type_value = _event_type_str(v.event_type)
+        is_data_event = _is_data_event(v.event_type)
+        if is_data_event and latest_data_version is None:
+            latest_data_version = v
+        version_list.append(
+            {
+                "version_id": str(v.id),
+                "version": v.version,
+                "event_type": event_type_value,
+                "is_data_event": is_data_event,
+                "changed_fields": v.changed_fields[:10] if v.changed_fields else [],
+                "backed_up_at": v.backed_up_at,
+            }
+        )
 
     # Dependencies from latest version references
     parents = []
@@ -198,18 +449,49 @@ async def _object_info(*, object_id: str, **_kwargs) -> str:
             seen_children.add(doc.object_id)
             children.append({"type": doc.object_type, "id": doc.object_id, "name": doc.object_name or ""})
 
-    return to_json(
-        {
-            "object_type": latest.object_type,
-            "object_name": latest.object_name,
-            "object_id": latest.object_id,
-            "site_id": latest.site_id,
-            "is_deleted": latest.is_deleted,
-            "versions": cap_list(version_list, 30),
-            "parents": parents[:20],
-            "children": children[:20],
+    latest_event_type = _event_type_str(latest.event_type)
+    latest_is_data = _is_data_event(latest.event_type)
+
+    result: dict[str, Any] = {
+        "object_type": latest.object_type,
+        "object_name": latest.object_name,
+        "object_id": latest.object_id,
+        "site_id": latest.site_id,
+        "is_deleted": latest.is_deleted,
+        "versions": cap_list(version_list, 30),
+        "parents": parents[:20],
+        "children": children[:20],
+    }
+
+    # Point the LLM at the right version for config inspection. When the latest version
+    # is NOT a data event (e.g. 'restored', 'deleted'), its configuration may be partial
+    # or stale — recommend the most recent full_backup/updated version instead.
+    if latest_data_version is not None:
+        result["recommended_version_for_inspection"] = {
+            "version_id": str(latest_data_version.id),
+            "version": latest_data_version.version,
+            "event_type": (
+                latest_data_version.event_type.value
+                if hasattr(latest_data_version.event_type, "value")
+                else str(latest_data_version.event_type)
+            ),
+            "reason": (
+                "Most recent full_backup/updated/created version with full captured config. "
+                "Pass this version_id to backup(action='version_detail', ...) to inspect the object's "
+                "actual configuration."
+                if not latest_is_data
+                else "Most recent data-event version. Safe to pass to backup(action='version_detail', ...) "
+                "for config inspection."
+            ),
         }
-    )
+    if not latest_is_data:
+        result["note"] = (
+            f"The latest version (v{latest.version}) is a '{latest_event_type}' event and its "
+            "captured configuration may be incomplete. Use recommended_version_for_inspection.version_id "
+            "when you need the object's actual current configuration."
+        )
+
+    return to_json(result)
 
 
 async def _version_detail(*, version_id: str, fields: list[str] | None, **_kwargs) -> str:
@@ -218,35 +500,80 @@ async def _version_detail(*, version_id: str, fields: list[str] | None, **_kwarg
 
     from app.modules.backup.models import BackupObject
 
-    if not version_id:
-        return to_json({"error": "version_id is required for action=version_detail"})
-
     try:
         obj = await BackupObject.get(PydanticObjectId(version_id))
-    except Exception:
-        return to_json({"error": f"Invalid version_id '{version_id}'"})
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid version_id '{version_id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not obj:
-        return to_json({"error": f"Version '{version_id}' not found"})
+        raise ToolError(f"Version '{version_id}' not found")
 
-    config = obj.configuration or {}
+    raw_config = obj.configuration or {}
+    top_level_keys = sorted(raw_config.keys()) if isinstance(raw_config, dict) else []
+    event_type_value = _event_type_str(obj.event_type)
+    is_data_event = _is_data_event(obj.event_type)
+
     if fields:
-        config = extract_fields(config, fields)
+        config = extract_fields(raw_config, fields)
     else:
-        config = prune_config(config)
+        # On data events, auto-expand the top-level segments of changed_fields so the LLM
+        # sees what actually changed on the first call (e.g. 'port_config.ge-0/0/8' →
+        # expand 'port_config' fully). changed_fields is empty on restore/deleted events.
+        inline_keys: set[str] | None = None
+        if is_data_event and obj.changed_fields:
+            inline_keys = {f.split(".")[0] for f in obj.changed_fields if f}
+        config = prune_config(raw_config, inline_keys=inline_keys)
 
-    return to_json(
-        {
-            "version_id": str(obj.id),
-            "object_type": obj.object_type,
-            "object_name": obj.object_name,
-            "object_id": obj.object_id,
-            "version": obj.version,
-            "event_type": obj.event_type.value if hasattr(obj.event_type, "value") else str(obj.event_type),
-            "backed_up_at": obj.backed_up_at,
-            "configuration": config,
-        }
-    )
+    result: dict[str, Any] = {
+        "version_id": str(obj.id),
+        "object_type": obj.object_type,
+        "object_name": obj.object_name,
+        "object_id": obj.object_id,
+        "version": obj.version,
+        "event_type": event_type_value,
+        "is_data_event": is_data_event,
+        "backed_up_at": obj.backed_up_at,
+        "configuration": config,
+    }
+
+    # Diagnostics: when `fields` was requested but extraction returned nothing, tell the LLM
+    # why. Either the path doesn't exist in this version (common for 'restored' events that
+    # captured a partial config) or the raw config is empty.
+    if fields and not config:
+        # Look up the latest data-event version so the LLM can retry against a version with
+        # full captured config.
+        latest_data_version = (
+            await BackupObject.find(
+                BackupObject.object_id == obj.object_id,
+                {"event_type": {"$in": sorted(_DATA_EVENT_TYPES)}},
+            )
+            .sort(-BackupObject.version)
+            .first_or_none()
+        )
+        hint_parts = [
+            "Field extraction returned no matches.",
+            f"Requested fields: {fields}.",
+            f"Available top-level keys in this version: {top_level_keys[:30]}"
+            + ("..." if len(top_level_keys) > 30 else ""),
+        ]
+        if not is_data_event:
+            hint_parts.append(
+                f"This version is a '{event_type_value}' event whose captured configuration may be "
+                "partial or stale."
+            )
+        if latest_data_version is not None and str(latest_data_version.id) != str(obj.id):
+            hint_parts.append(
+                f"Try version_id='{latest_data_version.id}' "
+                f"(version {latest_data_version.version}, event_type="
+                f"{latest_data_version.event_type.value if hasattr(latest_data_version.event_type, 'value') else latest_data_version.event_type}) "
+                "which was the most recent data event for this object."
+            )
+        result["diagnostic"] = " ".join(hint_parts)
+        result["available_top_level_keys"] = top_level_keys
+
+    return to_json(result)
 
 
 async def _compare(*, version_id_1: str, version_id_2: str, **_kwargs) -> str:
@@ -256,21 +583,22 @@ async def _compare(*, version_id_1: str, version_id_2: str, **_kwargs) -> str:
     from app.modules.backup.models import BackupObject
     from app.modules.backup.utils import deep_diff
 
-    if not version_id_1 or not version_id_2:
-        return to_json({"error": "version_id_1 and version_id_2 are required for action=compare"})
-
     try:
         v1 = await BackupObject.get(PydanticObjectId(version_id_1))
         v2 = await BackupObject.get(PydanticObjectId(version_id_2))
-    except Exception:
-        return to_json({"error": "Invalid version ID format"})
+    except Exception as exc:
+        raise ToolError("Invalid version ID format") from exc
 
     if not v1 or not v2:
-        return to_json({"error": "One or both versions not found"})
+        raise ToolError("One or both versions not found")
 
-    # Ensure v1 is older
+    # Fail loudly on reversed order instead of silently swapping, so the LLM doesn't
+    # get a diff labeled "old → new" that's actually "new → old".
     if v1.version > v2.version:
-        v1, v2 = v2, v1
+        raise ToolError(
+            "version_id_1 must be the OLDER version. You passed them reversed "
+            f"(v1.version={v1.version} > v2.version={v2.version}). Swap them and retry."
+        )
 
     diff_entries = deep_diff(v1.configuration, v2.configuration)
 
@@ -313,19 +641,19 @@ async def _trigger(
     if user_id:
         user = await User.get(PydanticObjectId(user_id))
         if not user or not ("backup" in user.roles or "admin" in user.roles):
-            return to_json({"error": "Access denied: backup role required"})
+            raise ToolError("Access denied: backup role required")
     else:
-        return to_json({"error": "Access denied: user context not available"})
+        raise ToolError("Access denied: user context not available")
 
     if backup_type not in ("full", "manual"):
-        return to_json({"error": "backup_type must be 'full' or 'manual'"})
+        raise ToolError("backup_type must be 'full' or 'manual'")
 
     if backup_type == "manual" and not object_type:
-        return to_json({"error": "object_type is required for manual backups (e.g., 'org:wlans')"})
+        raise ToolError("object_type is required for manual backups (e.g., 'org:wlans')")
 
     config = await SystemConfig.get_config()
     if not config or not config.mist_org_id:
-        return to_json({"error": "Mist Organization ID not configured"})
+        raise ToolError("Mist Organization ID not configured")
 
     # Build confirmation description
     if backup_type == "full":
@@ -354,7 +682,14 @@ async def _trigger(
     return to_json({"backup_type": backup_type, "status": "started", "message": "Backup started in background."})
 
 
-async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwargs) -> str:
+async def _restore(
+    *,
+    ctx: Context,
+    version_id: str,
+    version_number: int,
+    object_id: str = "",
+    **_kwargs,
+) -> str:
     """Restore an object to a specific backup version with auto-diff elicitation."""
     from beanie import PydanticObjectId
 
@@ -363,35 +698,36 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
     from app.modules.backup.utils import deep_diff
     from app.modules.mcp_server.server import mcp_user_id_var
 
-    if not version_id:
-        return to_json({"error": "version_id is required for action=restore"})
-
     # Enforce backup role (mirrors REST API require_backup_role)
     user_id = mcp_user_id_var.get()
     if not user_id:
-        return to_json({"error": "Access denied: user context not available"})
+        raise ToolError("Access denied: user context not available")
     user = await User.get(PydanticObjectId(user_id))
     if not user or not ("backup" in user.roles or "admin" in user.roles):
-        return to_json({"error": "Access denied: backup role required"})
+        raise ToolError("Access denied: backup role required")
 
-    # Load target version — accept either MongoDB ObjectId or version number
+    # Load target version — caller gives us exactly one of version_id (ObjectId) or version_number + object_id.
     target = None
-    try:
-        target = await BackupObject.get(PydanticObjectId(version_id))
-    except Exception:
-        # Not a valid ObjectId — try as a version number with object_id
+    if version_id:
         try:
-            version_num = int(version_id)
-            if object_id:
-                target = await BackupObject.find_one(
-                    BackupObject.object_id == object_id,
-                    BackupObject.version == version_num,
-                )
-        except (ValueError, TypeError):
-            pass
-    if not target:
-        hint = " Provide either a MongoDB document ID or a version number with object_id."
-        return to_json({"error": f"Version '{version_id}' not found.{hint}"})
+            target = await BackupObject.get(PydanticObjectId(version_id))
+        except Exception as exc:
+            raise ToolError(
+                f"Invalid version_id '{version_id}': not a valid 24-char hex MongoDB ObjectId."
+            ) from exc
+        if not target:
+            raise ToolError(f"Version '{version_id}' not found.")
+    else:
+        # version_number path — _validate_backup_inputs already enforced object_id is present.
+        target = await BackupObject.find_one(
+            BackupObject.object_id == object_id,
+            BackupObject.version == version_number,
+        )
+        if not target:
+            raise ToolError(
+                f"Version {version_number} not found for object_id '{object_id}'. "
+                "Use backup(action='object_info', object_id=...) to list valid versions."
+            )
 
     # Find current (latest non-deleted) version of the same object
     current = (
@@ -504,7 +840,7 @@ async def _restore(*, ctx: Context, version_id: str, object_id: str = "", **_kwa
         )
     except Exception as exc:
         logger.error("mcp_restore_failed", error=str(exc))
-        return to_json({"error": "Restore operation failed"})
+        raise ToolError("Restore operation failed") from exc
 
 
 async def _job_detail(*, backup_id: str, **_kwargs) -> str:
@@ -513,14 +849,12 @@ async def _job_detail(*, backup_id: str, **_kwargs) -> str:
 
     from app.modules.backup.models import BackupJob, BackupLogEntry
 
-    if not backup_id:
-        return to_json({"error": "backup_id is required for action=job_detail"})
     try:
         job = await BackupJob.get(PydanticObjectId(backup_id))
-    except Exception:
-        return to_json({"error": f"Invalid backup_id '{backup_id}'"})
+    except Exception as exc:
+        raise ToolError(f"Invalid backup_id '{backup_id}'") from exc
     if not job:
-        return to_json({"error": f"Backup job '{backup_id}' not found"})
+        raise ToolError(f"Backup job '{backup_id}' not found")
 
     job_oid = job.id
     agg = await BackupLogEntry.aggregate(
@@ -574,12 +908,10 @@ async def _job_logs(*, backup_id: str, level: str, skip: int, limit: int, **_kwa
 
     from app.modules.backup.models import BackupLogEntry
 
-    if not backup_id:
-        return to_json({"error": "backup_id is required for action=job_logs"})
     try:
         job_oid = PydanticObjectId(backup_id)
-    except Exception:
-        return to_json({"error": f"Invalid backup_id '{backup_id}'"})
+    except Exception as exc:
+        raise ToolError(f"Invalid backup_id '{backup_id}'") from exc
 
     match: dict = {"backup_job_id": job_oid}
     if level:

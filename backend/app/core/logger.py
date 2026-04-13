@@ -12,6 +12,13 @@ from structlog.types import EventDict, Processor
 
 from app.config import settings
 
+try:
+    from app.modules.digital_twin.services.twin_logging import capture_twin_session_logs
+except ImportError:
+    def capture_twin_session_logs(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+        """No-op fallback when the optional Digital Twin module is unavailable."""
+        return event_dict
+
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """Add application context to log events."""
@@ -119,6 +126,7 @@ def configure_logging():
             structlog.processors.UnicodeDecoder(),
             add_app_context,
             censor_sensitive_data,
+            capture_twin_session_logs,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

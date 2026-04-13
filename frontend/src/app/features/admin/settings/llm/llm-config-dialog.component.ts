@@ -20,6 +20,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
+  { value: 'mistral', label: 'Mistral' },
   { value: 'azure_openai', label: 'Azure OpenAI' },
   { value: 'bedrock', label: 'AWS Bedrock' },
   { value: 'vertex', label: 'Google Vertex AI' },
@@ -283,17 +284,33 @@ export class LlmConfigDialogComponent implements OnInit {
 
   showBaseUrl(): boolean {
     const p = this.form.get('provider')?.value;
-    return ['openai_compatible', 'azure_openai', 'bedrock', 'ollama', 'lm_studio', 'llama_cpp', 'vllm'].includes(
+    return [
+      'openai_compatible',
+      'azure_openai',
+      'bedrock',
+      'mistral',
+      'ollama',
+      'lm_studio',
+      'llama_cpp',
+      'vllm',
+    ].includes(
       p || '',
     );
   }
 
+  private normalizeBaseUrl(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+
   private buildConnectionPayload(): Record<string, string | undefined> {
     const v = this.form.getRawValue();
+    const baseUrl = this.showBaseUrl() ? this.normalizeBaseUrl(v.base_url) : undefined;
     return {
       provider: v.provider || 'openai',
       api_key: v.api_key || undefined,
-      base_url: v.base_url || undefined,
+      base_url: baseUrl,
       config_id: !v.api_key && this.data.config ? this.data.config.id : undefined,
     };
   }
@@ -336,10 +353,19 @@ export class LlmConfigDialogComponent implements OnInit {
   save(): void {
     this.saving.set(true);
     const values = this.form.getRawValue();
+    const allowBaseUrl = this.showBaseUrl();
     const payload: Record<string, unknown> = {};
 
     for (const [k, v] of Object.entries(values)) {
       if (k === 'api_key' && !v) continue;
+      if (k === 'base_url' && !allowBaseUrl) {
+        payload[k] = null;
+        continue;
+      }
+      if (k === 'base_url') {
+        payload[k] = this.normalizeBaseUrl(v) ?? null;
+        continue;
+      }
       // canvas_prompt_tier: null means "auto-detect" and must be sent explicitly
       if (k === 'canvas_prompt_tier') { payload[k] = v; continue; }
       // context_window_tokens: null means "auto-detect" and must be sent explicitly (to clear override)

@@ -20,10 +20,18 @@ from app.core.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
+from app.modules.mcp_server.auth_middleware import MCPAuthMiddleware
+from app.modules.mcp_server.server import mcp as _mcp_server
 
 # Configure structured logging
 configure_logging()
 logger = structlog.get_logger(__name__)
+
+
+# Build the MCP streamable-HTTP ASGI app once so we can both chain its lifespan
+# into the parent FastAPI lifespan (required by FastMCP's
+# StreamableHTTPSessionManager) and mount it below the auth middleware.
+_mcp_http_app = _mcp_server.http_app(path="/")
 
 
 @asynccontextmanager
@@ -35,80 +43,130 @@ async def lifespan(_app: FastAPI):
     # Startup
     logger.info("application_starting", version=settings.app_version, environment=settings.environment)
 
-    try:
-        # Connect to database
-        await Database.connect_db()
-        logger.info("database_connection_established")
-
-        # Start Smee.io client if enabled
+    async with _mcp_http_app.lifespan(_app):
         try:
-            from app.models.system import SystemConfig
+            # Connect to database
+            await Database.connect_db()
+            logger.info("database_connection_established")
 
-            config = await SystemConfig.get_config()
-            if config.smee_enabled and config.smee_channel_url:
-                from app.core.smee_service import start_smee
-
-                target = settings.smee_target_url or f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
-                await start_smee(config.smee_channel_url, target)
-                logger.info("smee_client_auto_started", channel=config.smee_channel_url)
-        except Exception as e:
-            logger.warning("smee_auto_start_failed", error=str(e))
-
-        # Load Mist OpenAPI Specification (for variable autocomplete + mock responses)
-        if settings.mist_oas_url:
+            # Start Smee.io client if enabled
             try:
-                from app.modules.automation.services.oas_service import OASService
+                from app.models.system import SystemConfig
 
-                await OASService.load(settings.mist_oas_url)
+                config = await SystemConfig.get_config()
+                if config.smee_enabled and config.smee_channel_url:
+                    from app.core.smee_service import start_smee
+
+                    target = settings.smee_target_url or f"http://127.0.0.1:8000{settings.api_v1_prefix}/webhooks/mist"
+                    await start_smee(config.smee_channel_url, target)
+                    logger.info("smee_client_auto_started", channel=config.smee_channel_url)
             except Exception as e:
-                logger.warning("oas_load_failed", error=str(e))
+                logger.warning("smee_auto_start_failed", error=str(e))
 
-        # Start APScheduler (cron workflows + scheduled backups)
-        try:
-            from app.workers import start_scheduler
+            # Load Mist OpenAPI Specification (for variable autocomplete + mock responses)
+            if settings.mist_oas_url:
+                try:
+                    from app.modules.automation.services.oas_service import OASService
 
-            await start_scheduler()
-            logger.info("scheduler_started")
-        except Exception as e:
-            logger.warning("scheduler_start_failed", error=str(e))
+                    await OASService.load(settings.mist_oas_url)
+                except Exception as e:
+                    logger.warning("oas_load_failed", error=str(e))
 
-        # Recover aggregation windows
-        try:
-            from app.modules.automation.workers.aggregation_worker import recover_aggregation_windows
+            # Start APScheduler (cron workflows + scheduled backups)
+            try:
+                from app.workers import start_scheduler
 
-            await recover_aggregation_windows()
-            logger.info("aggregation_windows_recovered")
-        except Exception as e:
-            logger.warning("aggregation_recovery_failed", error=str(e))
+                await start_scheduler()
+                logger.info("scheduler_started")
+            except Exception as e:
+                logger.warning("scheduler_start_failed", error=str(e))
 
-        # Seed built-in workflow recipes
-        try:
-            from app.modules.automation.seed_recipes import seed_built_in_recipes
+            # Recover aggregation windows
+            try:
+                from app.modules.automation.workers.aggregation_worker import (
+                    recover_aggregation_windows,
+                )
 
-            await seed_built_in_recipes()
-        except Exception as e:
-            logger.warning("seed_recipes_failed", error=str(e))
+                await recover_aggregation_windows()
+                logger.info("aggregation_windows_recovered")
+            except Exception as e:
+                logger.warning("aggregation_recovery_failed", error=str(e))
 
-        # Recover active impact analysis sessions
-        try:
-            from app.modules.impact_analysis.workers.monitoring_worker import recover_active_sessions
+            # Seed built-in workflow recipes
+            try:
+                from app.modules.automation.seed_recipes import seed_built_in_recipes
 
-            recovered = await recover_active_sessions()
-            if recovered:
-                logger.info("impact_sessions_recovered", count=recovered)
-        except Exception as e:
-            logger.warning("impact_session_recovery_failed", error=str(e))
+                await seed_built_in_recipes()
+            except Exception as e:
+                logger.warning("seed_recipes_failed", error=str(e))
 
-        # Start telemetry pipeline if InfluxDB env vars are set
-        try:
-            from app.config import settings as _cfg
+            # Recover active impact analysis sessions
+            try:
+                from app.modules.impact_analysis.workers.monitoring_worker import (
+                    recover_active_sessions,
+                )
 
-            if _cfg.influxdb_url and _cfg.influxdb_token:
-                from app.modules.telemetry.services.lifecycle import start_telemetry_pipeline
+                recovered = await recover_active_sessions()
+                if recovered:
+                    logger.info("impact_sessions_recovered", count=recovered)
+            except Exception as e:
+                logger.warning("impact_session_recovery_failed", error=str(e))
 
-                await start_telemetry_pipeline()
-        except Exception as e:
-            logger.warning("telemetry_start_failed", error=str(e))
+            # Start telemetry pipeline if InfluxDB env vars are set
+            try:
+                from app.config import settings as _cfg
+
+                if _cfg.influxdb_url and _cfg.influxdb_token:
+                    from app.modules.telemetry.services.lifecycle import start_telemetry_pipeline
+
+                    await start_telemetry_pipeline()
+            except Exception as e:
+                logger.warning("telemetry_start_failed", error=str(e))
+                try:
+                    from app.modules.telemetry.services.lifecycle import stop_telemetry_pipeline
+
+                    await stop_telemetry_pipeline()
+                except Exception:
+                    pass
+
+            # Start power scheduling
+            try:
+                from app.modules.power_scheduling.workers.schedule_worker import (
+                    startup_power_scheduling,
+                )
+                from app.services.mist_service_factory import create_mist_service as _create_mist
+
+                _ps_mist = await _create_mist()
+                await startup_power_scheduling(_ps_mist.session)
+                logger.info("power_scheduling_started")
+            except Exception as e:
+                logger.warning("power_scheduling_start_failed", error=str(e))
+
+            # Start system health broadcaster
+            start_health_broadcaster()
+            logger.info("health_broadcaster_started")
+
+            # Start WebSocket heartbeat
+            from app.core.websocket import ws_manager
+
+            ws_manager.start_heartbeat()
+            logger.info("websocket_heartbeat_started")
+
+            logger.info("application_started_successfully")
+
+            yield
+
+        finally:
+            # Shutdown
+            logger.info("application_shutting_down")
+
+            # Stop health broadcaster
+            try:
+                await stop_health_broadcaster()
+            except Exception:
+                pass
+
+            # Stop telemetry pipeline
             try:
                 from app.modules.telemetry.services.lifecycle import stop_telemetry_pipeline
 
@@ -116,87 +174,46 @@ async def lifespan(_app: FastAPI):
             except Exception:
                 pass
 
-        # Start power scheduling
-        try:
-            from app.modules.power_scheduling.workers.schedule_worker import startup_power_scheduling
-            from app.services.mist_service_factory import create_mist_service as _create_mist
+            # Stop power scheduling WS manager
+            try:
+                from app.modules.power_scheduling.workers.schedule_worker import (
+                    get_client_ws_manager,
+                )
 
-            _ps_mist = await _create_mist()
-            await startup_power_scheduling(_ps_mist.session)
-            logger.info("power_scheduling_started")
-        except Exception as e:
-            logger.warning("power_scheduling_start_failed", error=str(e))
+                _ps_ws = get_client_ws_manager()
+                if _ps_ws:
+                    await _ps_ws.stop()
+            except Exception:
+                pass
 
-        # Start system health broadcaster
-        start_health_broadcaster()
-        logger.info("health_broadcaster_started")
+            # Stop scheduler
+            try:
+                from app.workers import stop_scheduler
 
-        # Start WebSocket heartbeat
-        from app.core.websocket import ws_manager
+                await stop_scheduler()
+            except Exception:
+                pass
 
-        ws_manager.start_heartbeat()
-        logger.info("websocket_heartbeat_started")
+            # Stop WebSocket heartbeat
+            try:
+                from app.core.websocket import ws_manager as _ws_mgr
 
-        logger.info("application_started_successfully")
+                _ws_mgr.stop_heartbeat()
+            except Exception:
+                pass
 
-        yield
+            # Stop Smee.io client if running
+            try:
+                from app.core.smee_service import stop_smee
 
-    finally:
-        # Shutdown
-        logger.info("application_shutting_down")
+                await stop_smee()
+            except Exception:
+                pass
 
-        # Stop health broadcaster
-        try:
-            await stop_health_broadcaster()
-        except Exception:
-            pass
+            # Close database connection
+            await Database.close_db()
 
-        # Stop telemetry pipeline
-        try:
-            from app.modules.telemetry.services.lifecycle import stop_telemetry_pipeline
-
-            await stop_telemetry_pipeline()
-        except Exception:
-            pass
-
-        # Stop power scheduling WS manager
-        try:
-            from app.modules.power_scheduling.workers.schedule_worker import get_client_ws_manager
-
-            _ps_ws = get_client_ws_manager()
-            if _ps_ws:
-                await _ps_ws.stop()
-        except Exception:
-            pass
-
-        # Stop scheduler
-        try:
-            from app.workers import stop_scheduler
-
-            await stop_scheduler()
-        except Exception:
-            pass
-
-        # Stop WebSocket heartbeat
-        try:
-            from app.core.websocket import ws_manager as _ws_mgr
-
-            _ws_mgr.stop_heartbeat()
-        except Exception:
-            pass
-
-        # Stop Smee.io client if running
-        try:
-            from app.core.smee_service import stop_smee
-
-            await stop_smee()
-        except Exception:
-            pass
-
-        # Close database connection
-        await Database.close_db()
-
-        logger.info("application_shutdown_complete")
+            logger.info("application_shutdown_complete")
 
 
 # Create FastAPI application
@@ -329,13 +346,13 @@ for _module in MODULES:
 
 logger.info("api_routers_registered")
 
-# Mount MCP server with JWT authentication
+# Mount MCP server with Bearer authentication (JWT or PAT).
+# The ASGI app was built at module import time so its lifespan could be chained
+# into the FastAPI lifespan above — required for FastMCP's streamable HTTP
+# session manager to initialize its task group.
 try:
-    from app.modules.mcp_server.auth_middleware import MCPAuthMiddleware
-    from app.modules.mcp_server.server import mcp as _mcp_server
-
-    app.mount("/mcp", MCPAuthMiddleware(_mcp_server.http_app(path="/")))
-    logger.info("mcp_server_mounted", path="/mcp", auth="jwt")
+    app.mount("/mcp", MCPAuthMiddleware(_mcp_http_app))
+    logger.info("mcp_server_mounted", path="/mcp", auth="bearer (jwt|pat)")
 except Exception as e:
     logger.error("mcp_server_mount_failed", error=str(e))
     raise RuntimeError("MCP server mount failed; aborting startup") from e

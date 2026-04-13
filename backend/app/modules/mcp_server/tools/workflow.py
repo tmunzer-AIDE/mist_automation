@@ -7,13 +7,78 @@ Actions: detail, execution_detail, create, update.
 from typing import Annotated, Any
 
 from fastmcp import Context
+from fastmcp.dependencies import CurrentContext
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from app.modules.mcp_server.helpers import elicit_confirmation, to_json
 from app.modules.mcp_server.server import mcp, mcp_user_id_var
+from app.modules.mcp_server.tools.utils import is_placeholder
 
 # Node types whose configs may contain encrypted OAuth / auth secrets
 _OAUTH_NODE_TYPES = {"webhook", "servicenow"}
+_WORKFLOW_ACTIONS: set[str] = {"detail", "execution_detail", "create", "update"}
+_WORKFLOW_TYPES: set[str] = {"standard", "subflow"}
+
+
+def _validate_workflow_inputs(
+    *,
+    action: str,
+    workflow_id: str,
+    execution_id: str,
+    name: str,
+    description: str,
+    nodes: list[dict] | None,
+    edges: list[dict] | None,
+    workflow_type: str,
+) -> dict[str, Any]:
+    normalized_action = action.strip().lower()
+    if normalized_action not in _WORKFLOW_ACTIONS:
+        raise ToolError(f"Unknown action '{action}'. Use: {', '.join(sorted(_WORKFLOW_ACTIONS))}")
+
+    normalized_workflow_id = workflow_id.strip()
+    normalized_execution_id = execution_id.strip()
+    normalized_name = name.strip()
+    normalized_description = description.strip()
+    normalized_workflow_type = (workflow_type or "standard").strip().lower()
+
+    for label, value in (("workflow_id", normalized_workflow_id), ("execution_id", normalized_execution_id)):
+        if value and is_placeholder(value):
+            raise ToolError(f"Invalid {label} '{value}': unresolved placeholders are not allowed")
+
+    if normalized_action == "detail" and not normalized_workflow_id:
+        raise ToolError("workflow_id is required for action='detail'")
+
+    if normalized_action == "execution_detail" and not normalized_execution_id:
+        raise ToolError("execution_id is required for action='execution_detail'")
+
+    if normalized_action == "create":
+        if not normalized_name:
+            raise ToolError("name is required for action='create'")
+        if not nodes:
+            raise ToolError("nodes are required for action='create'")
+        if normalized_workflow_type not in _WORKFLOW_TYPES:
+            raise ToolError(
+                f"Invalid workflow_type '{workflow_type}'. Use: {', '.join(sorted(_WORKFLOW_TYPES))}"
+            )
+
+    if normalized_action == "update":
+        if not normalized_workflow_id:
+            raise ToolError("workflow_id is required for action='update'")
+        has_change = bool(normalized_name) or bool(normalized_description) or nodes is not None or edges is not None
+        if not has_change:
+            raise ToolError("No changes provided for action='update'")
+
+    return {
+        "action": normalized_action,
+        "workflow_id": normalized_workflow_id,
+        "execution_id": normalized_execution_id,
+        "name": normalized_name,
+        "description": normalized_description,
+        "nodes": nodes,
+        "edges": edges,
+        "workflow_type": normalized_workflow_type,
+    }
 
 
 def _encrypt_nodes(
@@ -34,83 +99,98 @@ def _encrypt_nodes(
             encrypt_node_secrets(node.config)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
 async def workflow(
-    ctx: Context,
     action: Annotated[
         str,
         Field(
             description=(
-                "The workflow operation to perform. One of:\n"
-                "- 'detail': Get workflow info (name, description, status, node/edge summary, "
-                "execution stats, and last 5 executions). Requires: workflow_id.\n"
-                "- 'execution_detail': Get a specific execution's results with per-node status, "
-                "errors, durations, and log tail. Requires: execution_id.\n"
-                "- 'create': Create a new workflow graph (saved as draft). Validates the graph first. "
-                "Asks user for confirmation. Requires: name, nodes. Optional: description, edges, workflow_type.\n"
-                "- 'update': Update an existing workflow's name, description, or graph. "
-                "Validates then asks user for confirmation. Requires: workflow_id plus at least one of "
-                "name, description, nodes, edges."
+                "The workflow operation to perform.\n\n"
+                "READ-ONLY actions (safe):\n"
+                "- 'detail': get workflow info (name, description, status, node/edge summary, execution stats, last 5 runs).\n"
+                "    Required: workflow_id. Caller must have access to the workflow.\n"
+                "- 'execution_detail': get an execution's per-node status, errors, durations, and log tail.\n"
+                "    Required: execution_id.\n\n"
+                "WRITE actions (mutate DB; always prompt user for confirmation):\n"
+                "- 'create': create a new workflow graph. Created workflows start in DRAFT status and are NOT "
+                "automatically live — publish later via the UI or a follow-up update. Requires the 'automation' role.\n"
+                "    Required: name, nodes. Optional: description, edges, workflow_type ('standard'|'subflow').\n"
+                "- 'update': update an existing workflow's name, description, or graph. Validates and asks for confirmation. "
+                "Requires ownership or the 'admin' role.\n"
+                "    Required: workflow_id plus AT LEAST ONE of name, description, nodes, edges."
             ),
         ),
     ],
     workflow_id: Annotated[
         str,
         Field(
-            description="Workflow MongoDB ID. Used by action='detail' and action='update'. Get this from search results."
+            description=(
+                "Workflow MongoDB ObjectId. Used by action='detail' and action='update'. "
+                "Get this from search(search_type='workflows') results."
+            ),
+            default="",
         ),
     ] = "",
     execution_id: Annotated[
         str,
         Field(
-            description="Execution MongoDB ID. Used by action='execution_detail'. Get this from workflow detail's recent_executions or from search(type='executions')."
-        ),
+            description=(
+                "Execution MongoDB ObjectId. Used by action='execution_detail'. "
+                "Get this from workflow detail's recent_executions or from search(search_type='executions')."
+            ),
+            default="",
+            ),
     ] = "",
     name: Annotated[
         str,
-        Field(description="Workflow name. Required for action='create', optional for action='update'."),
-    ] = "",
+        Field(description="Workflow name. Required for action='create', optional for action='update'.",
+            default="",
+            ),
+    ] ="",
     description: Annotated[
         str,
-        Field(description="Workflow description text. Optional for action='create' and action='update'."),
-    ] = "",
-    nodes: Annotated[
-        list[dict] | None,
         Field(
-            description="List of workflow graph nodes. Each node: {id, type, name, position: {x, y}, config: {...}}. Required for action='create', optional for action='update'."
+            description="Workflow description text. Optional for action='create' and action='update'.",
+            default="",
+            ),
+    ] ="",
+    nodes: Annotated[
+        list[dict]|None ,
+        Field(
+            description="List of workflow graph nodes. Each node: {id, type, name, position: {x, y}, config: {...}}. Required for action='create', optional for action='update'.",
+            default=None,
         ),
-    ] = None,
+    ] =None,
     edges: Annotated[
         list[dict] | None,
         Field(
-            description="List of workflow graph edges. Each edge: {id, source_node_id, source_port_id, target_node_id, target_port_id}. Optional for action='create' and action='update'."
+            description="List of workflow graph edges. Each edge: {id, source_node_id, source_port_id, target_node_id, target_port_id}. Optional for action='create' and action='update'.",
+            default=None,
         ),
-    ] = None,
+    ] =None,
     workflow_type: Annotated[
         str,
         Field(
-            description="Workflow type: 'standard' (trigger-based) or 'subflow' (callable from other workflows). Default: 'standard'."
+            description="Workflow type: 'standard' (trigger-based) or 'subflow' (callable from other workflows). Default: 'standard'.",
+            default="standard",
         ),
-    ] = "standard",
+    ]="standard",
+    ctx: Context = CurrentContext(),
 ) -> str:
     """Manage automation workflows: inspect workflow details and execution history, or create/update workflow graphs.
 
-    Use search(type='workflows') first to find workflows, then 'detail' to inspect one.
-    Use search(type='executions') to find executions, then 'execution_detail' to see per-node results.
+    Typical workflow:
+    - Use search(search_type='workflows', ...) to find workflows, then action='detail' to inspect one.
+    - Use search(search_type='executions', ...) to find executions, then action='execution_detail' for per-node results.
+    - Created workflows start in DRAFT status and must be published separately before they will fire.
+
+    Role requirements mirror the REST API:
+    - action='create' requires the 'automation' role.
+    - action='update' requires workflow ownership or the 'admin' role.
+    - For Mist configuration changes, use digital_twin + configuration_schema instead of encoding writes as a workflow.
     """
-    dispatchers: dict[str, Any] = {
-        "detail": _detail,
-        "execution_detail": _execution_detail,
-        "create": _create,
-        "update": _update,
-    }
-
-    handler = dispatchers.get(action)
-    if not handler:
-        return to_json({"error": f"Unknown action '{action}'. Use: {', '.join(dispatchers)}"})
-
-    return await handler(
-        ctx=ctx,
+    validated = _validate_workflow_inputs(
+        action=action,
         workflow_id=workflow_id,
         execution_id=execution_id,
         name=name,
@@ -118,6 +198,26 @@ async def workflow(
         nodes=nodes,
         edges=edges,
         workflow_type=workflow_type,
+    )
+
+    dispatchers: dict[str, Any] = {
+        "detail": _detail,
+        "execution_detail": _execution_detail,
+        "create": _create,
+        "update": _update,
+    }
+
+    handler = dispatchers[validated["action"]]
+
+    return await handler(
+        ctx=ctx,
+        workflow_id=validated["workflow_id"],
+        execution_id=validated["execution_id"],
+        name=validated["name"],
+        description=validated["description"],
+        nodes=validated["nodes"],
+        edges=validated["edges"],
+        workflow_type=validated["workflow_type"],
     )
 
 
@@ -129,23 +229,22 @@ async def _detail(*, workflow_id: str, **_kwargs) -> str:
     from app.modules.automation.models.execution import WorkflowExecution
     from app.modules.automation.models.workflow import Workflow
 
-    if not workflow_id:
-        return to_json({"error": "workflow_id is required for action=detail"})
-
     try:
         wf = await Workflow.get(PydanticObjectId(workflow_id))
-    except Exception:
-        return to_json({"error": f"Invalid workflow_id '{workflow_id}'"})
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid workflow_id '{workflow_id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not wf:
-        return to_json({"error": f"Workflow '{workflow_id}' not found"})
+        raise ToolError(f"Workflow '{workflow_id}' not found")
 
     # Access check — mirrors REST API's ownership/sharing filter
     user_id = mcp_user_id_var.get()
     if user_id:
         user = await User.get(PydanticObjectId(user_id))
         if user and not wf.can_be_accessed_by(user):
-            return to_json({"error": "Access denied"})
+            raise ToolError("Access denied")
 
     # Compact node summary (strip config, position, output_ports)
     node_summary = [{"id": n.id, "type": n.type, "name": n.name} for n in (wf.nodes or [])]
@@ -195,16 +294,15 @@ async def _execution_detail(*, execution_id: str, **_kwargs) -> str:
 
     from app.modules.automation.models.execution import WorkflowExecution
 
-    if not execution_id:
-        return to_json({"error": "execution_id is required for action=execution_detail"})
-
     try:
         ex = await WorkflowExecution.get(PydanticObjectId(execution_id))
-    except Exception:
-        return to_json({"error": f"Invalid execution_id '{execution_id}'"})
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid execution_id '{execution_id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not ex:
-        return to_json({"error": f"Execution '{execution_id}' not found"})
+        raise ToolError(f"Execution '{execution_id}' not found")
 
     # Compact node results (strip output_data and input_snapshot)
     node_results = []
@@ -253,7 +351,9 @@ async def _create(
 ) -> str:
     """Create a new workflow with graph validation and elicitation."""
     from beanie import PydanticObjectId
+    from pydantic import ValidationError
 
+    from app.models.user import User
     from app.modules.automation.models.workflow import (
         Workflow,
         WorkflowEdge,
@@ -262,23 +362,14 @@ async def _create(
     )
     from app.modules.automation.services.graph_validator import validate_graph
 
-    if not name:
-        return to_json({"error": "name is required for action=create"})
-    if not nodes:
-        return to_json({"error": "nodes are required for action=create"})
-
-    from pydantic import ValidationError
-
-    from app.models.user import User
-
     # Verify user context and role before proceeding
     user_id = mcp_user_id_var.get()
     if not user_id:
-        return to_json({"error": "Access denied: user context not available"})
+        raise ToolError("Access denied: user context not available")
 
     user = await User.get(PydanticObjectId(user_id))
     if not user or not user.can_manage_workflows():
-        return to_json({"error": "Access denied: automation role required"})
+        raise ToolError("Access denied: automation role required")
 
     # Parse and validate graph
     try:
@@ -286,17 +377,17 @@ async def _create(
         parsed_edges = [WorkflowEdge(**e) for e in (edges or [])]
         validate_graph(parsed_nodes, parsed_edges, workflow_type=workflow_type)
     except ValidationError as ve:
-        return to_json({"validation_errors": [str(ve)]})
-    except Exception:
-        return to_json({"error": "Graph validation failed"})
+        raise ToolError(f"Graph validation failed: {ve}") from ve
+    except Exception as exc:
+        raise ToolError(f"Graph validation failed: {exc}") from exc
 
     # Circular subflow check (mirrors REST API)
     from app.modules.automation.services.graph_validator import validate_no_circular_subflow_references
 
     try:
         await validate_no_circular_subflow_references(None, parsed_nodes)
-    except Exception:
-        return to_json({"error": "Circular sub-flow reference detected"})
+    except Exception as exc:
+        raise ToolError(f"Circular sub-flow reference detected: {exc}") from exc
 
     # Encrypt OAuth/auth secrets before persisting (mirrors REST API)
     _encrypt_nodes(parsed_nodes)
@@ -330,6 +421,7 @@ async def _update(
 ) -> str:
     """Update an existing workflow with graph validation and elicitation."""
     from beanie import PydanticObjectId
+    from pydantic import ValidationError
 
     from app.modules.automation.models.workflow import (
         Workflow,
@@ -338,16 +430,15 @@ async def _update(
     )
     from app.modules.automation.services.graph_validator import validate_graph
 
-    if not workflow_id:
-        return to_json({"error": "workflow_id is required for action=update"})
-
     try:
         wf = await Workflow.get(PydanticObjectId(workflow_id))
-    except Exception:
-        return to_json({"error": f"Invalid workflow_id '{workflow_id}'"})
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid workflow_id '{workflow_id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not wf:
-        return to_json({"error": f"Workflow '{workflow_id}' not found"})
+        raise ToolError(f"Workflow '{workflow_id}' not found")
 
     # Enforce ownership/permission check (mirrors REST API)
     from app.models.user import User
@@ -356,9 +447,9 @@ async def _update(
     if user_id:
         user = await User.get(PydanticObjectId(user_id))
         if not user or not wf.can_be_modified_by(user):
-            return to_json({"error": "Access denied: you do not have permission to modify this workflow"})
+            raise ToolError("Access denied: you do not have permission to modify this workflow")
     else:
-        return to_json({"error": "Access denied: user context not available"})
+        raise ToolError("Access denied: user context not available")
 
     # Apply changes
     changes = []
@@ -370,21 +461,27 @@ async def _update(
         wf.description = description
         changes.append("description updated")
     if nodes is not None:
-        wf.nodes = [WorkflowNode(**n) for n in nodes]
+        try:
+            wf.nodes = [WorkflowNode(**n) for n in nodes]
+        except ValidationError as ve:
+            raise ToolError(f"Invalid nodes payload: {ve}") from ve
         changes.append(f"{len(nodes)} nodes")
     if edges is not None:
-        wf.edges = [WorkflowEdge(**e) for e in edges]
+        try:
+            wf.edges = [WorkflowEdge(**e) for e in edges]
+        except ValidationError as ve:
+            raise ToolError(f"Invalid edges payload: {ve}") from ve
         changes.append(f"{len(edges)} edges")
 
     if not changes:
-        return to_json({"error": "No changes provided"})
+        raise ToolError("No changes provided")
 
     # Validate graph
     wf_type = wf.workflow_type or "standard"
     try:
         validate_graph(wf.nodes, wf.edges, workflow_type=wf_type)
-    except Exception:
-        return to_json({"error": "Graph validation failed"})
+    except Exception as exc:
+        raise ToolError(f"Graph validation failed: {exc}") from exc
 
     # Encrypt OAuth/auth secrets before persisting (mirrors REST API)
     if nodes is not None:

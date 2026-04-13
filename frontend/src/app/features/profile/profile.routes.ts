@@ -31,6 +31,11 @@ const routes: Routes = [
         loadComponent: () =>
           import('./memory/memory.component').then((m) => m.MemoryComponent),
       },
+      {
+        path: 'tokens',
+        loadComponent: () =>
+          import('./tokens/tokens.component').then((m) => m.TokensComponent),
+      },
     ],
   },
 ];

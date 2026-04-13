@@ -94,6 +94,7 @@ def _default_model(provider: str) -> str:
     defaults = {
         "openai": "gpt-4o",
         "anthropic": "claude-sonnet-4-20250514",
+        "mistral": "mistral-small-latest",
         "ollama": "llama3.1",
         "lm_studio": "local-model",
         "llama_cpp": "default",

@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import structlog
+from fastmcp.exceptions import ToolError
 
 from app.modules.llm.services.llm_service import LLMMessage, LLMService
 from app.modules.llm.services.mcp_client import MCPClientWrapper, MCPTool
@@ -219,11 +220,14 @@ class AIAgentService:
                     try:
                         result_text, tool_is_error = await client.call_tool(tool_name, arguments)
                     except Exception as e:
-                        error_msg = str(e)
-                        logger.warning("agent_tool_call_failed", tool=tool_name, error=error_msg)
-                        # Include the error detail so the LLM can self-correct
-                        # (e.g., fix invalid arguments and retry)
-                        result_text = f"Error: tool '{tool_name}' failed: {error_msg}"
+                        safe_error_msg = _safe_tool_error_message(e)
+                        logger.warning(
+                            "agent_tool_call_failed",
+                            tool=tool_name,
+                            error_type=type(e).__name__,
+                            error=str(e),
+                        )
+                        result_text = f"Error: tool '{tool_name}' failed: {safe_error_msg}"
                         tool_is_error = True
 
                 if on_tool_call:
@@ -276,6 +280,14 @@ def _mcp_tool_to_openai(tool: MCPTool) -> dict:
             "parameters": tool.input_schema or {"type": "object", "properties": {}},
         },
     }
+
+
+def _safe_tool_error_message(error: Exception) -> str:
+    """Return a tool error message safe to send back to the LLM loop."""
+    if isinstance(error, ToolError):
+        message = str(error).strip()
+        return message[:400] if message else "tool rejected the call"
+    return f"{error.__class__.__name__}: tool execution failed"
 
 
 # Regex matching the special-token tool call format produced by some local LLMs:

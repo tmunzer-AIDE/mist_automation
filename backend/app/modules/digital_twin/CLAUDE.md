@@ -1,136 +1,141 @@
 # Digital Twin Module
 
-Part of mist_automation — see root `CLAUDE.md` for global architecture and conventions.
+Part of mist_automation. See root CLAUDE.md for global architecture.
 
 ## Purpose
 
-Pre-deployment simulation engine. Validates proposed Mist configuration changes against a virtual network state before execution. Detects config conflicts, topology issues, routing problems, security policy violations, and L2 loop risks.
+Pre-deployment simulation for Mist write operations. Twin stages writes, predicts impact on a virtual site state, and gates execution on check results.
 
-## Architecture
+## Entry Points
 
-### Entry Points
+- LLM: MCP tool `digital_twin` (simulate, remediate, approve, reject).
+- Workflow: `twin_session_var` in `MistService._api_call()` intercepts POST/PUT/DELETE when `workflow.twin_validation=True`.
+- Restore path: backup restore flows can use the same staging/validation model.
 
-- **LLM Chat**: `digital_twin` MCP tool (`mcp_server/tools/digital_twin.py`) — LLM calls simulate/approve/reject
-- **Workflow Executor**: `twin_session_var` ContextVar in `MistService._api_call()` intercepts writes when `workflow.twin_validation=True`. Set in `executor_service.py` before `_execute_graph()`, reset in `finally`.
-- **Backup Restore** (Phase 3): Twin intercepts restore writes
+## Core Flow (Non-Obvious Invariants)
 
-### Core Flow
+1. Stage writes via `endpoint_parser` into `StagedWrite`.
+2. Build predicted virtual state via `state_resolver`.
+3. Compile both paths:
+	 - predicted: `compile_virtual_state(...)`
+	 - baseline: `compile_base_state(...)`
+4. Build site snapshots for baseline and predicted.
+5. Run checks and build `PredictionReport`.
+6. Approve only when policy gates pass.
 
-1. **Stage writes**: Parse proposed API calls into `StagedWrite` objects via `endpoint_parser`
-2. **Resolve state**: Load backup base + apply writes = virtual state (`state_resolver`)
-3. **Run checks**: Validation checks across 5 layers (`prediction_service` + check modules)
-4. **Report**: Build `PredictionReport` with severity, details, remediation hints
-5. **Remediate**: LLM proposes fixes, re-simulates (bounded by agent max_iterations)
-6. **Approve**: User confirms via elicitation, staged writes execute against Mist API
+Critical invariant: baseline must go through compile too. If baseline uses raw backup while predicted uses compiled config, diff-based checks can miss real regressions (notably inherited `port_config` deltas).
 
-### Key Services
+## State/Backup Shape Rules You Need To Remember
 
-| Service | Responsibility |
-|---------|---------------|
-| `twin_service.py` | Orchestration: simulate(), approve_and_execute(), reject_session() |
-| `state_resolver.py` | Build virtual state from backup snapshots + staged writes |
-| `prediction_service.py` | Run checks, build PredictionReport |
-| `config_checks.py` | 14 Layer 1 config conflict checks (pure functions) |
-| `topology_checks.py` | 9 Layer 2 topology prediction checks (pure functions, uses networkx) |
-| `predicted_topology.py` | Build synthetic `RawSiteData` from virtual state for topology builder |
-| `template_resolver.py` | Resolve Mist template inheritance chain for L1-06/L1-07 |
-| `config_compiler.py` | Derive effective per-device config from Mist template inheritance chain |
-| `twin_ia_bridge.py` | Create IA monitoring sessions after Twin deployment (prediction vs reality) |
-| `prediction_comparison.py` | Compare Twin predictions with IA actual findings (accuracy tracking) |
-| `endpoint_parser.py` | Extract (object_type, site_id, object_id) from Mist API URLs |
+- Canonical singleton object mapping:
+	- `/sites/{id}/setting` and `/orgs/{id}/setting` -> `settings`
+	- `/sites/{id}` -> `info`
+	- `/orgs/{id}` -> `data`
+- Legacy aliases are still accepted (`setting`, `site_setting`, `site`).
+- Singleton staged writes use `object_id=None`.
+- Site identity can come from three backup forms and must be checked in this order when available:
+	- site-scoped `info`
+	- site-scoped `site` (legacy)
+	- org-scoped `sites` record keyed by `object_id=<site_id>`
 
-### Data Model
+## Site Network Assembly (Main Source Of False Positives/Negatives)
 
-| Model | Purpose |
-|-------|---------|
-| `TwinSession` | MongoDB document tracking a simulation session (24h TTL) |
-| `StagedWrite` | Single intercepted write operation (embedded) |
-| `CheckResult` | Result of one validation check (embedded) |
-| `PredictionReport` | Aggregated check results with severity (embedded) |
-| `RemediationAttempt` | Record of an LLM fix iteration (embedded) |
-| `BaseSnapshotRef` | Reference to backup version used as base state (embedded) |
+- Include only networks actually referenced by the site's assigned templates plus inline `site_setting.networks`.
+- If template assignment cannot be resolved, fallback to all org networks (partial-backup safety).
+- Template-only networks must be seeded from template inline `networks` when no standalone `networks` backup object exists.
+- Final network dict is sorted by key for deterministic details across baseline vs predicted passes.
 
-### Check Layers
+Why this matters: without scoped filtering and seeding, VLAN/routing/config checks can silently downgrade to "not applicable" or generate cross-template false overlaps.
 
-| Layer | Count | Description | Status |
-|-------|-------|-------------|--------|
-| L1 | 14 | Config conflicts: IP overlap, VLAN collision, SSID dupes, template vars, DHCP, etc. | Done |
-| L2 | 9 | Topology: connectivity, VLAN black holes, LAG/VC, PoE | Done |
-| L3 | 5 | Routing: OSPF/BGP adjacency, default gateway gap | Phase 3 |
-| L4 | 6 | Security: firewall rules, NAC conflicts, guest SSID | Phase 3 |
-| L5 | 3 | L2 loops: STP root shift, BPDU filter, loop detection | Phase 3 |
+## Preflight, Approval, and Session Safety
 
-### L1 Check Catalog (Phase 1)
+- Unresolved path placeholders (`{x}`, `<x>`, `:x`) are parse errors.
+- Preflight blocks simulation checks when targets are invalid:
+	- unknown site scope
+	- non-singleton PUT/DELETE target missing from backup
+- Blocking preflight issues (`SYS-*`, layer 0, error/critical) mark session `failed`.
+- `approve_and_execute()` rejects when:
+	- `execution_safe` is false, or
+	- blocking preflight issues exist.
+- Re-simulate on existing session enforces server-side ownership and org match.
 
-| ID | Check | Severity | Function |
-|----|-------|----------|----------|
-| L1-01 | IP/subnet overlap (cross-site) | Critical | `check_ip_subnet_overlap()` |
-| L1-02 | Subnet collision within site | Critical | `check_subnet_collision_within_site()` |
-| L1-03 | VLAN ID collision | Error | `check_vlan_id_collision()` |
-| L1-04 | Duplicate SSID | Error | `check_duplicate_ssid()` |
-| L1-05 | Port profile conflict | Error | `check_port_profile_conflict()` |
-| L1-06 | Template override crush | Warning | `check_template_override_crush()` |
-| L1-07 | Unresolved template variables | Error | `check_unresolved_template_variables()` |
-| L1-08 | DHCP scope overlap | Error | `check_dhcp_scope_overlap()` |
-| L1-09 | DHCP server misconfiguration | Error | `check_dhcp_server_misconfiguration()` |
-| L1-10 | DNS/NTP consistency | Warning | `check_dns_ntp_consistency()` |
-| L1-11 | SSID airtime overhead | Warning/Error | `check_ssid_airtime_overhead()` |
-| L1-12 | PSK rotation client impact | Warning | `check_psk_rotation_impact()` |
-| L1-13 | RF template impact | Warning | `check_rf_template_impact()` |
-| L1-14 | Client capacity impact | Warning/Error | `check_client_capacity_impact()` |
+## Diff Gating Semantics
 
-### L2 Check Catalog (Phase 2)
+- Analyzer runs each check twice:
+	- baseline vs baseline (existing debt)
+	- baseline vs predicted (proposed change)
+- Predicted failures are `pre_existing=True` only when predicted details are a subset of baseline details.
+- `execution_safe` ignores pre-existing failures but blocks on new/worsened error/critical findings.
+- `overall_severity` still reflects the true worst state (including pre-existing).
 
-| ID | Check | Severity | Function |
-|----|-------|----------|----------|
-| L2-01 | Connectivity loss (BFS to gateways) | Critical | `check_connectivity_loss()` |
-| L2-02 | VLAN black hole (networkx subgraph) | Error | `check_vlan_black_hole()` |
-| L2-03 | LAG/MCLAG integrity | Error | `check_lag_mclag_integrity()` |
-| L2-04 | VC integrity | Critical | `check_vc_integrity()` |
-| L2-05 | PoE budget overrun | Error | `check_poe_budget_overrun()` |
-| L2-06 | PoE disable on active port | Critical | `check_poe_disable_on_active()` |
-| L2-07 | Port capacity saturation | Error/Warning | `check_port_capacity_saturation()` |
-| L2-08 | LACP misconfiguration | Warning | `check_lacp_misconfiguration()` |
-| L2-09 | MTU mismatch | Warning | `check_mtu_mismatch()` |
+## Live Telemetry Rules (Easy To Misread From Code)
 
-### Workflow Integration
+- `fetch_live_data()` merges two sources in parallel:
+	- `listOrgDevicesStats` (AP/client-heavy, partial LLDP)
+	- `searchSiteSwOrGwPorts` (authoritative switch/gateway LLDP + port state)
+- Per-source failure logs do not abort full live fetch.
+- MACs are normalized on ingest and during snapshot build (`:`/`-` removed, lowercase).
+- OSPF/BGP peers are extracted from stats payload variants and normalized into `peer_ip` entries.
 
-When `workflow.twin_validation = True`:
-1. `executor_service.execute_workflow()` creates a `TwinSession` before graph execution
-2. Sets `twin_session_var` ContextVar so `MistService._api_call()` intercepts POST/PUT/DELETE
-3. Intercepted writes are staged in the `TwinSession` via `intercept_write()`
-4. After graph execution, the session contains all staged writes for validation
-5. ContextVar is reset in `finally` block to prevent leaking to other requests
+## Check Semantics That Matter Operationally
 
-**Key file**: `app/services/mist_service.py` — `twin_session_var` ContextVar + interception at top of `_api_call()`
+- Port impact (`PORT-DISC`, `PORT-CLIENT`) is `skipped` (not `pass`) when infra exists but LLDP is missing.
+- Port-impact findings keep a stable `check_id` of `PORT-DISC` for infrastructure-side L2 regressions.
+	- Physical disconnect (removed/disabled LLDP-linked port), VLAN isolation (baseline VLANs no longer carried), and mixed L2 cases are differentiated via `check_name`/summary.
+	- Do not expect separate port-impact IDs such as `PORT-VLAN` or `PORT-L2` in API/UI results.
+- `ROUTE-GW` validates only routed networks (L3 indicators present), not pure L2 VLAN entries.
+- `ROUTE-OSPF`/`ROUTE-BGP` are device-scoped (peer checked against that same device's interfaces).
+- If protocol config exists but peer telemetry is absent, routing peer checks return `skipped` (not `pass`).
+- `CONN-VLAN-PATH` uses per-VLAN subgraphs and flags baseline-reachable -> predicted-unreachable regressions; AP impact escalates severity.
 
-### Config Compilation
+### Change-Aware Check Profiles
 
-When a template is modified, the config compiler:
-1. Detects template changes in staged writes (`detect_template_changes`)
-2. Finds all sites referencing changed templates via backup data (`find_impacted_sites`)
-3. For each site, fetches derived site setting and compiles per-device configs
-4. Switch: `derived_setting + device.port_config` (shallow merge, vars resolved)
-5. Gateway: `gw_template + device_profile + device.port_config` (deep merge for port_config)
-6. Updated virtual state feeds into all 37 checks
+- `analyze_site_with_context()` supports change-type aware execution.
+- For `devices`-only changes (e.g. `site_devices` switch updates), the analyzer runs topology/L3 checks only:
+	- connectivity (`CONN-PHYS`, `CONN-VLAN`, `CONN-VLAN-PATH`)
+	- config conflicts except Wi-Fi SSID (`CFG-SUBNET`, `CFG-VLAN`, `CFG-DHCP-*`; excludes `CFG-SSID`)
+	- port impact (`PORT-*`)
+	- routing (`ROUTE-*`)
+	- STP (`STP-*`)
+- Wi-Fi-centric categories are skipped in this profile (`CFG-SSID`, `SEC-GUEST`, `TMPL-VAR`, etc.).
+- Any change set touching non-device object types falls back to the full check suite.
 
-Uses telemetry `LatestValueCache` for live LLDP/port data in topology prediction.
+## Topology Normalization Contract
 
-### Twin-to-IA Bridge (Phase 4)
+Shared helpers in `topology_utils.py` are the single source for:
 
-After successful deployment (`approve_and_execute()`):
-1. `twin_ia_bridge.create_ia_sessions_for_deployment()` finds devices at each affected site (telemetry cache -> backup fallback)
-2. Creates `MonitoringSession` per device via `session_manager.create_or_merge_session()` with `twin_session_id` and frozen `twin_prediction`
-3. Spawns `run_monitoring_pipeline()` background task for each new session
-4. Populates `TwinSession.ia_session_ids` with created IA session IDs
+- port-id normalization (`ge-0/0/9.0`, `xe-0/0/0:0` -> base port),
+- tolerant port lookup candidates (`p`, `p.0`, `p:0`),
+- merged infra-neighbor maps (`port_devices` seeded, LLDP overlay).
+- interface materialization (profile attributes flattened per port + explicit `resolved_vlan_ids`).
 
-After IA completes, `prediction_comparison.compare_prediction_vs_reality()` classifies accuracy:
-- `correct`: predicted and actual severity match
-- `over_predicted`: Twin flagged issues that didn't materialize (false positive)
-- `under_predicted`: IA found issues Twin didn't catch (gap in checks)
-- `unknown`: no prediction available
+`build_site_snapshot()` persists this materialized view as `DeviceSnapshot.resolved_port_config`; graph/check logic should prefer that field and only fallback to on-the-fly materialization when tests construct snapshots manually.
 
-### Dependencies
+`site_graph` and `port_impact` must stay aligned to these helpers to avoid diverging reachability vs impact conclusions.
 
-- `netaddr` — IP/subnet math for overlap detection (L1-01, L1-02, L1-08, L1-09)
-- `networkx` — Graph algorithms for VLAN black hole detection (L2-02)
+## Workflow Interception Contract
+
+When twin validation is enabled in workflow execution:
+
+1. Create a `TwinSession` before graph execution.
+2. Set `twin_session_var` so Mist writes are staged, not executed.
+3. Always reset `twin_session_var` in `finally` to avoid cross-request leakage.
+
+## Config Compiler Details Worth Keeping In Mind
+
+- Switch chain: template -> site setting -> device profile -> device config (with switch rule first-match behavior).
+- Gateway chain: gateway template -> device profile -> device config.
+- AP configs are pass-through.
+- Switch top-level template `port_config` is intentionally ignored by allowlist; effective switch ports come from matching rules and device overrides.
+- Port ranges/comma lists are expanded before merge so point overrides and ranged defaults collide on identical keys.
+- Template/profile loads follow: staged state -> preload cache -> backup query.
+- Device profile impact discovery is device-based (scan devices, then derive impacted sites), not template-assignment based.
+
+## Twin-to-IA Bridge
+
+Post-approval deployment can spawn IA monitoring sessions per impacted device and compare predicted vs actual outcomes (`correct`, `over_predicted`, `under_predicted`, `unknown`) for calibration.
+
+## Core Dependencies
+
+- `netaddr`: subnet math in config/routing checks.
+- `networkx`: graph-based connectivity and VLAN path checks.

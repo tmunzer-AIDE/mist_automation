@@ -2,61 +2,134 @@
 MCP tools for querying impact analysis monitoring sessions.
 """
 
+import re
 from typing import Annotated, Any
 
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from app.modules.mcp_server.helpers import cap_list, to_json
 from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.tools.utils import is_placeholder, is_uuid
+
+_SESSION_STATUS_VALUES: set[str] = {
+    "pending",
+    "baseline_capture",
+    "awaiting_config",
+    "monitoring",
+    "validating",
+    "completed",
+    "failed",
+    "cancelled",
+}
+_DEVICE_TYPES: set[str] = {"ap", "switch", "gateway"}
+_MAC_PATTERN = re.compile(r"^[0-9a-f]{2}([-:])[0-9a-f]{2}(?:\1[0-9a-f]{2}){4}$", re.IGNORECASE)
 
 
-@mcp.tool()
+def _validate_session_search_inputs(
+    *,
+    status: str,
+    site_id: str,
+    device_type: str,
+    device_mac: str,
+) -> dict[str, str]:
+    normalized_status = status.strip().lower()
+    if normalized_status and normalized_status not in _SESSION_STATUS_VALUES:
+        raise ToolError(
+            f"Invalid status '{status}'. Use: {', '.join(sorted(_SESSION_STATUS_VALUES))}"
+        )
+
+    normalized_site_id = site_id.strip()
+    if normalized_site_id:
+        if is_placeholder(normalized_site_id):
+            raise ToolError(
+                f"Invalid site_id '{site_id}': unresolved placeholders are not allowed"
+            )
+        if not is_uuid(normalized_site_id):
+            raise ToolError(f"Invalid site_id '{site_id}'. site_id must be a real UUID")
+
+    normalized_device_type = device_type.strip().lower()
+    if normalized_device_type and normalized_device_type not in _DEVICE_TYPES:
+        raise ToolError(
+            f"Invalid device_type '{device_type}'. Use: {', '.join(sorted(_DEVICE_TYPES))}"
+        )
+
+    normalized_mac = device_mac.strip().lower()
+    if normalized_mac:
+        if is_placeholder(normalized_mac):
+            raise ToolError(
+                f"Invalid device_mac '{device_mac}': unresolved placeholders are not allowed"
+            )
+        if not _MAC_PATTERN.match(normalized_mac):
+            raise ToolError(
+                f"Invalid device_mac '{device_mac}'. Use format aa:bb:cc:dd:ee:ff"
+            )
+
+    return {
+        "status": normalized_status,
+        "site_id": normalized_site_id,
+        "device_type": normalized_device_type,
+        "device_mac": normalized_mac,
+    }
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def search_impact_sessions(
     status: Annotated[
         str,
         Field(
             description=(
-                "Filter by session status. "
-                "One of: 'pending', 'baseline_capture', 'awaiting_config', 'monitoring', "
-                "'validating', 'completed', 'failed', 'cancelled'. Empty string for all."
+                "Filter by session status. One of: 'pending', 'baseline_capture', 'awaiting_config', "
+                "'monitoring', 'validating', 'completed', 'failed', 'cancelled'. Empty string for all."
             ),
         ),
     ] = "",
     site_id: Annotated[
         str,
-        Field(description="Filter by Mist site UUID."),
+        Field(description="Filter by Mist site UUID (must be a real UUID, not a name)."),
     ] = "",
     device_type: Annotated[
         str,
-        Field(description="Filter by device type: 'ap', 'switch', or 'gateway'."),
+        Field(description="Filter by device type. One of: 'ap', 'switch', 'gateway'."),
     ] = "",
     device_mac: Annotated[
         str,
-        Field(description="Filter by device MAC address."),
+        Field(description="Filter by device MAC address. Format: 'aa:bb:cc:dd:ee:ff'."),
     ] = "",
     limit: Annotated[
         int,
         Field(description="Max results to return (1-25).", ge=1, le=25),
     ] = 10,
 ) -> str:
-    """Search impact analysis monitoring sessions with optional filters.
+    """Search impact analysis monitoring sessions (read-only).
 
-    Returns a compact list of sessions with id, site, device, status, and incident/change counts.
+    Impact sessions are created automatically when the platform observes a Mist config change via
+    webhook. They passively monitor a device for a time window and score the change's impact.
+
+    Returns a compact list with id, site, device, status, and incident/change counts.
     Use get_impact_session_detail for full details on a specific session.
+
+    NOTE: there is no MCP tool to cancel a running session. Use the web UI or REST API if you
+    need to stop a monitoring session early.
     """
     from app.modules.impact_analysis.models import MonitoringSession
 
-    limit = min(limit, 25)
+    validated = _validate_session_search_inputs(
+        status=status,
+        site_id=site_id,
+        device_type=device_type,
+        device_mac=device_mac,
+    )
 
     query: dict[str, Any] = {}
-    if status:
-        query["status"] = status
-    if site_id:
-        query["site_id"] = site_id
-    if device_type:
-        query["device_type"] = device_type
-    if device_mac:
-        query["device_mac"] = device_mac
+    if validated["status"]:
+        query["status"] = validated["status"]
+    if validated["site_id"]:
+        query["site_id"] = validated["site_id"]
+    if validated["device_type"]:
+        query["device_type"] = validated["device_type"]
+    if validated["device_mac"]:
+        query["device_mac"] = validated["device_mac"]
 
     total = await MonitoringSession.find(query).count()
     sessions = await MonitoringSession.find(query).sort("-created_at").limit(limit).to_list()
@@ -69,30 +142,52 @@ async def search_impact_sessions(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 async def get_impact_session_detail(
     id: Annotated[
         str,
         Field(
-            description="MongoDB document ID of the monitoring session. Get this from search_impact_sessions results."
+            description=(
+                "MongoDB ObjectId (24 hex chars) of the monitoring session. "
+                "Get this from search_impact_sessions results."
+            )
         ),
     ],
 ) -> str:
-    """Get full details of an impact analysis monitoring session, including config changes, incidents, SLE delta, validation results, and AI assessment."""
+    """Get full details of an impact analysis monitoring session (read-only).
+
+    Returned fields:
+    - config_changes: list of {event_type, device_name, timestamp} — webhook-derived config events
+      the session is correlated with.
+    - incidents: list of {event_type, device_name, severity, is_revert, resolved, timestamp} —
+      device events observed during the monitoring window.
+    - sle_delta: Mist SLE (Service Level Expectation) deltas comparing pre-change vs. post-change
+      performance. Shape follows Mist SLE API; expect nested dicts per metric.
+    - validation_results: results from any configured post-deployment validation checks (list of
+      check outcomes with pass/warn/fail status).
+    - ai_assessment: short LLM-generated summary of the change's observed impact (may be null).
+
+    Use search_impact_sessions first to find a session id.
+    """
     from beanie import PydanticObjectId
 
     from app.modules.impact_analysis.models import MonitoringSession
 
-    if not id:
-        return to_json({"error": "id is required"})
+    session_id = id.strip()
+    if not session_id:
+        raise ToolError("id is required")
+    if is_placeholder(session_id):
+        raise ToolError(f"Invalid id '{id}': unresolved placeholders are not allowed")
 
     try:
-        session = await MonitoringSession.get(PydanticObjectId(id))
-    except Exception:
-        return to_json({"error": f"Invalid session id '{id}'"})
+        session = await MonitoringSession.get(PydanticObjectId(session_id))
+    except Exception as exc:
+        raise ToolError(
+            f"Invalid session id '{id}': not a valid 24-char hex MongoDB ObjectId."
+        ) from exc
 
     if not session:
-        return to_json({"error": f"Monitoring session '{id}' not found"})
+        raise ToolError(f"Monitoring session '{id}' not found")
 
     result = _session_summary(session)
 

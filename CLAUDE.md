@@ -90,6 +90,8 @@ See `backend/app/modules/automation/CLAUDE.md` for full details.
 
 See `backend/app/modules/llm/CLAUDE.md` and `backend/app/modules/mcp_server/CLAUDE.md` for full details.
 
+The MCP server at `/mcp` (streamable HTTP) is reachable by external MCP clients using Personal Access Tokens created from Profile → Tokens. `MCPAuthMiddleware` accepts both JWTs (in-app) and PATs (external).
+
 ### LLM Memory System
 
 Per-user persistent memory (key-value store) exposed via MCP tools (`memory_store`, `memory_recall`, `memory_forget`) in interactive chat contexts. Weekly "dreaming" consolidation job merges/deduplicates entries via LLM. User management in profile page, admin consolidation logs in LLM settings. See `backend/app/modules/llm/CLAUDE.md` and `backend/app/modules/mcp_server/CLAUDE.md` for details.

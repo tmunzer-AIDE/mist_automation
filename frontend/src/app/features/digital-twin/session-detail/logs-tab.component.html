@@ -1,0 +1,54 @@
+<div class="logs-tab">
+  <div class="filter-bar">
+    <mat-form-field appearance="outline" class="filter-level">
+      <mat-label>Level</mat-label>
+      <mat-select [formControl]="levelControl">
+        <mat-option value="">All</mat-option>
+        <mat-option value="info">Info</mat-option>
+        <mat-option value="warning">Warning</mat-option>
+        <mat-option value="error">Error</mat-option>
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="filter-search">
+      <mat-label>Search</mat-label>
+      <input matInput type="text" [formControl]="searchControl" placeholder="event or context value" />
+    </mat-form-field>
+  </div>
+
+  @if (loading()) {
+    <div class="log-loading">Loading logs…</div>
+  }
+
+  @if (!loading() && grouped().length === 0) {
+    <div class="empty-tab">No simulation logs captured for this session.</div>
+  }
+
+  @for (group of grouped(); track group.phase) {
+    <div class="phase-group">
+      <div class="phase-header" (click)="togglePhase(group.phase)">
+        <mat-icon>{{ isCollapsed(group.phase) ? 'chevron_right' : 'expand_more' }}</mat-icon>
+        <span class="phase-name">{{ phaseLabel(group.phase) }}</span>
+        <span class="phase-count">{{ group.entries.length }}</span>
+      </div>
+      @if (!isCollapsed(group.phase)) {
+        <div class="log-list">
+          @for (entry of group.entries; track entry.timestamp + entry.event) {
+            <div class="log-line" [class]="'log-' + entry.level">
+              <span class="log-time">{{ entry.timestamp | dateTime: 'medium' }}</span>
+              <span class="log-level">{{ entry.level }}</span>
+              <span class="log-event">{{ entry.event }}</span>
+              @if (contextEntries(entry.context).length > 0) {
+                <span class="log-context">
+                  @for (kv of contextEntries(entry.context); track kv.key) {
+                    <span class="log-kv">{{ kv.key }}=<em>{{ kv.value }}</em></span>
+                  }
+                </span>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>
