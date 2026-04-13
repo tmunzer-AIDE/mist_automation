@@ -1147,6 +1147,10 @@ class RestoreService:
 
         report = session.prediction_report
         warnings = list(validation.get("warnings", []))
+        if not report:
+            warnings.append(
+                "Digital Twin prediction report was not generated; treat this simulation as unsafe and re-run."
+            )
         if cascade:
             warnings.append(
                 "Cascade restore dependencies are not included in this simulation; only the target object write was simulated."
@@ -1158,7 +1162,7 @@ class RestoreService:
             version=backup.version,
             twin_session_id=str(session.id),
             severity=session.overall_severity,
-            execution_safe=report.execution_safe if report else True,
+            execution_safe=report.execution_safe if report else False,
             warnings=len(warnings),
         )
 
@@ -1170,8 +1174,10 @@ class RestoreService:
             "version": backup.version,
             "twin_session_id": str(session.id),
             "overall_severity": session.overall_severity,
-            "execution_safe": report.execution_safe if report else True,
-            "summary": report.summary if report else "Simulation completed",
+            "execution_safe": report.execution_safe if report else False,
+            "summary": report.summary
+            if report
+            else "Simulation completed without a prediction report; treat as unsafe.",
             "counts": {
                 "total": report.total_checks if report else 0,
                 "warnings": report.warnings if report else 0,

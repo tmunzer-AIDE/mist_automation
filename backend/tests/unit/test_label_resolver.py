@@ -314,3 +314,51 @@ async def test_fetch_site_names_prefers_info_over_sites(monkeypatch):
 
     names = await fetch_site_names(org_id="org-1", site_ids=["site-1"])
     assert names == ["Authoritative Info Name"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_site_names_stops_after_resolving_all_sites(monkeypatch):
+    class _FakeCursor:
+        def __init__(self, docs):
+            self._docs = docs
+
+        def sort(self, *_args, **_kwargs):
+            self._docs = sorted(self._docs, key=lambda d: d.version, reverse=True)
+            return self
+
+        def __aiter__(self):
+            self._iter = iter(self._docs)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._iter)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class _Doc:
+        def __init__(self, *, site_id, version, configuration=None):
+            self.site_id = site_id
+            self.object_id = None
+            self.object_name = None
+            self.version = version
+            self.configuration = configuration or {}
+
+    class _FakeBackupObject:
+        @classmethod
+        def find(cls, query):
+            object_type = query.get("object_type")
+            if object_type != "info":
+                raise AssertionError("Lookup should stop once all site ids are resolved from info docs")
+            docs = [
+                _Doc(site_id="site-1", version=3, configuration={"name": "HQ"}),
+                _Doc(site_id="site-2", version=2, configuration={"name": "Branch"}),
+            ]
+            return _FakeCursor(docs)
+
+    from app.modules.backup import models as backup_models
+
+    monkeypatch.setattr(backup_models, "BackupObject", _FakeBackupObject)
+
+    names = await fetch_site_names(org_id="org-1", site_ids=["site-1", "site-2"])
+    assert names == ["HQ", "Branch"]

@@ -159,7 +159,7 @@ async def get_session_logs(
     search: str | None = Query(None, max_length=200),
     _current_user: User = Depends(require_admin),
 ) -> list[SimulationLogEntry]:
-    """Return persisted simulation logs for a Twin session (admin role required)."""
+    """Return persisted simulation logs for an owned Twin session (admin role required)."""
     try:
         session = await twin_service.get_session(session_id)
     except ValueError:
@@ -167,6 +167,10 @@ async def get_session_logs(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         ) from None
     if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if str(session.user_id) != str(_current_user.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )

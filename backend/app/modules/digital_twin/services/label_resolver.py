@@ -155,6 +155,7 @@ async def fetch_site_names(*, org_id: str, site_ids: list[str]) -> list[str]:
         return []
 
     id_to_name: dict[str, str] = {}
+    unresolved = set(site_ids)
 
     lookup_order = [
         ("info", "site_id"),
@@ -162,18 +163,24 @@ async def fetch_site_names(*, org_id: str, site_ids: list[str]) -> list[str]:
         ("sites", "object_id"),
     ]
     for object_type, id_field in lookup_order:
+        if not unresolved:
+            break
+
         cursor = BackupObject.find(
             {
                 "org_id": org_id,
                 "is_deleted": False,
                 "object_type": object_type,
-                id_field: {"$in": site_ids},
+                id_field: {"$in": list(unresolved)},
             }
         ).sort([("version", -1)])
         async for doc in cursor:
             sid = doc.site_id or doc.object_id
-            if sid and sid not in id_to_name:
+            if sid and sid in unresolved:
                 config = doc.configuration or {}
                 id_to_name[sid] = doc.object_name or config.get("name") or sid
+                unresolved.remove(sid)
+                if not unresolved:
+                    break
 
     return [id_to_name.get(sid, sid) for sid in site_ids]
