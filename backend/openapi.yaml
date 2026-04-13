@@ -10,7 +10,7 @@ paths:
       tags:
       - Health
       summary: Health Check
-      description: Health check endpoint.
+      description: Readiness-style health check endpoint for critical dependencies.
       operationId: health_check_health_get
       responses:
         '200':
@@ -2416,7 +2416,8 @@ paths:
       summary: Restore Object Version
       description: "Restore a backed-up object to a specific version in Mist.\n\n\
         When ``cascade=True``, deleted parents are restored first (with new UUIDs),\n\
-        then the target object, then deleted children \u2014 all with ID remapping."
+        then the target object, then deleted children \u2014 all with ID remapping.\n\
+        \n``dry_run`` and ``simulate`` are mutually exclusive no-apply modes."
       operationId: restore_object_version_api_v1_backups_objects_versions__version_id__restore_post
       security:
       - HTTPBearer: []
@@ -9282,7 +9283,7 @@ components:
         execution_safe:
           type: boolean
           title: Execution Safe
-          default: true
+          default: false
       type: object
       title: PredictionReportResponse
     PublishAsRecipeRequest:
@@ -10991,7 +10992,7 @@ components:
         execution_safe:
           type: boolean
           title: Execution Safe
-          default: true
+          default: false
         staged_writes:
           items:
             $ref: '#/components/schemas/StagedWriteResponse'

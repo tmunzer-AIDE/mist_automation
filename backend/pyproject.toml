@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mist-automation-backend"
-version = "0.2.1"
+version = "0.2.2"
 description = "FastAPI backend for Mist Automation Platform application"
 readme = "README.md"
 requires-python = ">=3.10"

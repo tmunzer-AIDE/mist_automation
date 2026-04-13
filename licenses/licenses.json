@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-11T10:48:53Z",
+  "generated_at": "2026-04-13T06:39:58Z",
   "backend": [
     {
       "name": "aiocsv",
@@ -1001,6 +1001,13 @@
       "license": "MPL-2.0 AND MIT",
       "url": "https://tqdm.github.io",
       "author": "UNKNOWN"
+    },
+    {
+      "name": "truststore",
+      "version": "0.10.4",
+      "license": "MIT",
+      "url": "https://github.com/sethmlarson/truststore",
+      "author": "Seth Michael Larson <sethmichaellarson@gmail.com>, David Glick <david@glicksoftware.com>"
     },
     {
       "name": "typer",
