@@ -7,12 +7,12 @@ export interface LayerRollup {
   status: 'pass' | 'warn' | 'err' | 'crit' | 'skip';
 }
 
-const LAYER_NUMBERS = [ 1, 2, 3, 4, 5];
+const LAYER_NUMBERS = [0, 1, 2, 3, 4, 5];
 
 const STATUS_RANK: Record<CheckResultModel['status'], number> = {
   pass: 0,
   info: 0,
-  skipped: 0,
+  skipped: -1,
   warning: 1,
   error: 2,
   critical: 3,
@@ -42,6 +42,9 @@ export function computeLayerRollup(report: PredictionReportModel | null): LayerR
       return { layer, passed: 0, total: 0, status: 'skip' as const };
     }
     const passed = checks.filter((c) => c.status === 'pass' || c.status === 'info').length;
+    if (checks.every((c) => c.status === 'skipped')) {
+      return { layer, passed, total: checks.length, status: 'skip' as const };
+    }
     const worstRank = Math.max(...checks.map((c) => STATUS_RANK[c.status] ?? 0));
     const status = RANK_TO_LAYER_STATUS[worstRank] ?? 'pass';
     return { layer, passed, total: checks.length, status };

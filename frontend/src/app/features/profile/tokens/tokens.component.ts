@@ -139,12 +139,12 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
       }
       .tokens-intro p {
         margin: 0;
-        color: var(--app-text-secondary);
+        color: var(--mat-sys-on-surface-variant);
         max-width: 640px;
       }
       .tokens-count {
         margin: 16px 0 8px 0;
-        color: var(--app-text-secondary);
+        color: var(--mat-sys-on-surface-variant);
         font-size: 13px;
       }
       .table-container {
@@ -164,7 +164,7 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
         font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
         font-size: 12px;
         padding: 2px 6px;
-        background: var(--app-surface-variant);
+        background: var(--mat-sys-surface-container-highest);
         border-radius: 4px;
       }
     `,
@@ -354,7 +354,7 @@ export class CreateTokenDialog {
         align-items: center;
         gap: 8px;
         padding: 12px;
-        background: var(--app-surface-variant);
+        background: var(--mat-sys-surface-container-highest);
         border-radius: 6px;
         font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
         font-size: 13px;

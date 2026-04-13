@@ -9,6 +9,7 @@ import pytest
 
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.schemas import (
+    PredictionReportResponse,
     RemediationAttemptResponse,
     StagedWriteResponse,
     TwinSessionDetailResponse,
@@ -437,6 +438,11 @@ def test_twin_session_response_carries_new_label_fields():
     assert resp.affected_object_label == "networktemplates: default-campus"
     assert resp.affected_object_types == ["networktemplates"]
     assert resp.affected_site_labels == ["HQ", "Boston"]
+
+
+def test_prediction_report_execution_safe_defaults_false():
+    report = PredictionReportResponse()
+    assert report.execution_safe is False
 
 
 def test_session_to_detail_response_computes_diff_against_resolved_state():

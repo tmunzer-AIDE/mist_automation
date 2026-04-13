@@ -10,7 +10,7 @@
       <mat-icon>check_circle</mat-icon>
       Approve &amp; Deploy
     </button>
-    <button mat-stroked-button class="reject-btn" (click)="reject()" [disabled]="loading()">
+    <button mat-stroked-button class="reject-btn" (click)="reject()" [disabled]="loading() || !canReject()">
       <mat-icon>cancel</mat-icon>
       Reject
     </button>

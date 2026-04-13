@@ -66,8 +66,8 @@ export interface TwinSessionSummary {
   affected_object_types: string[];
   remediation_count: number;
   prediction_report: PredictionReportModel | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface TwinSessionDetail extends TwinSessionSummary {

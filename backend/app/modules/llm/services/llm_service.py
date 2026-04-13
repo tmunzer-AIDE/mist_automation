@@ -7,10 +7,10 @@ lm_studio, azure_openai, mistral) and ``litellm`` for everything else
 non-standard OpenAI-compatible servers such as LM Studio.
 """
 
-from collections.abc import AsyncGenerator, Awaitable, Callable
-from dataclasses import dataclass, field
 import os
 import ssl
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
 
@@ -48,8 +48,17 @@ def _resolve_openai_ssl_verify() -> bool | str | ssl.SSLContext:
     4) Library default verification behavior
     """
     if os.getenv("MIST_LLM_SSL_VERIFY", "true").strip().lower() in _FALSEY:
-        logger.warning("llm_ssl_verification_disabled")
-        return False
+        try:
+            from app.config import settings
+
+            if settings.is_production:
+                logger.warning("llm_ssl_verification_disable_blocked_in_production")
+            else:
+                logger.warning("llm_ssl_verification_disabled")
+                return False
+        except Exception:
+            # Safe fallback: if settings are unavailable, keep verification enabled.
+            logger.warning("llm_ssl_verification_disable_blocked")
 
     ca_bundle = (
         os.getenv("MIST_LLM_CA_BUNDLE")

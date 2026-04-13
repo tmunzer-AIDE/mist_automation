@@ -19,6 +19,20 @@ def test_ssl_verify_can_be_disabled(monkeypatch):
     assert _resolve_openai_ssl_verify() is False
 
 
+def test_ssl_verify_disable_is_blocked_in_production(monkeypatch):
+    """Production should never allow verify=False via env override."""
+    import app.config as app_config
+    from app.modules.llm.services.llm_service import _resolve_openai_ssl_verify
+
+    class _Settings:
+        is_production = True
+
+    monkeypatch.setattr(app_config, "settings", _Settings())
+    monkeypatch.setenv("MIST_LLM_SSL_VERIFY", "false")
+
+    assert _resolve_openai_ssl_verify() is not False
+
+
 def test_ssl_verify_uses_ca_bundle_env(monkeypatch):
     """CA bundle env var should be used when provided."""
     from app.modules.llm.services.llm_service import _resolve_openai_ssl_verify

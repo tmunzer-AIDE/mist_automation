@@ -83,6 +83,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   loading = signal(true);
   expandedChecks = signal<Set<string>>(new Set());
   expandedLayers = signal<Set<number>>(new Set());
+  private readonly seededLayerSessionId = signal<string | null>(null);
   readonly rawBodyVisible = signal(new Set<number>());
   readonly sitesExpanded = signal(false);
 
@@ -91,6 +92,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   private readonly seedLayerExpansion = effect(() => {
     const s = this.session();
     if (!s?.prediction_report) return;
+    if (this.seededLayerSessionId() === s.id) return;
 
     const initial = new Set<number>();
     for (const check of s.prediction_report.check_results) {
@@ -103,6 +105,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
       }
     }
     this.expandedLayers.set(initial);
+    this.seededLayerSessionId.set(s.id);
   });
 
   toggleSitesExpanded(): void {
@@ -115,6 +118,7 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   }
 
   isAwaitingApproval = computed(() => this.session()?.status === 'awaiting_approval');
+  canReject = computed(() => this.session()?.status === 'awaiting_approval');
   canApprove = computed(() => {
     const s = this.session();
     return !!s && s.status === 'awaiting_approval' && s.execution_safe && !this.hasBlockingPreflightErrors(s);
@@ -294,6 +298,13 @@ export class SessionDetailComponent implements OnInit, OnDestroy {
   }
 
   reject(): void {
+    const s = this.session();
+    if (!s || !this.canReject()) {
+      this.snackBar.open('Only awaiting approval sessions can be rejected.', 'Dismiss', {
+        duration: 4000,
+      });
+      return;
+    }
     this.dialog
       .open(ConfirmDialogComponent, {
         data: {

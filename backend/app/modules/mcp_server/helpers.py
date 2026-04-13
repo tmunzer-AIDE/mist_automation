@@ -58,6 +58,8 @@ MAX_VALUE_LEN = 500
 MAX_DIFF_ENTRIES = 50
 MAX_LIST_ITEMS = 50
 MAX_PAYLOAD_LEN = 3000
+MAX_INLINE_DEPTH = 6
+MAX_INLINE_ITEMS = 200
 
 
 def truncate_value(value: Any, max_len: int = MAX_VALUE_LEN) -> Any:
@@ -78,7 +80,8 @@ def _prune_value(
 ) -> Any:
     """Recursively prune a value.
 
-    - `inline=True` recurses fully into dicts/lists (only scalars get truncated).
+        - `inline=True` recurses deeply into dicts/lists (still bounded by
+            MAX_INLINE_DEPTH/MAX_INLINE_ITEMS and scalar truncation).
     - `inline=False` recurses up to `max_depth`; dicts with more than
       `small_dict_threshold` keys become a `"{...} (N keys)"` summary, and
       lists with more items become `"[...] (N items)"`.
@@ -88,8 +91,14 @@ def _prune_value(
 
     if isinstance(value, dict):
         if inline:
-            return {
-                k: _prune_value(
+            if depth >= MAX_INLINE_DEPTH:
+                return f"{{...}} ({len(value)} keys)"
+            pruned: dict[str, Any] = {}
+            for idx, (k, v) in enumerate(value.items()):
+                if idx >= MAX_INLINE_ITEMS:
+                    pruned["__truncated__"] = f"{len(value) - MAX_INLINE_ITEMS} more keys"
+                    break
+                pruned[k] = _prune_value(
                     v,
                     depth=depth + 1,
                     max_depth=max_depth,
@@ -97,8 +106,7 @@ def _prune_value(
                     small_dict_threshold=small_dict_threshold,
                     inline=True,
                 )
-                for k, v in value.items()
-            }
+            return pruned
         if depth >= max_depth or len(value) > small_dict_threshold:
             return f"{{...}} ({len(value)} keys)"
         return {
@@ -115,7 +123,9 @@ def _prune_value(
 
     if isinstance(value, list):
         if inline:
-            return [
+            if depth >= MAX_INLINE_DEPTH:
+                return f"[...] ({len(value)} items)"
+            pruned = [
                 _prune_value(
                     v,
                     depth=depth + 1,
@@ -124,8 +134,11 @@ def _prune_value(
                     small_dict_threshold=small_dict_threshold,
                     inline=True,
                 )
-                for v in value
+                for v in value[:MAX_INLINE_ITEMS]
             ]
+            if len(value) > MAX_INLINE_ITEMS:
+                pruned.append(f"... ({len(value) - MAX_INLINE_ITEMS} more items)")
+            return pruned
         if depth >= max_depth or len(value) > small_dict_threshold:
             return f"[...] ({len(value)} items)"
         return [
@@ -157,7 +170,8 @@ def prune_config(
     - Top-level dict is capped at `max_keys` entries; remainder summarized in `__truncated__`.
     - Nested dicts/lists with more than `small_dict_threshold` entries become
       `"{...} (N keys)"` / `"[...] (N items)"` summaries; smaller ones are rendered inline.
-    - Keys listed in `inline_keys` are rendered in full depth (still truncating strings).
+        - Keys listed in `inline_keys` are rendered with deep expansion (still bounded,
+            and still truncating strings).
       Use this to surface fields the caller cares about regardless of size — e.g. fields
       from `BackupObject.changed_fields` when showing a backup version diff.
     """

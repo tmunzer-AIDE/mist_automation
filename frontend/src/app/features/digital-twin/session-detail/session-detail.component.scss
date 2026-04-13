@@ -352,9 +352,9 @@
   .diff-arrow  { color: var(--mat-sys-on-surface-variant); margin: 0 6px; }
 }
 
-.diff-modified { background: rgba(234, 179, 8, 0.06); }
-.diff-added    { background: rgba(34, 197, 94, 0.06); }
-.diff-removed  { background: rgba(239, 68, 68, 0.06); }
+.diff-modified { background: var(--app-warning-bg); }
+.diff-added    { background: var(--app-success-bg); }
+.diff-removed  { background: var(--app-error-bg); }
 
 .raw-toggle {
   background: none;
@@ -407,7 +407,7 @@
 }
 
 // Topbar buttons
-.approve-btn { background: var(--app-success) !important; color: #fff !important; margin-right: 8px; }
+.approve-btn { background: var(--app-success) !important; color: var(--mat-sys-on-primary) !important; margin-right: 8px; }
 .reject-btn { color: var(--app-error-status) !important; border-color: var(--app-error-status) !important; }
 
 @media (max-width: 768px) {

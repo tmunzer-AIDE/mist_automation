@@ -37,7 +37,7 @@ class PredictionReportResponse(BaseModel):
     check_results: list[CheckResultResponse] = Field(default_factory=list)
     overall_severity: str = "clean"
     summary: str = ""
-    execution_safe: bool = True
+    execution_safe: bool = False
 
 
 class WriteDiffField(BaseModel):

@@ -8,7 +8,7 @@ migrated in place.
 
 Run manually::
 
-    cd backend && python -m migrations.20260412_rename_llm_chat_to_mcp
+    cd backend && PYTHONPATH=. python migrations/20260412_rename_llm_chat_to_mcp.py
 
 Idempotent: subsequent runs match zero documents and are a no-op.
 

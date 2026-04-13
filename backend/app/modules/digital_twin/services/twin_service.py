@@ -21,19 +21,19 @@ from app.modules.digital_twin.models import (
     TwinSessionStatus,
 )
 from app.modules.digital_twin.services.endpoint_parser import parse_endpoint
-from app.modules.digital_twin.services.snapshot_analyzer import (
-    analyze_site_with_context,
-    build_prediction_report,
+from app.modules.digital_twin.services.label_resolver import (
+    fetch_object_names_by_type,
+    fetch_site_names,
+    format_object_label,
 )
 from app.modules.digital_twin.services.site_snapshot import (
     build_site_snapshot,
     fetch_live_data,
     load_site_snapshot_source_data,
 )
-from app.modules.digital_twin.services.label_resolver import (
-    fetch_object_names_by_type,
-    fetch_site_names,
-    format_object_label,
+from app.modules.digital_twin.services.snapshot_analyzer import (
+    analyze_site_with_context,
+    build_prediction_report,
 )
 from app.modules.digital_twin.services.state_resolver import (
     apply_staged_writes,
@@ -77,6 +77,14 @@ class TwinApprovalError(ValueError):
     def __init__(self, code: TwinApprovalErrorCode, message: str):
         self.code = code
         super().__init__(message)
+
+
+def _parse_object_id(raw_id: str, *, field_name: str = "session_id") -> PydanticObjectId:
+    """Parse an ObjectId-like string and raise a deterministic ValueError on failure."""
+    try:
+        return PydanticObjectId(raw_id)
+    except Exception as exc:
+        raise ValueError(f"Invalid {field_name}") from exc
 
 
 def _sanitize_for_log(value: Any, *, depth: int = 0) -> Any:
@@ -350,7 +358,11 @@ async def simulate(
 
     old_severity = "clean"
     if existing_session_id:
-        session = await TwinSession.get(PydanticObjectId(existing_session_id))
+        try:
+            existing_id = _parse_object_id(existing_session_id)
+        except ValueError:
+            raise ValueError(f"Twin session {existing_session_id} not found") from None
+        session = await TwinSession.get(existing_id)
         if not session:
             raise ValueError(f"Twin session {existing_session_id} not found")
         if str(session.user_id) != user_id:
@@ -582,7 +594,12 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
     """Approve a twin session and execute all staged writes against Mist API."""
     from app.services.mist_service_factory import create_mist_service
 
-    session = await TwinSession.get(PydanticObjectId(session_id))
+    try:
+        session_obj_id = _parse_object_id(session_id)
+    except ValueError as exc:
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found") from exc
+
+    session = await TwinSession.get(session_obj_id)
     if not session:
         raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found")
     if user_id and str(session.user_id) != user_id:
@@ -669,11 +686,21 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
 
 async def reject_session(session_id: str, user_id: str | None = None) -> TwinSession:
     """Reject a twin session."""
-    session = await TwinSession.get(PydanticObjectId(session_id))
+    try:
+        session_obj_id = _parse_object_id(session_id)
+    except ValueError as exc:
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found") from exc
+
+    session = await TwinSession.get(session_obj_id)
     if not session:
-        raise ValueError(f"Twin session {session_id} not found")
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found")
     if user_id and str(session.user_id) != user_id:
-        raise ValueError("Session not found")
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, "Session not found")
+    if session.status != TwinSessionStatus.AWAITING_APPROVAL:
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.NOT_AWAITING_APPROVAL,
+            f"Session is in '{session.status.value}' state, not awaiting_approval",
+        )
     session.status = TwinSessionStatus.REJECTED
     session.update_timestamp()
     await session.save()
@@ -682,7 +709,11 @@ async def reject_session(session_id: str, user_id: str | None = None) -> TwinSes
 
 async def get_session(session_id: str) -> TwinSession | None:
     """Get a twin session by ID."""
-    return await TwinSession.get(PydanticObjectId(session_id))
+    try:
+        session_obj_id = _parse_object_id(session_id)
+    except ValueError:
+        return None
+    return await TwinSession.get(session_obj_id)
 
 
 async def list_sessions(
@@ -694,7 +725,7 @@ async def list_sessions(
     limit: int = 20,
 ) -> tuple[list[TwinSession], int]:
     """List twin sessions for a user, optionally filtered by status, source, or search term."""
-    query: dict[str, Any] = {"user_id": PydanticObjectId(user_id)}
+    query: dict[str, Any] = {"user_id": _parse_object_id(user_id, field_name="user_id")}
     if status:
         query["status"] = status
     if source:
@@ -719,7 +750,7 @@ async def intercept_write(
     Called from MistService._api_call() when twin_session_var is set.
     Returns a synthetic response so the caller can continue.
     """
-    session = await TwinSession.get(PydanticObjectId(session_id))
+    session = await TwinSession.get(_parse_object_id(session_id))
     if not session:
         raise ValueError(f"Twin session {session_id} not found")
 

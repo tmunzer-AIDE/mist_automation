@@ -1,11 +1,12 @@
-import { Component, Input, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, Input, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormControl } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatIconModule } from '@angular/material/icon';
-import { debounceTime, switchMap, startWith } from 'rxjs/operators';
+import { debounceTime, finalize, switchMap, startWith } from 'rxjs/operators';
 import { combineLatest } from 'rxjs';
 
 import { DigitalTwinService } from '../digital-twin.service';
@@ -34,6 +35,7 @@ export class LogsTabComponent implements OnInit {
   @Input({ required: true }) sessionId!: string;
 
   private readonly service = inject(DigitalTwinService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly levelControl = new FormControl<string>('');
   readonly searchControl = new FormControl<string>('');
@@ -65,25 +67,33 @@ export class LogsTabComponent implements OnInit {
       .pipe(
         switchMap(([level, search]) => {
           this.loading.set(true);
-          return this.service.getSessionLogs(this.sessionId, {
-            level: level || undefined,
-            search: search || undefined,
-          });
+          return this.service
+            .getSessionLogs(this.sessionId, {
+              level: level || undefined,
+              search: search || undefined,
+            })
+            .pipe(finalize(() => this.loading.set(false)));
         }),
+        takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((entries) => {
-        this.entries.set(entries);
-        this.loading.set(false);
-        // First group with entries starts expanded, rest collapsed
-        const collapsed = new Set<Phase>();
-        let firstFound = false;
-        for (const phase of PHASE_ORDER) {
-          if (entries.some((e) => e.phase === phase)) {
-            if (firstFound) collapsed.add(phase);
-            firstFound = true;
+      .subscribe({
+        next: (entries) => {
+          this.entries.set(entries);
+          // First group with entries starts expanded, rest collapsed
+          const collapsed = new Set<Phase>();
+          let firstFound = false;
+          for (const phase of PHASE_ORDER) {
+            if (entries.some((e) => e.phase === phase)) {
+              if (firstFound) collapsed.add(phase);
+              firstFound = true;
+            }
           }
-        }
-        this.collapsedPhases.set(collapsed);
+          this.collapsedPhases.set(collapsed);
+        },
+        error: () => {
+          this.entries.set([]);
+          this.collapsedPhases.set(new Set());
+        },
       });
   }
 

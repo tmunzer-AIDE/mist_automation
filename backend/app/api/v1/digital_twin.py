@@ -100,7 +100,10 @@ async def get_twin_session(
     current_user: User = Depends(require_admin),
 ):
     """Get a Digital Twin session by ID."""
-    session = await twin_service.get_session(session_id)
+    try:
+        session = await twin_service.get_session(session_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found") from None
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     if str(session.user_id) != str(current_user.id):
@@ -117,6 +120,10 @@ async def cancel_twin_session(
     try:
         session = await twin_service.reject_session(session_id, user_id=str(current_user.id))
         return {"status": session.status.value, "session_id": str(session.id)}
+    except twin_service.TwinApprovalError as e:
+        if e.code == twin_service.TwinApprovalErrorCode.NOT_FOUND:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found") from None
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not awaiting approval") from None
     except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found") from None
 
@@ -136,8 +143,7 @@ async def approve_twin_session(
         status_code, detail = _approve_error_response(e)
         raise HTTPException(status_code=status_code, detail=detail) from None
     except ValueError:
-        status_code, detail = status.HTTP_400_BAD_REQUEST, "Session cannot be approved"
-        raise HTTPException(status_code=status_code, detail=detail) from None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found") from None
 
 
 @router.get(
@@ -151,15 +157,16 @@ async def get_session_logs(
         None, pattern="^(simulate|remediate|approve|execute|other)$"
     ),
     search: str | None = Query(None, max_length=200),
-    current_user: User = Depends(require_admin),
+    _current_user: User = Depends(require_admin),
 ) -> list[SimulationLogEntry]:
-    """Return persisted simulation logs for an owned Twin session (admin role required)."""
-    session = await twin_service.get_session(session_id)
-    if not session:
+    """Return persisted simulation logs for a Twin session (admin role required)."""
+    try:
+        session = await twin_service.get_session(session_id)
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
-        )
-    if str(session.user_id) != str(current_user.id):
+        ) from None
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )

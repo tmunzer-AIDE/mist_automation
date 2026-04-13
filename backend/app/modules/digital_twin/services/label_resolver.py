@@ -56,7 +56,7 @@ def format_object_label(
 async def fetch_object_names_by_type(
     *,
     org_id: str,
-    writes: "list[StagedWrite]",
+    writes: list[StagedWrite],
 ) -> dict[str, list[str]]:
     """Resolve object names for each staged write.
 
@@ -77,17 +77,20 @@ async def fetch_object_names_by_type(
         if site_id in site_name_cache:
             return site_name_cache[site_id]
 
-        doc = await BackupObject.find(
-            {
-                "org_id": org_id,
-                "is_deleted": False,
-                "$or": [
-                    {"object_type": "info", "site_id": site_id},
-                    {"object_type": "site", "object_id": site_id},
-                    {"object_type": "sites", "object_id": site_id},
-                ],
-            }
-        ).sort([("version", -1)]).first_or_none()
+        async def _find_latest(query: dict[str, str]) -> object | None:
+            return await BackupObject.find(
+                {
+                    "org_id": org_id,
+                    "is_deleted": False,
+                    **query,
+                }
+            ).sort([("version", -1)]).first_or_none()
+
+        doc = await _find_latest({"object_type": "info", "site_id": site_id})
+        if not doc:
+            doc = await _find_latest({"object_type": "site", "object_id": site_id})
+        if not doc:
+            doc = await _find_latest({"object_type": "sites", "object_id": site_id})
 
         if doc:
             config = doc.configuration or {}
@@ -151,22 +154,26 @@ async def fetch_site_names(*, org_id: str, site_ids: list[str]) -> list[str]:
     if not site_ids:
         return []
 
-    cursor = BackupObject.find(
-        {
-            "org_id": org_id,
-            "is_deleted": False,
-            "$or": [
-                {"object_type": "info", "site_id": {"$in": site_ids}},
-                {"object_type": "site", "object_id": {"$in": site_ids}},
-                {"object_type": "sites", "object_id": {"$in": site_ids}},
-            ],
-        }
-    ).sort([("version", -1)])
     id_to_name: dict[str, str] = {}
-    async for doc in cursor:
-        sid = doc.site_id or doc.object_id
-        if sid and sid not in id_to_name:
-            config = doc.configuration or {}
-            id_to_name[sid] = doc.object_name or config.get("name") or sid
+
+    lookup_order = [
+        ("info", "site_id"),
+        ("site", "object_id"),
+        ("sites", "object_id"),
+    ]
+    for object_type, id_field in lookup_order:
+        cursor = BackupObject.find(
+            {
+                "org_id": org_id,
+                "is_deleted": False,
+                "object_type": object_type,
+                id_field: {"$in": site_ids},
+            }
+        ).sort([("version", -1)])
+        async for doc in cursor:
+            sid = doc.site_id or doc.object_id
+            if sid and sid not in id_to_name:
+                config = doc.configuration or {}
+                id_to_name[sid] = doc.object_name or config.get("name") or sid
 
     return [id_to_name.get(sid, sid) for sid in site_ids]

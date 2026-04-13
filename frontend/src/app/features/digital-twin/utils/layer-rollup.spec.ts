@@ -70,4 +70,11 @@ describe('computeLayerRollup', () => {
     const rollup = computeLayerRollup(null);
     expect(rollup.every((r) => r.status === 'skip')).toBe(true);
   });
+
+  it('keeps skipped-only layers as skip', () => {
+    const rollup = computeLayerRollup(report([check('a', 0, 'skipped')]));
+    expect(rollup[0].status).toBe('skip');
+    expect(rollup[0].passed).toBe(0);
+    expect(rollup[0].total).toBe(1);
+  });
 });

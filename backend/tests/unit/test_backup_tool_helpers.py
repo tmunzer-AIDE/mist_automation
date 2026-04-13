@@ -123,6 +123,21 @@ class TestPruneConfigBehavior:
         assert result["notes"]["detail"].endswith("...")
         assert len(result["notes"]["detail"]) <= 103  # 100 + "..."
 
+    def test_inline_keys_apply_cardinality_caps(self):
+        cfg = {
+            "port_config": {
+                f"port_{i}": {"usage": "enabled"}
+                for i in range(250)
+            }
+        }
+
+        result = prune_config(cfg, inline_keys={"port_config"})
+
+        assert isinstance(result["port_config"], dict)
+        assert result["port_config"]["port_0"]["usage"] == "enabled"
+        assert "__truncated__" in result["port_config"]
+        assert "50 more keys" in result["port_config"]["__truncated__"]
+
     def test_default_call_matches_old_behavior_for_flat_scalars(self):
         # Existing callers that pass a flat dict of scalars should see the same output
         # they used to get — regression guard.

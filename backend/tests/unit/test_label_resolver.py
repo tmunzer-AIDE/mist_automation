@@ -2,10 +2,10 @@ import pytest
 
 from app.modules.digital_twin.models import StagedWrite
 from app.modules.digital_twin.services.label_resolver import (
-    format_object_label,
     _count_by_type,
     fetch_object_names_by_type,
     fetch_site_names,
+    format_object_label,
 )
 
 
@@ -135,14 +135,21 @@ async def test_fetch_site_names_resolves_legacy_site_shapes(monkeypatch):
             self.configuration = configuration or {}
 
     class _FakeBackupObject:
+        docs = [
+            _Doc(object_type="sites", object_id="site-1", site_id=None, configuration={"name": "HQ"}),
+            _Doc(object_type="info", object_id="ignored", site_id="site-2", configuration={"name": "Branch"}),
+        ]
+
         @classmethod
-        def find(cls, _query):
-            return _FakeCursor(
-                [
-                    _Doc(object_type="sites", object_id="site-1", site_id=None, configuration={"name": "HQ"}),
-                    _Doc(object_type="info", object_id="ignored", site_id="site-2", configuration={"name": "Branch"}),
-                ]
-            )
+        def find(cls, query):
+            object_type = query.get("object_type")
+            if object_type == "info":
+                site_ids = set(query.get("site_id", {}).get("$in", []))
+                docs = [d for d in cls.docs if d.object_type == "info" and d.site_id in site_ids]
+                return _FakeCursor(docs)
+            object_ids = set(query.get("object_id", {}).get("$in", []))
+            docs = [d for d in cls.docs if d.object_type == object_type and d.object_id in object_ids]
+            return _FakeCursor(docs)
 
     from app.modules.backup import models as backup_models
 
@@ -182,7 +189,9 @@ async def test_fetch_site_names_uses_latest_version_per_site(monkeypatch):
 
     class _FakeBackupObject:
         @classmethod
-        def find(cls, _query):
+        def find(cls, query):
+            if query.get("object_type") != "info":
+                return _FakeCursor([])
             return _FakeCursor(
                 [
                     _Doc(site_id="site-1", version=1, configuration={"name": "Old HQ"}),
@@ -211,7 +220,7 @@ async def test_fetch_object_names_by_type_site_singletons_use_site_name(monkeypa
         async def first_or_none(self):
             if self.query.get("org_id") != "org-1":
                 return None
-            if "$or" in self.query:
+            if self.query.get("object_type") == "info" and self.query.get("site_id") == "site-1":
                 class _Doc:
                     object_name = None
                     configuration = {"name": "HQ"}
@@ -251,3 +260,57 @@ async def test_fetch_object_names_by_type_site_singletons_use_site_name(monkeypa
 
     names = await fetch_object_names_by_type(org_id="org-1", writes=writes)
     assert names == {"info": ["HQ"], "settings": ["HQ"]}
+
+
+@pytest.mark.asyncio
+async def test_fetch_site_names_prefers_info_over_sites(monkeypatch):
+    class _FakeCursor:
+        def __init__(self, docs):
+            self._docs = docs
+
+        def sort(self, *_args, **_kwargs):
+            self._docs = sorted(self._docs, key=lambda d: d.version, reverse=True)
+            return self
+
+        def __aiter__(self):
+            self._iter = iter(self._docs)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._iter)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class _Doc:
+        def __init__(self, *, object_type, site_id=None, object_id=None, version=1, configuration=None):
+            self.object_type = object_type
+            self.site_id = site_id
+            self.object_id = object_id
+            self.version = version
+            self.object_name = None
+            self.configuration = configuration or {}
+
+    class _FakeBackupObject:
+        docs = [
+            _Doc(object_type="sites", object_id="site-1", version=99, configuration={"name": "Stale Sites Name"}),
+            _Doc(object_type="info", site_id="site-1", version=1, configuration={"name": "Authoritative Info Name"}),
+        ]
+
+        @classmethod
+        def find(cls, query):
+            object_type = query.get("object_type")
+            if object_type == "info":
+                site_ids = set(query.get("site_id", {}).get("$in", []))
+                docs = [d for d in cls.docs if d.object_type == "info" and d.site_id in site_ids]
+                return _FakeCursor(docs)
+            object_ids = set(query.get("object_id", {}).get("$in", []))
+            docs = [d for d in cls.docs if d.object_type == object_type and d.object_id in object_ids]
+            return _FakeCursor(docs)
+
+    from app.modules.backup import models as backup_models
+
+    monkeypatch.setattr(backup_models, "BackupObject", _FakeBackupObject)
+
+    names = await fetch_site_names(org_id="org-1", site_ids=["site-1"])
+    assert names == ["Authoritative Info Name"]

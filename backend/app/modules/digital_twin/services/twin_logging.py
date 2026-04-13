@@ -11,16 +11,18 @@ Usage:
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from threading import Lock
-from typing import Any, Iterator
+from typing import Any
 
 from app.modules.digital_twin.models import SimulationLogEntry
 
-_MAX_ENTRIES_PER_SESSION = 5000
-_MAX_ACTIVE_SESSIONS = 500
+_MAX_ENTRIES_PER_SESSION = 1000
+_MAX_ACTIVE_SESSIONS = 200
 _BUFFER_TTL = timedelta(hours=1)
 _MAX_CONTEXT_DEPTH = 4
 _MAX_CONTEXT_ITEMS = 50
@@ -30,7 +32,7 @@ _MAX_CONTEXT_CHARS = 3000
 twin_session_id_var: ContextVar[str | None] = ContextVar("twin_session_id", default=None)
 twin_session_phase_var: ContextVar[str | None] = ContextVar("twin_session_phase", default=None)
 
-_buffers: dict[str, list[SimulationLogEntry]] = {}
+_buffers: dict[str, deque[SimulationLogEntry]] = {}
 _last_seen: dict[str, datetime] = {}
 _buffers_lock = Lock()
 
@@ -137,11 +139,9 @@ def capture_twin_session_logs(
     with _buffers_lock:
         now = datetime.now(timezone.utc)
         _evict_buffers_locked(now)
-        buf = _buffers.setdefault(session_id, [])
+        buf = _buffers.setdefault(session_id, deque(maxlen=_MAX_ENTRIES_PER_SESSION))
         buf.append(entry)
         _last_seen[session_id] = now
-        if len(buf) > _MAX_ENTRIES_PER_SESSION:
-            del buf[: len(buf) - _MAX_ENTRIES_PER_SESSION]
 
     return event_dict
 
@@ -150,4 +150,4 @@ def drain_buffer(session_id: str) -> list[SimulationLogEntry]:
     """Return and clear the log buffer for the given session id."""
     with _buffers_lock:
         _last_seen.pop(session_id, None)
-        return _buffers.pop(session_id, [])
+        return list(_buffers.pop(session_id, deque()))
