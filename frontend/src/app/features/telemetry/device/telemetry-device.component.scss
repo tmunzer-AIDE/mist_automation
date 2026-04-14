@@ -35,42 +35,30 @@
   }
 }
 
-// ── AP Identity row ────────────────────────────────────────────────────────
+// ── Device metadata bar ────────────────────────────────────────────────────
 
-.ap-identity {
+.device-header-meta {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 24px;
+  align-items: flex-start;
   flex-wrap: wrap;
+}
 
-  .device-name {
-    font-size: var(--app-text-2xl);
-    font-weight: 700;
-    line-height: 1.2;
-  }
+.device-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 
-  .identity-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 10px;
-    border-radius: 999px;
-    font-size: var(--app-text-sm);
-    font-weight: 500;
-    background: var(--mat-sys-surface-container-high);
+  .meta-label {
+    font-size: var(--app-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: var(--mat-sys-on-surface-variant);
-    white-space: nowrap;
-
-    mat-icon {
-      font-size: 14px;
-      width: 14px;
-      height: 14px;
-    }
   }
 
-  .model-chip {
-    background: var(--mat-sys-primary-container);
-    color: var(--mat-sys-on-primary-container);
+  .meta-value {
+    font-size: var(--app-text-sm);
+    font-weight: 600;
     font-family: monospace;
   }
 }
@@ -503,4 +491,65 @@
       height: 14px;
     }
   }
+}
+
+// ── KPI threshold colors ──────────────────────────────────────────────────
+
+.kpi-value {
+  &.warn { color: var(--app-warning); }
+  &.crit { color: var(--app-error); }
+}
+
+.model-value {
+  font-size: var(--app-text-sm) !important;
+  font-family: monospace;
+  font-weight: 600 !important;
+  word-break: break-all;
+}
+
+// ── Expansion panel accordion ─────────────────────────────────────────────
+
+mat-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  // Remove default Angular Material border between panels
+  .mat-expansion-panel {
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: var(--app-radius-sm) !important;
+    box-shadow: none !important;
+    background: var(--mat-sys-surface-container) !important;
+  }
+
+  .mat-expansion-panel-body {
+    padding: 0 16px 16px;
+  }
+}
+
+// ── Switch/Gateway interface charts ───────────────────────────────────────
+
+.iface-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.iface-chart-card {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  background: var(--mat-sys-surface);
+  padding: 10px;
+
+  canvas {
+    max-height: 180px;
+  }
+}
+
+.iface-chart-title {
+  font-size: var(--app-text-xs);
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--mat-sys-on-surface-variant);
+  font-family: monospace;
 }

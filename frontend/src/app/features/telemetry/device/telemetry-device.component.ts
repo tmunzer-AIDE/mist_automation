@@ -1,9 +1,10 @@
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgClass } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { skip } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
 import { BaseChartDirective } from 'ng2-charts';
@@ -13,6 +14,7 @@ import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
 import { TelemetryNavService } from '../telemetry-nav.service';
 import { LatestStats } from '../models';
+import { getChartColor } from '../../../shared/utils/chart-defaults';
 import { DeviceLiveLogComponent } from './components/device-live-log/device-live-log.component';
 
 Chart.register(...registerables);
@@ -59,12 +61,20 @@ interface RadioBandCharts {
   util: ChartConfiguration<'line'> | null;
 }
 
+interface InterfaceTrafficChart {
+  interfaceId: string;
+  label: string;
+  chart: ChartConfiguration<'line'>;
+}
+
 @Component({
   selector: 'app-telemetry-device',
   standalone: true,
   imports: [
     DecimalPipe,
+    NgClass,
     MatButtonModule,
+    MatExpansionModule,
     MatIconModule,
     MatTableModule,
     BaseChartDirective,
@@ -90,6 +100,9 @@ export class TelemetryDeviceComponent implements OnInit {
   readonly cpuMemChart = signal<ChartConfiguration<'line'> | null>(null);
   readonly chart2 = signal<ChartConfiguration<'line'> | null>(null);
   readonly chart3 = signal<ChartConfiguration<'line'> | null>(null);
+  readonly switchInterfaceCharts = signal<InterfaceTrafficChart[]>([]);
+  readonly gatewayInterfaceCharts = signal<InterfaceTrafficChart[]>([]);
+  readonly gatewayLanCharts = signal<InterfaceTrafficChart[]>([]);
 
   // Per-band charts: keyed by band string (e.g. 'band_24')
   readonly radioCharts = signal<Record<string, RadioBandCharts>>({});
@@ -159,11 +172,63 @@ export class TelemetryDeviceComponent implements OnInit {
     return mem?.usage ?? 0;
   });
 
+  // ── Shared header computeds ─────────────────────────────────────────────
+
+  readonly deviceModel = computed(() => (this.latestStats()?.stats?.['model'] as string) || '');
+  readonly deviceFirmware = computed(() => {
+    const stats = this.latestStats()?.stats;
+    return (stats?.['version'] as string) || (stats?.['fw_version'] as string) || '';
+  });
+  readonly deviceIp = computed(() => (this.latestStats()?.stats?.['ip'] as string) || '');
+
+  readonly deviceTypeLabel = computed(() => {
+    const t = this.deviceType();
+    if (t === 'ap') return 'AP';
+    if (t === 'switch') return 'SW';
+    if (t === 'gateway') return 'GW';
+    return '';
+  });
+
   // ── AP-specific computed signals ────────────────────────────────────────
 
-  readonly apModel = computed(() => (this.latestStats()?.stats?.['model'] as string) || '');
-  readonly apIp = computed(() => (this.latestStats()?.stats?.['ip'] as string) || '');
+  readonly apModel = computed(() => this.deviceModel());
+  readonly apIp = computed(() => this.deviceIp());
   readonly apNumWlans = computed(() => (this.latestStats()?.stats?.['num_wlans'] as number) ?? 0);
+
+  readonly formattedUptime = computed(() => {
+    const u = (this.latestStats()?.stats?.['uptime'] as number) ?? 0;
+    const d = Math.floor(u / 86400);
+    const h = Math.floor((u % 86400) / 3600);
+    const m = Math.floor((u % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  });
+
+  // Switch-specific KPI computeds
+  readonly portsUp = computed(() => {
+    const ifStat = this.latestStats()?.stats?.['if_stat'] as Record<string, any> | undefined;
+    if (!ifStat) return null;
+    const entries = Object.values(ifStat);
+    const up = entries.filter((p) => p.up).length;
+    return { up, total: entries.length };
+  });
+
+  // Gateway-specific KPI computeds
+  readonly wanLinks = computed(() => {
+    const stats = this.latestStats()?.stats;
+    if (!stats) return null;
+    const ifStat = stats['if_stat'] as Record<string, any> | undefined;
+    if (!ifStat) return null;
+    const wanPorts = Object.values(ifStat).filter((p) => p['port_usage'] === 'wan');
+    return { up: wanPorts.filter((p) => p['up']).length, total: wanPorts.length };
+  });
+
+  readonly spuSessions = computed(() => {
+    const spuStat = this.latestStats()?.stats?.['spu_stat'];
+    if (!Array.isArray(spuStat) || !spuStat.length) return null;
+    return (spuStat[0]['spu_current_session'] as number) ?? null;
+  });
 
   readonly apRadios = computed<RadioInfo[]>(() => {
     const radioStat = this.latestStats()?.stats?.['radio_stat'] as
@@ -381,6 +446,18 @@ export class TelemetryDeviceComponent implements OnInit {
   ];
   readonly resourceColumns = ['resource_type', 'count', 'limit', 'utilization_pct'];
 
+  cpuClass(value: number): string {
+    if (value > 80) return 'crit';
+    if (value > 40) return 'warn';
+    return '';
+  }
+
+  memClass(value: number): string {
+    if (value > 90) return 'crit';
+    if (value > 70) return 'warn';
+    return '';
+  }
+
   ngOnInit(): void {
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const mac = params.get('mac') ?? '';
@@ -405,11 +482,25 @@ export class TelemetryDeviceComponent implements OnInit {
 
         const stats = data.stats || {};
         this.siteId.set((stats['site_id'] as string) || '');
+        this.nav.setDetailContext({
+          title: this.deviceName(),
+          kind: this.deviceType(),
+          stale: !data.fresh,
+          siteId: this.siteId(),
+          siteName: this.siteName(),
+        });
 
         this.telemetryService.getScopeSites().subscribe({
           next: (res) => {
             const site = res.sites.find((s) => s.site_id === this.siteId());
             if (site) this.siteName.set(site.site_name);
+            this.nav.setDetailContext({
+              title: this.deviceName(),
+              kind: this.deviceType(),
+              stale: !data.fresh,
+              siteId: this.siteId(),
+              siteName: this.siteName(),
+            });
           },
         });
 
@@ -425,24 +516,23 @@ export class TelemetryDeviceComponent implements OnInit {
     const startMap: Record<string, string> = { '1h': '-1h', '6h': '-6h', '24h': '-24h' };
     const start = startMap[tr] || '-6h';
     const end = 'now()';
-
-    this.telemetryService.queryRange(mac, 'device_summary', start, end).subscribe({
-      next: (result) => {
-        this.cpuMemChart.set(
-          this.buildDeviceChart(result.points, 'cpu_util', 'mem_usage', 'CPU %', 'Memory %'),
-        );
-      },
-      error: () => this.cpuMemChart.set(null),
-    });
-
     const type = this.deviceType();
+
+    this.chart2.set(null);
+    this.chart3.set(null);
+    this.switchInterfaceCharts.set([]);
+    this.gatewayInterfaceCharts.set([]);
+
     if (type === 'ap') {
       this.telemetryService.queryRange(mac, 'device_summary', start, end).subscribe({
-        next: (r) =>
-          this.chart2.set(this.buildDeviceSingleChart(r.points, 'num_clients', 'Clients')),
+        next: (r) => this.cpuMemChart.set(
+          this.buildDeviceChart(r.points, 'cpu_util', 'mem_usage', 'CPU %', 'Memory %'),
+        ),
+        error: () => this.cpuMemChart.set(null),
       });
-
-      // Per-band charts: query radio_stats once and split by band tag
+      this.telemetryService.queryRange(mac, 'device_summary', start, end).subscribe({
+        next: (r) => this.chart2.set(this.buildDeviceSingleChart(r.points, 'num_clients', 'Clients')),
+      });
       this.radioCharts.set({});
       this.telemetryService.queryRange(mac, 'radio_stats', start, end).subscribe({
         next: (r) => {
@@ -465,25 +555,36 @@ export class TelemetryDeviceComponent implements OnInit {
       });
     } else if (type === 'switch') {
       this.telemetryService.queryRange(mac, 'device_summary', start, end).subscribe({
-        next: (r) =>
-          this.chart2.set(this.buildDeviceSingleChart(r.points, 'num_clients', 'Clients')),
+        next: (r) => this.cpuMemChart.set(
+          this.buildDeviceChart(r.points, 'cpu_util', 'mem_usage', 'CPU %', 'Memory %'),
+        ),
+        error: () => this.cpuMemChart.set(null),
       });
       this.telemetryService.queryRange(mac, 'device_summary', start, end).subscribe({
-        next: (r) =>
-          this.chart3.set(this.buildDeviceSingleChart(r.points, 'poe_draw_total', 'PoE Draw (W)')),
+        next: (r) => this.chart2.set(this.buildDeviceSingleChart(r.points, 'num_clients', 'Clients')),
+      });
+      this.telemetryService.queryRange(mac, 'device_summary', start, end).subscribe({
+        next: (r) => this.chart3.set(this.buildDeviceSingleChart(r.points, 'poe_draw_total', 'PoE Draw (W)')),
+      });
+      this.telemetryService.queryRange(mac, 'port_stats', start, end).subscribe({
+        next: (r) => this.switchInterfaceCharts.set(this.buildPerInterfaceCharts(r.points, false)),
+        error: () => this.switchInterfaceCharts.set([]),
       });
     } else if (type === 'gateway') {
+      // Gateways use gateway_health (cpu_idle field) — not device_summary
+      this.telemetryService.queryRange(mac, 'gateway_health', start, end).subscribe({
+        next: (r) => this.cpuMemChart.set(this.buildGatewayCpuMemChart(r.points)),
+        error: () => this.cpuMemChart.set(null),
+      });
       this.telemetryService.queryRange(mac, 'gateway_wan', start, end).subscribe({
-        next: (r) =>
-          this.chart2.set(
-            this.buildDeviceChart(r.points, 'tx_bytes', 'rx_bytes', 'TX Bytes', 'RX Bytes'),
-          ),
+        next: (r) => this.chart2.set(this.buildWanMbpsChart(r.points)),
       });
       this.telemetryService.queryRange(mac, 'gateway_spu', start, end).subscribe({
-        next: (r) =>
-          this.chart3.set(
-            this.buildDeviceChart(r.points, 'spu_cpu', 'spu_sessions', 'SPU CPU', 'Sessions'),
-          ),
+        next: (r) => this.chart3.set(this.buildGatewaySpuChart(r.points)),
+      });
+      this.telemetryService.queryRange(mac, 'gateway_wan', start, end).subscribe({
+        next: (r) => this.gatewayInterfaceCharts.set(this.buildPerInterfaceCharts(r.points, true)),
+        error: () => this.gatewayInterfaceCharts.set([]),
       });
     }
   }
@@ -495,6 +596,8 @@ export class TelemetryDeviceComponent implements OnInit {
     l1: string,
     l2: string,
   ): ChartConfiguration<'line'> {
+    const c1 = getChartColor('duration'); // amber — CPU
+    const c2 = getChartColor('failed');   // red — Memory
     return {
       type: 'line',
       data: {
@@ -503,17 +606,22 @@ export class TelemetryDeviceComponent implements OnInit {
           {
             label: l1,
             data: points.map((p) => p[f1] as number),
+            borderColor: c1,
+            backgroundColor: c1 + '22',
             borderWidth: 2,
             pointRadius: 0,
-            tension: 0.3,
+            tension: 0.4,
+            fill: true,
           },
           {
             label: l2,
             data: points.map((p) => p[f2] as number),
+            borderColor: c2,
+            backgroundColor: c2 + '22',
             borderWidth: 2,
             pointRadius: 0,
-            tension: 0.3,
-            borderDash: [5, 3],
+            tension: 0.4,
+            fill: true,
           },
         ],
       },
@@ -521,7 +629,10 @@ export class TelemetryDeviceComponent implements OnInit {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 0 },
-        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
+        scales: {
+          x: { type: 'time', display: true, ticks: { maxTicksLimit: 6 } },
+          y: { beginAtZero: true, max: 100 },
+        },
         plugins: { legend: { position: 'bottom' } },
       },
     };
@@ -532,6 +643,7 @@ export class TelemetryDeviceComponent implements OnInit {
     field: string,
     label: string,
   ): ChartConfiguration<'line'> {
+    const color = getChartColor('completed');
     return {
       type: 'line',
       data: {
@@ -540,9 +652,11 @@ export class TelemetryDeviceComponent implements OnInit {
           {
             label,
             data: points.map((p) => p[field] as number),
+            borderColor: color,
+            backgroundColor: color + '22',
             borderWidth: 2,
             pointRadius: 0,
-            tension: 0.3,
+            tension: 0.4,
             fill: true,
           },
         ],
@@ -551,7 +665,53 @@ export class TelemetryDeviceComponent implements OnInit {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 0 },
-        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
+        scales: {
+          x: { type: 'time', display: true, ticks: { maxTicksLimit: 6 } },
+          y: { beginAtZero: true },
+        },
+        plugins: { legend: { position: 'bottom' } },
+      },
+    };
+  }
+
+  private buildWanMbpsChart(points: Record<string, unknown>[]): ChartConfiguration<'line'> {
+    const txColor = getChartColor('objects');
+    const rxColor = getChartColor('completed');
+    return {
+      type: 'line',
+      data: {
+        labels: points.map((p) => new Date(p['_time'] as string)),
+        datasets: [
+          {
+            label: 'TX Mbps',
+            data: this.toRates(points, 'tx_bytes', 8 / 1_000_000),
+            borderColor: txColor,
+            backgroundColor: txColor + '22',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true,
+          },
+          {
+            label: 'RX Mbps',
+            data: this.toRates(points, 'rx_bytes', 8 / 1_000_000),
+            borderColor: rxColor,
+            backgroundColor: rxColor + '22',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: {
+          x: { type: 'time', display: true, ticks: { maxTicksLimit: 6 } },
+          y: { beginAtZero: true, title: { display: true, text: 'Mbps' } },
+        },
         plugins: { legend: { position: 'bottom' } },
       },
     };
@@ -579,6 +739,95 @@ export class TelemetryDeviceComponent implements OnInit {
       if (dtSec <= 0) return 0;
       return (delta * scale) / dtSec;
     });
+  }
+
+  private buildPerInterfaceCharts(
+    points: Record<string, unknown>[],
+    useBytesForRate: boolean,
+  ): InterfaceTrafficChart[] {
+    const byInterface = new Map<string, Record<string, unknown>[]>();
+    const labels = new Map<string, string>();
+
+    for (const point of points) {
+      const interfaceId = ((point['port_id'] as string) || '').trim();
+      if (!interfaceId) continue;
+      if (!byInterface.has(interfaceId)) byInterface.set(interfaceId, []);
+      byInterface.get(interfaceId)!.push(point);
+
+      const wanName = ((point['wan_name'] as string) || '').trim();
+      if (wanName) {
+        labels.set(interfaceId, `${interfaceId} · ${wanName}`);
+      } else {
+        labels.set(interfaceId, interfaceId);
+      }
+    }
+
+    const txField = useBytesForRate ? 'tx_bytes' : 'tx_pkts';
+    const rxField = useBytesForRate ? 'rx_bytes' : 'rx_pkts';
+    const scale = useBytesForRate ? 8 / 1_000_000 : 1;
+    const yAxisLabel = useBytesForRate ? 'Mbps' : 'pps';
+
+    const result: InterfaceTrafficChart[] = [];
+    for (const [interfaceId, interfacePoints] of byInterface.entries()) {
+      if (interfacePoints.length < 2) continue;
+
+      const sorted = [...interfacePoints].sort(
+        (a, b) =>
+          new Date(a['_time'] as string).getTime() - new Date(b['_time'] as string).getTime(),
+      );
+
+      result.push({
+        interfaceId,
+        label: labels.get(interfaceId) || interfaceId,
+        chart: {
+          type: 'line',
+          data: {
+            labels: sorted.slice(1).map((point) => new Date(point['_time'] as string)),
+            datasets: [
+              {
+                label: `TX ${yAxisLabel}`,
+                data: this.toRates(sorted, txField, scale),
+                borderColor: getChartColor('objects'),
+                backgroundColor: getChartColor('objects') + '22',
+                borderWidth: 1.8,
+                pointRadius: 0,
+                tension: 0.4,
+                fill: true,
+              },
+              {
+                label: `RX ${yAxisLabel}`,
+                data: this.toRates(sorted, rxField, scale),
+                borderColor: getChartColor('completed'),
+                backgroundColor: getChartColor('completed') + '22',
+                borderWidth: 1.8,
+                pointRadius: 0,
+                tension: 0.4,
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              x: { type: 'time', display: true, ticks: { maxTicksLimit: 6, font: { size: 10 } } },
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: yAxisLabel, font: { size: 10 } },
+                ticks: { font: { size: 10 } },
+              },
+            },
+            plugins: {
+              legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } },
+            },
+          },
+        },
+      });
+    }
+
+    return result.sort((a, b) => a.interfaceId.localeCompare(b.interfaceId));
   }
 
   private buildRadioTrafficChart(
@@ -617,8 +866,7 @@ export class TelemetryDeviceComponent implements OnInit {
             backgroundColor: 'transparent',
             borderWidth: 1.5,
             pointRadius: 0,
-            tension: 0.3,
-            borderDash: [4, 2],
+            tension: 0.4,
             yAxisID: 'y1',
           },
           {
@@ -628,8 +876,7 @@ export class TelemetryDeviceComponent implements OnInit {
             backgroundColor: 'transparent',
             borderWidth: 1.5,
             pointRadius: 0,
-            tension: 0.3,
-            borderDash: [4, 2],
+            tension: 0.4,
             yAxisID: 'y1',
           },
         ],
@@ -652,6 +899,112 @@ export class TelemetryDeviceComponent implements OnInit {
             position: 'right',
             grid: { drawOnChartArea: false },
             title: { display: true, text: 'pps', font: { size: 10 } },
+            ticks: { font: { size: 10 } },
+          },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } },
+        },
+      },
+    };
+  }
+
+  /** Gateway CPU/Memory from gateway_health measurement (cpu_idle field → invert to cpu_util). */
+  private buildGatewayCpuMemChart(points: Record<string, unknown>[]): ChartConfiguration<'line'> {
+    const cpuColor = getChartColor('duration');
+    const memColor = getChartColor('failed');
+    return {
+      type: 'line',
+      data: {
+        labels: points.map((p) => new Date(p['_time'] as string)),
+        datasets: [
+          {
+            label: 'CPU %',
+            data: points.map((p) => Math.round((100 - ((p['cpu_idle'] as number) ?? 100)) * 10) / 10),
+            borderColor: cpuColor,
+            backgroundColor: cpuColor + '22',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true,
+          },
+          {
+            label: 'Memory %',
+            data: points.map((p) => (p['mem_usage'] as number) ?? 0),
+            borderColor: memColor,
+            backgroundColor: memColor + '22',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: {
+          x: { type: 'time', display: true, ticks: { maxTicksLimit: 6 } },
+          y: { beginAtZero: true, max: 100 },
+        },
+        plugins: { legend: { position: 'bottom' } },
+      },
+    };
+  }
+
+  /** SPU sessions + CPU% (dual y-axis) from gateway_spu measurement.
+   *  spu_cpu is stored as a 0–1 fraction — multiply by 100 for display. */
+  private buildGatewaySpuChart(points: Record<string, unknown>[]): ChartConfiguration<'line'> {
+    const sessColor = getChartColor('completed');
+    const cpuColor = getChartColor('duration');
+    return {
+      type: 'line',
+      data: {
+        labels: points.map((p) => new Date(p['_time'] as string)),
+        datasets: [
+          {
+            label: 'Sessions',
+            data: points.map((p) => (p['spu_sessions'] as number) ?? 0),
+            borderColor: sessColor,
+            backgroundColor: sessColor + '22',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true,
+            yAxisID: 'y',
+          },
+          {
+            label: 'SPU CPU %',
+            data: points.map((p) => Math.round(((p['spu_cpu'] as number) ?? 0) * 1000) / 10),
+            borderColor: cpuColor,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            yAxisID: 'y1',
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { type: 'time', display: true, ticks: { maxTicksLimit: 6, font: { size: 10 } } },
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            title: { display: true, text: 'Sessions', font: { size: 10 } },
+            ticks: { font: { size: 10 } },
+          },
+          y1: {
+            beginAtZero: true,
+            max: 100,
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'CPU %', font: { size: 10 } },
             ticks: { font: { size: 10 } },
           },
         },

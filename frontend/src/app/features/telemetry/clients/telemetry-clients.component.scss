@@ -1,91 +1,53 @@
 .clients-page {
-  padding: 16px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 14px;
-
-  a {
-    color: var(--app-primary);
-    text-decoration: none;
-  }
-
-  a:hover {
-    text-decoration: underline;
-  }
-
-  .sep {
-    font-size: 16px;
-    color: var(--app-neutral-text);
-  }
-}
-
-.time-range-picker {
-  display: flex;
-  gap: 4px;
-
-  button.active {
-    background-color: var(--app-primary);
-    color: var(--mat-sys-on-primary);
-  }
-}
-
 .kpi-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .kpi-card {
-  background: var(--app-canvas-card);
-  border: 1px solid var(--app-neutral-border);
-  border-radius: 8px;
+  background: var(--mat-sys-surface-container-low);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
   padding: 12px 16px;
-  min-width: 100px;
 
   .kpi-label {
-    font-size: 11px;
-    color: var(--app-neutral-text);
+    font-size: var(--app-text-xs);
+    color: var(--mat-sys-on-surface-variant);
     text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .kpi-value {
-    font-size: 22px;
-    font-weight: 600;
+    font-size: var(--app-text-2xl);
+    font-weight: 700;
     margin-top: 4px;
   }
 }
 
 .chart-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
 .chart-container {
-  background: var(--app-canvas-card);
-  border: 1px solid var(--app-neutral-border);
-  border-radius: 8px;
+  flex: 1;
+  min-width: 240px;
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
   padding: 12px;
-  max-height: 220px;
 
   .chart-title {
-    font-size: 12px;
-    font-weight: 500;
+    font-size: var(--app-text-xs);
+    font-weight: 600;
     margin-bottom: 8px;
   }
 
@@ -94,9 +56,14 @@
   }
 }
 
+.doughnut-container {
+  max-width: 320px;
+}
+
 .filter-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
 }
@@ -104,18 +71,99 @@
 .chip-row {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 
   button.active {
-    background-color: var(--app-primary);
-    color: var(--mat-sys-on-primary);
+    border-color: var(--app-info);
+    background: color-mix(in srgb, var(--app-info) 12%, transparent);
+    color: var(--app-info);
   }
 }
 
 .search-field {
-  min-width: 425px;
+  width: min(480px, 100%);
 }
 
 .monospace {
   font-family: monospace;
   font-size: 12px;
+}
+
+.table-card {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-sm);
+  overflow: hidden;
+  background: var(--mat-sys-surface);
+}
+
+table {
+  width: 100%;
+}
+
+.identity-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.identity-title {
+  font-weight: 600;
+}
+
+.identity-sub {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.band-chip {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+}
+
+.band-24 {
+  color: var(--app-warning);
+  background: var(--app-warning-bg);
+}
+
+.band-5 {
+  color: var(--app-info);
+  background: var(--app-info-bg);
+}
+
+.band-6 {
+  color: var(--app-success);
+  background: var(--app-success-bg);
+}
+
+.ok {
+  color: var(--app-success);
+  font-weight: 600;
+}
+
+.warn {
+  color: var(--app-warning);
+  font-weight: 600;
+}
+
+.crit {
+  color: var(--app-error);
+  font-weight: 600;
+}
+
+mat-paginator {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+@media (max-width: 900px) {
+  .clients-page {
+    padding: 14px;
+  }
+
+  .chart-container,
+  .doughnut-container {
+    max-width: none;
+    min-width: 0;
+  }
 }

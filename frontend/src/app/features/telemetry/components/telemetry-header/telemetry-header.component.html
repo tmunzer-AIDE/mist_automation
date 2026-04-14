@@ -1,0 +1,78 @@
+<header class="telemetry-header">
+    <div class="header-main">
+        <div class="title-wrap">
+            @if (isDetailView()) {
+            <div class="breadcrumbs">
+                <button class="crumb-link" (click)="goToTelemetryRoot()">Telemetry</button>
+                @if (currentSiteId()) {
+                <mat-icon class="crumb-sep">chevron_right</mat-icon>
+                <button class="crumb-link" (click)="goToSiteSummary()">{{ currentSiteName() }}</button>
+                }
+                @if (nav.activeView() === 'client-detail' && currentSiteId()) {
+                <mat-icon class="crumb-sep">chevron_right</mat-icon>
+                <button class="crumb-link" (click)="goToClients()">Clients</button>
+                }
+            </div>
+
+            <div class="headline-row">
+                <h1 class="page-title">{{ detailTitle() }}</h1>
+                @if (detailTypeChip()) {
+                <span class="type-chip">{{ detailTypeChip() }}</span>
+                }
+                @if (nav.detailStale() === true) {
+                <span class="stale-chip">stale</span>
+                }
+            </div>
+            } @else {
+            @if (isSiteView()) {
+            <div class="breadcrumbs">
+                <button class="crumb-link" (click)="goToTelemetryRoot()">Telemetry</button>
+                <mat-icon class="crumb-sep">chevron_right</mat-icon>
+            </div>
+            }
+
+            <div class="headline-row">
+                <h1 class="page-title">{{ isSiteView() ? currentSiteName() : 'Telemetry' }}</h1>
+            </div>
+
+            @if (!isSiteView()) {
+            <div class="subline">Org-wide aggregated view · {{ orgSiteCount() }} sites</div>
+            }
+            }
+        </div>
+
+        <div class="controls">
+
+            <div class="range-picker" aria-label="Time range">
+                @for (tr of timeRanges; track tr) {
+                <button class="range-btn" [class.active]="isTimeRangeActive(tr)" (click)="setTimeRange(tr)">
+                    {{ tr }}
+                </button>
+                }
+            </div>
+
+            @if (!isDetailView()) {
+
+            <mat-form-field appearance="outline" class="site-picker">
+                <input matInput placeholder="Search site..." [formControl]="siteCtrl" [matAutocomplete]="siteAuto" />
+                <mat-autocomplete #siteAuto="matAutocomplete" [displayWith]="displaySiteName"
+                    (optionSelected)="selectSite($event.option.value)">
+                    <mat-option value="all_sites">All Sites</mat-option>
+                    @for (site of filteredSites(); track site.site_id) {
+                    <mat-option [value]="site">{{ site.site_name }}</mat-option>
+                    }
+                </mat-autocomplete>
+            </mat-form-field>
+            }
+
+        </div>
+    </div>
+
+    @if (showTabs()) {
+    <div class="tabs-row">
+        <button class="tab-btn" [class.active]="summaryTabActive()" (click)="goToSiteSummary()">Summary</button>
+        <button class="tab-btn" [class.active]="clientsTabActive()" (click)="goToClients()">Clients</button>
+        <button class="tab-btn" [class.active]="devicesTabActive()" (click)="goToDevices()">Devices</button>
+    </div>
+    }
+</header>

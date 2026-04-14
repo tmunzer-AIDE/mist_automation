@@ -1,95 +1,128 @@
 <div class="site-devices-page">
   @if (loading()) {
-    <div class="kpi-row">
+    <div class="reporting-row">
       @for (_ of [1, 2, 3]; track $index) {
-        <div class="kpi-card">
+        <div class="reporting-card">
           <div class="shimmer-block" style="width: 60%; height: 11px;"></div>
           <div class="shimmer-block" style="width: 80%; height: 22px; margin-top: 8px;"></div>
         </div>
       }
     </div>
+    <div class="chart-row">
+      @for (_ of [1,2,3,4]; track $index) {
+        <div class="chart-card">
+          <div class="shimmer-block" style="width: 120px; height: 12px; margin-bottom: 8px;"></div>
+          <div class="shimmer-block" style="height: 180px;"></div>
+        </div>
+      }
+    </div>
     <div class="table-card">
-      <app-skeleton-loader [rows]="10" [columns]="5"></app-skeleton-loader>
+      <app-skeleton-loader [rows]="10" [columns]="7"></app-skeleton-loader>
     </div>
   } @else {
-    <!-- KPI cards from scope summary -->
-    <div class="kpi-row">
+    <div class="reporting-row">
       @if (ap) {
-        <div class="kpi-card" [class.kpi-active]="activeType() === 'ap'" (click)="setType('ap')">
+        <div class="reporting-card" [class.active]="activeType() === 'ap'" (click)="setType('ap')">
           <div class="kpi-label">Access Points</div>
-          <div class="kpi-value">{{ deviceCounts().ap }}</div>
+          <div class="kpi-value">{{ deviceCounts().ap }} total</div>
           <div class="kpi-sub">{{ ap.reporting_active }}/{{ ap.reporting_total }} reporting</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Avg CPU</div>
-          <div class="kpi-value">{{ ap.avg_cpu_util | number: '1.0-1' }}%</div>
-          <div class="kpi-sub">max {{ ap.max_cpu_util | number: '1.0-1' }}%</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Total Clients</div>
-          <div class="kpi-value">{{ ap.total_clients | number }}</div>
         </div>
       }
       @if (sw) {
-        <div class="kpi-card" [class.kpi-active]="activeType() === 'switch'" (click)="setType('switch')">
+        <div class="reporting-card" [class.active]="activeType() === 'switch'" (click)="setType('switch')">
           <div class="kpi-label">Switches</div>
-          <div class="kpi-value">{{ deviceCounts().switch }}</div>
+          <div class="kpi-value">{{ deviceCounts().switch }} total</div>
           <div class="kpi-sub">{{ sw.reporting_active }}/{{ sw.reporting_total }} reporting</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">PoE Draw</div>
-          <div class="kpi-value">{{ sw.poe_draw_total | number: '1.0-0' }}W</div>
-          <div class="kpi-sub">of {{ sw.poe_max_total | number: '1.0-0' }}W</div>
         </div>
       }
       @if (gw) {
-        <div class="kpi-card" [class.kpi-active]="activeType() === 'gateway'" (click)="setType('gateway')">
+        <div class="reporting-card" [class.active]="activeType() === 'gateway'" (click)="setType('gateway')">
           <div class="kpi-label">Gateways</div>
-          <div class="kpi-value">{{ deviceCounts().gateway }}</div>
+          <div class="kpi-value">{{ deviceCounts().gateway }} total</div>
           <div class="kpi-sub">{{ gw.reporting_active }}/{{ gw.reporting_total }} reporting</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">WAN Links</div>
-          <div class="kpi-value">{{ gw.wan_links_up }}/{{ gw.wan_links_total }}</div>
-          <div class="kpi-sub">up</div>
         </div>
       }
     </div>
 
-    <!-- Filter chips -->
-    <div class="filter-row">
-      <button class="filter-chip" [class.active]="activeType() === ''" (click)="setType('')">
-        All ({{ devices()?.total ?? 0 }})
-      </button>
-      @if (ap) {
-        <button class="filter-chip filter-chip-ap" [class.active]="activeType() === 'ap'" (click)="setType('ap')">
-          AP ({{ deviceCounts().ap }})
-        </button>
+    <div class="chart-row">
+      @if (cpuChart()) {
+        <div class="chart-card">
+          <div class="chart-title">Avg CPU - {{ nav.timeRange() }}</div>
+          <canvas baseChart [data]="cpuChart()!.data" [options]="cpuChart()!.options" type="line"></canvas>
+        </div>
       }
-      @if (sw) {
-        <button class="filter-chip filter-chip-sw" [class.active]="activeType() === 'switch'" (click)="setType('switch')">
-          Switch ({{ deviceCounts().switch }})
-        </button>
+      @if (memoryChart()) {
+        <div class="chart-card">
+          <div class="chart-title">Avg Memory - {{ nav.timeRange() }}</div>
+          <canvas baseChart [data]="memoryChart()!.data" [options]="memoryChart()!.options" type="line"></canvas>
+        </div>
       }
-      @if (gw) {
-        <button class="filter-chip filter-chip-gw" [class.active]="activeType() === 'gateway'" (click)="setType('gateway')">
-          Gateway ({{ deviceCounts().gateway }})
-        </button>
+      @if (typeDoughnut()) {
+        <div class="chart-card doughnut">
+          <div class="chart-title">Device Types</div>
+          <canvas baseChart [data]="typeDoughnut()!.data" [options]="typeDoughnut()!.options" type="doughnut"></canvas>
+        </div>
       }
+      @if (reportingDoughnut()) {
+        <div class="chart-card doughnut">
+          <div class="chart-title">Reporting Status</div>
+          <canvas
+            baseChart
+            [data]="reportingDoughnut()!.data"
+            [options]="reportingDoughnut()!.options"
+            type="doughnut"
+          ></canvas>
+        </div>
+      }
+    </div>
 
+    <div class="filter-row">
       <mat-form-field appearance="outline" class="search-field">
         <mat-icon matPrefix>search</mat-icon>
         <input matInput placeholder="Search devices..." [formControl]="searchCtrl" />
       </mat-form-field>
+
+      <div class="chip-row">
+        <button class="filter-chip" [class.active]="activeType() === ''" (click)="setType('')">
+          All ({{ devices()?.total ?? 0 }})
+        </button>
+        @if (ap) {
+          <button class="filter-chip filter-chip-ap" [class.active]="activeType() === 'ap'" (click)="setType('ap')">
+            AP ({{ deviceCounts().ap }})
+          </button>
+        }
+        @if (sw) {
+          <button
+            class="filter-chip filter-chip-sw"
+            [class.active]="activeType() === 'switch'"
+            (click)="setType('switch')"
+          >
+            Switch ({{ deviceCounts().switch }})
+          </button>
+        }
+        @if (gw) {
+          <button
+            class="filter-chip filter-chip-gw"
+            [class.active]="activeType() === 'gateway'"
+            (click)="setType('gateway')"
+          >
+            Gateway ({{ deviceCounts().gateway }})
+          </button>
+        }
+      </div>
     </div>
 
-    <!-- Device table -->
     <div class="table-card">
-      <table mat-table [dataSource]="filteredDevices()" class="mat-elevation-z0">
-        <ng-container matColumnDef="name">
+      <table mat-table [dataSource]="pagedDevices()" class="mat-elevation-z0">
+        <ng-container matColumnDef="identity">
           <th mat-header-cell *matHeaderCellDef>Name</th>
           <td mat-cell *matCellDef="let d">
-            <span class="device-name">{{ d.name || d.mac }}</span>
+            <div class="identity-cell">
+              <span class="device-name">{{ d.name || d.mac }}</span>
+              @if (d.name) {
+                <span class="device-mac monospace">{{ d.mac }}</span>
+              }
+            </div>
             @if (!d.fresh) {
               <span class="stale-badge">stale</span>
             }
@@ -99,7 +132,7 @@
         <ng-container matColumnDef="device_type">
           <th mat-header-cell *matHeaderCellDef>Type</th>
           <td mat-cell *matCellDef="let d">
-            <span class="type-badge" [attr.data-type]="d.device_type">{{ d.device_type }}</span>
+            <span class="type-badge" [attr.data-type]="d.device_type">{{ typeLabel(d.device_type) }}</span>
           </td>
         </ng-container>
 
@@ -112,31 +145,54 @@
           <th mat-header-cell *matHeaderCellDef>CPU</th>
           <td mat-cell *matCellDef="let d">
             @if (d.cpu_util !== null) {
-              <span [class.high-util]="d.cpu_util > 80">{{ d.cpu_util | number: '1.0-0' }}%</span>
+              <span [class.warn]="cpuClass(d.cpu_util) === 'warn'" [class.crit]="cpuClass(d.cpu_util) === 'crit'">
+                {{ d.cpu_util | number: '1.0-0' }}%
+              </span>
             } @else {
               <span class="na">—</span>
             }
           </td>
         </ng-container>
 
-        <ng-container matColumnDef="num_clients">
-          <th mat-header-cell *matHeaderCellDef>Clients</th>
-          <td mat-cell *matCellDef="let d">{{ d.num_clients ?? '—' }}</td>
+        <ng-container matColumnDef="memory">
+          <th mat-header-cell *matHeaderCellDef>Memory</th>
+          <td mat-cell *matCellDef="let d">
+            @if (d.mem_usage != null) {
+              <span [class.warn]="memoryClass(d.mem_usage) === 'warn'" [class.crit]="memoryClass(d.mem_usage) === 'crit'">
+                {{ d.mem_usage | number: '1.0-0' }}%
+              </span>
+            } @else {
+              <span class="na">—</span>
+            }
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="key_metric">
+          <th mat-header-cell *matHeaderCellDef>Key Metric</th>
+          <td mat-cell *matCellDef="let d">{{ keyMetricLabel(d) }}</td>
         </ng-container>
 
         <ng-container matColumnDef="last_seen">
           <th mat-header-cell *matHeaderCellDef>Last Seen</th>
-          <td mat-cell *matCellDef="let d" class="ts-cell">{{ formatLastSeen(d.last_seen) }}</td>
+          <td mat-cell *matCellDef="let d" class="ts-cell" [class.crit]="!d.fresh">{{ formatLastSeen(d.last_seen) }}</td>
         </ng-container>
 
-        <tr mat-header-row *matHeaderRowDef="displayedColumns()"></tr>
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
         <tr
           mat-row
-          *matRowDef="let d; columns: displayedColumns()"
+          *matRowDef="let d; columns: displayedColumns"
           class="clickable-row"
           (click)="navigateToDevice(d)"
         ></tr>
       </table>
+
+      <mat-paginator
+        [length]="filteredDevices().length"
+        [pageIndex]="pageIndex()"
+        [pageSize]="pageSize()"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onPage($event)"
+      ></mat-paginator>
 
       @if (filteredDevices().length === 0) {
         <div class="empty-state">No devices found</div>

@@ -34,11 +34,11 @@
           }
           <div class="kpi-card">
             <div class="kpi-label">Total TX</div>
-            <div class="kpi-value">{{ clientSummary()!.total_tx_bps | number }} bps</div>
+            <div class="kpi-value">{{ clientSummary()!.total_tx_bps | toMbps }}</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Total RX</div>
-            <div class="kpi-value">{{ clientSummary()!.total_rx_bps | number }} bps</div>
+            <div class="kpi-value">{{ clientSummary()!.total_rx_bps | toMbps }}</div>
           </div>
         </div>
         <div class="dist-chart-row">

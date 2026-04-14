@@ -1,7 +1,7 @@
 <div class="telemetry-device-page">
   @if (loading()) {
     <section class="kpi-row">
-      @for (_ of [1,2,3,4]; track $index) {
+      @for (_ of [1,2,3,4,5,6]; track $index) {
         <div class="kpi-card">
           <div class="shimmer-block" style="width: 60%; height: 11px;"></div>
           <div class="shimmer-block" style="width: 80%; height: 22px; margin-top: 8px;"></div>
@@ -19,31 +19,38 @@
   } @else {
     @if (latestStats()?.stats) {
 
-      <!-- ── AP Identity ───────────────────────────────────────────────── -->
-      @if (isAP()) {
-        <div class="ap-identity">
-          <span class="device-name">{{ deviceName() }}</span>
-          @if (apModel()) {
-            <span class="identity-chip model-chip">{{ apModel() }}</span>
-          }
-          @if (apIp()) {
-            <span class="identity-chip ip-chip">
-              <mat-icon>lan</mat-icon>{{ apIp() }}
-            </span>
-          }
-        </div>
-      }
+      <!-- ── Device metadata bar ───────────────────────────────────────── -->
+      <div class="device-header-meta">
+        @if (deviceModel()) {
+          <div class="device-meta-item">
+            <span class="meta-label">Model</span>
+            <span class="meta-value">{{ deviceModel() }}</span>
+          </div>
+        }
+        @if (deviceFirmware()) {
+          <div class="device-meta-item">
+            <span class="meta-label">Firmware</span>
+            <span class="meta-value">{{ deviceFirmware() }}</span>
+          </div>
+        }
+        @if (deviceIp()) {
+          <div class="device-meta-item">
+            <span class="meta-label">IP</span>
+            <span class="meta-value">{{ deviceIp() }}</span>
+          </div>
+        }
+      </div>
 
-      <!-- ── KPI cards ─────────────────────────────────────────────────── -->
+      <!-- ── KPI strip ─────────────────────────────────────────────────── -->
       @if (isAP()) {
         <section class="kpi-row">
           <div class="kpi-card">
             <div class="kpi-label">CPU</div>
-            <div class="kpi-value">{{ cpuUtil() | number: '1.0-0' }}%</div>
+            <div class="kpi-value" [ngClass]="cpuClass(cpuUtil())">{{ cpuUtil() | number: '1.0-0' }}%</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Memory</div>
-            <div class="kpi-value">{{ memUsage() | number: '1.0-0' }}%</div>
+            <div class="kpi-value" [ngClass]="memClass(memUsage())">{{ memUsage() | number: '1.0-0' }}%</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Clients</div>
@@ -55,173 +62,133 @@
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Uptime</div>
-            <div class="kpi-value">{{ uptime() | number: '1.0-0' }}s</div>
+            <div class="kpi-value">{{ formattedUptime() }}</div>
           </div>
         </section>
-      } @else {
+      } @else if (isSwitch()) {
         <section class="kpi-row">
           <div class="kpi-card">
+            <div class="kpi-label">Uptime</div>
+            <div class="kpi-value">{{ formattedUptime() }}</div>
+          </div>
+          <div class="kpi-card">
             <div class="kpi-label">CPU</div>
-            <div class="kpi-value">{{ cpuUtil() | number: '1.0-0' }}%</div>
+            <div class="kpi-value" [ngClass]="cpuClass(cpuUtil())">{{ cpuUtil() | number: '1.0-0' }}%</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Memory</div>
-            <div class="kpi-value">{{ memUsage() | number: '1.0-0' }}%</div>
+            <div class="kpi-value" [ngClass]="memClass(memUsage())">{{ memUsage() | number: '1.0-0' }}%</div>
           </div>
-          @if (!isGateway()) {
-            <div class="kpi-card">
-              <div class="kpi-label">Clients</div>
-              <div class="kpi-value">{{ numClients() }}</div>
+          <div class="kpi-card">
+            <div class="kpi-label">Ports Up</div>
+            <div class="kpi-value">
+              @if (portsUp()) { {{ portsUp()!.up }}/{{ portsUp()!.total }} }
+              @else { — }
             </div>
-          }
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">PoE Draw</div>
+            <div class="kpi-value">{{ poeTotalDraw() | number: '1.0-0' }}W</div>
+          </div>
+        </section>
+      } @else if (isGateway()) {
+        <section class="kpi-row">
           <div class="kpi-card">
             <div class="kpi-label">Uptime</div>
-            <div class="kpi-value">{{ uptime() | number: '1.0-0' }}s</div>
+            <div class="kpi-value">{{ formattedUptime() }}</div>
           </div>
-          @if (isGateway()) {
-            <div class="kpi-card">
-              <div class="kpi-label">HA State</div>
-              <div class="kpi-value">{{ haState() }}</div>
+          <div class="kpi-card">
+            <div class="kpi-label">CPU</div>
+            <div class="kpi-value" [ngClass]="cpuClass(cpuUtil())">{{ cpuUtil() | number: '1.0-0' }}%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Memory</div>
+            <div class="kpi-value" [ngClass]="memClass(memUsage())">{{ memUsage() | number: '1.0-0' }}%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">WAN Links</div>
+            <div class="kpi-value">
+              @if (wanLinks()) { {{ wanLinks()!.up }}/{{ wanLinks()!.total }} }
+              @else { — }
             </div>
-          }
-          @if (isSwitch()) {
-            <div class="kpi-card">
-              <div class="kpi-label">PoE</div>
-              <div class="kpi-value">{{ poeTotalDraw() | number: '1.0-0' }}W</div>
-            </div>
-          }
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">SPU Sessions</div>
+            <div class="kpi-value">{{ spuSessions() != null ? (spuSessions()! | number) : '—' }}</div>
+          </div>
         </section>
       }
 
-      <!-- CPU & Memory chart (all device types) -->
+      <!-- ── Charts row (all device types) ────────────────────────────── -->
       <div class="chart-row">
         @if (cpuMemChart()) {
           <div class="chart-container">
             <div class="chart-title">CPU &amp; Memory</div>
-            <canvas
-              baseChart
-              [data]="cpuMemChart()!.data"
-              [options]="cpuMemChart()!.options"
-              type="line"
-            ></canvas>
+            <canvas baseChart [data]="cpuMemChart()!.data" [options]="cpuMemChart()!.options" type="line"></canvas>
           </div>
         }
-        <!-- SW/GW extra charts -->
         @if (!isAP()) {
           @if (chart2()) {
             <div class="chart-container">
-              <div class="chart-title">
-                {{ isSwitch() ? 'Clients' : 'WAN Traffic' }}
-              </div>
-              <canvas
-                baseChart
-                [data]="chart2()!.data"
-                [options]="chart2()!.options"
-                type="line"
-              ></canvas>
+              <div class="chart-title">{{ isSwitch() ? 'Wired Clients' : 'WAN Traffic (Mbps)' }}</div>
+              <canvas baseChart [data]="chart2()!.data" [options]="chart2()!.options" type="line"></canvas>
             </div>
           }
           @if (chart3()) {
             <div class="chart-container">
-              <div class="chart-title">
-                {{ isSwitch() ? 'PoE Draw' : 'SPU Stats' }}
-              </div>
-              <canvas
-                baseChart
-                [data]="chart3()!.data"
-                [options]="chart3()!.options"
-                type="line"
-              ></canvas>
+              <div class="chart-title">{{ isSwitch() ? 'PoE Draw (W)' : 'SPU Stats' }}</div>
+              <canvas baseChart [data]="chart3()!.data" [options]="chart3()!.options" type="line"></canvas>
             </div>
           }
         }
-        <!-- AP: Clients chart alongside CPU/Memory -->
         @if (isAP() && chart2()) {
           <div class="chart-container">
             <div class="chart-title">Clients</div>
-            <canvas
-              baseChart
-              [data]="chart2()!.data"
-              [options]="chart2()!.options"
-              type="line"
-            ></canvas>
+            <canvas baseChart [data]="chart2()!.data" [options]="chart2()!.options" type="line"></canvas>
           </div>
         }
       </div>
 
-      <!-- ── AP: Per-radio sections ─────────────────────────────────────── -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- AP sections (unchanged layout — already well-designed)         -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+
       @if (isAP()) {
         @if (apRadios().length > 0) {
           <section class="radios-section">
             <h3 class="section-title">Radio Details</h3>
             @for (radio of apRadios(); track radio.band) {
               <div class="radio-card" [attr.data-band]="radio.band">
-                <!-- Radio header -->
                 <div class="radio-header">
                   <span class="radio-band-label">{{ radio.label }}</span>
                   <div class="radio-stats-inline">
-                    <span class="radio-stat">
-                      <span class="radio-stat-label">Ch</span>
-                      <span class="radio-stat-value">{{ radio.channel }}</span>
-                    </span>
-                    <span class="radio-stat">
-                      <span class="radio-stat-label">BW</span>
-                      <span class="radio-stat-value">{{ radio.bandwidth }} MHz</span>
-                    </span>
-                    <span class="radio-stat">
-                      <span class="radio-stat-label">Pwr</span>
-                      <span class="radio-stat-value">{{ radio.power }} dBm</span>
-                    </span>
-                    <span class="radio-stat">
-                      <span class="radio-stat-label">Clients</span>
-                      <span class="radio-stat-value">{{ radio.num_clients }}</span>
-                    </span>
-                    <span class="radio-stat">
-                      <span class="radio-stat-label">WLANs</span>
-                      <span class="radio-stat-value">{{ radio.num_wlans }}</span>
-                    </span>
-                    <span class="radio-stat">
-                      <span class="radio-stat-label">Util</span>
-                      <span class="radio-stat-value">{{ radio.util_all }}%</span>
-                    </span>
+                    <span class="radio-stat"><span class="radio-stat-label">Ch</span><span class="radio-stat-value">{{ radio.channel }}</span></span>
+                    <span class="radio-stat"><span class="radio-stat-label">BW</span><span class="radio-stat-value">{{ radio.bandwidth }} MHz</span></span>
+                    <span class="radio-stat"><span class="radio-stat-label">Pwr</span><span class="radio-stat-value">{{ radio.power }} dBm</span></span>
+                    <span class="radio-stat"><span class="radio-stat-label">Clients</span><span class="radio-stat-value">{{ radio.num_clients }}</span></span>
+                    <span class="radio-stat"><span class="radio-stat-label">WLANs</span><span class="radio-stat-value">{{ radio.num_wlans }}</span></span>
+                    <span class="radio-stat"><span class="radio-stat-label">Util</span><span class="radio-stat-value">{{ radio.util_all }}%</span></span>
                   </div>
-                  <!-- Utilization bar -->
                   <div class="util-bar-wrap">
                     <div class="util-bar-fill" [style.width.%]="radio.util_all"></div>
                   </div>
                 </div>
-
-                <!-- Per-radio charts -->
                 <div class="radio-charts">
                   @if (radioCharts()[radio.band]?.traffic) {
                     <div class="radio-chart-container">
                       <div class="chart-title">Traffic</div>
-                      <canvas
-                        baseChart
-                        [data]="radioCharts()[radio.band].traffic!.data"
-                        [options]="radioCharts()[radio.band].traffic!.options"
-                        type="line"
-                      ></canvas>
+                      <canvas baseChart [data]="radioCharts()[radio.band].traffic!.data" [options]="radioCharts()[radio.band].traffic!.options" type="line"></canvas>
                     </div>
                   } @else {
-                    <div class="radio-chart-container chart-placeholder">
-                      <span>No traffic data yet</span>
-                    </div>
+                    <div class="radio-chart-container chart-placeholder"><span>No traffic data yet</span></div>
                   }
                   @if (radioCharts()[radio.band]?.util) {
                     <div class="radio-chart-container">
                       <div class="chart-title">Utilization Breakdown</div>
-                      <canvas
-                        baseChart
-                        [data]="radioCharts()[radio.band].util!.data"
-                        [options]="radioCharts()[radio.band].util!.options"
-                        type="line"
-                      ></canvas>
+                      <canvas baseChart [data]="radioCharts()[radio.band].util!.data" [options]="radioCharts()[radio.band].util!.options" type="line"></canvas>
                     </div>
                   } @else {
-                    <div class="radio-chart-container chart-placeholder">
-                      <span>No utilization data yet</span>
-                    </div>
+                    <div class="radio-chart-container chart-placeholder"><span>No utilization data yet</span></div>
                   }
                 </div>
               </div>
@@ -229,46 +196,24 @@
           </section>
         }
 
-        <!-- ── AP: Infrastructure ─────────────────────────────────────── -->
         @if (apPortStats().length > 0 || apPoeInfo()) {
           <section class="infra-section">
             <h3 class="section-title">Infrastructure</h3>
-
-            <!-- Port cards -->
             @if (apPortStats().length > 0) {
               <div class="port-grid">
                 @for (port of apPortStats(); track port.port_id) {
                   <div class="port-card" [class.port-up]="port.up" [class.port-down]="!port.up">
                     <div class="port-header">
                       <span class="port-id">{{ port.port_id }}</span>
-                      <span class="port-status-badge" [class.badge-up]="port.up" [class.badge-down]="!port.up">
-                        {{ port.up ? 'UP' : 'DOWN' }}
-                      </span>
-                      @if (port.up && port.speed) {
-                        <span class="port-speed">{{ port.speed | number }} Mbps</span>
-                      }
+                      <span class="port-status-badge" [class.badge-up]="port.up" [class.badge-down]="!port.up">{{ port.up ? 'UP' : 'DOWN' }}</span>
+                      @if (port.up && port.speed) { <span class="port-speed">{{ port.speed | number }} Mbps</span> }
                     </div>
                     @if (port.up) {
                       <div class="port-counters">
-                        <div class="port-counter-row">
-                          <span class="port-counter-label">TX</span>
-                          <span>{{ port.tx_bytes | number }} B</span>
-                          <span class="port-counter-sep">/</span>
-                          <span>{{ port.tx_pkts | number }} pkts</span>
-                        </div>
-                        <div class="port-counter-row">
-                          <span class="port-counter-label">RX</span>
-                          <span>{{ port.rx_bytes | number }} B</span>
-                          <span class="port-counter-sep">/</span>
-                          <span>{{ port.rx_pkts | number }} pkts</span>
-                        </div>
+                        <div class="port-counter-row"><span class="port-counter-label">TX</span><span>{{ port.tx_bytes | number }} B</span><span class="port-counter-sep">/</span><span>{{ port.tx_pkts | number }} pkts</span></div>
+                        <div class="port-counter-row"><span class="port-counter-label">RX</span><span>{{ port.rx_bytes | number }} B</span><span class="port-counter-sep">/</span><span>{{ port.rx_pkts | number }} pkts</span></div>
                         @if (port.tx_errors || port.rx_errors) {
-                          <div class="port-counter-row port-errors">
-                            <span class="port-counter-label">Errors</span>
-                            <span>TX {{ port.tx_errors | number }}</span>
-                            <span class="port-counter-sep">/</span>
-                            <span>RX {{ port.rx_errors | number }}</span>
-                          </div>
+                          <div class="port-counter-row port-errors"><span class="port-counter-label">Errors</span><span>TX {{ port.tx_errors | number }}</span><span class="port-counter-sep">/</span><span>RX {{ port.rx_errors | number }}</span></div>
                         }
                       </div>
                     }
@@ -276,40 +221,23 @@
                       <div class="lldp-neighbor">
                         <mat-icon>device_hub</mat-icon>
                         <span class="lldp-name">{{ port.lldp_system_name }}</span>
-                        @if (port.lldp_port_desc) {
-                          <span class="lldp-port">{{ port.lldp_port_desc }}</span>
-                        }
-                        @if (port.poe_allocated) {
-                          <span class="lldp-poe">{{ port.poe_allocated / 1000 | number: '1.0-1' }} W PoE</span>
-                        }
+                        @if (port.lldp_port_desc) { <span class="lldp-port">{{ port.lldp_port_desc }}</span> }
+                        @if (port.poe_allocated) { <span class="lldp-poe">{{ port.poe_allocated / 1000 | number: '1.0-1' }} W PoE</span> }
                       </div>
                     }
                   </div>
                 }
               </div>
             }
-
-            <!-- PoE info -->
             @if (apPoeInfo()) {
               <div class="poe-info">
                 <span class="poe-label">PoE</span>
                 <div class="poe-stats">
-                  <span class="poe-stat">
-                    <span class="poe-stat-label">Source</span>
-                    <span class="poe-stat-value">{{ apPoeInfo()!.power_src }}</span>
-                  </span>
-                  <span class="poe-stat">
-                    <span class="poe-stat-label">Available</span>
-                    <span class="poe-stat-value">{{ apPoeInfo()!.power_avail / 1000 | number: '1.0-1' }} W</span>
-                  </span>
-                  <span class="poe-stat">
-                    <span class="poe-stat-label">Needed</span>
-                    <span class="poe-stat-value">{{ apPoeInfo()!.power_needed / 1000 | number: '1.0-1' }} W</span>
-                  </span>
+                  <span class="poe-stat"><span class="poe-stat-label">Source</span><span class="poe-stat-value">{{ apPoeInfo()!.power_src }}</span></span>
+                  <span class="poe-stat"><span class="poe-stat-label">Available</span><span class="poe-stat-value">{{ apPoeInfo()!.power_avail / 1000 | number: '1.0-1' }} W</span></span>
+                  <span class="poe-stat"><span class="poe-stat-label">Needed</span><span class="poe-stat-value">{{ apPoeInfo()!.power_needed / 1000 | number: '1.0-1' }} W</span></span>
                   @if (apPoeInfo()!.power_constrained) {
-                    <span class="poe-constrained">
-                      <mat-icon>warning</mat-icon>Power constrained
-                    </span>
+                    <span class="poe-constrained"><mat-icon>warning</mat-icon>Power constrained</span>
                   }
                 </div>
               </div>
@@ -318,247 +246,263 @@
         }
       }
 
-      <!-- ── Switch sections (unchanged) ───────────────────────────────── -->
-      @if (isSwitch() && portRows().length > 0) {
-        <section class="table-section">
-          <h3 class="section-title">UP Ports</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="portRows()">
-              <ng-container matColumnDef="port_id">
-                <th mat-header-cell *matHeaderCellDef>Port</th>
-                <td mat-cell *matCellDef="let row">{{ row.port_id }}</td>
-              </ng-container>
-              <ng-container matColumnDef="speed">
-                <th mat-header-cell *matHeaderCellDef>Speed</th>
-                <td mat-cell *matCellDef="let row">{{ row.speed | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="tx_pkts">
-                <th mat-header-cell *matHeaderCellDef>TX Pkts</th>
-                <td mat-cell *matCellDef="let row">{{ row.tx_pkts | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="rx_pkts">
-                <th mat-header-cell *matHeaderCellDef>RX Pkts</th>
-                <td mat-cell *matCellDef="let row">{{ row.rx_pkts | number }}</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="portColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: portColumns"></tr>
-            </table>
-          </div>
-        </section>
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- Switch collapsible sections                                     -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+
+      @if (isSwitch()) {
+        <mat-accordion multi>
+
+          @if (moduleRows().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>VC Members</mat-panel-title>
+                <mat-panel-description>{{ moduleRows().length }} module{{ moduleRows().length !== 1 ? 's' : '' }}</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="moduleRows()">
+                  <ng-container matColumnDef="fpc_idx"><th mat-header-cell *matHeaderCellDef>FPC</th><td mat-cell *matCellDef="let row">{{ row.fpc_idx }}</td></ng-container>
+                  <ng-container matColumnDef="vc_role"><th mat-header-cell *matHeaderCellDef>Role</th><td mat-cell *matCellDef="let row">{{ row.vc_role }}</td></ng-container>
+                  <ng-container matColumnDef="temp_max"><th mat-header-cell *matHeaderCellDef>Max Temp</th><td mat-cell *matCellDef="let row">{{ row.temp_max | number: '1.0-0' }}°C</td></ng-container>
+                  <ng-container matColumnDef="poe_draw"><th mat-header-cell *matHeaderCellDef>PoE Draw</th><td mat-cell *matCellDef="let row">{{ row.poe_draw | number: '1.0-0' }}W</td></ng-container>
+                  <ng-container matColumnDef="vc_links_count"><th mat-header-cell *matHeaderCellDef>VC Links</th><td mat-cell *matCellDef="let row">{{ row.vc_links_count }}</td></ng-container>
+                  <ng-container matColumnDef="mem_usage"><th mat-header-cell *matHeaderCellDef>Memory</th><td mat-cell *matCellDef="let row">{{ row.mem_usage | number: '1.0-0' }}%</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="moduleColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: moduleColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (portRows().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>Ports</mat-panel-title>
+                <mat-panel-description>{{ portRows().length }} port{{ portRows().length !== 1 ? 's' : '' }} up</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="portRows()">
+                  <ng-container matColumnDef="port_id"><th mat-header-cell *matHeaderCellDef>Port</th><td mat-cell *matCellDef="let row">{{ row.port_id }}</td></ng-container>
+                  <ng-container matColumnDef="speed"><th mat-header-cell *matHeaderCellDef>Speed</th><td mat-cell *matCellDef="let row">{{ row.speed | number }} Mbps</td></ng-container>
+                  <ng-container matColumnDef="tx_pkts"><th mat-header-cell *matHeaderCellDef>TX Pkts</th><td mat-cell *matCellDef="let row">{{ row.tx_pkts | number }}</td></ng-container>
+                  <ng-container matColumnDef="rx_pkts"><th mat-header-cell *matHeaderCellDef>RX Pkts</th><td mat-cell *matCellDef="let row">{{ row.rx_pkts | number }}</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="portColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: portColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (switchInterfaceCharts().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>Interface Traffic</mat-panel-title>
+                <mat-panel-description>{{ switchInterfaceCharts().length }} interface{{ switchInterfaceCharts().length !== 1 ? 's' : '' }}</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="iface-chart-grid">
+                @for (item of switchInterfaceCharts(); track item.interfaceId) {
+                  <div class="iface-chart-card">
+                    <div class="iface-chart-title">{{ item.label }}</div>
+                    <canvas baseChart [data]="item.chart.data" [options]="item.chart.options" type="line"></canvas>
+                  </div>
+                }
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (dhcpRows().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>DHCP Networks</mat-panel-title>
+                <mat-panel-description>{{ dhcpRows().length }} pool{{ dhcpRows().length !== 1 ? 's' : '' }}</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="dhcpRows()">
+                  <ng-container matColumnDef="network_name"><th mat-header-cell *matHeaderCellDef>Network</th><td mat-cell *matCellDef="let row">{{ row.network_name }}</td></ng-container>
+                  <ng-container matColumnDef="leased"><th mat-header-cell *matHeaderCellDef>Leased</th><td mat-cell *matCellDef="let row">{{ row.num_leased }}/{{ row.num_ips }}</td></ng-container>
+                  <ng-container matColumnDef="utilization_pct"><th mat-header-cell *matHeaderCellDef>Utilization</th><td mat-cell *matCellDef="let row">{{ row.utilization_pct }}%</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="dhcpColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: dhcpColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (mac()) {
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title>Live Events</mat-panel-title>
+              </mat-expansion-panel-header>
+              <app-device-live-log [mac]="mac()" />
+            </mat-expansion-panel>
+          }
+
+        </mat-accordion>
       }
 
-      @if (isSwitch() && moduleRows().length > 0) {
-        <section class="table-section">
-          <h3 class="section-title">VC Members</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="moduleRows()">
-              <ng-container matColumnDef="fpc_idx">
-                <th mat-header-cell *matHeaderCellDef>FPC</th>
-                <td mat-cell *matCellDef="let row">{{ row.fpc_idx }}</td>
-              </ng-container>
-              <ng-container matColumnDef="vc_role">
-                <th mat-header-cell *matHeaderCellDef>Role</th>
-                <td mat-cell *matCellDef="let row">{{ row.vc_role }}</td>
-              </ng-container>
-              <ng-container matColumnDef="temp_max">
-                <th mat-header-cell *matHeaderCellDef>Max Temp</th>
-                <td mat-cell *matCellDef="let row">{{ row.temp_max | number: '1.0-0' }}°C</td>
-              </ng-container>
-              <ng-container matColumnDef="poe_draw">
-                <th mat-header-cell *matHeaderCellDef>PoE Draw</th>
-                <td mat-cell *matCellDef="let row">{{ row.poe_draw | number: '1.0-0' }}W</td>
-              </ng-container>
-              <ng-container matColumnDef="vc_links_count">
-                <th mat-header-cell *matHeaderCellDef>VC Links</th>
-                <td mat-cell *matCellDef="let row">{{ row.vc_links_count }}</td>
-              </ng-container>
-              <ng-container matColumnDef="mem_usage">
-                <th mat-header-cell *matHeaderCellDef>Memory</th>
-                <td mat-cell *matCellDef="let row">{{ row.mem_usage | number: '1.0-0' }}%</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="moduleColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: moduleColumns"></tr>
-            </table>
-          </div>
-        </section>
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- Gateway collapsible sections                                    -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+
+      @if (isGateway()) {
+        <mat-accordion multi>
+
+          @if (wanRows().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>WAN Interfaces</mat-panel-title>
+                <mat-panel-description>{{ wanRows().filter(r => r.up).length }}/{{ wanRows().length }} up</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="wanRows()">
+                  <ng-container matColumnDef="port_id"><th mat-header-cell *matHeaderCellDef>Port</th><td mat-cell *matCellDef="let row">{{ row.port_id }}</td></ng-container>
+                  <ng-container matColumnDef="wan_name"><th mat-header-cell *matHeaderCellDef>Name</th><td mat-cell *matCellDef="let row">{{ row.wan_name }}</td></ng-container>
+                  <ng-container matColumnDef="status"><th mat-header-cell *matHeaderCellDef>Status</th><td mat-cell *matCellDef="let row"><span [class]="row.up ? 'wan-up' : 'wan-down'">{{ row.up ? 'UP' : 'DOWN' }}</span></td></ng-container>
+                  <ng-container matColumnDef="tx_bytes"><th mat-header-cell *matHeaderCellDef>TX Bytes</th><td mat-cell *matCellDef="let row">{{ row.tx_bytes | number }}</td></ng-container>
+                  <ng-container matColumnDef="rx_bytes"><th mat-header-cell *matHeaderCellDef>RX Bytes</th><td mat-cell *matCellDef="let row">{{ row.rx_bytes | number }}</td></ng-container>
+                  <ng-container matColumnDef="tx_pkts"><th mat-header-cell *matHeaderCellDef>TX Pkts</th><td mat-cell *matCellDef="let row">{{ row.tx_pkts | number }}</td></ng-container>
+                  <ng-container matColumnDef="rx_pkts"><th mat-header-cell *matHeaderCellDef>RX Pkts</th><td mat-cell *matCellDef="let row">{{ row.rx_pkts | number }}</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="wanColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: wanColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (gatewayInterfaceCharts().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>WAN Traffic</mat-panel-title>
+                <mat-panel-description>per-interface Mbps over time</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="iface-chart-grid">
+                @for (item of gatewayInterfaceCharts(); track item.interfaceId) {
+                  <div class="iface-chart-card">
+                    <div class="iface-chart-title">{{ item.label }}</div>
+                    <canvas baseChart [data]="item.chart.data" [options]="item.chart.options" type="line"></canvas>
+                  </div>
+                }
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (gatewayLanCharts().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>LAN Interface Traffic</mat-panel-title>
+                <mat-panel-description>per-interface Mbps over time</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="iface-chart-grid">
+                @for (item of gatewayLanCharts(); track item.interfaceId) {
+                  <div class="iface-chart-card">
+                    <div class="iface-chart-title">{{ item.label }}</div>
+                    <canvas baseChart [data]="item.chart.data" [options]="item.chart.options" type="line"></canvas>
+                  </div>
+                }
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (spuRow()) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>SPU</mat-panel-title>
+                <mat-panel-description>{{ spuRow()!.spu_sessions | number }} sessions · {{ spuRow()!.spu_cpu | number: '1.0-1' }}% CPU</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="[spuRow()!]">
+                  <ng-container matColumnDef="spu_cpu"><th mat-header-cell *matHeaderCellDef>CPU %</th><td mat-cell *matCellDef="let row">{{ row.spu_cpu | number: '1.0-1' }}%</td></ng-container>
+                  <ng-container matColumnDef="spu_sessions"><th mat-header-cell *matHeaderCellDef>Sessions</th><td mat-cell *matCellDef="let row">{{ row.spu_sessions | number }}</td></ng-container>
+                  <ng-container matColumnDef="spu_max_sessions"><th mat-header-cell *matHeaderCellDef>Max Sessions</th><td mat-cell *matCellDef="let row">{{ row.spu_max_sessions | number }}</td></ng-container>
+                  <ng-container matColumnDef="spu_memory"><th mat-header-cell *matHeaderCellDef>Memory %</th><td mat-cell *matCellDef="let row">{{ row.spu_memory | number: '1.0-1' }}%</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="spuColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: spuColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (dhcpRows().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>DHCP Networks</mat-panel-title>
+                <mat-panel-description>{{ dhcpRows().length }} pool{{ dhcpRows().length !== 1 ? 's' : '' }}</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="dhcpRows()">
+                  <ng-container matColumnDef="network_name"><th mat-header-cell *matHeaderCellDef>Network</th><td mat-cell *matCellDef="let row">{{ row.network_name }}</td></ng-container>
+                  <ng-container matColumnDef="leased"><th mat-header-cell *matHeaderCellDef>Leased</th><td mat-cell *matCellDef="let row">{{ row.num_leased }}/{{ row.num_ips }}</td></ng-container>
+                  <ng-container matColumnDef="utilization_pct"><th mat-header-cell *matHeaderCellDef>Utilization</th><td mat-cell *matCellDef="let row">{{ row.utilization_pct }}%</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="dhcpColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: dhcpColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (resourceRows().length > 0) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>Network Resources</mat-panel-title>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="resourceRows()">
+                  <ng-container matColumnDef="resource_type"><th mat-header-cell *matHeaderCellDef>Type</th><td mat-cell *matCellDef="let row">{{ row.resource_type }}</td></ng-container>
+                  <ng-container matColumnDef="count"><th mat-header-cell *matHeaderCellDef>Count</th><td mat-cell *matCellDef="let row">{{ row.count | number }}</td></ng-container>
+                  <ng-container matColumnDef="limit"><th mat-header-cell *matHeaderCellDef>Limit</th><td mat-cell *matCellDef="let row">{{ row.limit | number }}</td></ng-container>
+                  <ng-container matColumnDef="utilization_pct"><th mat-header-cell *matHeaderCellDef>Utilization</th><td mat-cell *matCellDef="let row">{{ row.utilization_pct }}%</td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="resourceColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: resourceColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (clusterRow()) {
+            <mat-expansion-panel expanded>
+              <mat-expansion-panel-header>
+                <mat-panel-title>Cluster</mat-panel-title>
+                <mat-panel-description>{{ clusterRow()!.status }}</mat-panel-description>
+              </mat-expansion-panel-header>
+              <div class="table-card">
+                <table mat-table [dataSource]="[clusterRow()!]">
+                  <ng-container matColumnDef="status"><th mat-header-cell *matHeaderCellDef>Status</th><td mat-cell *matCellDef="let row">{{ row.status }}</td></ng-container>
+                  <ng-container matColumnDef="operational"><th mat-header-cell *matHeaderCellDef>Operational</th><td mat-cell *matCellDef="let row">{{ row.operational }}</td></ng-container>
+                  <ng-container matColumnDef="primary_health"><th mat-header-cell *matHeaderCellDef>Primary Health</th><td mat-cell *matCellDef="let row">{{ row.primary_health }}</td></ng-container>
+                  <ng-container matColumnDef="secondary_health"><th mat-header-cell *matHeaderCellDef>Secondary Health</th><td mat-cell *matCellDef="let row">{{ row.secondary_health }}</td></ng-container>
+                  <ng-container matColumnDef="control_link"><th mat-header-cell *matHeaderCellDef>Control Link</th><td mat-cell *matCellDef="let row"><span [class]="row.control_link_up ? 'wan-up' : 'wan-down'">{{ row.control_link_up ? 'UP' : 'DOWN' }}</span></td></ng-container>
+                  <ng-container matColumnDef="fabric_link"><th mat-header-cell *matHeaderCellDef>Fabric Link</th><td mat-cell *matCellDef="let row"><span [class]="row.fabric_link_up ? 'wan-up' : 'wan-down'">{{ row.fabric_link_up ? 'UP' : 'DOWN' }}</span></td></ng-container>
+                  <tr mat-header-row *matHeaderRowDef="clusterColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: clusterColumns"></tr>
+                </table>
+              </div>
+            </mat-expansion-panel>
+          }
+
+          @if (mac()) {
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title>Live Events</mat-panel-title>
+              </mat-expansion-panel-header>
+              <app-device-live-log [mac]="mac()" />
+            </mat-expansion-panel>
+          }
+
+        </mat-accordion>
       }
 
-      @if ((isSwitch() || isGateway()) && dhcpRows().length > 0) {
-        <section class="table-section">
-          <h3 class="section-title">DHCP Pools</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="dhcpRows()">
-              <ng-container matColumnDef="network_name">
-                <th mat-header-cell *matHeaderCellDef>Network</th>
-                <td mat-cell *matCellDef="let row">{{ row.network_name }}</td>
-              </ng-container>
-              <ng-container matColumnDef="leased">
-                <th mat-header-cell *matHeaderCellDef>Leased</th>
-                <td mat-cell *matCellDef="let row">{{ row.num_leased }}/{{ row.num_ips }}</td>
-              </ng-container>
-              <ng-container matColumnDef="utilization_pct">
-                <th mat-header-cell *matHeaderCellDef>Utilization</th>
-                <td mat-cell *matCellDef="let row">{{ row.utilization_pct }}%</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="dhcpColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: dhcpColumns"></tr>
-            </table>
-          </div>
-        </section>
+      <!-- ── AP Live Events (also collapsed by default) ─────────────── -->
+      @if (isAP() && mac()) {
+        <mat-accordion>
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title>Live Events</mat-panel-title>
+            </mat-expansion-panel-header>
+            <app-device-live-log [mac]="mac()" />
+          </mat-expansion-panel>
+        </mat-accordion>
       }
 
-      <!-- ── Gateway sections (unchanged) ──────────────────────────────── -->
-      @if (isGateway() && wanRows().length > 0) {
-        <section class="table-section">
-          <h3 class="section-title">WAN Interfaces</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="wanRows()">
-              <ng-container matColumnDef="port_id">
-                <th mat-header-cell *matHeaderCellDef>Port</th>
-                <td mat-cell *matCellDef="let row">{{ row.port_id }}</td>
-              </ng-container>
-              <ng-container matColumnDef="wan_name">
-                <th mat-header-cell *matHeaderCellDef>Name</th>
-                <td mat-cell *matCellDef="let row">{{ row.wan_name }}</td>
-              </ng-container>
-              <ng-container matColumnDef="status">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let row">
-                  <span [class]="row.up ? 'wan-up' : 'wan-down'">
-                    {{ row.up ? 'UP' : 'DOWN' }}
-                  </span>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="tx_bytes">
-                <th mat-header-cell *matHeaderCellDef>TX Bytes</th>
-                <td mat-cell *matCellDef="let row">{{ row.tx_bytes | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="rx_bytes">
-                <th mat-header-cell *matHeaderCellDef>RX Bytes</th>
-                <td mat-cell *matCellDef="let row">{{ row.rx_bytes | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="tx_pkts">
-                <th mat-header-cell *matHeaderCellDef>TX Pkts</th>
-                <td mat-cell *matCellDef="let row">{{ row.tx_pkts | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="rx_pkts">
-                <th mat-header-cell *matHeaderCellDef>RX Pkts</th>
-                <td mat-cell *matCellDef="let row">{{ row.rx_pkts | number }}</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="wanColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: wanColumns"></tr>
-            </table>
-          </div>
-        </section>
-      }
-
-      @if (isGateway() && spuRow()) {
-        <section class="table-section">
-          <h3 class="section-title">SPU Stats</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="[spuRow()!]">
-              <ng-container matColumnDef="spu_cpu">
-                <th mat-header-cell *matHeaderCellDef>CPU %</th>
-                <td mat-cell *matCellDef="let row">{{ row.spu_cpu | number: '1.0-1' }}%</td>
-              </ng-container>
-              <ng-container matColumnDef="spu_sessions">
-                <th mat-header-cell *matHeaderCellDef>Sessions</th>
-                <td mat-cell *matCellDef="let row">{{ row.spu_sessions | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="spu_max_sessions">
-                <th mat-header-cell *matHeaderCellDef>Max Sessions</th>
-                <td mat-cell *matCellDef="let row">{{ row.spu_max_sessions | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="spu_memory">
-                <th mat-header-cell *matHeaderCellDef>Memory %</th>
-                <td mat-cell *matCellDef="let row">{{ row.spu_memory | number: '1.0-1' }}%</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="spuColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: spuColumns"></tr>
-            </table>
-          </div>
-        </section>
-      }
-
-      @if (isGateway() && clusterRow()) {
-        <section class="table-section">
-          <h3 class="section-title">Cluster</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="[clusterRow()!]">
-              <ng-container matColumnDef="status">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let row">{{ row.status }}</td>
-              </ng-container>
-              <ng-container matColumnDef="operational">
-                <th mat-header-cell *matHeaderCellDef>Operational</th>
-                <td mat-cell *matCellDef="let row">{{ row.operational }}</td>
-              </ng-container>
-              <ng-container matColumnDef="primary_health">
-                <th mat-header-cell *matHeaderCellDef>Primary Health</th>
-                <td mat-cell *matCellDef="let row">{{ row.primary_health }}</td>
-              </ng-container>
-              <ng-container matColumnDef="secondary_health">
-                <th mat-header-cell *matHeaderCellDef>Secondary Health</th>
-                <td mat-cell *matCellDef="let row">{{ row.secondary_health }}</td>
-              </ng-container>
-              <ng-container matColumnDef="control_link">
-                <th mat-header-cell *matHeaderCellDef>Control Link</th>
-                <td mat-cell *matCellDef="let row">
-                  <span [class]="row.control_link_up ? 'wan-up' : 'wan-down'">
-                    {{ row.control_link_up ? 'UP' : 'DOWN' }}
-                  </span>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="fabric_link">
-                <th mat-header-cell *matHeaderCellDef>Fabric Link</th>
-                <td mat-cell *matCellDef="let row">
-                  <span [class]="row.fabric_link_up ? 'wan-up' : 'wan-down'">
-                    {{ row.fabric_link_up ? 'UP' : 'DOWN' }}
-                  </span>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="clusterColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: clusterColumns"></tr>
-            </table>
-          </div>
-        </section>
-      }
-
-      @if (isGateway() && resourceRows().length > 0) {
-        <section class="table-section">
-          <h3 class="section-title">Network Resources</h3>
-          <div class="table-card">
-            <table mat-table [dataSource]="resourceRows()">
-              <ng-container matColumnDef="resource_type">
-                <th mat-header-cell *matHeaderCellDef>Type</th>
-                <td mat-cell *matCellDef="let row">{{ row.resource_type }}</td>
-              </ng-container>
-              <ng-container matColumnDef="count">
-                <th mat-header-cell *matHeaderCellDef>Count</th>
-                <td mat-cell *matCellDef="let row">{{ row.count | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="limit">
-                <th mat-header-cell *matHeaderCellDef>Limit</th>
-                <td mat-cell *matCellDef="let row">{{ row.limit | number }}</td>
-              </ng-container>
-              <ng-container matColumnDef="utilization_pct">
-                <th mat-header-cell *matHeaderCellDef>Utilization</th>
-                <td mat-cell *matCellDef="let row">{{ row.utilization_pct }}%</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="resourceColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: resourceColumns"></tr>
-            </table>
-          </div>
-        </section>
-      }
     }
-  }
-
-  <!-- Live event log -->
-  @if (mac()) {
-    <section class="device-section">
-      <h3 class="section-title">Live Event Log</h3>
-      <app-device-live-log [mac]="mac()" />
-    </section>
   }
 </div>

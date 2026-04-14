@@ -1,7 +1,7 @@
 <div class="clients-page">
   @if (loading()) {
     <div class="kpi-row">
-      @for (_ of [1,2,3,4,5]; track $index) {
+      @for (_ of [1,2,3,4]; track $index) {
         <div class="kpi-card">
           <div class="shimmer-block" style="width: 60%; height: 11px;"></div>
           <div class="shimmer-block" style="width: 80%; height: 22px; margin-top: 8px;"></div>
@@ -9,7 +9,7 @@
       }
     </div>
     <div class="chart-row">
-      @for (_ of [1,2]; track $index) {
+      @for (_ of [1,2,3,4]; track $index) {
         <div class="chart-container">
           <div class="shimmer-block" style="width: 120px; height: 12px; margin-bottom: 8px;"></div>
           <div class="shimmer-block" style="height: 180px;"></div>
@@ -17,7 +17,7 @@
       }
     </div>
     <div class="table-card">
-      <app-skeleton-loader [rows]="10" [columns]="8"></app-skeleton-loader>
+      <app-skeleton-loader [rows]="10" [columns]="9"></app-skeleton-loader>
     </div>
   } @else {
     @if (summary()) {
@@ -30,19 +30,13 @@
           <div class="kpi-label">Avg RSSI</div>
           <div class="kpi-value">{{ summary()!.avg_rssi | number: '1.0-0' }} dBm</div>
         </div>
-        @for (b of bandEntries(); track b.label) {
-          <div class="kpi-card">
-            <div class="kpi-label">{{ b.label }}</div>
-            <div class="kpi-value">{{ b.count }}</div>
-          </div>
-        }
         <div class="kpi-card">
-          <div class="kpi-label">TX</div>
-          <div class="kpi-value">{{ summary()!.total_tx_bps | number }} bps</div>
+          <div class="kpi-label">Total TX</div>
+          <div class="kpi-value">{{ summary()!.total_tx_bps | toMbps }}</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">RX</div>
-          <div class="kpi-value">{{ summary()!.total_rx_bps | number }} bps</div>
+          <div class="kpi-label">Total RX</div>
+          <div class="kpi-value">{{ summary()!.total_rx_bps | toMbps }}</div>
         </div>
       </div>
     }
@@ -70,101 +64,106 @@
           ></canvas>
         </div>
       }
+      @if (bandSplitChart()) {
+        <div class="chart-container doughnut-container">
+          <div class="chart-title">Band Split</div>
+          <canvas
+            baseChart
+            [data]="bandSplitChart()!.data"
+            [options]="bandSplitChart()!.options"
+            type="doughnut"
+          ></canvas>
+        </div>
+      }
+      @if (protoSplitChart()) {
+        <div class="chart-container doughnut-container">
+          <div class="chart-title">Protocol Split</div>
+          <canvas
+            baseChart
+            [data]="protoSplitChart()!.data"
+            [options]="protoSplitChart()!.options"
+            type="doughnut"
+          ></canvas>
+        </div>
+      }
     </div>
 
     <div class="filter-row">
-      <div class="chip-row">
-        <button
-          mat-stroked-button
-          [class.active]="activeAuthType() === ''"
-          (click)="toggleAuthType('')"
-        >
-          All ({{ clientsResponse()?.total ?? 0 }})
-        </button>
-        <button
-          mat-stroked-button
-          [class.active]="activeAuthType() === 'psk'"
-          (click)="toggleAuthType('psk')"
-        >
-          PSK ({{ countsByAuth().psk }})
-        </button>
-        <button
-          mat-stroked-button
-          [class.active]="activeAuthType() === 'eap'"
-          (click)="toggleAuthType('eap')"
-        >
-          802.1X ({{ countsByAuth().eap }})
-        </button>
-      </div>
       <mat-form-field appearance="outline" class="search-field">
-        <mat-label>Search hostname / MAC / AP / manufacturer</mat-label>
+        <mat-label>Search hostname, MAC, AP, manufacturer</mat-label>
         <input matInput [formControl]="searchCtrl" />
         <mat-icon matSuffix>search</mat-icon>
       </mat-form-field>
+
+      <div class="chip-row">
+        <button mat-stroked-button [class.active]="activeBand() === ''" (click)="toggleBand('')">
+          All ({{ clientsResponse()?.total ?? 0 }})
+        </button>
+        <button mat-stroked-button [class.active]="activeBand() === '24'" (click)="toggleBand('24')">
+          2.4G ({{ countsByBand().b24 }})
+        </button>
+        <button mat-stroked-button [class.active]="activeBand() === '5'" (click)="toggleBand('5')">
+          5G ({{ countsByBand().b5 }})
+        </button>
+        <button mat-stroked-button [class.active]="activeBand() === '6'" (click)="toggleBand('6')">
+          6G ({{ countsByBand().b6 }})
+        </button>
+      </div>
     </div>
 
     <div class="table-card">
-      <table mat-table [dataSource]="filteredClients()">
-        <ng-container matColumnDef="hostname">
-          <th mat-header-cell *matHeaderCellDef>Hostname</th>
-          <td mat-cell *matCellDef="let c">{{ c.hostname || c.mac }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="mac">
-          <th mat-header-cell *matHeaderCellDef>MAC</th>
-          <td mat-cell *matCellDef="let c" class="monospace">{{ c.mac }}</td>
+      <table mat-table [dataSource]="pagedClients()">
+        <ng-container matColumnDef="identity">
+          <th mat-header-cell *matHeaderCellDef>Hostname / MAC</th>
+          <td mat-cell *matCellDef="let c">
+            <div class="identity-cell">
+              <div class="identity-title">{{ c.hostname || c.mac }}</div>
+              @if (c.hostname) {
+                <div class="identity-sub monospace">{{ c.mac }}</div>
+              }
+            </div>
+          </td>
         </ng-container>
 
         <ng-container matColumnDef="ap_mac">
           <th mat-header-cell *matHeaderCellDef>AP</th>
-          <td mat-cell *matCellDef="let c" class="monospace">{{ c.ap_mac }}</td>
+          <td mat-cell *matCellDef="let c" class="monospace">{{ c.ap_mac || '—' }}</td>
         </ng-container>
 
         <ng-container matColumnDef="band">
           <th mat-header-cell *matHeaderCellDef>Band</th>
           <td mat-cell *matCellDef="let c">
-            {{ c.band === '24' ? '2.4G' : c.band === '5' ? '5G' : c.band === '6' ? '6G' : c.band }}
+            <span class="band-chip" [ngClass]="bandClass(c.band)">{{ bandLabel(c.band) }}</span>
           </td>
-        </ng-container>
-
-        <ng-container matColumnDef="channel">
-          <th mat-header-cell *matHeaderCellDef>Ch</th>
-          <td mat-cell *matCellDef="let c">{{ c.channel }}</td>
         </ng-container>
 
         <ng-container matColumnDef="rssi">
           <th mat-header-cell *matHeaderCellDef>RSSI</th>
-          <td mat-cell *matCellDef="let c">{{ c.rssi }} dBm</td>
+          <td mat-cell *matCellDef="let c" [ngClass]="rssiClass(c.rssi)">
+            {{ c.rssi == null ? '—' : (c.rssi + ' dBm') }}
+          </td>
         </ng-container>
 
         <ng-container matColumnDef="snr">
           <th mat-header-cell *matHeaderCellDef>SNR</th>
-          <td mat-cell *matCellDef="let c">{{ c.snr }}</td>
+          <td mat-cell *matCellDef="let c" [ngClass]="snrClass(c.snr)">
+            {{ c.snr == null ? '—' : (c.snr + ' dB') }}
+          </td>
         </ng-container>
 
-        <ng-container matColumnDef="tx_bps">
-          <th mat-header-cell *matHeaderCellDef>TX bps</th>
-          <td mat-cell *matCellDef="let c">{{ c.tx_bps | number }}</td>
+        <ng-container matColumnDef="tx_mbps">
+          <th mat-header-cell *matHeaderCellDef>TX</th>
+          <td mat-cell *matCellDef="let c">{{ c.tx_bps | toMbps }}</td>
         </ng-container>
 
-        <ng-container matColumnDef="rx_bps">
-          <th mat-header-cell *matHeaderCellDef>RX bps</th>
-          <td mat-cell *matCellDef="let c">{{ c.rx_bps | number }}</td>
+        <ng-container matColumnDef="rx_mbps">
+          <th mat-header-cell *matHeaderCellDef>RX</th>
+          <td mat-cell *matCellDef="let c">{{ c.rx_bps | toMbps }}</td>
         </ng-container>
 
-        <ng-container matColumnDef="tx_rate">
-          <th mat-header-cell *matHeaderCellDef>TX Rate</th>
-          <td mat-cell *matCellDef="let c">{{ c.tx_rate }} Mbps</td>
-        </ng-container>
-
-        <ng-container matColumnDef="manufacture">
-          <th mat-header-cell *matHeaderCellDef>Manufacturer</th>
-          <td mat-cell *matCellDef="let c">{{ c.manufacture }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="auth_type">
+        <ng-container matColumnDef="auth">
           <th mat-header-cell *matHeaderCellDef>Auth</th>
-          <td mat-cell *matCellDef="let c">{{ c.auth_type === 'eap' ? '802.1X' : 'PSK' }}</td>
+          <td mat-cell *matCellDef="let c">{{ authLabel(c.auth_type) }}</td>
         </ng-container>
 
         <ng-container matColumnDef="last_seen">
@@ -179,6 +178,14 @@
         <tr mat-header-row *matHeaderRowDef="clientColumns"></tr>
         <tr mat-row *matRowDef="let row; columns: clientColumns" class="clickable-row" (click)="navigateToClient(row.mac)"></tr>
       </table>
+
+      <mat-paginator
+        [length]="filteredClients().length"
+        [pageIndex]="pageIndex()"
+        [pageSize]="pageSize()"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onPage($event)"
+      ></mat-paginator>
     </div>
   }
 </div>

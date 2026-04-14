@@ -51,7 +51,12 @@ export interface DeviceSummaryRecord {
   name: string;
   model: string;
   cpu_util: number | null;
+  mem_usage?: number | null;
   num_clients: number | null;
+  ports_up?: number | null;
+  ports_total?: number | null;
+  wan_links_up?: number | null;
+  wan_links_total?: number | null;
   last_seen: number | null;
   fresh: boolean;
 }

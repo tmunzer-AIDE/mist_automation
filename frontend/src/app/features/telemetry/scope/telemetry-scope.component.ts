@@ -9,6 +9,7 @@ import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
 import { TelemetryNavService } from '../telemetry-nav.service';
 import { getTopicColors } from '../../../shared/utils/chart-defaults';
+import { ToMbpsPipe } from '../../../shared/pipes/to-mbps.pipe';
 import {
   ScopeSummary,
   APScopeSummary,
@@ -24,7 +25,7 @@ Chart.register(...registerables);
 @Component({
   selector: 'app-telemetry-scope',
   standalone: true,
-  imports: [DecimalPipe, BaseChartDirective],
+  imports: [DecimalPipe, BaseChartDirective, ToMbpsPipe],
   templateUrl: './telemetry-scope.component.html',
   styleUrl: './telemetry-scope.component.scss',
 })

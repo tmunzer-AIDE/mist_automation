@@ -1,31 +1,24 @@
 import { Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { DecimalPipe, DatePipe, TitleCasePipe } from '@angular/common';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { DecimalPipe, NgClass } from '@angular/common';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { forkJoin, debounceTime, skip, Subscription } from 'rxjs';
-import { MatAutocompleteModule } from '@angular/material/autocomplete';
-import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
-import { MatTableModule } from '@angular/material/table';
 import { BaseChartDirective } from 'ng2-charts';
-import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
 import { Chart, registerables } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
 import { TelemetryNavService } from '../telemetry-nav.service';
-import { getTopicColors } from '../../../shared/utils/chart-defaults';
+import { getTopicColors, getChartColor } from '../../../shared/utils/chart-defaults';
+import { ToMbpsPipe } from '../../../shared/pipes/to-mbps.pipe';
 import {
   ScopeSummary,
   ScopeDevices,
-  DeviceSummaryRecord,
   APScopeSummary,
   SwitchScopeSummary,
   GatewayScopeSummary,
   BandSummary,
+  AggregatePoint,
   AggregateResult,
   type ClientSiteSummary,
 } from '../models';
@@ -37,25 +30,16 @@ Chart.register(...registerables);
   standalone: true,
   imports: [
     DecimalPipe,
-    DatePipe,
-    TitleCasePipe,
-    ReactiveFormsModule,
+    NgClass,
     RouterModule,
-    MatAutocompleteModule,
-    MatButtonModule,
-    MatFormFieldModule,
-    MatIconModule,
-    MatInputModule,
-    MatTableModule,
     BaseChartDirective,
-    SkeletonLoaderComponent,
+    ToMbpsPipe,
   ],
   templateUrl: './telemetry-site.component.html',
   styleUrl: './telemetry-site.component.scss',
 })
 export class TelemetrySiteComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly telemetryService = inject(TelemetryService);
   readonly nav = inject(TelemetryNavService);
@@ -66,61 +50,31 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   readonly loading = signal(false);
   readonly summary = signal<ScopeSummary | null>(null);
   readonly devices = signal<ScopeDevices | null>(null);
-  readonly activeDeviceType = signal('');
   readonly clientSummary = signal<ClientSiteSummary | null>(null);
 
   private wsSub?: Subscription;
 
-  readonly deviceSearchCtrl = new FormControl('');
-  private readonly searchTerm = signal('');
-
-  readonly deviceColumns = ['name', 'device_type', 'model', 'cpu_util', 'num_clients', 'last_seen'];
-
-  readonly cpuChart = signal<ChartConfiguration<'line'> | null>(null);
-  readonly chart2 = signal<ChartConfiguration<'line'> | null>(null);
-  readonly chart3 = signal<ChartConfiguration<'line'> | null>(null);
+  // Per-section charts
+  readonly apClientsChart = signal<ChartConfiguration<'line'> | null>(null);
+  readonly apRadioChart = signal<ChartConfiguration<'line'> | null>(null);
+  readonly swPoeChart = signal<ChartConfiguration<'line'> | null>(null);
+  readonly swPortsChart = signal<ChartConfiguration<'line'> | null>(null);
+  readonly gwWanChart = signal<ChartConfiguration<'line'> | null>(null);
+  readonly gwSpuChart = signal<ChartConfiguration<'line'> | null>(null);
 
   readonly hasAP = computed(() => !!this.summary()?.ap);
   readonly hasSwitch = computed(() => !!this.summary()?.switch);
   readonly hasGateway = computed(() => !!this.summary()?.gateway);
 
-  readonly deviceCounts = computed(() => {
-    const devs = this.devices()?.devices ?? [];
-    const counts = { ap: 0, switch: 0, gateway: 0 };
-    for (const d of devs) {
-      if (d.device_type === 'ap') counts.ap++;
-      else if (d.device_type === 'switch') counts.switch++;
-      else if (d.device_type === 'gateway') counts.gateway++;
-    }
-    return counts;
-  });
-
-  readonly filteredDevices = computed(() => {
-    const term = this.searchTerm().toLowerCase();
-    const all = this.devices()?.devices ?? [];
-    if (!term) return all;
-    return all.filter(
-      (d) =>
-        d.name.toLowerCase().includes(term) ||
-        d.model.toLowerCase().includes(term) ||
-        d.mac.toLowerCase().includes(term),
-    );
-  });
-
-  readonly displayedDevices = computed(() => {
-    const type = this.activeDeviceType();
-    const devs = this.filteredDevices();
-    if (!type) return devs;
-    return devs.filter((d) => d.device_type === type);
-  });
-
   readonly clientBandEntries = computed(() => {
     const counts = this.clientSummary()?.band_counts ?? {};
+    const bandClasses: Record<string, string> = { '24': 'band-24', '5': 'band-5', '6': 'band-6' };
     return ['24', '5', '6']
       .filter((b) => b in counts)
       .map((band) => ({
         label: band === '24' ? '2.4G' : band === '5' ? '5G' : '6G',
         count: counts[band],
+        bandClass: bandClasses[band],
       }));
   });
 
@@ -144,19 +98,6 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     if (!entries.length) return null;
     return this._buildDoughnutConfig(
       entries.map((e) => e[0].toUpperCase()),
-      entries.map((e) => e[1]),
-    );
-  });
-
-  readonly clientChannelChart = computed((): ChartConfiguration<'doughnut'> | null => {
-    const s = this.clientSummary();
-    if (!s) return null;
-    const entries = Object.entries(s.channel_counts ?? {}).sort(
-      (a, b) => Number(a[0]) - Number(b[0]),
-    );
-    if (!entries.length) return null;
-    return this._buildDoughnutConfig(
-      entries.map((e) => `Ch ${e[0]}`),
       entries.map((e) => e[1]),
     );
   });
@@ -190,10 +131,6 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.deviceSearchCtrl.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((v) => this.searchTerm.set(typeof v === 'string' ? v : ''));
-
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const id = params.get('id') ?? '';
       this.siteId.set(id);
@@ -207,7 +144,6 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
       }
     });
 
-    // React to time range changes from nav service
     this.navTimeRange$
       .pipe(skip(1), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.loadCharts());
@@ -216,7 +152,7 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
   private refreshSummary(siteId: string): void {
     forkJoin({
       summary: this.telemetryService.getScopeSummary(siteId),
-      devices: this.telemetryService.getScopeDevices(siteId, this.activeDeviceType() || undefined),
+      devices: this.telemetryService.getScopeDevices(siteId),
     }).subscribe({
       next: ({ summary, devices }) => {
         this.summary.set(summary);
@@ -248,25 +184,6 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     });
   }
 
-  toggleDeviceType(type: string): void {
-    this.activeDeviceType.set(this.activeDeviceType() === type ? '' : type);
-    this.loadCharts();
-  }
-
-  navigateToDevice(mac: string): void {
-    this.router.navigate(['/telemetry/device', mac]);
-  }
-
-  selectDevice(device: DeviceSummaryRecord): void {
-    this.navigateToDevice(device.mac);
-  }
-
-  displayDeviceName(device: DeviceSummaryRecord | string): string {
-    if (!device) return '';
-    if (typeof device === 'string') return device;
-    return device.name || device.mac;
-  }
-
   bandEntries(
     bands: Record<string, BandSummary>,
   ): Array<{ band: string; label: string; avg_util_all: number }> {
@@ -278,161 +195,78 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
     }));
   }
 
-  reportingOk(active: number, total: number): boolean {
-    return total > 0 && active === total;
+  reportingBadgeClass(active: number, total: number): string {
+    if (total === 0) return 'badge-neutral';
+    const ratio = active / total;
+    if (ratio >= 1) return 'badge-ok';
+    if (ratio >= 0.5) return 'badge-warn';
+    return 'badge-crit';
+  }
+
+  cpuClass(value: number): string {
+    if (value > 80) return 'crit';
+    if (value > 40) return 'warn';
+    return '';
+  }
+
+  memClass(value: number): string {
+    if (value > 90) return 'crit';
+    if (value > 70) return 'warn';
+    return '';
   }
 
   loadCharts(): void {
     const tr = this.nav.timeRange();
     const siteId = this.siteId();
-    const active = this.activeDeviceType();
 
-    const chartType =
-      active || (this.hasAP() ? 'ap' : this.hasSwitch() ? 'switch' : this.hasGateway() ? 'gateway' : '');
+    if (this.hasAP()) {
+      this.telemetryService
+        .queryAggregate({ measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, siteId, deviceType: 'ap' })
+        .subscribe({
+          next: (r) => this.apClientsChart.set(this._buildLineChart(r, 'Clients', getChartColor('completed'))),
+          error: () => this.apClientsChart.set(null),
+        });
+      this.telemetryService
+        .queryAggregate({ measurement: 'radio_stats', field: 'util_all', agg: 'mean', timeRange: tr, siteId, groupBy: 'band' })
+        .subscribe({
+          next: (r) => this.apRadioChart.set(this._buildBandedLineChart(r)),
+          error: () => this.apRadioChart.set(null),
+        });
+    }
 
-    this.cpuChart.set(null);
-    this.chart2.set(null);
-    this.chart3.set(null);
+    if (this.hasSwitch()) {
+      this.telemetryService
+        .queryAggregate({ measurement: 'device_summary', field: 'poe_draw_total', agg: 'sum', timeRange: tr, siteId, deviceType: 'switch' })
+        .subscribe({
+          next: (r) => this.swPoeChart.set(this._buildLineChart(r, 'PoE Draw (W)', getChartColor('duration'))),
+          error: () => this.swPoeChart.set(null),
+        });
+      this.telemetryService
+        .queryAggregate({ measurement: 'port_stats', field: 'speed', agg: 'count', timeRange: tr, siteId })
+        .subscribe({
+          next: (r) => this.swPortsChart.set(this._buildLineChart(r, 'Ports Up', getChartColor('objects'))),
+          error: () => this.swPortsChart.set(null),
+        });
+    }
 
-    if (chartType === 'ap') {
-      this.loadLineChart(
-        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr, siteId, deviceType: 'ap' },
-        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr, siteId, deviceType: 'ap' },
-        'Avg CPU %',
-        'Avg Memory %',
-        this.cpuChart,
-      );
-      this.loadSingleChart(
-        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, siteId, deviceType: 'ap' },
-        'Total Clients',
-        this.chart2,
-      );
-      this.loadBandChart(
-        { measurement: 'radio_stats', field: 'util_all', agg: 'mean', timeRange: tr, siteId, groupBy: 'band' },
-        this.chart3,
-      );
-    } else if (chartType === 'switch') {
-      this.loadLineChart(
-        { measurement: 'device_summary', field: 'cpu_util', agg: 'mean', timeRange: tr, siteId, deviceType: 'switch' },
-        { measurement: 'device_summary', field: 'mem_usage', agg: 'mean', timeRange: tr, siteId, deviceType: 'switch' },
-        'Avg CPU %',
-        'Avg Memory %',
-        this.cpuChart,
-      );
-      this.loadSingleChart(
-        { measurement: 'device_summary', field: 'poe_draw_total', agg: 'sum', timeRange: tr, siteId, deviceType: 'switch' },
-        'PoE Draw (W)',
-        this.chart2,
-      );
-      this.loadSingleChart(
-        { measurement: 'device_summary', field: 'num_clients', agg: 'sum', timeRange: tr, siteId, deviceType: 'switch' },
-        'Wired Clients',
-        this.chart3,
-      );
-    } else if (chartType === 'gateway') {
-      this.loadLineChart(
-        { measurement: 'gateway_health', field: 'cpu_idle', agg: 'mean', timeRange: tr, siteId },
-        { measurement: 'gateway_health', field: 'mem_usage', agg: 'mean', timeRange: tr, siteId },
-        'Avg CPU Idle %',
-        'Avg Memory %',
-        this.cpuChart,
-      );
-      this.loadLineChart(
-        { measurement: 'gateway_spu', field: 'spu_cpu', agg: 'mean', timeRange: tr, siteId },
-        { measurement: 'gateway_spu', field: 'spu_sessions', agg: 'mean', timeRange: tr, siteId },
-        'SPU CPU %',
-        'SPU Sessions',
-        this.chart2,
-      );
-      this.loadLineChart(
-        { measurement: 'gateway_wan', field: 'tx_bytes', agg: 'sum', timeRange: tr, siteId },
-        { measurement: 'gateway_wan', field: 'rx_bytes', agg: 'sum', timeRange: tr, siteId },
-        'TX Bytes',
-        'RX Bytes',
-        this.chart3,
-      );
+    if (this.hasGateway()) {
+      forkJoin({
+        tx: this.telemetryService.queryAggregate({ measurement: 'gateway_wan', field: 'tx_bytes', agg: 'sum', timeRange: tr, siteId }),
+        rx: this.telemetryService.queryAggregate({ measurement: 'gateway_wan', field: 'rx_bytes', agg: 'sum', timeRange: tr, siteId }),
+      }).subscribe({
+        next: ({ tx, rx }) => this.gwWanChart.set(this._buildWanChart(tx, rx)),
+        error: () => this.gwWanChart.set(null),
+      });
+      this.telemetryService
+        .queryAggregate({ measurement: 'gateway_spu', field: 'spu_sessions', agg: 'mean', timeRange: tr, siteId })
+        .subscribe({
+          next: (r) => this.gwSpuChart.set(this._buildLineChart(r, 'SPU Sessions', getChartColor('objects'))),
+          error: () => this.gwSpuChart.set(null),
+        });
     }
   }
 
-  private loadLineChart(
-    params1: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; deviceType?: string },
-    params2: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; deviceType?: string },
-    label1: string,
-    label2: string,
-    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
-  ): void {
-    forkJoin({
-      d1: this.telemetryService.queryAggregate(params1 as Parameters<typeof this.telemetryService.queryAggregate>[0]),
-      d2: this.telemetryService.queryAggregate(params2 as Parameters<typeof this.telemetryService.queryAggregate>[0]),
-    }).subscribe({
-      next: ({ d1, d2 }) => target.set(this.buildDualLineConfig(d1, d2, label1, label2)),
-      error: () => target.set(null),
-    });
-  }
-
-  private loadSingleChart(
-    params: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; deviceType?: string },
-    label: string,
-    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
-  ): void {
-    this.telemetryService
-      .queryAggregate(params as Parameters<typeof this.telemetryService.queryAggregate>[0])
-      .subscribe({
-        next: (result) => target.set(this.buildSingleLineConfig(result, label)),
-        error: () => target.set(null),
-      });
-  }
-
-  private loadBandChart(
-    params: { measurement: string; field: string; agg: string; timeRange: string; siteId: string; groupBy: string },
-    target: ReturnType<typeof signal<ChartConfiguration<'line'> | null>>,
-  ): void {
-    this.telemetryService
-      .queryAggregate(params as Parameters<typeof this.telemetryService.queryAggregate>[0])
-      .subscribe({
-        next: (result) => target.set(this.buildBandLineConfig(result)),
-        error: () => target.set(null),
-      });
-  }
-
-  private buildDualLineConfig(
-    d1: AggregateResult,
-    d2: AggregateResult,
-    l1: string,
-    l2: string,
-  ): ChartConfiguration<'line'> {
-    return {
-      type: 'line',
-      data: {
-        datasets: [
-          {
-            label: l1,
-            data: d1.points.map((p) => ({ x: new Date(p._time).getTime(), y: p._value })),
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.3,
-          },
-          {
-            label: l2,
-            data: d2.points.map((p) => ({ x: new Date(p._time).getTime(), y: p._value })),
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.3,
-            borderDash: [5, 3],
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 0 },
-        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
-        plugins: { legend: { position: 'bottom' } },
-      },
-    };
-  }
-
-  private buildSingleLineConfig(result: AggregateResult, label: string): ChartConfiguration<'line'> {
+  private _buildLineChart(result: AggregateResult, label: string, color: string): ChartConfiguration<'line'> {
     return {
       type: 'line',
       data: {
@@ -440,6 +274,8 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
           {
             label,
             data: result.points.map((p) => ({ x: new Date(p._time).getTime(), y: p._value })),
+            borderColor: color,
+            backgroundColor: color + '22',
             borderWidth: 2,
             pointRadius: 0,
             tension: 0.3,
@@ -452,36 +288,86 @@ export class TelemetrySiteComponent implements OnInit, OnDestroy {
         maintainAspectRatio: false,
         animation: { duration: 0 },
         scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
-        plugins: { legend: { position: 'bottom' } },
+        plugins: { legend: { display: false } },
       },
     };
   }
 
-  private buildBandLineConfig(result: AggregateResult): ChartConfiguration<'line'> {
-    const bandLabels: Record<string, string> = { band_24: '2.4G', band_5: '5G', band_6: '6G' };
-    const bandMap = new Map<string, { x: number; y: number }[]>();
-    for (const point of result.points) {
-      const band = (point['band'] as string) ?? 'unknown';
-      if (!bandMap.has(band)) bandMap.set(band, []);
-      bandMap.get(band)!.push({ x: new Date(point._time).getTime(), y: point._value });
-    }
+  private _buildWanChart(tx: AggregateResult, rx: AggregateResult): ChartConfiguration<'line'> {
+    const txColor = getChartColor('objects');
+    const rxColor = getChartColor('completed');
     return {
       type: 'line',
       data: {
-        datasets: Array.from(bandMap.entries()).map(([band, data]) => ({
-          label: bandLabels[band] ?? band,
-          data,
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-        })),
+        datasets: [
+          {
+            label: 'TX Mbps',
+            data: tx.points.map((p) => ({ x: new Date(p._time).getTime(), y: p._value / 1_000_000 })),
+            borderColor: txColor,
+            backgroundColor: txColor + '22',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+          },
+          {
+            label: 'RX Mbps',
+            data: rx.points.map((p) => ({ x: new Date(p._time).getTime(), y: p._value / 1_000_000 })),
+            borderColor: rxColor,
+            borderDash: [5, 3],
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+          },
+        ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 0 },
         scales: { x: { type: 'time', display: true }, y: { beginAtZero: true } },
-        plugins: { legend: { position: 'bottom' } },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+      },
+    };
+  }
+
+  private _buildBandedLineChart(result: AggregateResult): ChartConfiguration<'line'> {
+    const bandConfig: Record<string, { label: string; color: string }> = {
+      band_24: { label: '2.4G', color: getChartColor('duration') },
+      band_5: { label: '5G', color: getChartColor('completed') },
+      band_6: { label: '6G', color: getChartColor('objects') },
+    };
+
+    const grouped: Record<string, AggregatePoint[]> = {};
+    for (const point of result.points) {
+      const band = point['band'] as string;
+      if (!grouped[band]) grouped[band] = [];
+      grouped[band].push(point);
+    }
+
+    const datasets = Object.entries(grouped)
+      .filter(([band]) => band in bandConfig)
+      .map(([band, pts]) => {
+        const { label, color } = bandConfig[band];
+        return {
+          label,
+          data: pts.map((p) => ({ x: new Date(p._time).getTime(), y: p._value })),
+          borderColor: color,
+          backgroundColor: color + '22',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+        };
+      });
+
+    return {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: true, max: 100 } },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
       },
     };
   }

@@ -373,3 +373,152 @@ Each section (Modules, Ports, WAN Ports, SPU, etc.) renders as a collapsible row
 - Doughnut charts use Chart.js with `animation: { duration: 0 }` to prevent re-animation on WebSocket ticks (per existing feedback)
 - Traffic bps → Mbps conversion: create a shared `toMbps(bps: number): string` pipe in `shared/pipes/`
 - Stale detection: `Date.now() / 1000 - last_seen > 60` (60-second threshold, unchanged from current `fresh` flag logic)
+
+---
+
+## Implementation Plan
+
+Target: deliver in small, reviewable frontend-only slices without backend/API changes.
+
+### Phase 0 - Baseline and guardrails (0.5 day)
+- Capture current telemetry screenshots for: scope, site summary, clients tab, devices tab, switch detail, gateway detail, client detail.
+- Confirm no API contract changes are required by validating current `TelemetryService` calls against existing views.
+- Add a short implementation checklist issue with links to this spec and affected components.
+
+### Phase 1 - Shared shell and header architecture (1-1.5 days)
+- Replace left sub-sidebar shell layout with top header layout in:
+  - `frontend/src/app/features/telemetry/telemetry-shell.component.html`
+  - `frontend/src/app/features/telemetry/telemetry-shell.component.scss`
+  - `frontend/src/app/features/telemetry/telemetry-shell.component.ts`
+- Introduce reusable `TelemetryHeaderComponent` under `frontend/src/app/features/telemetry/components/` with three display modes:
+  - Org-wide
+  - Site with tabs
+  - Detail breadcrumbs
+- Wire header controls to existing `TelemetryNavService` signals (site + range) without route changes.
+
+**Exit criteria**
+- Left telemetry sub-sidebar is fully removed.
+- Site picker and time range selector work from the header on all telemetry routes.
+- Existing routes continue to load unchanged.
+
+### Phase 2 - Scope and site summary hierarchy redesign (1.5-2 days)
+- Rebuild summary layouts to the two-column section rhythm and KPI+chart composition in:
+  - `frontend/src/app/features/telemetry/scope/telemetry-scope.component.html`
+  - `frontend/src/app/features/telemetry/scope/telemetry-scope.component.scss`
+  - `frontend/src/app/features/telemetry/site/telemetry-site.component.html`
+  - `frontend/src/app/features/telemetry/site/telemetry-site.component.scss`
+- Implement reporting badges and threshold color helpers (CPU, memory, reporting ratio).
+- Ensure section-order consistency: Wireless Clients → AP → Switch → Gateway.
+
+**Exit criteria**
+- Org and site summary pages match target hierarchy and ordering.
+- Hidden-section behavior works when device types are absent.
+
+### Phase 3 - Clients tab redesign (1-1.5 days)
+- Implement KPI strip, four-chart grid, band filter chips, and revised table in:
+  - `frontend/src/app/features/telemetry/clients/telemetry-clients.component.html`
+  - `frontend/src/app/features/telemetry/clients/telemetry-clients.component.scss`
+  - `frontend/src/app/features/telemetry/clients/telemetry-clients.component.ts`
+- Keep charts unfiltered by band chips (chips affect table only).
+- Preserve row navigation to client detail and pagination options 25/50/100.
+
+**Exit criteria**
+- All 9 required columns and threshold color rules are present.
+- Search + band chips + pagination can be combined without state bugs.
+
+### Phase 4 - Devices tab redesign (1-1.5 days)
+- Implement reporting summary strip, CPU/memory trend charts, doughnuts, type filters, and table in:
+  - `frontend/src/app/features/telemetry/site-devices/telemetry-site-devices.component.html`
+  - `frontend/src/app/features/telemetry/site-devices/telemetry-site-devices.component.scss`
+  - `frontend/src/app/features/telemetry/site-devices/telemetry-site-devices.component.ts`
+- Ensure type chips dynamically update both chart series and table rows.
+
+**Exit criteria**
+- Device-type and reporting doughnuts render correctly from live site data.
+- Table key metric column adapts by type (AP/SW/GW).
+
+### Phase 5 - Switch/Gateway detail alignment (1.5-2 days)
+- Align detail page layout with shared detail pattern in:
+  - `frontend/src/app/features/telemetry/device/telemetry-device.component.html`
+  - `frontend/src/app/features/telemetry/device/telemetry-device.component.scss`
+  - `frontend/src/app/features/telemetry/device/telemetry-device.component.ts`
+- Add/update expansion-panel sections with defaults:
+  - Structured sections expanded on load
+  - Live Events collapsed on load
+- Keep AP detail behavior unchanged; only switch/gateway paths are updated.
+
+**Exit criteria**
+- Switch and gateway pages show 6-tile strip, 3 charts, and collapsible sections per spec.
+- Stale badge and threshold coloring are consistent with summary/tables.
+
+### Phase 6 - Client detail finalization (0.5-1 day)
+- Finish breadcrumb behavior, KPI strip consistency, RSSI/throughput chart formatting, and live-event formatting toggle in:
+  - `frontend/src/app/features/telemetry/client-detail/telemetry-client-detail.component.html`
+  - `frontend/src/app/features/telemetry/client-detail/telemetry-client-detail.component.scss`
+  - `frontend/src/app/features/telemetry/client-detail/telemetry-client-detail.component.ts`
+
+**Exit criteria**
+- Breadcrumb returns to site clients tab correctly.
+- Live events support formatted/raw modes and preserve latest-event summary.
+
+### Phase 7 - Shared presentation utilities and styling tokens (0.5 day)
+- Add shared Mbps conversion pipe and common threshold helpers in:
+  - `frontend/src/app/shared/pipes/`
+  - telemetry feature helper files as needed
+- Centralize telemetry-specific semantic classes for status chips and metric state colors.
+- Verify all newly added colors use existing `--app-*` variables only.
+
+**Exit criteria**
+- No hardcoded hex colors in telemetry feature styles.
+- All traffic values display as Mbps in tiles, tables, and charts.
+
+### Phase 8 - QA, performance, and accessibility pass (1 day)
+- Functional verification:
+  - Header navigation and breadcrumbs on every route
+  - Time-range propagation and live refresh behavior
+  - Empty/loading/error states for each page type
+- Performance checks:
+  - Confirm charts do not re-animate on WebSocket updates
+  - Verify no redundant polling/subscription leaks during route changes
+- Accessibility checks:
+  - Keyboard access for tabs, chips, and expansion panels
+  - Color contrast and non-color status cues for metric severity
+
+### Phase 9 - Release plan (0.5 day)
+- Merge behind a temporary telemetry UI feature flag if needed for staged validation.
+- Conduct product/design walkthrough with side-by-side old/new screenshots.
+- Remove obsolete sidebar-specific code after sign-off.
+
+---
+
+## Task Breakdown Checklist
+
+- [ ] Phase 0 complete
+- [ ] Phase 1 complete
+- [ ] Phase 2 complete
+- [ ] Phase 3 complete
+- [ ] Phase 4 complete
+- [ ] Phase 5 complete
+- [ ] Phase 6 complete
+- [ ] Phase 7 complete
+- [ ] Phase 8 complete
+- [ ] Phase 9 complete
+
+---
+
+## Validation Commands
+
+Run from `frontend/`:
+
+```bash
+npm start
+npx ng test
+npx ng build
+```
+
+Run from `backend/` (smoke only, no expected API changes):
+
+```bash
+source .venv/bin/activate
+pytest -k telemetry
+```

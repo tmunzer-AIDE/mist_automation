@@ -5,6 +5,7 @@ import { TelemetryService } from './telemetry.service';
 import { ScopeSite, ScopeDevices, TimeRange } from './models';
 
 export type TelemetryView = 'summary' | 'clients' | 'devices' | 'client-detail' | 'device-detail' | null;
+export type TelemetryDetailKind = 'client' | 'ap' | 'switch' | 'gateway' | null;
 
 @Injectable({ providedIn: 'root' })
 export class TelemetryNavService {
@@ -18,6 +19,11 @@ export class TelemetryNavService {
   readonly activeView = signal<TelemetryView>(null);
   readonly siteDevices = signal<ScopeDevices | null>(null);
   readonly devicesLoaded = signal(false);
+  readonly detailTitle = signal('');
+  readonly detailKind = signal<TelemetryDetailKind>(null);
+  readonly detailStale = signal<boolean | null>(null);
+  readonly detailSiteId = signal<string | null>(null);
+  readonly detailSiteName = signal('');
 
   readonly selectedSite = computed(() => {
     const id = this.activeSiteId();
@@ -58,6 +64,28 @@ export class TelemetryNavService {
     this.siteDevices.set(null);
   }
 
+  setDetailContext(context: {
+    title: string;
+    kind: TelemetryDetailKind;
+    stale?: boolean | null;
+    siteId?: string | null;
+    siteName?: string;
+  }): void {
+    this.detailTitle.set(context.title || '');
+    this.detailKind.set(context.kind ?? null);
+    this.detailStale.set(context.stale ?? null);
+    this.detailSiteId.set(context.siteId ?? null);
+    this.detailSiteName.set(context.siteName ?? '');
+  }
+
+  clearDetailContext(): void {
+    this.detailTitle.set('');
+    this.detailKind.set(null);
+    this.detailStale.set(null);
+    this.detailSiteId.set(null);
+    this.detailSiteName.set('');
+  }
+
   private _syncFromUrl(url: string): void {
     // Strip query params and fragment
     const path = url.split('?')[0].split('#')[0];
@@ -66,6 +94,7 @@ export class TelemetryNavService {
     if (segments.length === 0) {
       this.activeSiteId.set(null);
       this.activeView.set(null);
+      this.clearDetailContext();
       return;
     }
 
@@ -84,10 +113,16 @@ export class TelemetryNavService {
         this.activeView.set('summary');
       }
     } else if (segments[0] === 'device' && segments[1]) {
+      this.activeSiteId.set(null);
       this.activeView.set('device-detail');
     } else {
       this.activeSiteId.set(null);
       this.activeView.set(null);
+      this.clearDetailContext();
+    }
+
+    if (this.activeView() !== 'client-detail' && this.activeView() !== 'device-detail') {
+      this.clearDetailContext();
     }
   }
 }

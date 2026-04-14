@@ -1,5 +1,5 @@
 import { Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { DecimalPipe, DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
@@ -8,6 +8,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatTableModule } from '@angular/material/table';
 import { BaseChartDirective } from 'ng2-charts';
 import { SkeletonLoaderComponent } from '../../../shared/components/skeleton-loader/skeleton-loader.component';
@@ -16,7 +17,8 @@ import type { ChartConfiguration } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { TelemetryService } from '../telemetry.service';
 import { TelemetryNavService } from '../telemetry-nav.service';
-import { getChartColor } from '../../../shared/utils/chart-defaults';
+import { getChartColor, getTopicColors } from '../../../shared/utils/chart-defaults';
+import { ToMbpsPipe } from '../../../shared/pipes/to-mbps.pipe';
 import type {
   ClientListResponse,
   ClientSiteSummary,
@@ -33,14 +35,17 @@ Chart.register(...registerables);
   imports: [
     DecimalPipe,
     DatePipe,
+    NgClass,
     ReactiveFormsModule,
     MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatPaginatorModule,
     MatTableModule,
     BaseChartDirective,
     SkeletonLoaderComponent,
+    ToMbpsPipe,
   ],
   templateUrl: './telemetry-clients.component.html',
   styleUrl: './telemetry-clients.component.scss',
@@ -62,38 +67,32 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
   readonly searchCtrl = new FormControl('');
   private readonly searchTerm = signal('');
 
-  readonly clientColumns = [
-    'hostname',
-    'mac',
-    'ap_mac',
-    'band',
-    'channel',
-    'rssi',
-    'snr',
-    'tx_bps',
-    'rx_bps',
-    'tx_rate',
-    'manufacture',
-    'auth_type',
-    'last_seen',
-  ];
-
-  readonly activeAuthType = signal('');
+  readonly clientColumns = ['identity', 'ap_mac', 'band', 'rssi', 'snr', 'tx_mbps', 'rx_mbps', 'auth', 'last_seen'];
+  readonly activeBand = signal<'' | '24' | '5' | '6'>('');
+  readonly pageIndex = signal(0);
+  readonly pageSize = signal(25);
 
   readonly filteredClients = computed(() => {
     const all = this.clientsResponse()?.clients ?? [];
     const term = this.searchTerm().toLowerCase();
-    const auth = this.activeAuthType();
-    return all.filter((c: ClientStatRecord) => {
-      if (auth && c.auth_type !== auth) return false;
-      if (!term) return true;
-      return (
-        (c.hostname || '').toLowerCase().includes(term) ||
-        c.mac.includes(term) ||
-        (c.ap_mac || '').includes(term) ||
-        (c.manufacture || '').toLowerCase().includes(term)
-      );
-    });
+    const band = this.activeBand();
+    return all
+      .filter((c: ClientStatRecord) => {
+        if (band && c.band !== band) return false;
+        if (!term) return true;
+        return (
+          (c.hostname || '').toLowerCase().includes(term) ||
+          c.mac.toLowerCase().includes(term) ||
+          (c.ap_mac || '').includes(term) ||
+          (c.manufacture || '').toLowerCase().includes(term)
+        );
+      })
+      .sort((a, b) => (a.hostname || a.mac).localeCompare(b.hostname || b.mac));
+  });
+
+  readonly pagedClients = computed(() => {
+    const start = this.pageIndex() * this.pageSize();
+    return this.filteredClients().slice(start, start + this.pageSize());
   });
 
   readonly bandEntries = computed(() => {
@@ -106,12 +105,35 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
       }));
   });
 
-  readonly countsByAuth = computed(() => {
+  readonly countsByBand = computed(() => {
     const all = this.clientsResponse()?.clients ?? [];
     return {
-      psk: all.filter((c: ClientStatRecord) => c.auth_type === 'psk').length,
-      eap: all.filter((c: ClientStatRecord) => c.auth_type === 'eap').length,
+      b24: all.filter((c: ClientStatRecord) => c.band === '24').length,
+      b5: all.filter((c: ClientStatRecord) => c.band === '5').length,
+      b6: all.filter((c: ClientStatRecord) => c.band === '6').length,
     };
+  });
+
+  readonly bandSplitChart = computed((): ChartConfiguration<'doughnut'> | null => {
+    const s = this.summary();
+    if (!s) return null;
+    const entries = ['24', '5', '6'].filter((k) => (s.band_counts?.[k] ?? 0) > 0);
+    if (!entries.length) return null;
+    return this._buildDoughnutChart(
+      entries.map((k) => this.bandLabel(k)),
+      entries.map((k) => s.band_counts[k]),
+    );
+  });
+
+  readonly protoSplitChart = computed((): ChartConfiguration<'doughnut'> | null => {
+    const s = this.summary();
+    if (!s) return null;
+    const entries = Object.entries(s.proto_counts ?? {}).filter(([, count]) => count > 0);
+    if (!entries.length) return null;
+    return this._buildDoughnutChart(
+      entries.map(([proto]) => proto.toUpperCase()),
+      entries.map(([, count]) => count),
+    );
   });
 
   readonly countChart = signal<ChartConfiguration<'line'> | null>(null);
@@ -129,7 +151,10 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
 
     this.searchCtrl.valueChanges
       .pipe(debounceTime(200), takeUntilDestroyed(this.destroyRef))
-      .subscribe((v) => this.searchTerm.set(v ?? ''));
+      .subscribe((v) => {
+        this.searchTerm.set(v ?? '');
+        this.pageIndex.set(0);
+      });
 
     // React to time range changes from nav service
     this.navTimeRange$
@@ -141,8 +166,14 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
     this.wsSub?.unsubscribe();
   }
 
-  toggleAuthType(auth: string): void {
-    this.activeAuthType.set(this.activeAuthType() === auth ? '' : auth);
+  toggleBand(band: '' | '24' | '5' | '6'): void {
+    this.activeBand.set(this.activeBand() === band ? '' : band);
+    this.pageIndex.set(0);
+  }
+
+  onPage(event: PageEvent): void {
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
   }
 
   navigateToClient(mac: string): void {
@@ -227,9 +258,58 @@ export class TelemetryClientsComponent implements OnInit, OnDestroy {
         maintainAspectRatio: false,
         animation: { duration: 0 },
         plugins: { legend: { display: false } },
-        scales: { x: { type: 'time', display: true }, y: { beginAtZero: false } },
+        scales: { x: { type: 'time', display: true }, y: { beginAtZero: label === 'Clients' } },
       },
     };
+  }
+
+  private _buildDoughnutChart(labels: string[], values: number[]): ChartConfiguration<'doughnut'> {
+    const palette = getTopicColors();
+    return {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data: values, backgroundColor: palette.slice(0, values.length), borderWidth: 0 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        plugins: { legend: { position: 'bottom' } },
+      },
+    };
+  }
+
+  bandLabel(band: string): string {
+    if (band === '24') return '2.4G';
+    if (band === '5') return '5G';
+    if (band === '6') return '6G';
+    return band;
+  }
+
+  bandClass(band: string): string {
+    if (band === '24') return 'band-24';
+    if (band === '5') return 'band-5';
+    if (band === '6') return 'band-6';
+    return '';
+  }
+
+  authLabel(authType: string): string {
+    return authType === 'eap' ? '802.1X' : 'PSK';
+  }
+
+  rssiClass(rssi: number | null): string {
+    if (rssi == null) return '';
+    if (rssi > -60) return 'ok';
+    if (rssi >= -75) return 'warn';
+    return 'crit';
+  }
+
+  snrClass(snr: number | null): string {
+    if (snr == null) return '';
+    if (snr > 25) return 'ok';
+    if (snr >= 15) return 'warn';
+    return 'crit';
   }
 
   private _subscribeWs(siteId: string): void {

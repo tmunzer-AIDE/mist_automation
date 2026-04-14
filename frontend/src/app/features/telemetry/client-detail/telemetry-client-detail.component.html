@@ -1,15 +1,15 @@
 <div class="client-detail-page">
   @if (loading()) {
-    <div class="kpi-row">
-      @for (_ of [1,2,3,4,5,6,7,8]; track $index) {
+    <div class="kpi-strip">
+      @for (_ of [1,2,3,4,5,6]; track $index) {
         <div class="kpi-card">
           <div class="shimmer-block" style="width: 60%; height: 11px;"></div>
           <div class="shimmer-block" style="width: 80%; height: 22px; margin-top: 8px;"></div>
         </div>
       }
     </div>
-    <div class="info-row">
-      @for (_ of [1,2,3,4,5,6,7,8]; track $index) {
+    <div class="info-strip">
+      @for (_ of [1,2,3,4,5,6]; track $index) {
         <div class="info-card">
           <div class="shimmer-block" style="width: 60%; height: 11px;"></div>
           <div class="shimmer-block" style="width: 80%; height: 16px; margin-top: 6px;"></div>
@@ -19,41 +19,38 @@
     <div class="chart-row">
       @for (_ of [1,2]; track $index) {
         <div class="chart-container">
-          <div class="shimmer-block" style="width: 120px; height: 12px; margin-bottom: 8px;"></div>
           <div class="shimmer-block" style="height: 180px;"></div>
         </div>
       }
     </div>
   } @else {
     @if (client(); as c) {
-      <div class="kpi-row">
+
+      <!-- 6-tile primary strip: AP, SSID, RSSI, SNR, Auth, Uptime -->
+      <div class="kpi-strip">
+        <div class="kpi-card">
+          <div class="kpi-label">AP</div>
+          <div class="kpi-value monospace">{{ apName() || c.ap_mac || '—' }}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">SSID</div>
+          <div class="kpi-value" [title]="c.ssid || ''">{{ c.ssid || '—' }}</div>
+        </div>
         <div class="kpi-card">
           <div class="kpi-label">RSSI</div>
-          <div class="kpi-value">{{ c.rssi | number: '1.0-0' }} dBm</div>
+          <div class="kpi-value" [ngClass]="rssiClass(c.rssi)">
+            {{ c.rssi != null ? (c.rssi | number: '1.0-0') + ' dBm' : '—' }}
+          </div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">SNR</div>
-          <div class="kpi-value">{{ c.snr | number: '1.0-0' }} dB</div>
+          <div class="kpi-value" [ngClass]="snrClass(c.snr)">
+            {{ c.snr != null ? (c.snr | number: '1.0-0') + ' dB' : '—' }}
+          </div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">TX</div>
-          <div class="kpi-value">{{ c.tx_bps | number }} bps</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">RX</div>
-          <div class="kpi-value">{{ c.rx_bps | number }} bps</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Band</div>
-          <div class="kpi-value">{{ bandLabel() }}</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Channel</div>
-          <div class="kpi-value">{{ c.channel ?? '—' }}</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Protocol</div>
-          <div class="kpi-value">{{ c.proto || '—' }}</div>
+          <div class="kpi-label">Auth</div>
+          <div class="kpi-value">{{ c.auth_type === 'eap' ? '802.1X' : 'PSK' }}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Uptime</div>
@@ -61,7 +58,8 @@
         </div>
       </div>
 
-      <div class="info-row">
+      <!-- Secondary info strip: less critical metadata -->
+      <div class="info-strip">
         <div class="info-card">
           <div class="info-label">Hostname</div>
           <div class="info-value" [title]="c.hostname || ''">{{ c.hostname || '—' }}</div>
@@ -71,31 +69,24 @@
           <div class="info-value monospace">{{ c.ip || '—' }}</div>
         </div>
         <div class="info-card">
-          <div class="info-label">Manufacturer</div>
-          <div class="info-value" [title]="c.manufacture || ''">{{ c.manufacture || '—' }}</div>
+          <div class="info-label">Band / Ch</div>
+          <div class="info-value">{{ bandLabel() }} / {{ c.channel ?? '—' }}</div>
         </div>
         <div class="info-card">
-          <div class="info-label">OS</div>
-          <div class="info-value" [title]="c.os || ''">{{ c.os || '—' }}</div>
+          <div class="info-label">Protocol</div>
+          <div class="info-value">802.11{{ c.proto || '—' }}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Manufacturer</div>
+          <div class="info-value" [title]="c.manufacture || ''">{{ c.manufacture || '—' }}</div>
         </div>
         <div class="info-card">
           <div class="info-label">VLAN</div>
           <div class="info-value">{{ c.vlan_id || '—' }}</div>
         </div>
-        <div class="info-card">
-          <div class="info-label">Auth</div>
-          <div class="info-value">{{ c.auth_type === 'eap' ? '802.1X' : 'PSK' }}</div>
-        </div>
-        <div class="info-card">
-          <div class="info-label">Guest</div>
-          <div class="info-value">{{ c.is_guest ? 'Yes' : 'No' }}</div>
-        </div>
-        <div class="info-card">
-          <div class="info-label">SSID</div>
-          <div class="info-value" [title]="c.ssid || ''">{{ c.ssid || '—' }}</div>
-        </div>
       </div>
 
+      <!-- Charts -->
       <div class="chart-row">
         @if (rssiChart()) {
           <div class="chart-container">
@@ -110,7 +101,7 @@
         }
         @if (bpsChart()) {
           <div class="chart-container">
-            <div class="chart-title">TX bps</div>
+            <div class="chart-title">Throughput TX / RX (Mbps)</div>
             <canvas
               baseChart
               [data]="bpsChart()!.data"
@@ -120,13 +111,25 @@
           </div>
         }
       </div>
+
     }
   }
 
+  <!-- Live Event Log — collapsed by default -->
   @if (mac()) {
-    <div class="device-section">
-      <div class="section-header">
-        <h3 class="section-title">Live Event Log</h3>
+    <mat-expansion-panel class="live-events-panel">
+      <mat-expansion-panel-header>
+        <mat-panel-title>Live Event Log</mat-panel-title>
+        <mat-panel-description>
+          @if (liveEvents().length > 0) {
+            {{ liveEvents().length }} events · last {{ lastEventAge() }}
+          } @else {
+            waiting for events
+          }
+        </mat-panel-description>
+      </mat-expansion-panel-header>
+
+      <div class="log-toolbar">
         <mat-button-toggle-group
           [value]="viewMode()"
           (change)="setViewMode($event.value)"
@@ -136,6 +139,7 @@
           <mat-button-toggle value="raw">Raw JSON</mat-button-toggle>
         </mat-button-toggle-group>
       </div>
+
       <div class="live-log">
         @if (liveEvents().length === 0) {
           <div class="log-empty">Waiting for live events...</div>
@@ -150,13 +154,7 @@
               <span class="field">RX: {{ (event.rx_rate ?? 0) | number: '1.0-0' }} Mbps</span>
               <span class="field">AP: {{ event.ap_mac }}</span>
               <span class="field">Band: {{
-                event.band === '24'
-                  ? '2.4G'
-                  : event.band === '5'
-                    ? '5G'
-                    : event.band === '6'
-                      ? '6G'
-                      : event.band
+                event.band === '24' ? '2.4G' : event.band === '5' ? '5G' : event.band === '6' ? '6G' : event.band
               }}</span>
             </div>
           }
@@ -173,6 +171,6 @@
           }
         }
       </div>
-    </div>
+    </mat-expansion-panel>
   }
 </div>
