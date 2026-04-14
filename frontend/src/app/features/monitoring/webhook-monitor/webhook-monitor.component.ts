@@ -225,13 +225,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     this.wireFilter(this.detailsFilter, this.detailsValue);
 
     // Load initial data via REST
-    this.webhookEventService.listEvents(0, MAX_EVENTS).subscribe({
-      next: (res) => {
-        this.events.set(res.events.map((ev) => ({ ...ev, isNew: false })));
-        this.loading.set(false);
-      },
-      error: () => this.loading.set(false),
-    });
+    this.loadEvents();
 
     // WebSocket connection status
     this.wsService.connected$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((c) => {
@@ -392,7 +386,19 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
 
   selectChartRange(hours: number): void {
     this.chartHours.set(hours);
+    this.loadEvents();
     this.loadChart();
+  }
+
+  private loadEvents(): void {
+    this.loading.set(true);
+    this.webhookEventService.listEvents(0, MAX_EVENTS, undefined, undefined, this.chartHours()).subscribe({
+      next: (res) => {
+        this.events.set(res.events.map((ev) => ({ ...ev, isNew: false })));
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false),
+    });
   }
 
   loadChart(animate = true): void {

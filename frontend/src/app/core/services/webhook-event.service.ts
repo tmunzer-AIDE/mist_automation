@@ -16,6 +16,7 @@ export class WebhookEventService {
     limit = 100,
     webhookType?: string,
     processed?: boolean,
+    hours?: number,
   ): Observable<WebhookEventListResponse> {
     const params: Record<string, string | number | boolean | undefined> = {
       skip,
@@ -23,6 +24,7 @@ export class WebhookEventService {
     };
     if (webhookType) params['webhook_type'] = webhookType;
     if (processed !== undefined) params['processed'] = processed;
+    if (hours !== undefined) params['hours'] = hours;
     return this.api.get<WebhookEventListResponse>('/webhooks/events', params);
   }
 

@@ -14,13 +14,14 @@ import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
+from pymongo import DESCENDING
 from pymongo.errors import DuplicateKeyError
 
 from app.config import settings
 from app.core.tasks import create_background_task
 from app.core.webhook_extractor import enrich_event, extract_event_fields
 from app.core.websocket import ws_manager
-from app.dependencies import get_current_user_from_token, require_admin, require_automation_role
+from app.dependencies import require_admin, require_automation_role
 from app.models.system import SystemConfig
 from app.models.user import User
 from app.modules.automation.models.webhook import WebhookEvent
@@ -367,6 +368,7 @@ async def list_webhook_events(
     limit: int = Query(100, ge=1, le=1000),
     webhook_type: str | None = Query(None, description="Filter by webhook type"),
     processed: bool | None = Query(None, description="Filter by processed status"),
+    hours: int | None = Query(None, ge=1, le=720, description="Optional time range in hours (max 30 days)"),
     _current_user: User = Depends(require_automation_role),
 ):
     """List webhook events received from Mist."""
@@ -375,9 +377,12 @@ async def list_webhook_events(
         query["webhook_type"] = webhook_type
     if processed is not None:
         query["processed"] = processed
+    if hours is not None:
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        query["received_at"] = {"$gte": since}
 
     total = await WebhookEvent.find(query).count()
-    events = await WebhookEvent.find(query).sort(["-event_timestamp", "-received_at"]).skip(skip).limit(limit).to_list()
+    events = await WebhookEvent.find(query).sort([("event_timestamp", DESCENDING), ("received_at", DESCENDING)]).skip(skip).limit(limit).to_list()
 
     return WebhookListResponse(
         events=[_event_to_response(event) for event in events],
