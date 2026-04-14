@@ -38,7 +38,7 @@ import { WebhookEventService } from '../../../core/services/webhook-event.servic
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { LlmService } from '../../../core/services/llm.service';
 import { TopbarService } from '../../../core/services/topbar.service';
-import { MonitorEvent } from '../../../core/models/webhook-event.model';
+import { MonitorEvent, WebhookEventListFilters } from '../../../core/models/webhook-event.model';
 import {
   barDataset,
   getChartGridColor,
@@ -145,25 +145,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   macOptions = computed(() => this.uniqueFiltered(this.events(), 'device_mac', this.macValue()));
 
   filteredEvents = computed(() => {
-    const topic = this.topicValue().toLowerCase();
-    const eventType = this.eventTypeValue().toLowerCase();
-    const org = this.orgValue().toLowerCase();
-    const site = this.siteValue().toLowerCase();
-    const device = this.deviceValue().toLowerCase();
-    const mac = this.macValue().toLowerCase();
-    const details = this.detailsValue().toLowerCase();
-
     return this.events()
-      .filter((ev) => {
-        if (topic && !ev.webhook_topic?.toLowerCase().includes(topic)) return false;
-        if (eventType && !ev.event_type?.toLowerCase().includes(eventType)) return false;
-        if (org && !ev.org_name?.toLowerCase().includes(org)) return false;
-        if (site && !ev.site_name?.toLowerCase().includes(site)) return false;
-        if (device && !ev.device_name?.toLowerCase().includes(device)) return false;
-        if (mac && !ev.device_mac?.toLowerCase().includes(mac)) return false;
-        if (details && !ev.event_details?.toLowerCase().includes(details)) return false;
-        return true;
-      })
       .sort((a, b) => {
         const ta = a.event_timestamp || a.received_at || '';
         const tb = b.event_timestamp || b.received_at || '';
@@ -205,6 +187,7 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   private wsSub: Subscription | null = null;
   private highlightTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private chartRefresh$ = new Subject<void>();
+  private eventsRefresh$ = new Subject<void>();
 
   ngOnInit(): void {
     this.topbarService.setTitle('Webhook Monitor');
@@ -246,6 +229,14 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
     this.chartRefresh$
       .pipe(debounceTime(5000), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.loadChart(false));
+
+    // Debounced server-side event refresh for filter changes.
+    this.eventsRefresh$
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.pageIndex.set(0);
+        this.loadEvents();
+      });
   }
 
   ngOnDestroy(): void {
@@ -259,8 +250,30 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
   private wireFilter(control: FormControl<string | null>, sig: ReturnType<typeof signal<string>>): void {
     control.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((v) => {
       sig.set(v || '');
-      this.pageIndex.set(0);
+      this.eventsRefresh$.next();
     });
+  }
+
+  private valueOrUndefined(value: string): string | undefined {
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private buildListFilters(): WebhookEventListFilters {
+    return {
+      webhook_topic: this.valueOrUndefined(this.topicValue()),
+      event_type: this.valueOrUndefined(this.eventTypeValue()),
+      org_name: this.valueOrUndefined(this.orgValue()),
+      site_name: this.valueOrUndefined(this.siteValue()),
+      device_name: this.valueOrUndefined(this.deviceValue()),
+      device_mac: this.valueOrUndefined(this.macValue()),
+      event_details: this.valueOrUndefined(this.detailsValue()),
+    };
+  }
+
+  private hasActiveServerFilters(): boolean {
+    const filters = this.buildListFilters();
+    return Object.values(filters).some((value) => value !== undefined);
   }
 
   private uniqueFiltered(
@@ -284,6 +297,11 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
 
     if (this.paused()) {
       this.pauseBuffer.update((buf) => [ev, ...buf]);
+      return;
+    }
+
+    if (this.hasActiveServerFilters()) {
+      this.eventsRefresh$.next();
       return;
     }
 
@@ -392,7 +410,9 @@ export class WebhookMonitorComponent implements OnInit, OnDestroy {
 
   private loadEvents(): void {
     this.loading.set(true);
-    this.webhookEventService.listEvents(0, MAX_EVENTS, undefined, undefined, this.chartHours()).subscribe({
+    this.webhookEventService
+      .listEvents(0, MAX_EVENTS, undefined, undefined, this.chartHours(), this.buildListFilters())
+      .subscribe({
       next: (res) => {
         this.events.set(res.events.map((ev) => ({ ...ev, isNew: false })));
         this.loading.set(false);

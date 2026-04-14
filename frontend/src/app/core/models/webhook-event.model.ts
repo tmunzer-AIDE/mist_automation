@@ -36,6 +36,16 @@ export interface WebhookEventListResponse {
   total: number;
 }
 
+export interface WebhookEventListFilters {
+  webhook_topic?: string;
+  event_type?: string;
+  org_name?: string;
+  site_name?: string;
+  device_name?: string;
+  device_mac?: string;
+  event_details?: string;
+}
+
 export interface MonitorEvent extends WebhookEventSummary {
   isNew?: boolean;
 }

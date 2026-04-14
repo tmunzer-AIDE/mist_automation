@@ -3,6 +3,7 @@ import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 import {
   WebhookEventDetail,
+  WebhookEventListFilters,
   WebhookEventListResponse,
   WebhookStatsResponse,
 } from '../models/webhook-event.model';
@@ -17,6 +18,7 @@ export class WebhookEventService {
     webhookType?: string,
     processed?: boolean,
     hours?: number,
+    filters?: WebhookEventListFilters,
   ): Observable<WebhookEventListResponse> {
     const params: Record<string, string | number | boolean | undefined> = {
       skip,
@@ -25,6 +27,15 @@ export class WebhookEventService {
     if (webhookType) params['webhook_type'] = webhookType;
     if (processed !== undefined) params['processed'] = processed;
     if (hours !== undefined) params['hours'] = hours;
+    if (filters) {
+      params['webhook_topic'] = filters.webhook_topic;
+      params['event_type'] = filters.event_type;
+      params['org_name'] = filters.org_name;
+      params['site_name'] = filters.site_name;
+      params['device_name'] = filters.device_name;
+      params['device_mac'] = filters.device_mac;
+      params['event_details'] = filters.event_details;
+    }
     return this.api.get<WebhookEventListResponse>('/webhooks/events', params);
   }
 

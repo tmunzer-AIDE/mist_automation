@@ -8,13 +8,14 @@ to the automation and/or backup modules.
 import hashlib
 import hmac
 import ipaddress
+import re
 from datetime import datetime, timedelta, timezone
 
 import structlog
 from beanie import PydanticObjectId
+from beanie.odm.enums import SortDirection
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from pymongo import DESCENDING
 from pymongo.errors import DuplicateKeyError
 
 from app.config import settings
@@ -367,14 +368,51 @@ async def list_webhook_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     webhook_type: str | None = Query(None, description="Filter by webhook type"),
+    webhook_topic: str | None = Query(None, max_length=200, description="Filter by webhook topic (contains)"),
+    event_type: str | None = Query(None, max_length=200, description="Filter by event type (contains)"),
+    org_name: str | None = Query(None, max_length=200, description="Filter by org name (contains)"),
+    site_name: str | None = Query(None, max_length=200, description="Filter by site name (contains)"),
+    device_name: str | None = Query(None, max_length=200, description="Filter by device name (contains)"),
+    device_mac: str | None = Query(None, max_length=200, description="Filter by device MAC (contains)"),
+    event_details: str | None = Query(None, max_length=500, description="Filter by event details (contains)"),
     processed: bool | None = Query(None, description="Filter by processed status"),
     hours: int | None = Query(None, ge=1, le=720, description="Optional time range in hours (max 30 days)"),
     _current_user: User = Depends(require_automation_role),
 ):
     """List webhook events received from Mist."""
+
+    def _contains_filter(value: str | None) -> dict[str, str] | None:
+        if not value:
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        return {"$regex": re.escape(text), "$options": "i"}
+
     query = {}
     if webhook_type:
         query["webhook_type"] = webhook_type
+    topic_filter = _contains_filter(webhook_topic)
+    if topic_filter is not None:
+        query["webhook_topic"] = topic_filter
+    event_type_filter = _contains_filter(event_type)
+    if event_type_filter is not None:
+        query["event_type"] = event_type_filter
+    org_name_filter = _contains_filter(org_name)
+    if org_name_filter is not None:
+        query["org_name"] = org_name_filter
+    site_name_filter = _contains_filter(site_name)
+    if site_name_filter is not None:
+        query["site_name"] = site_name_filter
+    device_name_filter = _contains_filter(device_name)
+    if device_name_filter is not None:
+        query["device_name"] = device_name_filter
+    device_mac_filter = _contains_filter(device_mac)
+    if device_mac_filter is not None:
+        query["device_mac"] = device_mac_filter
+    event_details_filter = _contains_filter(event_details)
+    if event_details_filter is not None:
+        query["event_details"] = event_details_filter
     if processed is not None:
         query["processed"] = processed
     if hours is not None:
@@ -382,7 +420,13 @@ async def list_webhook_events(
         query["received_at"] = {"$gte": since}
 
     total = await WebhookEvent.find(query).count()
-    events = await WebhookEvent.find(query).sort([("event_timestamp", DESCENDING), ("received_at", DESCENDING)]).skip(skip).limit(limit).to_list()
+    events = (
+        await WebhookEvent.find(query)
+        .sort([("event_timestamp", SortDirection.DESCENDING), ("received_at", SortDirection.DESCENDING)])
+        .skip(skip)
+        .limit(limit)
+        .to_list()
+    )
 
     return WebhookListResponse(
         events=[_event_to_response(event) for event in events],
