@@ -48,15 +48,26 @@ async def activate_skill(
     any bundled resource files in the skill directory.
     """
     from app.modules.llm.models import Skill
-    from app.modules.llm.services.skills_service import list_skill_resources, parse_skill_md
+    from app.modules.llm.services.skills_service import (
+        find_app_skill_dir,
+        list_skill_resources,
+        parse_skill_md,
+    )
 
     skill_name = _validate_skill_name(name)
 
     skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
-    if not skill:
-        raise ToolError(f"Skill '{skill_name}' not found or not enabled")
+    source_label: str
+    if skill:
+        skill_dir = Path(skill.local_path)
+        source_label = str(skill.local_path)
+    else:
+        # Fallback: built-in app skills from dedicated folder are always available.
+        skill_dir = find_app_skill_dir(skill_name)
+        if not skill_dir:
+            raise ToolError(f"Skill '{skill_name}' not found or not enabled")
+        source_label = str(skill_dir)
 
-    skill_dir = Path(skill.local_path)
     skill_file = skill_dir / "SKILL.md"
 
     if not skill_file.exists():
@@ -77,7 +88,7 @@ async def activate_skill(
     return (
         f'<skill_content name="{escape(skill_name)}">\n'
         f"{escape(body)}\n\n"
-        f"Skill directory: {escape(str(skill.local_path))}"
+        f"Skill directory: {escape(source_label)}"
         f"{resources_block}\n"
         f"</skill_content>"
     )
