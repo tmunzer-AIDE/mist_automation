@@ -48,12 +48,12 @@ Two panes side by side:
 - Sorted newest first.
 - Each row has: A/B pin indicator (circle with letter, or empty dot), version number, date, actor (`commit_user` or event type), change-magnitude bar (proportional width), changed-field tags (top 2 + "+N more").
 - The two pinned rows (A and B) are highlighted with a left border and background tint in their respective colors (red for A, blue for B).
-- Older/less-important rows use a compact single-line format (no tags, no magnitude bar) to reduce density while still showing version number, date, and change count.
+- The **3 newest versions** use the full row format. Older versions use a compact single-line format (no tags, no magnitude bar) showing only version number, date, and change count. Pinned versions (A or B) always use the full format regardless of their position in the list.
 - **Per-row action buttons** (always visible, not hover-only):
   - Full rows: `View` (opens JSON dialog), `Rollback`, `Simulate`
   - Compact rows: icon-only `↩` (rollback) and `⚡` (simulate)
 - `Rollback`: calls the existing `POST /backups/objects/versions/{id}/restore` endpoint. Requires confirmation dialog.
-- `Simulate`: passes the version's `configuration` to the Digital Twin as a simulated `update` action against the current live config. Uses the existing `digital_twin` MCP tool / Digital Twin API.
+- `Simulate`: passes the version's `configuration` to the Digital Twin as a simulated `update` action against the current live config. Uses the `object_type`, `org_id`, `site_id`, and `object_id` fields already present on the `BackupObject` document. Uses the existing `digital_twin` MCP tool / Digital Twin API.
 
 **Right pane — Persistent Diff Panel** (flexible width, scrollable):
 
@@ -75,7 +75,7 @@ The pin model works as a simple two-slot cycle:
 
 1. No pins set → click any row → sets A (red).
 2. A set, B not set → click any other row → sets B (blue). Diff panel updates.
-3. Both set → click any unselected row → replaces A with that version, former A becomes the new A. (i.e., clicking a third row always reassigns A, not B.)
+3. Both set → click any unselected row → the clicked version becomes the new A (the previous A is discarded). Clicking a third row always reassigns A, never B.
 4. Click the current A row → clears A.
 5. Click the current B row → clears B.
 
@@ -118,7 +118,8 @@ The current compare mode toggle, version table, and separate diff section are re
 | Two versions created within minutes of each other | Minimum 20px spacing applied; the later bubble is shifted right |
 | Very large number of versions (50+) | Timeline still works (proportional positions computed from full range); list is virtualized or paginated if needed |
 | Deleted object (latest version has `is_deleted: true`) | Show a "DELETED" badge on v_latest in the list; rollback from any earlier version effectively restores the object |
-| Object with no `changed_fields` metadata | Compute change count from `deepDiff()` at load time; use that for bubble size |
+| Object with no `changed_fields` metadata | Compute change count from `deepDiff()` against the previous version at load time; use that for bubble size |
+| v1 (initial backup, no previous version) | No diff possible — show a fixed minimum bubble size (8px) with an "initial" label; Rollback/Simulate are still available |
 
 ---
 
