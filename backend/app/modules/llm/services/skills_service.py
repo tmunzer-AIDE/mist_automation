@@ -191,16 +191,37 @@ def render_skills_catalog(entries: list[SkillCatalogEntry]) -> str:
     return "\n".join(lines)
 
 
-async def build_skills_catalog() -> str:
+async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -> str:
     """Return an XML catalog of enabled skills for injection into LLM system prompts.
 
     Returns an empty string if no skills are enabled (so callers can skip injection).
     """
-    from app.modules.llm.models import Skill  # local import to avoid circular dep
+    from beanie import PydanticObjectId
+
+    from app.modules.llm.models import Skill, SkillGitRepo  # local import to avoid circular dep
 
     db_skills = await Skill.find(Skill.enabled == True).to_list()  # noqa: E712
+    active_ids = {s for s in (active_mcp_config_ids or []) if s}
+
+    repo_map: dict[str, SkillGitRepo] = {}
+    repo_ids = {str(s.git_repo_id) for s in db_skills if s.git_repo_id}
+    if repo_ids:
+        repos = await SkillGitRepo.find({"_id": {"$in": [PydanticObjectId(r) for r in repo_ids]}}).to_list()
+        repo_map = {str(repo.id): repo for repo in repos}
+
+    def _required_mcp_id(skill: Skill) -> str | None:
+        if skill.mcp_config_id:
+            return str(skill.mcp_config_id)
+        if skill.git_repo_id:
+            repo = repo_map.get(str(skill.git_repo_id))
+            if repo and repo.mcp_config_id:
+                return str(repo.mcp_config_id)
+        return None
+
     entries: list[SkillCatalogEntry] = [
-        SkillCatalogEntry(name=skill.name, description=skill.description) for skill in db_skills
+        SkillCatalogEntry(name=skill.name, description=skill.description)
+        for skill in db_skills
+        if (_required_mcp_id(skill) is None or _required_mcp_id(skill) in active_ids)
     ]
 
     # Built-in app skills are always included, even if no DB skills are configured.
