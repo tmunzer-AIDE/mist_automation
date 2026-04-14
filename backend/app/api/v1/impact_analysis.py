@@ -497,16 +497,55 @@ async def get_sle_data(
 
 def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
+    import json
+
+    def _json_snippet(value: object, max_len: int = 1200) -> str:
+        text = json.dumps(value, indent=2, default=str)
+        if len(text) <= max_len:
+            return text
+        return text[:max_len] + f"\n... (truncated, full length {len(text)} chars)"
+
     lines = [
         f"Impact Analysis Session for {session.device_type.value} '{session.device_name or session.device_mac}'",
-        f"Site: {session.site_name} | Status: {session.status.value} | Impact: {session.impact_severity}",
+        f"Org ID: {session.org_id} | Site ID: {session.site_id} ({session.site_name})",
+        f"Status: {session.status.value} | Impact: {session.impact_severity}",
         f"Config changes: {len(session.config_changes)} | Incidents: {len(session.incidents)}",
     ]
     if session.config_changes:
-        latest = session.config_changes[-1]
-        lines.append(f"Latest config event: {latest.event_type} at {latest.timestamp.isoformat()}")
-        if latest.commit_user:
-            lines.append(f"  Committed by: {latest.commit_user} via {latest.commit_method}")
+        recent_changes = list(reversed(session.config_changes[-3:]))
+        lines.append("\nMost recent config changes (newest first):")
+        for idx, change in enumerate(recent_changes, start=1):
+            lines.append(f"{idx}. {change.event_type} at {change.timestamp.isoformat()}")
+            if change.commit_user:
+                lines.append(f"   Committed by: {change.commit_user} via {change.commit_method or 'unknown'}")
+            if change.device_model or change.firmware_version:
+                lines.append(
+                    "   Device snapshot: "
+                    f"model={change.device_model or 'unknown'}, firmware={change.firmware_version or 'unknown'}"
+                )
+            if change.change_message:
+                lines.append(f"   Audit message: {change.change_message}")
+            if change.payload_summary:
+                lines.append("   Payload summary:")
+                lines.append(f"```json\n{_json_snippet(change.payload_summary, max_len=900)}\n```")
+            if change.config_diff:
+                diff = change.config_diff
+                if len(diff) > 1500:
+                    diff = diff[:1500] + f"\n... (truncated, full length {len(change.config_diff)} chars)"
+                lines.append("   Config diff (Junos):")
+                lines.append(f"```\n{diff}\n```")
+            if change.config_before is not None or change.config_after is not None:
+                lines.append("   Config before/after (audit):")
+                if change.config_before is not None:
+                    lines.append(f"   BEFORE:\n```json\n{_json_snippet(change.config_before)}\n```")
+                if change.config_after is not None:
+                    lines.append(f"   AFTER:\n```json\n{_json_snippet(change.config_after)}\n```")
+
+        latest = recent_changes[0]
+        lines.append(
+            "\nDefault reference: if the user says 'this change', treat it as "
+            f"{latest.event_type} at {latest.timestamp.isoformat()} unless clarified."
+        )
     if session.validation_results:
         overall = session.validation_results.get("overall_status", "unknown")
         lines.append(f"Validation: {overall}")
@@ -571,8 +610,10 @@ async def session_chat(
         "You are an AI network engineer assistant analyzing the impact of a configuration change "
         "on a Juniper Mist network device. You have access to MCP tools to query backups, "
         "workflows, device stats, and other app data. Be concise and technical. "
-        "Reference specific checks, metrics, and device details in your answers.\n\n"
-        f"Session context:\n{_sanitize_for_prompt(_build_session_context(session), max_len=4000)}"
+        "Reference specific checks, metrics, and device details in your answers. "
+        "When the user says 'this change', assume they mean the most recent config change in session context "
+        "unless they explicitly clarify otherwise.\n\n"
+        f"Session context:\n{_sanitize_for_prompt(_build_session_context(session), max_len=12000)}"
     )
 
     # Memory instruction (when memory is enabled)
