@@ -3,6 +3,7 @@ LLM API endpoints.
 """
 
 import random
+import re
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -50,6 +51,7 @@ from app.modules.llm.schemas import (
     MemoryListResponse,
     MemoryUpdateRequest,
     SkillGitRepoResponse,
+    SkillMcpServerUpdateRequest,
     SkillResponse,
     SummarizeDiffRequest,
     SummaryResponse,
@@ -968,6 +970,21 @@ async def _continue_with_mcp(thread, message: str, current_user: User, stream_id
     if messages and messages[0]["role"] == "system":
         system_prompt = messages[0]["content"]
 
+    # Skills bound to MCP servers are only exposed when the corresponding MCP is enabled.
+    if thread.feature == "global_chat":
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        skills_catalog = await build_skills_catalog(thread.mcp_config_ids)
+        system_prompt = re.sub(
+            r"\n?<available_skills>.*?</available_skills>\nWhen a task matches a skill's description, call the "
+            r"activate_skill tool with the skill's name to load its full instructions before proceeding\.",
+            "",
+            system_prompt,
+            flags=re.S,
+        ).strip()
+        if skills_catalog:
+            system_prompt += "\n\n" + skills_catalog
+
     # Include recent conversation history as context
     prior_turns = []
     for m in messages:
@@ -1629,7 +1646,11 @@ async def global_chat(
     from app.modules.llm.services.skills_service import build_skills_catalog
 
     llm = await create_llm_service()
-    skills_catalog = await build_skills_catalog()
+    # Load or create thread first so we can resolve MCP selection for skills filtering.
+    thread = await _load_or_create_thread(request.thread_id, current_user.id, "global_chat", [])
+
+    mcp_ids = request.mcp_config_ids if request.mcp_config_ids is not None else thread.mcp_config_ids
+    skills_catalog = await build_skills_catalog(mcp_ids)
     system_prompt = build_global_chat_system_prompt(current_user.roles, tz_name=current_user.timezone)
     canvas_instr = await _get_canvas_instructions()
     if canvas_instr:
@@ -1650,8 +1671,6 @@ async def global_chat(
         if "Workflow Editor" in safe_ctx:
             system_prompt += build_workflow_editor_context()
 
-    # Load or create thread
-    thread = await _load_or_create_thread(request.thread_id, current_user.id, "global_chat", [])
     if not thread.messages:
         thread.add_message("system", system_prompt)
         await thread.save()
@@ -1672,7 +1691,6 @@ async def global_chat(
     await thread.save()
 
     # Load external MCP clients — validate SSRF before persisting
-    mcp_ids = request.mcp_config_ids if request.mcp_config_ids else thread.mcp_config_ids
     external = await _load_external_mcp_clients(mcp_ids)
     if request.mcp_config_ids is not None and request.mcp_config_ids != thread.mcp_config_ids:
         thread.mcp_config_ids = request.mcp_config_ids
@@ -1865,6 +1883,9 @@ async def delete_thread(
 
 
 def _skill_to_response(skill, git_repo_url: str | None = None) -> SkillResponse:
+    effective_mcp_config_id: str | None = None
+    if skill.mcp_config_id:
+        effective_mcp_config_id = str(skill.mcp_config_id)
     return SkillResponse(
         id=str(skill.id),
         name=skill.name,
@@ -1873,6 +1894,8 @@ def _skill_to_response(skill, git_repo_url: str | None = None) -> SkillResponse:
         enabled=skill.enabled,
         git_repo_id=str(skill.git_repo_id) if skill.git_repo_id else None,
         git_repo_url=git_repo_url,
+        mcp_config_id=str(skill.mcp_config_id) if skill.mcp_config_id else None,
+        effective_mcp_config_id=effective_mcp_config_id,
         error=skill.error,
         last_synced_at=skill.last_synced_at,
     )
@@ -1884,10 +1907,25 @@ def _repo_to_response(repo) -> SkillGitRepoResponse:
         url=repo.url,
         branch=repo.branch,
         token_set=repo.token_set,
+        mcp_config_id=str(repo.mcp_config_id) if repo.mcp_config_id else None,
         local_path=repo.local_path,
         last_refreshed_at=repo.last_refreshed_at,
         error=repo.error,
     )
+
+
+async def _resolve_mcp_binding(mcp_config_id: str | None) -> PydanticObjectId | None:
+    """Validate MCP binding ID and return ObjectId or None when unbound."""
+    if not mcp_config_id:
+        return None
+
+    from app.modules.llm.models import MCPConfig
+
+    oid = _parse_oid(mcp_config_id, "MCP config ID")
+    cfg = await MCPConfig.get(oid)
+    if not cfg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP config not found")
+    return oid
 
 
 @router.get("/llm/skills", tags=["LLM"])
@@ -1900,12 +1938,19 @@ async def list_skills(
     skills = await Skill.find_all().to_list()
     # Build a repo URL lookup map to avoid N+1 queries
     repo_ids = {str(s.git_repo_id) for s in skills if s.git_repo_id}
-    repos_by_id: dict[str, str] = {}
+    repos_by_id: dict[str, SkillGitRepo] = {}
     if repo_ids:
         repos = await SkillGitRepo.find({"_id": {"$in": [PydanticObjectId(r) for r in repo_ids]}}).to_list()
-        repos_by_id = {str(r.id): r.url for r in repos}
+        repos_by_id = {str(r.id): r for r in repos}
 
-    return [_skill_to_response(s, repos_by_id.get(str(s.git_repo_id))) for s in skills]
+    responses = []
+    for skill in skills:
+        repo = repos_by_id.get(str(skill.git_repo_id)) if skill.git_repo_id else None
+        resp = _skill_to_response(skill, repo.url if repo else None)
+        if repo and repo.mcp_config_id and not resp.effective_mcp_config_id:
+            resp.effective_mcp_config_id = str(repo.mcp_config_id)
+        responses.append(resp)
+    return responses
 
 
 @router.post("/llm/skills/direct", status_code=status.HTTP_201_CREATED, tags=["LLM"])
@@ -1939,8 +1984,6 @@ async def add_direct_skill(
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKILL.md 'name' field is required")
 
-    import re
-
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1957,6 +2000,8 @@ async def add_direct_skill(
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(request.content, encoding="utf-8")
 
+    linked_mcp_oid = await _resolve_mcp_binding(request.mcp_config_id)
+
     now = datetime.now(timezone.utc)
     skill = Skill(
         name=name,
@@ -1964,10 +2009,37 @@ async def add_direct_skill(
         source="direct",
         local_path=str(skill_dir),
         enabled=True,
+        mcp_config_id=linked_mcp_oid,
         error=None,
         last_synced_at=now,
     )
     await skill.insert()
+    return _skill_to_response(skill)
+
+
+@router.patch("/llm/skills/{skill_id}/mcp-server", tags=["LLM"])
+async def set_skill_mcp_server(
+    skill_id: str,
+    request: SkillMcpServerUpdateRequest,
+    _: User = Depends(require_admin),
+):
+    """Bind or unbind a direct skill to a specific MCP server. Admin only."""
+    from app.modules.llm.models import Skill
+
+    oid = _parse_oid(skill_id, "skill ID")
+    skill = await Skill.get(oid)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
+    if skill.source != "direct":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only direct-imported skills can be configured at skill level. Use repo MCP binding for git skills.",
+        )
+
+    linked_mcp_oid = await _resolve_mcp_binding(request.mcp_config_id)
+    skill.mcp_config_id = linked_mcp_oid
+    skill.update_timestamp()
+    await skill.save()
     return _skill_to_response(skill)
 
 
@@ -2049,8 +2121,6 @@ async def _clone_and_scan(repo_id: str) -> None:
     from datetime import datetime, timezone
     from pathlib import Path
 
-    from beanie import PydanticObjectId
-
     from app.core.security import decrypt_sensitive_data
     from app.modules.llm.models import SkillGitRepo
     from app.modules.llm.services.skills_service import clone_repo, sync_skills_from_repo
@@ -2080,8 +2150,6 @@ async def _pull_and_scan(repo_id: str) -> None:
     """Background task: pull a git repo and re-scan for skills."""
     from datetime import datetime, timezone
     from pathlib import Path
-
-    from beanie import PydanticObjectId
 
     from app.core.security import decrypt_sensitive_data
     from app.modules.llm.models import SkillGitRepo
@@ -2131,11 +2199,13 @@ async def add_skill_repo(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid URL: {exc}") from exc
 
     encrypted_token = encrypt_sensitive_data(request.token) if request.token else None
+    linked_mcp_oid = await _resolve_mcp_binding(request.mcp_config_id)
 
     repo = SkillGitRepo(
         url=request.url,
         branch=request.branch,
         token=encrypted_token,
+        mcp_config_id=linked_mcp_oid,
         local_path="",  # set after insert (need the ID for the path)
     )
     await repo.insert()
@@ -2146,6 +2216,27 @@ async def add_skill_repo(
     await repo.save()
 
     create_background_task(_clone_and_scan(str(repo.id)), name=f"clone_skill_repo_{repo.id}")
+    return _repo_to_response(repo)
+
+
+@router.patch("/llm/skills/repos/{repo_id}/mcp-server", tags=["LLM"])
+async def set_skill_repo_mcp_server(
+    repo_id: str,
+    request: SkillMcpServerUpdateRequest,
+    _: User = Depends(require_admin),
+):
+    """Bind or unbind a git skills repo to a specific MCP server. Admin only."""
+    from app.modules.llm.models import SkillGitRepo
+
+    oid = _parse_oid(repo_id, "repo ID")
+    repo = await SkillGitRepo.get(oid)
+    if not repo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+
+    linked_mcp_oid = await _resolve_mcp_binding(request.mcp_config_id)
+    repo.mcp_config_id = linked_mcp_oid
+    repo.update_timestamp()
+    await repo.save()
     return _repo_to_response(repo)
 
 

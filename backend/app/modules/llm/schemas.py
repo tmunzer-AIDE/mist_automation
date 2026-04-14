@@ -390,6 +390,10 @@ class AddDirectSkillRequest(BaseModel):
     """Add a skill from raw SKILL.md content."""
 
     content: str = Field(..., min_length=10, description="Raw SKILL.md text including YAML frontmatter")
+    mcp_config_id: str | None = Field(
+        default=None,
+        description="Optional MCP config ID. If set, skill is exposed only when this MCP server is enabled in chat.",
+    )
 
 
 class SkillResponse(BaseModel):
@@ -402,6 +406,8 @@ class SkillResponse(BaseModel):
     enabled: bool
     git_repo_id: str | None
     git_repo_url: str | None  # populated from joined repo document
+    mcp_config_id: str | None
+    effective_mcp_config_id: str | None
     error: str | None
     last_synced_at: datetime | None
 
@@ -412,6 +418,13 @@ class AddGitRepoRequest(BaseModel):
     url: str = Field(..., min_length=5, description="Git repo URL (HTTPS)")
     branch: str = Field(default="main", min_length=1)
     token: str | None = Field(default=None, description="Deploy token / PAT for private repos")
+    mcp_config_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional MCP config ID. If set, skills imported from this repo are exposed only when "
+            "this MCP server is enabled in chat."
+        ),
+    )
 
 
 class SkillGitRepoResponse(BaseModel):
@@ -421,9 +434,19 @@ class SkillGitRepoResponse(BaseModel):
     url: str
     branch: str
     token_set: bool
+    mcp_config_id: str | None
     local_path: str
     last_refreshed_at: datetime | None
     error: str | None
+
+
+class SkillMcpServerUpdateRequest(BaseModel):
+    """Set or clear MCP server binding for a skill or skill repo."""
+
+    mcp_config_id: str | None = Field(
+        default=None,
+        description="MCP config ID to bind. Use null to clear the binding.",
+    )
 
 
 # ── User Memory ─────────────────────────────────────────────────────────────
