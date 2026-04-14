@@ -10,7 +10,7 @@ import structlog
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.server import mcp, mcp_thread_id_var
 from app.modules.mcp_server.tools.utils import is_placeholder
 
 logger = structlog.get_logger(__name__)
@@ -24,6 +24,52 @@ def _validate_skill_name(name: str) -> str:
     if is_placeholder(skill_name):
         raise ToolError("name must be a real skill name, not a placeholder")
     return skill_name
+
+
+async def _resolve_required_mcp_config_id(skill) -> str | None:
+    """Return the MCP config ID required for a skill, if any.
+
+    Resolution order:
+    1) Skill-level binding (direct-imported skills)
+    2) Repo-level binding (git-imported skills)
+    """
+    if skill.mcp_config_id:
+        return str(skill.mcp_config_id)
+
+    if skill.git_repo_id:
+        from app.modules.llm.models import SkillGitRepo
+
+        repo = await SkillGitRepo.get(skill.git_repo_id)
+        if repo and repo.mcp_config_id:
+            return str(repo.mcp_config_id)
+
+    return None
+
+
+async def _is_skill_allowed_in_current_chat(skill) -> bool:
+    """Check whether a skill is allowed in the current MCP chat context."""
+    required_mcp_config_id = await _resolve_required_mcp_config_id(skill)
+    if not required_mcp_config_id:
+        return True
+
+    thread_id = mcp_thread_id_var.get()
+    if not thread_id:
+        return False
+
+    from beanie import PydanticObjectId
+
+    from app.modules.llm.models import ConversationThread
+
+    try:
+        thread_oid = PydanticObjectId(thread_id)
+    except Exception:
+        return False
+
+    thread = await ConversationThread.get(thread_oid)
+    if not thread:
+        return False
+
+    return required_mcp_config_id in set(thread.mcp_config_ids or [])
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
@@ -59,6 +105,9 @@ async def activate_skill(
     skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
     source_label: str
     if skill:
+        if not await _is_skill_allowed_in_current_chat(skill):
+            raise ToolError(f"Skill '{skill_name}' is not available in this chat context")
+
         skill_dir = Path(skill.local_path)
         source_label = str(skill.local_path)
     else:
