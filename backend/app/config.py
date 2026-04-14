@@ -97,6 +97,10 @@ class Settings(BaseSettings):
 
     # Skills (Agent Skills filesystem storage)
     skills_dir: str = Field(default="/data/skills", description="Root directory for Agent Skills storage (must be a persistent volume in Docker)")
+    app_skills_dir: str = Field(
+        default="",
+        description="Optional override for built-in app skills directory. If empty, defaults to <repo>/backend/app/modules/llm/skills.",
+    )
 
     # TLS / Proxy
     ca_cert_path: str | None = Field(default=None, description="Path to custom CA certificate bundle (PEM) for TLS-intercepting proxies like ZScaler")

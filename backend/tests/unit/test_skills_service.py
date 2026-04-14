@@ -1,7 +1,6 @@
 """Unit tests for skills_service utility functions."""
 
 import pytest
-from pathlib import Path
 
 pytestmark = pytest.mark.unit
 
@@ -36,7 +35,7 @@ class TestParseSkillMd:
         from app.modules.llm.services.skills_service import parse_skill_md
         f = tmp_path / "SKILL.md"
         f.write_text("---\nname: my-skill\ndescription: Use when: user asks about PDFs\n---\n\nBody.")
-        name, desc, body = parse_skill_md(f)
+        _, desc, _ = parse_skill_md(f)
         assert "Use when" in desc
 
     def test_body_is_trimmed(self, tmp_path):
@@ -155,3 +154,59 @@ class TestBuildSkillsCatalogIntegration:
         result = append_skills_to_messages(messages, catalog)
         assert "<available_skills>" in result[0]["content"]
         assert result[1]["content"] == "Hello"  # user message untouched
+
+
+class TestAppSkillsHelpers:
+    def test_load_app_skill_entries_reads_dedicated_folder(self, tmp_path):
+        from app.modules.llm.services.skills_service import load_app_skill_entries
+
+        skill_dir = tmp_path / "digital-twin"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: digital-twin\n"
+            "description: Simulate config safely\n"
+            "---\n\n"
+            "# Body\n"
+            "Use this for simulation.\n"
+        )
+
+        entries = load_app_skill_entries(tmp_path)
+
+        assert len(entries) == 1
+        assert entries[0].name == "digital-twin"
+        assert entries[0].description == "Simulate config safely"
+
+    def test_find_app_skill_dir_resolves_by_exact_name(self, tmp_path):
+        from app.modules.llm.services.skills_service import find_app_skill_dir
+
+        skill_dir = tmp_path / "impact-analysis"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: impact-analysis\n"
+            "description: Analyze impact sessions\n"
+            "---\n\n"
+            "Body\n"
+        )
+
+        resolved = find_app_skill_dir("impact-analysis", tmp_path)
+        missing = find_app_skill_dir("Impact-Analysis", tmp_path)
+
+        assert resolved == skill_dir
+        assert missing is None
+
+    def test_render_skills_catalog_includes_instruction_footer(self):
+        from app.modules.llm.services.skills_service import SkillCatalogEntry, render_skills_catalog
+
+        catalog = render_skills_catalog(
+            [
+                SkillCatalogEntry(name="digital-twin", description="Simulate changes"),
+                SkillCatalogEntry(name="impact-analysis", description="Analyze sessions"),
+            ]
+        )
+
+        assert "<available_skills>" in catalog
+        assert "<name>digital-twin</name>" in catalog
+        assert "<name>impact-analysis</name>" in catalog
+        assert "call the activate_skill tool" in catalog

@@ -7,6 +7,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 from xml.sax.saxutils import escape
 
 import structlog
@@ -15,6 +16,11 @@ import yaml
 logger = structlog.get_logger(__name__)
 
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".svn"}
+
+
+class SkillCatalogEntry(NamedTuple):
+    name: str
+    description: str
 
 
 def parse_skill_md(path: Path) -> tuple[str, str, str]:
@@ -111,6 +117,80 @@ def append_skills_to_messages(messages: list[dict], catalog: str) -> list[dict]:
     return messages
 
 
+def get_app_skills_dir() -> Path:
+    """Return the dedicated built-in app skills directory.
+
+    Resolution order:
+    1) `APP_SKILLS_DIR`/`app_skills_dir` setting if provided
+    2) code-owned default: `<repo>/backend/app/modules/llm/skills`
+    """
+    from app.config import settings
+
+    configured = str(getattr(settings, "app_skills_dir", "") or "").strip()
+    if configured:
+        return Path(configured)
+
+    # Keep built-in skills in the application code path (not runtime-mounted /skills volume).
+    return Path(__file__).resolve().parents[1] / "skills"
+
+
+def load_app_skill_entries(base_dir: Path | None = None) -> list[SkillCatalogEntry]:
+    """Load built-in app skill metadata from SKILL.md files.
+
+    Invalid skill files are skipped with a warning.
+    """
+    skills_dir = base_dir or get_app_skills_dir()
+    entries: list[SkillCatalogEntry] = []
+
+    for skill_file in scan_for_skills(skills_dir):
+        try:
+            name, description, _ = parse_skill_md(skill_file)
+        except ValueError as exc:
+            logger.warning("app_skill_parse_error", path=str(skill_file), error=str(exc))
+            continue
+
+        if not name:
+            name = skill_file.parent.name
+
+        entries.append(SkillCatalogEntry(name=name, description=description))
+
+    return entries
+
+
+def find_app_skill_dir(skill_name: str, base_dir: Path | None = None) -> Path | None:
+    """Resolve a built-in app skill directory by exact skill name."""
+    skills_dir = base_dir or get_app_skills_dir()
+    for skill_file in scan_for_skills(skills_dir):
+        try:
+            name, _, _ = parse_skill_md(skill_file)
+        except ValueError:
+            continue
+        if not name:
+            name = skill_file.parent.name
+        if name == skill_name:
+            return skill_file.parent
+    return None
+
+
+def render_skills_catalog(entries: list[SkillCatalogEntry]) -> str:
+    """Render XML catalog text used in LLM system prompts."""
+    if not entries:
+        return ""
+
+    lines = ["<available_skills>"]
+    for entry in entries:
+        lines.append("  <skill>")
+        lines.append(f"    <name>{escape(entry.name)}</name>")
+        lines.append(f"    <description>{escape(entry.description)}</description>")
+        lines.append("  </skill>")
+    lines.append("</available_skills>")
+    lines.append(
+        "\nWhen a task matches a skill's description, call the activate_skill tool "
+        "with the skill's name to load its full instructions before proceeding."
+    )
+    return "\n".join(lines)
+
+
 async def build_skills_catalog() -> str:
     """Return an XML catalog of enabled skills for injection into LLM system prompts.
 
@@ -118,23 +198,22 @@ async def build_skills_catalog() -> str:
     """
     from app.modules.llm.models import Skill  # local import to avoid circular dep
 
-    skills = await Skill.find(Skill.enabled == True).to_list()  # noqa: E712
-    if not skills:
-        return ""
+    db_skills = await Skill.find(Skill.enabled == True).to_list()  # noqa: E712
+    entries: list[SkillCatalogEntry] = [
+        SkillCatalogEntry(name=skill.name, description=skill.description) for skill in db_skills
+    ]
 
-    lines = ["<available_skills>"]
-    for skill in skills:
-        lines.append("  <skill>")
-        lines.append(f"    <name>{escape(skill.name)}</name>")
-        lines.append(f"    <description>{escape(skill.description)}</description>")
-        lines.append("  </skill>")
-    lines.append("</available_skills>")
-    lines.append(
-        "\nWhen a task matches a skill's description, call the activate_skill tool "
-        "with the skill's name to load its full instructions before proceeding."
-    )
+    # Built-in app skills are always included, even if no DB skills are configured.
+    app_entries = load_app_skill_entries()
+    seen = {entry.name for entry in entries}
+    for entry in app_entries:
+        if entry.name in seen:
+            logger.info("app_skill_catalog_name_collision", name=entry.name)
+            continue
+        entries.append(entry)
+        seen.add(entry.name)
 
-    return "\n".join(lines)
+    return render_skills_catalog(entries)
 
 
 # ── Git helpers ───────────────────────────────────────────────────────────────
