@@ -79,7 +79,7 @@ digital_twin(
   org_id="<org_uuid>",
   site_id="<site_uuid>",
   object_type="site_wlans",
-  payload={"ssid": "Guest", "vlan_id": "200"},
+  payload={"ssid": "Guest", "vlan_id": 200},
   object_id="<wlan_uuid>"
 )
 ```
@@ -92,7 +92,7 @@ digital_twin(
   action_type="create",
   org_id="<org_uuid>",
   object_type="org_wlans",
-  payload={"ssid": "Guest", "enabled": True, "vlan_id": "200"}
+  payload={"ssid": "Guest", "enabled": true, "vlan_id": 200}
 )
 ```
 

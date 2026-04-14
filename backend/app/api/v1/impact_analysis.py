@@ -4,6 +4,9 @@ Config Change Impact Analysis REST API routes.
 
 from __future__ import annotations
 
+import json
+import re
+
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -497,10 +500,23 @@ async def get_sle_data(
 
 def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
-    import json
+    sensitive_key_pattern = re.compile(r"(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)", re.IGNORECASE)
+
+    def _redact_sensitive(value: object) -> object:
+        if isinstance(value, dict):
+            redacted: dict = {}
+            for key, sub_value in value.items():
+                if sensitive_key_pattern.search(str(key)):
+                    redacted[key] = "***REDACTED***"
+                else:
+                    redacted[key] = _redact_sensitive(sub_value)
+            return redacted
+        if isinstance(value, list):
+            return [_redact_sensitive(item) for item in value]
+        return value
 
     def _json_snippet(value: object, max_len: int = 1200) -> str:
-        text = json.dumps(value, indent=2, default=str)
+        text = json.dumps(_redact_sensitive(value), indent=2, default=str)
         if len(text) <= max_len:
             return text
         return text[:max_len] + f"\n... (truncated, full length {len(text)} chars)"
@@ -527,19 +543,19 @@ def _build_session_context(session: MonitoringSession) -> str:
                 lines.append(f"   Audit message: {change.change_message}")
             if change.payload_summary:
                 lines.append("   Payload summary:")
-                lines.append(f"```json\n{_json_snippet(change.payload_summary, max_len=900)}\n```")
+                lines.append(_json_snippet(change.payload_summary, max_len=900))
             if change.config_diff:
                 diff = change.config_diff
                 if len(diff) > 1500:
                     diff = diff[:1500] + f"\n... (truncated, full length {len(change.config_diff)} chars)"
                 lines.append("   Config diff (Junos):")
-                lines.append(f"```\n{diff}\n```")
+                lines.append(diff)
             if change.config_before is not None or change.config_after is not None:
                 lines.append("   Config before/after (audit):")
                 if change.config_before is not None:
-                    lines.append(f"   BEFORE:\n```json\n{_json_snippet(change.config_before)}\n```")
+                    lines.append(f"   BEFORE:\n{_json_snippet(change.config_before)}")
                 if change.config_after is not None:
-                    lines.append(f"   AFTER:\n```json\n{_json_snippet(change.config_after)}\n```")
+                    lines.append(f"   AFTER:\n{_json_snippet(change.config_after)}")
 
         latest = recent_changes[0]
         lines.append(

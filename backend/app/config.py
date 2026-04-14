@@ -99,7 +99,11 @@ class Settings(BaseSettings):
     skills_dir: str = Field(default="/data/skills", description="Root directory for Agent Skills storage (must be a persistent volume in Docker)")
     app_skills_dir: str = Field(
         default="",
-        description="Optional override for built-in app skills directory. If empty, defaults to <repo>/backend/app/modules/llm/skills.",
+        description=(
+            "Optional override for built-in app skills directory. "
+            "If empty, defaults to <repo>/backend/app/modules/llm/skills. "
+            "This must point to a trusted server-controlled path."
+        ),
     )
 
     # TLS / Proxy

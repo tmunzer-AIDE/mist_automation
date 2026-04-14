@@ -7,6 +7,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 from typing import NamedTuple
 from xml.sax.saxutils import escape
 
@@ -16,6 +17,8 @@ import yaml
 logger = structlog.get_logger(__name__)
 
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".svn"}
+_APP_SKILLS_CACHE_TTL_SECONDS = 30.0
+_app_skills_cache: dict[str, tuple[float, list["SkillCatalogEntry"]]] = {}
 
 
 class SkillCatalogEntry(NamedTuple):
@@ -138,8 +141,17 @@ def load_app_skill_entries(base_dir: Path | None = None) -> list[SkillCatalogEnt
     """Load built-in app skill metadata from SKILL.md files.
 
     Invalid skill files are skipped with a warning.
+
+    Results are cached per directory for a short TTL to avoid repeated
+    recursive filesystem scans in hot request paths.
     """
     skills_dir = base_dir or get_app_skills_dir()
+    cache_key = str(skills_dir.resolve())
+    cached = _app_skills_cache.get(cache_key)
+    now = monotonic()
+    if cached and now - cached[0] < _APP_SKILLS_CACHE_TTL_SECONDS:
+        return list(cached[1])
+
     entries: list[SkillCatalogEntry] = []
 
     for skill_file in scan_for_skills(skills_dir):
@@ -154,7 +166,13 @@ def load_app_skill_entries(base_dir: Path | None = None) -> list[SkillCatalogEnt
 
         entries.append(SkillCatalogEntry(name=name, description=description))
 
-    return entries
+    _app_skills_cache[cache_key] = (now, list(entries))
+    return list(entries)
+
+
+def clear_app_skills_cache() -> None:
+    """Clear in-memory cache for built-in app skill metadata."""
+    _app_skills_cache.clear()
 
 
 def find_app_skill_dir(skill_name: str, base_dir: Path | None = None) -> Path | None:

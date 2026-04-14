@@ -210,3 +210,91 @@ class TestAppSkillsHelpers:
         assert "<name>digital-twin</name>" in catalog
         assert "<name>impact-analysis</name>" in catalog
         assert "call the activate_skill tool" in catalog
+
+    def test_get_app_skills_dir_uses_override_setting(self, monkeypatch):
+        from pathlib import Path
+
+        from app.config import settings
+        from app.modules.llm.services.skills_service import get_app_skills_dir
+
+        monkeypatch.setattr(settings, "app_skills_dir", "/tmp/custom-app-skills", raising=False)
+        assert get_app_skills_dir() == Path("/tmp/custom-app-skills")
+
+
+class TestBuildSkillsCatalog:
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_db_or_app_skills(self, monkeypatch):
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services import skills_service
+
+        class _Query:
+            async def to_list(self):
+                return []
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query()
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query()
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr(skills_service, "load_app_skill_entries", lambda *_args, **_kwargs: [])
+
+        catalog = await skills_service.build_skills_catalog()
+
+        assert catalog == ""
+
+    @pytest.mark.asyncio
+    async def test_merges_db_and_app_skills_and_dedups_by_name(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import SkillCatalogEntry, build_skills_catalog
+
+        db_skills = [
+            SimpleNamespace(name="shared", description="DB shared", git_repo_id=None, mcp_config_id=None),
+            SimpleNamespace(name="db-only", description="DB only", git_repo_id=None, mcp_config_id=None),
+        ]
+
+        class _Query:
+            def __init__(self, items):
+                self._items = items
+
+            async def to_list(self):
+                return self._items
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query(db_skills)
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query([])
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr(
+            "app.modules.llm.services.skills_service.load_app_skill_entries",
+            lambda *_args, **_kwargs: [
+                SkillCatalogEntry(name="shared", description="APP shared"),
+                SkillCatalogEntry(name="app-only", description="APP only"),
+            ],
+        )
+
+        catalog = await build_skills_catalog()
+
+        assert catalog.count("<name>shared</name>") == 1
+        assert "<description>DB shared</description>" in catalog
+        assert "<name>db-only</name>" in catalog
+        assert "<name>app-only</name>" in catalog
