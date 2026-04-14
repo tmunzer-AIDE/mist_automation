@@ -194,7 +194,8 @@ def render_skills_catalog(entries: list[SkillCatalogEntry]) -> str:
 async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -> str:
     """Return an XML catalog of enabled skills for injection into LLM system prompts.
 
-    Returns an empty string if no skills are enabled (so callers can skip injection).
+    Returns an empty string only when there are no enabled DB skills and no
+    built-in app skills available (so callers can skip injection).
     """
     from beanie import PydanticObjectId
 
