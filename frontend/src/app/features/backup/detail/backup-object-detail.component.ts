@@ -199,6 +199,13 @@ export class BackupObjectDetailComponent implements OnInit {
     if (maxLeft > 100) {
       const scale = 100 / maxLeft;
       for (let i = 0; i < positions.length; i++) positions[i] *= scale;
+      // Re-enforce min gap after scaling: scaling shrinks all gaps proportionally,
+      // which can violate the constraint again. Clamp at 100% instead of overflowing.
+      for (let i = 1; i < positions.length; i++) {
+        if (positions[i] - positions[i - 1] < minGapPct) {
+          positions[i] = Math.min(positions[i - 1] + minGapPct, 100);
+        }
+      }
     }
 
     return sorted.map((v, i) => ({

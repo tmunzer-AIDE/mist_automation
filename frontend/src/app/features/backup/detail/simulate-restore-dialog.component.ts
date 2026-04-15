@@ -56,7 +56,7 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
           <span class="result-label">{{
             result()!.execution_safe ? 'Restore succeeded in Digital Twin' : 'Restore failed in Digital Twin'
           }}</span>
-          <span class="severity-chip" [class]="'sev-' + result()!.overall_severity">
+          <span [class]="'severity-chip sev-' + result()!.overall_severity">
             {{ result()!.overall_severity }}
           </span>
         </div>
@@ -149,17 +149,24 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
         margin-bottom: 16px;
         font-weight: 600;
         font-size: 15px;
+      }
 
-        &.safe {
-          background: var(--app-success-bg);
-          color: var(--app-success);
-          .result-icon { color: var(--app-success-border); }
-        }
-        &.unsafe {
-          background: var(--app-warning-bg);
-          color: var(--app-warning-lvl);
-          .result-icon { color: var(--app-warning); }
-        }
+      .result-header.safe {
+        background: var(--app-success-bg);
+        color: var(--app-success);
+      }
+
+      .result-header.safe .result-icon {
+        color: var(--app-success-border);
+      }
+
+      .result-header.unsafe {
+        background: var(--app-warning-bg);
+        color: var(--app-warning-lvl);
+      }
+
+      .result-header.unsafe .result-icon {
+        color: var(--app-warning);
       }
 
       .result-label {
@@ -174,13 +181,13 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
         border-radius: 10px;
         background: var(--mat-sys-surface-container);
         color: var(--mat-sys-on-surface-variant);
-
-        &.sev-clean   { background: var(--app-success-bg); color: var(--app-success); }
-        &.sev-info    { background: var(--app-info-chip-bg); color: var(--app-info-chip); }
-        &.sev-warning { background: var(--app-warning-bg); color: var(--app-warning-lvl); }
-        &.sev-error   { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
-        &.sev-critical { background: var(--mat-sys-error); color: var(--mat-sys-on-error); }
       }
+
+      .severity-chip.sev-clean   { background: var(--app-success-bg); color: var(--app-success); }
+      .severity-chip.sev-info    { background: var(--app-info-chip-bg); color: var(--app-info-chip); }
+      .severity-chip.sev-warning { background: var(--app-warning-bg); color: var(--app-warning-lvl); }
+      .severity-chip.sev-error   { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+      .severity-chip.sev-critical { background: var(--mat-sys-error); color: var(--mat-sys-on-error); }
 
       .summary-text {
         font-size: 14px;
@@ -204,13 +211,17 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
         font-weight: 600;
         padding: 3px 10px;
         border-radius: 10px;
-
-        mat-icon { font-size: 14px; width: 14px; height: 14px; }
-
-        &.warn { background: var(--app-warning-bg); color: var(--app-warning-lvl); }
-        &.err  { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
-        &.crit { background: var(--mat-sys-error); color: var(--mat-sys-on-error); }
       }
+
+      .count-chip mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
+      .count-chip.warn { background: var(--app-warning-bg); color: var(--app-warning-lvl); }
+      .count-chip.err  { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+      .count-chip.crit { background: var(--mat-sys-error); color: var(--mat-sys-on-error); }
 
       .warnings-list {
         padding: 8px 12px;
