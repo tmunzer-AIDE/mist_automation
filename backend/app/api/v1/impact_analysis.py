@@ -506,6 +506,7 @@ async def get_sle_data(
 
 def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
+    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
     def _redact_sensitive(value: object) -> object:
         if isinstance(value, dict):
@@ -570,7 +571,7 @@ def _build_session_context(session: MonitoringSession) -> str:
                     f"model={change.device_model or 'unknown'}, firmware={change.firmware_version or 'unknown'}"
                 )
             if change.change_message:
-                lines.append(f"   Audit message: {change.change_message}")
+                lines.append(f"   Audit message: {_sanitize_for_prompt(change.change_message, max_len=500)}")
             if change.payload_summary:
                 lines.append("   Payload summary:")
                 lines.append(_json_snippet(change.payload_summary, max_len=900))
