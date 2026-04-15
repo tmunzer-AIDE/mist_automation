@@ -2,7 +2,6 @@ import { Component, DestroyRef, HostListener, inject, OnInit, signal, computed }
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgClass, SlicePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -67,7 +66,6 @@ interface TimelineBubble {
     NgClass,
     SlicePipe,
     RouterModule,
-    MatCardModule,
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
