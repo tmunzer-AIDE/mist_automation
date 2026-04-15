@@ -512,7 +512,7 @@ def _build_session_context(session: MonitoringSession) -> str:
             redacted: dict = {}
             for key, sub_value in value.items():
                 if _SENSITIVE_KEY_PATTERN.search(str(key)):
-                    redacted[key] = "***REDACTED***"
+                    redacted[key] = "[REDACTED]"
                 else:
                     redacted[key] = _redact_sensitive(sub_value)
             return redacted
@@ -521,14 +521,28 @@ def _build_session_context(session: MonitoringSession) -> str:
         return value
 
     def _redact_diff_lines(diff_text: str) -> str:
-        """Redact lines in config diffs that may contain sensitive values."""
+        """Redact lines in config diffs that may contain sensitive values.
+
+        Preserves line structure where possible by keeping the key/command prefix
+        and only masking the value portion. Falls back to full-line redaction
+        when no separator is found.
+        """
         redacted_lines = []
         for line in diff_text.splitlines():
-            if _SENSITIVE_KEY_PATTERN.search(line):
-                # Keep line structure but redact value portion
-                redacted_lines.append("***REDACTED LINE (contains sensitive keyword)***")
-            else:
+            match = _SENSITIVE_KEY_PATTERN.search(line)
+            if not match:
                 redacted_lines.append(line)
+                continue
+
+            # Keep line structure but redact the value portion when possible.
+            suffix = line[match.end() :]
+            separator_match = re.match(r"(\s*(?::|=)\s*|\s+)", suffix)
+            if separator_match:
+                redacted_lines.append(
+                    f"{line[:match.end()]}{separator_match.group(0)}[REDACTED]"
+                )
+            else:
+                redacted_lines.append("[REDACTED LINE (contains sensitive keyword)]")
         return "\n".join(redacted_lines)
 
     def _json_snippet(value: object, max_len: int = 1200) -> str:

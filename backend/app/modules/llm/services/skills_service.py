@@ -23,6 +23,8 @@ ORPHANED_SKILL_SENTINEL = "<orphaned:repo_deleted>"
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".svn"}
 _APP_SKILLS_CACHE_TTL_SECONDS = 30.0
 _app_skills_cache: dict[str, tuple[float, list["SkillCatalogEntry"]]] = {}
+# Cache for name → directory mapping (same TTL, shared invalidation with _app_skills_cache)
+_app_skills_index_cache: dict[str, tuple[float, dict[str, Path]]] = {}
 
 
 class SkillCatalogEntry(NamedTuple):
@@ -177,21 +179,39 @@ def load_app_skill_entries(base_dir: Path | None = None) -> list[SkillCatalogEnt
 def clear_app_skills_cache() -> None:
     """Clear in-memory cache for built-in app skill metadata."""
     _app_skills_cache.clear()
+    _app_skills_index_cache.clear()
 
 
-def find_app_skill_dir(skill_name: str, base_dir: Path | None = None) -> Path | None:
-    """Resolve a built-in app skill directory by exact skill name."""
-    skills_dir = base_dir or get_app_skills_dir()
-    for skill_file in scan_for_skills(skills_dir):
+def _build_app_skills_index(base_dir: Path) -> dict[str, Path]:
+    """Build a name → directory index for all valid app skills."""
+    index: dict[str, Path] = {}
+    for skill_file in scan_for_skills(base_dir):
         try:
             name, _, _ = parse_skill_md(skill_file)
         except ValueError:
             continue
         if not name:
             name = skill_file.parent.name
-        if name == skill_name:
-            return skill_file.parent
-    return None
+        index[name] = skill_file.parent
+    return index
+
+
+def find_app_skill_dir(skill_name: str, base_dir: Path | None = None) -> Path | None:
+    """Resolve a built-in app skill directory by exact skill name.
+
+    Uses a TTL cache to avoid repeated filesystem scans on hot paths.
+    """
+    skills_dir = base_dir or get_app_skills_dir()
+    cache_key = str(skills_dir.resolve())
+
+    cached = _app_skills_index_cache.get(cache_key)
+    now = monotonic()
+    if cached and now - cached[0] < _APP_SKILLS_CACHE_TTL_SECONDS:
+        return cached[1].get(skill_name)
+
+    index = _build_app_skills_index(skills_dir)
+    _app_skills_index_cache[cache_key] = (now, index)
+    return index.get(skill_name)
 
 
 def render_skills_catalog(entries: list[SkillCatalogEntry]) -> str:
@@ -240,7 +260,8 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
             if repo is None:
                 # Orphaned skill: repo was deleted but skill still references it.
                 # Return sentinel to hide skill from catalog (never matches any active MCP).
-                logger.warning(
+                # Log at info level to avoid noise on hot paths (catalog builds per request).
+                logger.info(
                     "orphaned_skill_missing_repo",
                     skill_name=skill.name,
                     git_repo_id=str(skill.git_repo_id),
@@ -297,7 +318,8 @@ async def get_skill_effective_mcp_id(skill_name: str | None = None, *, skill: ob
         if repo is None:
             # Orphaned skill: repo was deleted but skill still references it.
             # Return sentinel to block activation (never matches any active MCP).
-            logger.warning(
+            # Log at info level to avoid noise on hot paths.
+            logger.info(
                 "orphaned_skill_activation_blocked",
                 skill_name=skill.name if hasattr(skill, "name") else "unknown",
                 git_repo_id=str(skill.git_repo_id),

@@ -71,13 +71,8 @@ async def activate_skill(
                     f"Skill '{skill_name}' cannot be activated: the git repository it was imported from has been deleted"
                 )
 
-            try:
-                thread_id = mcp_thread_id_var.get()
-            except LookupError as exc:
-                raise ToolError(
-                    "Unable to determine the active MCP servers for this conversation"
-                ) from exc
-
+            # mcp_thread_id_var has default=None, so .get() never raises LookupError
+            thread_id = mcp_thread_id_var.get()
             active_mcp_ids: set[str] = set()
             if thread_id:
                 from beanie import PydanticObjectId

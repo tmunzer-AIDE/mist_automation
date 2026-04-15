@@ -107,7 +107,7 @@ def test_build_session_context_truncates_long_sections():
     context = _build_session_context(session)
 
     assert "truncated, full length" in context
-    assert "***REDACTED***" in context
+    assert "[REDACTED]" in context
     assert "super-secret-value" not in context
     assert "top-secret" not in context
 
