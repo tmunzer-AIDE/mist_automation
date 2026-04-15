@@ -397,13 +397,6 @@
   button.action-simulate { color: var(--app-warning); }
 }
 
-// Compact row content
-.row-content-compact {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-
 .compact-version-number { color: var(--mat-sys-on-surface-variant); font-weight: 500; }
 
 .compact-meta {
