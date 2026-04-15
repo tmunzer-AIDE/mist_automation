@@ -1,4 +1,4 @@
-import { Component, DestroyRef, HostListener, inject, OnInit, signal, computed } from '@angular/core';
+import { Component, DestroyRef, ElementRef, inject, OnInit, ViewChild, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgClass, SlicePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -99,12 +99,24 @@ export class BackupObjectDetailComponent implements OnInit {
   pinA = signal<ObjectVersion | null>(null);
   pinB = signal<ObjectVersion | null>(null);
 
-  /** Tracked timeline container width (px). Used to convert 20px min-gap to %. */
+  /** Tracks the actual timeline track element width via ResizeObserver. Defaults to 800 until mounted. */
   timelineContainerWidth = signal(800);
+  private timelineResizeObserver: ResizeObserver | null = null;
 
-  @HostListener('window:resize')
-  onResize(): void {
-    this.timelineContainerWidth.set(window.innerWidth);
+  /**
+   * Setter-based ViewChild: fires whenever the conditional #timelineTrackArea element
+   * enters or leaves the DOM, so the ResizeObserver is always attached to the live element.
+   */
+  @ViewChild('timelineTrackArea')
+  private set timelineTrackEl(el: ElementRef<HTMLElement> | undefined) {
+    this.timelineResizeObserver?.disconnect();
+    if (el) {
+      this.timelineResizeObserver = new ResizeObserver((entries) => {
+        const width = entries[0]?.contentRect.width;
+        if (width) this.timelineContainerWidth.set(width);
+      });
+      this.timelineResizeObserver.observe(el.nativeElement);
+    }
   }
 
   // AI Summary
@@ -293,14 +305,30 @@ export class BackupObjectDetailComponent implements OnInit {
     });
   });
 
+  /** Versions that should render the full row: the 3 newest + any pinned. */
+  fullRowIds = computed<Set<string>>(() => {
+    const ids = new Set<string>();
+    this.versions()
+      .slice(0, 3)
+      .forEach((v) => ids.add(v.id));
+    const a = this.pinA();
+    const b = this.pinB();
+    if (a) ids.add(a.id);
+    if (b) ids.add(b.id);
+    return ids;
+  });
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     this.topbarService.setTitle('Object Detail');
-    this.llmService.getStatus().subscribe({
-      next: (s) => this.llmAvailable.set(s.enabled),
-      error: () => this.llmAvailable.set(false),
-    });
+    this.llmService
+      .getStatus()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (s) => this.llmAvailable.set(s.enabled),
+        error: () => this.llmAvailable.set(false),
+      });
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const id = params.get('objectId') || '';
       if (id !== this.objectId) {
@@ -332,11 +360,11 @@ export class BackupObjectDetailComponent implements OnInit {
 
   /**
    * Pin cycle:
-   * - Click A → clear A
-   * - Click B → clear B
-   * - No A set → set A
+   * - Click A → clear A (and diff)
+   * - Click B → clear B (and diff)
+   * - No A set → set A; if B already pinned, compute diff immediately
    * - A set, no B → set B, compute diff
-   * - Both set → replace A, compute diff
+   * - Both set → replace A, compute diff (pins reorder to oldest→newest)
    */
   pinVersion(v: ObjectVersion): void {
     const a = this.pinA();
@@ -354,6 +382,7 @@ export class BackupObjectDetailComponent implements OnInit {
     }
     if (!a) {
       this.pinA.set(v);
+      if (b) this.computeDiff(); // B already pinned — compute diff right away
       return;
     }
     if (!b) {
@@ -382,11 +411,6 @@ export class BackupObjectDetailComponent implements OnInit {
     this.activeFilters.set(new Set());
     this.expandedGroups.set(new Set());
     this.expandedEntries.set(new Set());
-  }
-
-  /** Returns true for the 3 newest versions and for any pinned version. */
-  isFullRow(v: ObjectVersion, index: number): boolean {
-    return index < 3 || this.pinA()?.id === v.id || this.pinB()?.id === v.id;
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -429,7 +453,7 @@ export class BackupObjectDetailComponent implements OnInit {
         isDeleted: v.is_deleted,
       },
     });
-    ref.afterClosed().subscribe((result) => {
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result) => {
       if (result?.restored) {
         if (result.newObjectId && result.newObjectId !== this.objectId) {
           this.router.navigate(['/backup/object', result.newObjectId]);

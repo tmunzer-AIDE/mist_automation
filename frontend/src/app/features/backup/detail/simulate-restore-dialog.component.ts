@@ -86,7 +86,7 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
           </div>
         }
 
-        @if (result()!.warnings?.length) {
+        @if (result()!.warnings.length) {
           <div class="warnings-list">
             @for (w of result()!.warnings; track w) {
               <p class="warn-item"><mat-icon class="warn-icon">warning</mat-icon> {{ w }}</p>
@@ -102,10 +102,10 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
 
     <mat-dialog-actions align="end">
       @if (step() === 'confirm' || step() === 'loading') {
-        <button mat-button mat-dialog-close>Cancel</button>
+        <button mat-button mat-dialog-close [disabled]="step() === 'loading'">Cancel</button>
       }
       @if (step() === 'confirm') {
-        <button mat-flat-button color="primary" (click)="runSimulation()">
+        <button mat-flat-button color="primary" [disabled]="step() !== 'confirm'" (click)="runSimulation()">
           <mat-icon>science</mat-icon> Run Simulation
         </button>
       }

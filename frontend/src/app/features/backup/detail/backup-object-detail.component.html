@@ -34,7 +34,7 @@
       <span class="pin-label pin-label-a">A</span> /
       <span class="pin-label pin-label-b">B</span>
     </div>
-    <div class="timeline-track-area">
+    <div class="timeline-track-area" #timelineTrackArea>
       <!-- Base track -->
       <div class="timeline-track"></div>
       <!-- A→B gradient connector -->
@@ -109,7 +109,7 @@
             @else if (pinB()?.id === v.id) { B }
           </div>
 
-          @if (isFullRow(v, i)) {
+          @if (fullRowIds().has(v.id)) {
             <!-- Full row (3 newest + any pinned version) -->
             <div class="row-content">
               <div class="row-title">
@@ -356,9 +356,9 @@
     <span>
       1st click → set <span class="pin-label pin-label-a">A</span> ·
       2nd click → set <span class="pin-label pin-label-b">B</span> ·
-      click A or B again to clear
+      click again to clear · pins are ordered oldest → newest automatically
     </span>
-    <span>⚡ Simulate runs the Digital Twin dry-run pre-check</span>
+    <span>Simulate runs the restore in a Digital Twin — the real network is not affected</span>
   </div>
 
   <!-- ── References ── -->
