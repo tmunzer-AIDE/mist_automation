@@ -3,7 +3,7 @@
 .detail-header {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -21,7 +21,7 @@
 }
 
 .object-name {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 600;
   color: var(--mat-sys-on-surface);
 }

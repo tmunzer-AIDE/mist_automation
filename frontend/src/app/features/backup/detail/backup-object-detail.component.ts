@@ -566,6 +566,9 @@ export class BackupObjectDetailComponent implements OnInit {
           }
           const latest = res.versions[0];
           if (latest) {
+            this.topbarService.setTitle(
+              `${latest.object_type}: ${latest.object_name || latest.object_id}`,
+            );
             this.globalChatService.setContext({
               page: 'Backup Object Detail',
               details: {
