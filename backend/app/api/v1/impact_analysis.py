@@ -4,6 +4,9 @@ Config Change Impact Analysis REST API routes.
 
 from __future__ import annotations
 
+import json
+import re
+
 import structlog
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -41,9 +44,23 @@ from app.modules.impact_analysis.schemas import (
     TimelineEntryResponse,
 )
 from app.modules.impact_analysis.services import session_manager
+from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
 router = APIRouter(tags=["Impact Analysis"])
 logger = structlog.get_logger(__name__)
+
+# Compiled regex for redacting sensitive data in JSON keys (e.g., "radius_secret", "api_key").
+# Permissive pattern — matches keywords as substrings to catch suffixes like _secret.
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)", re.IGNORECASE
+)
+
+# Compiled regex for redacting config diff lines.
+# Uses word boundaries (\b) to avoid matching compound keywords like "pre-shared-secret"
+# (a Junos authentication method type, not an actual secret value).
+_SENSITIVE_DIFF_PATTERN = re.compile(
+    r"\b(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)\b", re.IGNORECASE
+)
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────
@@ -232,10 +249,15 @@ async def _get_group(group_id: PydanticObjectId) -> ChangeGroup:
 
 def _build_group_context(group: ChangeGroup) -> str:
     """Build context string for group-level AI chat."""
+    # Sanitize all user/webhook-sourced fields to prevent prompt injection.
+    change_desc = _sanitize_for_prompt(group.change_description)
+    change_src = _sanitize_for_prompt(group.change_source)
+    triggered = _sanitize_for_prompt(group.triggered_by or "unknown")
+
     parts = [
-        f"Change Group: {group.change_description}",
-        f"Source: {group.change_source}",
-        f"Triggered by: {group.triggered_by or 'unknown'}",
+        f"Change Group: {change_desc}",
+        f"Source: {change_src}",
+        f"Triggered by: {triggered}",
         f"Devices: {group.summary.total_devices}",
         f"Status: {group.summary.status}",
         f"Worst severity: {group.summary.worst_severity}",
@@ -243,12 +265,14 @@ def _build_group_context(group: ChangeGroup) -> str:
     if group.summary.devices:
         parts.append("\nDevice Summary:")
         for d in group.summary.devices:
-            line = f"  - {d.device_name} ({d.device_type}): {d.status}, severity={d.impact_severity}"
+            device_name = _sanitize_for_prompt(d.device_name)
+            line = f"  - {device_name} ({d.device_type}): {d.status}, severity={d.impact_severity}"
             if d.failed_checks:
                 line += f", failed=[{', '.join(d.failed_checks)}]"
             parts.append(line)
     if group.ai_assessment and group.ai_assessment.get("summary"):
-        parts.append(f"\nPrevious AI Assessment: {group.ai_assessment['summary'][:500]}")
+        ai_summary = _sanitize_for_prompt(group.ai_assessment["summary"][:500])
+        parts.append(f"\nPrevious AI Assessment: {ai_summary}")
     return "\n".join(parts)
 
 
@@ -497,16 +521,164 @@ async def get_sle_data(
 
 def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
+    import itertools
+
+    def _limit_json_value(
+        value: object,
+        *,
+        depth: int = 0,
+        max_depth: int = 4,
+        max_items: int = 20,
+        max_string_len: int = 200,
+    ) -> object:
+        """Recursively limit a value's depth/size before JSON serialization.
+
+        This avoids serializing very large structures when we'll truncate the output anyway.
+        """
+        if depth >= max_depth:
+            if isinstance(value, dict):
+                return f"[TRUNCATED DICT: {len(value)} keys]"
+            if isinstance(value, (list, tuple)):
+                return f"[TRUNCATED LIST: {len(value)} items]"
+            return str(value)
+
+        if isinstance(value, dict):
+            limited: dict = {}
+            # Use islice to avoid materializing the full dict for large payloads
+            items_iter = iter(value.items())
+            count = 0
+            for key, sub_value in itertools.islice(items_iter, max_items):
+                count += 1
+                if _SENSITIVE_KEY_PATTERN.search(str(key)):
+                    limited[key] = "[REDACTED]"
+                else:
+                    limited[key] = _limit_json_value(
+                        sub_value,
+                        depth=depth + 1,
+                        max_depth=max_depth,
+                        max_items=max_items,
+                        max_string_len=max_string_len,
+                    )
+            # Check if there are more items without iterating the rest
+            has_more = next(items_iter, None) is not None
+            if has_more:
+                remaining = len(value) - count
+                limited["..."] = f"[{remaining} more keys]"
+            return limited
+
+        if isinstance(value, (list, tuple)):
+            limited_list = [
+                _limit_json_value(
+                    item,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_items=max_items,
+                    max_string_len=max_string_len,
+                )
+                for item in value[:max_items]
+            ]
+            if len(value) > max_items:
+                limited_list.append(f"[{len(value) - max_items} more items]")
+            return limited_list
+
+        if isinstance(value, str):
+            if len(value) <= max_string_len:
+                return value
+            return value[:max_string_len] + f"... [truncated, {len(value)} chars total]"
+
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+
+        return str(value)
+
+    def _redact_diff_lines(diff_text: str) -> str:
+        """Redact lines in config diffs that may contain sensitive values.
+
+        Only redacts when a sensitive keyword is followed by a separator (= : or whitespace)
+        AND actual value content. This avoids over-redacting Junos keywords like
+        "pre-shared-secret" which are type/method names, not values.
+        """
+        redacted_lines = []
+        for line in diff_text.splitlines():
+            match = _SENSITIVE_DIFF_PATTERN.search(line)
+            if not match:
+                redacted_lines.append(line)
+                continue
+
+            # Check if there's a separator AND value content after the keyword.
+            suffix = line[match.end() :]
+            separator_match = re.match(r"(\s*(?::|=)\s*|\s+)", suffix)
+            if separator_match:
+                # There's a separator - check if content exists after it.
+                value_start = separator_match.end()
+                remaining = suffix[value_start:].strip()
+                if remaining:
+                    # Has value content → redact
+                    redacted_lines.append(
+                        f"{line[:match.end()]}{separator_match.group(0)}[REDACTED]"
+                    )
+                else:
+                    # Separator but no value (keyword at end) → preserve
+                    redacted_lines.append(line)
+            else:
+                # No separator → keyword is likely a type name (e.g., "pre-shared-secret") → preserve
+                redacted_lines.append(line)
+        return "\n".join(redacted_lines)
+
+    def _json_snippet(value: object, max_len: int = 1200) -> str:
+        """Convert value to JSON string, pre-limiting structure to avoid expensive full serialization."""
+        preview = _limit_json_value(value)
+        text = json.dumps(preview, indent=2, default=str)
+        if len(text) <= max_len:
+            return text
+        return text[:max_len] + f"\n... (truncated, full length {len(text)} chars)"
+
     lines = [
-        f"Impact Analysis Session for {session.device_type.value} '{session.device_name or session.device_mac}'",
-        f"Site: {session.site_name} | Status: {session.status.value} | Impact: {session.impact_severity}",
+        f"Impact Analysis Session for {session.device_type.value} '{_sanitize_for_prompt(session.device_name or session.device_mac, max_len=100)}'",
+        f"Org ID: {session.org_id} | Site ID: {session.site_id} ({_sanitize_for_prompt(session.site_name or '', max_len=100)})",
+        f"Status: {session.status.value} | Impact: {session.impact_severity}",
         f"Config changes: {len(session.config_changes)} | Incidents: {len(session.incidents)}",
     ]
     if session.config_changes:
-        latest = session.config_changes[-1]
-        lines.append(f"Latest config event: {latest.event_type} at {latest.timestamp.isoformat()}")
-        if latest.commit_user:
-            lines.append(f"  Committed by: {latest.commit_user} via {latest.commit_method}")
+        recent_changes = list(reversed(session.config_changes[-3:]))
+        lines.append("\nMost recent config changes (newest first):")
+        for idx, change in enumerate(recent_changes, start=1):
+            lines.append(f"{idx}. {change.event_type} at {change.timestamp.isoformat()}")
+            if change.commit_user:
+                # Mist-sourced fields: sanitize to follow project convention
+                safe_user = _sanitize_for_prompt(change.commit_user, max_len=100)
+                safe_method = _sanitize_for_prompt(change.commit_method or "unknown", max_len=50)
+                lines.append(f"   Committed by: {safe_user} via {safe_method}")
+            if change.device_model or change.firmware_version:
+                safe_model = _sanitize_for_prompt(change.device_model or "unknown", max_len=50)
+                safe_firmware = _sanitize_for_prompt(change.firmware_version or "unknown", max_len=50)
+                lines.append(
+                    "   Device snapshot: "
+                    f"model={safe_model}, firmware={safe_firmware}"
+                )
+            if change.change_message:
+                lines.append(f"   Audit message: {_sanitize_for_prompt(change.change_message, max_len=500)}")
+            if change.payload_summary:
+                lines.append("   Payload summary:")
+                lines.append(_json_snippet(change.payload_summary, max_len=900))
+            if change.config_diff:
+                diff = _redact_diff_lines(change.config_diff)
+                if len(diff) > 1500:
+                    diff = diff[:1500] + f"\n... (truncated, full length {len(diff)} chars)"
+                lines.append("   Config diff (Junos):")
+                lines.append(diff)
+            if change.config_before is not None or change.config_after is not None:
+                lines.append("   Config before/after (audit):")
+                if change.config_before is not None:
+                    lines.append(f"   BEFORE:\n{_json_snippet(change.config_before)}")
+                if change.config_after is not None:
+                    lines.append(f"   AFTER:\n{_json_snippet(change.config_after)}")
+
+        latest = recent_changes[0]
+        lines.append(
+            "\nDefault reference: if the user says 'this change', treat it as "
+            f"{latest.event_type} at {latest.timestamp.isoformat()} unless clarified."
+        )
     if session.validation_results:
         overall = session.validation_results.get("overall_status", "unknown")
         lines.append(f"Validation: {overall}")
@@ -562,17 +734,25 @@ async def session_chat(
 
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
-    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
     session = await _get_session(session_id)
 
-    # Build system prompt with session context
+    # Build system prompt with session context.
+    # Note: Individual user-sourced fields inside _build_session_context are already sanitized.
+    # We only truncate here (don't use _sanitize_for_prompt) because it strips '---' which
+    # corrupts Junos unified diff headers that are part of legitimate config_diff content.
+    session_context = _build_session_context(session)
+    if len(session_context) > 12000:
+        session_context = session_context[:12000] + "\n... [truncated]"
+
     system_prompt = (
         "You are an AI network engineer assistant analyzing the impact of a configuration change "
         "on a Juniper Mist network device. You have access to MCP tools to query backups, "
         "workflows, device stats, and other app data. Be concise and technical. "
-        "Reference specific checks, metrics, and device details in your answers.\n\n"
-        f"Session context:\n{_sanitize_for_prompt(_build_session_context(session), max_len=4000)}"
+        "Reference specific checks, metrics, and device details in your answers. "
+        "When the user says 'this change', assume they mean the most recent config change in session context "
+        "unless they explicitly clarify otherwise.\n\n"
+        f"Session context:\n{session_context}"
     )
 
     # Memory instruction (when memory is enabled)
@@ -798,17 +978,21 @@ async def group_chat(
 
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
-    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
     group = await _get_group(group_id)
 
-    # Build system prompt with group context
+    # Build system prompt with group context.
+    # Note: Individual user-sourced fields are already sanitized inside _build_group_context.
+    group_context = _build_group_context(group)
+    if len(group_context) > 4000:
+        group_context = group_context[:4000] + "\n... [truncated]"
+
     system_prompt = (
         "You are an AI network engineer assistant analyzing the impact of a configuration change "
         "across multiple devices in a Juniper Mist network. You have access to MCP tools to query "
         "backups, workflows, device stats, and other app data. Be concise and technical. "
         "Reference specific checks, metrics, and device details in your answers.\n\n"
-        f"Change group context:\n{_sanitize_for_prompt(_build_group_context(group), max_len=4000)}"
+        f"Change group context:\n{group_context}"
     )
 
     # Memory instruction (when memory is enabled)

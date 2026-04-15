@@ -10,7 +10,7 @@ import structlog
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.server import mcp, mcp_thread_id_var
 from app.modules.mcp_server.tools.utils import is_placeholder
 
 logger = structlog.get_logger(__name__)
@@ -48,15 +48,70 @@ async def activate_skill(
     any bundled resource files in the skill directory.
     """
     from app.modules.llm.models import Skill
-    from app.modules.llm.services.skills_service import list_skill_resources, parse_skill_md
+    from app.modules.llm.services.skills_service import (
+        find_app_skill_dir,
+        get_skill_effective_mcp_id,
+        list_skill_resources,
+        parse_skill_md,
+    )
 
     skill_name = _validate_skill_name(name)
 
     skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
-    if not skill:
-        raise ToolError(f"Skill '{skill_name}' not found or not enabled")
+    source_label: str
+    if skill:
+        # Enforce MCP binding: if skill is bound to an MCP server, that server must be active in the thread
+        effective_mcp_id = await get_skill_effective_mcp_id(skill=skill)
+        if effective_mcp_id:
+            from app.modules.llm.services.skills_service import ORPHANED_SKILL_SENTINEL
 
-    skill_dir = Path(skill.local_path)
+            # Handle orphaned skills (git repo was deleted)
+            if effective_mcp_id == ORPHANED_SKILL_SENTINEL:
+                raise ToolError(
+                    f"Skill '{skill_name}' cannot be activated: the git repository it was imported from has been deleted"
+                )
+
+            # mcp_thread_id_var has default=None, so .get() never raises LookupError
+            thread_id = mcp_thread_id_var.get()
+            active_mcp_ids: set[str] = set()
+            if thread_id:
+                from beanie import PydanticObjectId
+                from bson.errors import InvalidId
+
+                from app.modules.llm.models import ConversationThread
+
+                try:
+                    thread_object_id = PydanticObjectId(thread_id)
+                except (InvalidId, TypeError, ValueError) as exc:
+                    raise ToolError(
+                        "Invalid conversation context: unable to determine the active MCP servers"
+                    ) from exc
+
+                thread = await ConversationThread.get(thread_object_id)
+                if thread and thread.mcp_config_ids:
+                    active_mcp_ids = set(thread.mcp_config_ids)
+
+            if effective_mcp_id not in active_mcp_ids:
+                # Provide a more helpful error for external MCP clients (no thread context)
+                if not thread_id:
+                    raise ToolError(
+                        f"Skill '{skill_name}' requires an MCP server binding and can only be used "
+                        f"in an in-app conversation with that MCP server enabled. "
+                        f"External MCP clients (using Personal Access Tokens) cannot activate MCP-bound skills."
+                    )
+                raise ToolError(
+                    f"Skill '{skill_name}' requires MCP server that is not enabled for this conversation"
+                )
+
+        skill_dir = Path(skill.local_path)
+        source_label = str(skill.local_path)
+    else:
+        # Fallback: built-in app skills from dedicated folder are always available.
+        skill_dir = find_app_skill_dir(skill_name)
+        if not skill_dir:
+            raise ToolError(f"Skill '{skill_name}' not found or not enabled")
+        source_label = str(skill_dir)
+
     skill_file = skill_dir / "SKILL.md"
 
     if not skill_file.exists():
@@ -77,7 +132,7 @@ async def activate_skill(
     return (
         f'<skill_content name="{escape(skill_name)}">\n'
         f"{escape(body)}\n\n"
-        f"Skill directory: {escape(str(skill.local_path))}"
+        f"Skill directory: {escape(source_label)}"
         f"{resources_block}\n"
         f"</skill_content>"
     )

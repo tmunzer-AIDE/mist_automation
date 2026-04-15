@@ -178,6 +178,10 @@ class SkillGitRepo(TimestampMixin, Document):
     url: str = Field(..., description="Git repo URL (SSRF-validated on save)")
     branch: str = Field(default="main", description="Branch to clone/pull")
     token: str | None = Field(default=None, description="Encrypted deploy token")
+    mcp_config_id: PydanticObjectId | None = Field(
+        default=None,
+        description="Optional MCP server binding. Skills from this repo are exposed only when this MCP server is enabled in chat.",
+    )
     local_path: str = Field(default="", description="Absolute path to clone destination (set after first insert)")
     last_refreshed_at: datetime | None = Field(default=None, description="Last successful pull")
     error: str | None = Field(default=None, description="Last clone/pull error")
@@ -202,6 +206,13 @@ class Skill(TimestampMixin, Document):
     local_path: str = Field(..., description="Absolute path to skill directory")
     enabled: bool = Field(default=True, description="Admin toggle")
     git_repo_id: PydanticObjectId | None = Field(default=None, description="FK to SkillGitRepo if source='git'")
+    mcp_config_id: PydanticObjectId | None = Field(
+        default=None,
+        description=(
+            "Optional MCP server binding for direct-imported skills. "
+            "When set, the skill is exposed only when that MCP server is enabled in chat."
+        ),
+    )
     error: str | None = Field(default=None, description="Last parse/sync error")
     last_synced_at: datetime | None = Field(default=None, description="Last successful SKILL.md parse")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
