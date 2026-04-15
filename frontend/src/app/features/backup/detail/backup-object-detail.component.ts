@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit, signal, computed } from '@angular/core';
+import { Component, DestroyRef, HostListener, inject, OnInit, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgClass, SlicePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -6,10 +6,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatTableModule } from '@angular/material/table';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -57,6 +54,13 @@ interface DiffGroup {
   isGroup: boolean;
 }
 
+interface TimelineBubble {
+  version: ObjectVersion;
+  left: number;     // 0–100 (%)
+  diameter: number; // 8–28 (px)
+  color: 'green' | 'yellow' | 'red' | 'blue';
+}
+
 @Component({
   selector: 'app-backup-object-detail',
   standalone: true,
@@ -68,10 +72,7 @@ interface DiffGroup {
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
-    MatTableModule,
-    MatChipsModule,
     MatTooltipModule,
-    MatMenuModule,
     MatExpansionModule,
     MatDialogModule,
     MatSnackBarModule,
@@ -99,6 +100,18 @@ export class BackupObjectDetailComponent implements OnInit {
   versions = signal<ObjectVersion[]>([]);
   loading = signal(true);
 
+  // A/B pins for comparison
+  pinA = signal<ObjectVersion | null>(null);
+  pinB = signal<ObjectVersion | null>(null);
+
+  /** Tracked timeline container width (px). Used to convert 20px min-gap to %. */
+  timelineContainerWidth = signal(800);
+
+  @HostListener('window:resize', ['$event.target.innerWidth'])
+  onResize(width: number): void {
+    this.timelineContainerWidth.set(width);
+  }
+
   // AI Summary
   llmAvailable = signal(false);
   aiThreadId = signal<string | null>(null);
@@ -107,17 +120,114 @@ export class BackupObjectDetailComponent implements OnInit {
   aiLoading = signal(false);
   aiExpanded = signal(true);
   aiHasContent = computed(() => !!this.aiSummary() || !!this.aiError() || this.aiLoading());
-  selectedVersionId = signal<string | null>(null);
+
   dependencies = signal<ObjectDependencyResponse | null>(null);
   depsLoading = signal(true);
 
-  // Compare mode
-  compareMode = signal(false);
-  compareVersions = signal<[ObjectVersion | null, ObjectVersion | null]>([null, null]);
+  // Diff state
   diffEntries = signal<DiffEntry[]>([]);
   activeFilters = signal<Set<string>>(new Set());
   expandedGroups = signal<Set<string>>(new Set());
   expandedEntries = signal<Set<string>>(new Set());
+
+  // ── Computed ──────────────────────────────────────────────────────────────
+
+  latestVersion = computed(() => {
+    const v = this.versions();
+    return v.length > 0 ? v[0] : null;
+  });
+
+  oldestVersion = computed(() => {
+    const v = this.versions();
+    return v.length > 0 ? v[v.length - 1] : null;
+  });
+
+  maxChanges = computed(() => {
+    const counts = this.versions().map((v) => v.changed_fields.length);
+    return Math.max(1, ...counts);
+  });
+
+  daysBetweenPins = computed<number | null>(() => {
+    const a = this.pinA();
+    const b = this.pinB();
+    if (!a || !b) return null;
+    const ms = Math.abs(
+      new Date(b.backed_up_at).getTime() - new Date(a.backed_up_at).getTime(),
+    );
+    return Math.round(ms / (1000 * 60 * 60 * 24));
+  });
+
+  /**
+   * Per-bubble position + size for the sparkline timeline.
+   * Positions are time-proportional with a minimum 20px gap between adjacent bubbles.
+   */
+  timelineBubbles = computed<TimelineBubble[]>(() => {
+    const versions = this.versions();
+    const pinA = this.pinA();
+    const pinB = this.pinB();
+    if (versions.length === 0) return [];
+
+    // Timeline goes oldest → newest (left → right)
+    const sorted = [...versions].reverse();
+
+    const earliest = new Date(sorted[0].backed_up_at).getTime();
+    const latest = new Date(sorted[sorted.length - 1].backed_up_at).getTime();
+    const range = latest - earliest;
+
+    // Raw proportional positions
+    const positions: number[] = sorted.map((v) =>
+      range === 0 ? 50 : ((new Date(v.backed_up_at).getTime() - earliest) / range) * 100,
+    );
+
+    // Enforce minimum 20px gap between adjacent bubbles.
+    // We work in % space: use the component's tracked container width (pixels) to convert.
+    // containerWidth defaults to 800px (a safe lower bound) until a resize is observed.
+    const minGapPct = (20 / this.timelineContainerWidth()) * 100;
+    for (let i = 1; i < positions.length; i++) {
+      if (positions[i] - positions[i - 1] < minGapPct) {
+        positions[i] = positions[i - 1] + minGapPct;
+      }
+    }
+
+    // Scale back if the last position overflowed past 100%
+    const maxLeft = positions[positions.length - 1];
+    if (maxLeft > 100) {
+      const scale = 100 / maxLeft;
+      for (let i = 0; i < positions.length; i++) positions[i] *= scale;
+    }
+
+    return sorted.map((v, i) => ({
+      version: v,
+      left: positions[i],
+      diameter: Math.min(28, Math.max(8, 8 + v.changed_fields.length * 2)),
+      color:
+        pinB?.id === v.id
+          ? 'blue'
+          : v.changed_fields.length <= 2
+            ? 'green'
+            : v.changed_fields.length <= 6
+              ? 'yellow'
+              : 'red',
+    }));
+  });
+
+  /**
+   * Left/right % positions of the gradient connector between A and B pins.
+   * Returns null when fewer than 2 pins are set.
+   */
+  timelineConnector = computed<{ left: number; right: number } | null>(() => {
+    const a = this.pinA();
+    const b = this.pinB();
+    const bubbles = this.timelineBubbles();
+    if (!a || !b) return null;
+    const bA = bubbles.find((bub) => bub.version.id === a.id);
+    const bB = bubbles.find((bub) => bub.version.id === b.id);
+    if (!bA || !bB) return null;
+    return {
+      left: Math.min(bA.left, bB.left),
+      right: 100 - Math.max(bA.left, bB.left),
+    };
+  });
 
   diffTypeCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = { added: 0, removed: 0, modified: 0 };
@@ -156,7 +266,9 @@ export class BackupObjectDetailComponent implements OnInit {
         key,
         entries: groupEntries,
         typeCounts,
-        isGroup: groupEntries.length > 1 || (groupEntries.length === 1 && groupEntries[0].path.includes('.')),
+        isGroup:
+          groupEntries.length > 1 ||
+          (groupEntries.length === 1 && groupEntries[0].path.includes('.')),
       });
     }
     return result;
@@ -172,9 +284,7 @@ export class BackupObjectDetailComponent implements OnInit {
         const filtered = group.entries.filter((e) => filters.has(e.type));
         if (filtered.length === 0) return null;
         const typeCounts: Record<string, number> = {};
-        for (const e of filtered) {
-          typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1;
-        }
+        for (const e of filtered) typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1;
         return { ...group, entries: filtered, typeCounts };
       })
       .filter((g): g is DiffGroup => g !== null);
@@ -198,17 +308,7 @@ export class BackupObjectDetailComponent implements OnInit {
     });
   });
 
-  versionColumns = ['version', 'date', 'admin', 'event_type', 'changed_fields', 'actions'];
-
-  latestVersion = computed(() => {
-    const v = this.versions();
-    return v.length > 0 ? v[0] : null;
-  });
-
-  oldestVersion = computed(() => {
-    const v = this.versions();
-    return v.length > 0 ? v[v.length - 1] : null;
-  });
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     this.topbarService.setTitle('Object Detail');
@@ -230,11 +330,10 @@ export class BackupObjectDetailComponent implements OnInit {
   private resetState(): void {
     this.versions.set([]);
     this.loading.set(true);
-    this.selectedVersionId.set(null);
+    this.pinA.set(null);
+    this.pinB.set(null);
     this.dependencies.set(null);
     this.depsLoading.set(true);
-    this.compareMode.set(false);
-    this.compareVersions.set([null, null]);
     this.aiThreadId.set(null);
     this.aiSummary.set(null);
     this.aiError.set(null);
@@ -243,6 +342,69 @@ export class BackupObjectDetailComponent implements OnInit {
     this.expandedGroups.set(new Set());
     this.expandedEntries.set(new Set());
   }
+
+  // ── Pin interaction ───────────────────────────────────────────────────────
+
+  /**
+   * Pin cycle:
+   * - Click A → clear A
+   * - Click B → clear B
+   * - No A set → set A
+   * - A set, no B → set B, compute diff
+   * - Both set → replace A, compute diff
+   */
+  pinVersion(v: ObjectVersion): void {
+    const a = this.pinA();
+    const b = this.pinB();
+
+    if (a?.id === v.id) {
+      this.pinA.set(null);
+      this.diffEntries.set([]);
+      return;
+    }
+    if (b?.id === v.id) {
+      this.pinB.set(null);
+      this.diffEntries.set([]);
+      return;
+    }
+    if (!a) {
+      this.pinA.set(v);
+      return;
+    }
+    if (!b) {
+      this.pinB.set(v);
+      this.computeDiff();
+      return;
+    }
+    // Both set: replace A
+    this.pinA.set(v);
+    this.computeDiff();
+  }
+
+  private computeDiff(): void {
+    const a = this.pinA();
+    const b = this.pinB();
+    if (!a || !b) {
+      this.diffEntries.set([]);
+      return;
+    }
+    // Always diff older → newer
+    const older = a.version < b.version ? a : b;
+    const newer = a.version < b.version ? b : a;
+    this.pinA.set(older);
+    this.pinB.set(newer);
+    this.diffEntries.set(this.deepDiff(older.configuration, newer.configuration));
+    this.activeFilters.set(new Set());
+    this.expandedGroups.set(new Set());
+    this.expandedEntries.set(new Set());
+  }
+
+  /** Returns true for the 3 newest versions and for any pinned version. */
+  isFullRow(v: ObjectVersion, index: number): boolean {
+    return index < 3 || this.pinA()?.id === v.id || this.pinB()?.id === v.id;
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   eventLabel(eventType: string): string {
     const labels: Record<string, string> = {
@@ -254,12 +416,6 @@ export class BackupObjectDetailComponent implements OnInit {
       restored: 'Restored',
     };
     return labels[eventType] || eventType;
-  }
-
-  onRowClick(v: ObjectVersion): void {
-    if (this.compareMode()) {
-      this.toggleCompareVersion(v);
-    }
   }
 
   viewJson(v: ObjectVersion): void {
@@ -296,66 +452,21 @@ export class BackupObjectDetailComponent implements OnInit {
     });
   }
 
-  toggleCompareMode(): void {
-    this.compareMode.set(!this.compareMode());
-    if (!this.compareMode()) {
-      this.compareVersions.set([null, null]);
-      this.diffEntries.set([]);
-      this.activeFilters.set(new Set());
-      this.expandedGroups.set(new Set());
-      this.expandedEntries.set(new Set());
-    }
+  /** Simulate rollback: open CascadeRestoreDialogComponent in dry-run mode. */
+  simulateRestore(v: ObjectVersion): void {
+    this.dialog.open(CascadeRestoreDialogComponent, {
+      width: '600px',
+      maxHeight: '80vh',
+      data: {
+        versionId: v.id,
+        objectName: v.object_name || v.object_id,
+        objectType: v.object_type,
+        isDeleted: v.is_deleted,
+      },
+    });
   }
 
-  toggleCompareVersion(v: ObjectVersion): void {
-    if (!this.compareMode()) return;
-    const cv = this.compareVersions();
-
-    // If already selected, deselect
-    if (cv[0]?.id === v.id) {
-      this.compareVersions.set([cv[1], null]);
-      this.diffEntries.set([]);
-      return;
-    }
-    if (cv[1]?.id === v.id) {
-      this.compareVersions.set([cv[0], null]);
-      this.diffEntries.set([]);
-      return;
-    }
-
-    // Add to selection
-    if (!cv[0]) {
-      this.compareVersions.set([v, null]);
-    } else {
-      this.compareVersions.set([cv[0], v]);
-      this.computeDiff();
-    }
-  }
-
-  isCompareSelected(v: ObjectVersion): boolean {
-    const cv = this.compareVersions();
-    return cv[0]?.id === v.id || cv[1]?.id === v.id;
-  }
-
-  compareLabel(v: ObjectVersion): string | null {
-    const cv = this.compareVersions();
-    if (cv[0]?.id === v.id) return 'A';
-    if (cv[1]?.id === v.id) return 'B';
-    return null;
-  }
-
-  private computeDiff(): void {
-    const [a, b] = this.compareVersions();
-    if (!a || !b) return;
-    // Order so that older version is on the left
-    const older = a.version < b.version ? a : b;
-    const newer = a.version < b.version ? b : a;
-    this.compareVersions.set([older, newer]);
-    this.diffEntries.set(this.deepDiff(older.configuration, newer.configuration));
-    this.activeFilters.set(new Set());
-    this.expandedGroups.set(new Set());
-    this.expandedEntries.set(new Set());
-  }
+  // ── Diff helpers ─────────────────────────────────────────────────────────
 
   private deepDiff(
     a: Record<string, unknown>,
@@ -380,7 +491,11 @@ export class BackupObjectDetailComponent implements OnInit {
         !Array.isArray(b[key])
       ) {
         result.push(
-          ...this.deepDiff(a[key] as Record<string, unknown>, b[key] as Record<string, unknown>, p),
+          ...this.deepDiff(
+            a[key] as Record<string, unknown>,
+            b[key] as Record<string, unknown>,
+            p,
+          ),
         );
       } else if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) {
         result.push({ path: p, type: 'modified', oldValue: a[key], newValue: b[key] });
@@ -391,31 +506,22 @@ export class BackupObjectDetailComponent implements OnInit {
 
   toggleFilter(type: string): void {
     const current = new Set(this.activeFilters());
-    if (current.has(type)) {
-      current.delete(type);
-    } else {
-      current.add(type);
-    }
+    if (current.has(type)) current.delete(type);
+    else current.add(type);
     this.activeFilters.set(current);
   }
 
   toggleGroup(key: string): void {
     const current = new Set(this.expandedGroups());
-    if (current.has(key)) {
-      current.delete(key);
-    } else {
-      current.add(key);
-    }
+    if (current.has(key)) current.delete(key);
+    else current.add(key);
     this.expandedGroups.set(current);
   }
 
   toggleEntry(path: string): void {
     const current = new Set(this.expandedEntries());
-    if (current.has(path)) {
-      current.delete(path);
-    } else {
-      current.add(path);
-    }
+    if (current.has(path)) current.delete(path);
+    else current.add(path);
     this.expandedEntries.set(current);
   }
 
@@ -431,13 +537,8 @@ export class BackupObjectDetailComponent implements OnInit {
     }
   }
 
-  isGroupExpanded(key: string): boolean {
-    return this.expandedGroups().has(key);
-  }
-
-  isEntryExpanded(path: string): boolean {
-    return this.expandedEntries().has(path);
-  }
+  isGroupExpanded(key: string): boolean { return this.expandedGroups().has(key); }
+  isEntryExpanded(path: string): boolean { return this.expandedEntries().has(path); }
 
   stripGroupPrefix(path: string, groupKey: string): string {
     return path.startsWith(groupKey + '.') ? path.substring(groupKey.length + 1) : path;
@@ -449,32 +550,26 @@ export class BackupObjectDetailComponent implements OnInit {
     return JSON.stringify(val, null, 2);
   }
 
-  private loadDependencies(): void {
-    this.depsLoading.set(true);
-    this.api
-      .get<ObjectDependencyResponse>(`/backups/objects/${this.objectId}/dependencies`)
-      .subscribe({
-        next: (res) => {
-          this.dependencies.set(res);
-          this.depsLoading.set(false);
-        },
-        error: () => {
-          this.depsLoading.set(false);
-        },
-      });
-  }
+  // ── Data loading ──────────────────────────────────────────────────────────
 
   private loadVersions(): void {
     this.loading.set(true);
     this.api
-      .get<{
-        versions: ObjectVersion[];
-        total: number;
-      }>(`/backups/objects/${this.objectId}/versions`)
+      .get<{ versions: ObjectVersion[]; total: number }>(
+        `/backups/objects/${this.objectId}/versions`,
+      )
       .subscribe({
         next: (res) => {
           this.versions.set(res.versions);
           this.loading.set(false);
+          // Default: B = latest, A = previous
+          if (res.versions.length >= 2) {
+            this.pinB.set(res.versions[0]);
+            this.pinA.set(res.versions[1]);
+            this.computeDiff();
+          } else if (res.versions.length === 1) {
+            this.pinB.set(res.versions[0]);
+          }
           const latest = res.versions[0];
           if (latest) {
             this.globalChatService.setContext({
@@ -489,17 +584,25 @@ export class BackupObjectDetailComponent implements OnInit {
             });
           }
         },
-        error: () => {
-          this.loading.set(false);
-        },
+        error: () => this.loading.set(false),
       });
   }
 
-  // ── AI Summary ──────────────────────────────────────────────────────────
+  private loadDependencies(): void {
+    this.depsLoading.set(true);
+    this.api
+      .get<ObjectDependencyResponse>(`/backups/objects/${this.objectId}/dependencies`)
+      .subscribe({
+        next: (res) => { this.dependencies.set(res); this.depsLoading.set(false); },
+        error: () => this.depsLoading.set(false),
+      });
+  }
+
+  // ── AI Summary ────────────────────────────────────────────────────────────
 
   summarizeChanges(): void {
-    const v0 = this.compareVersions()[0];
-    const v1 = this.compareVersions()[1];
+    const v0 = this.pinA();
+    const v1 = this.pinB();
     if (!v0 || !v1) return;
 
     this.aiLoading.set(true);
