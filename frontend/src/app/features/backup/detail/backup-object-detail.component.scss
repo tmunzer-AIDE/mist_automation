@@ -210,7 +210,7 @@
 
 .version-row {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   border-bottom: 1px solid var(--mat-sys-outline-variant);
   border-left: 3px solid transparent;
   transition: background 0.1s;
@@ -233,20 +233,19 @@
 }
 
 // Pin target: a native <button> wrapping only the metadata — no nested interactive controls.
-// The action buttons (View/Simulate/Rollback) are siblings, not children.
+// The action buttons (View/Simulate/Rollback) are siblings below it, not children inside it.
 .row-pin-target {
-  flex: 1;
-  min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 9px 8px 9px 12px;
+  padding: 9px 12px 4px;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
   color: inherit;
   font: inherit;
+  width: 100%;
 
   &:focus-visible {
     outline: 2px solid var(--mat-sys-primary);
@@ -255,7 +254,7 @@
 
   &.row-pin-target-compact {
     align-items: center;
-    padding-right: 0;
+    padding-bottom: 9px;
   }
 }
 
@@ -386,9 +385,8 @@
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
-  flex-shrink: 0;
-  align-self: flex-end;
-  padding: 0 12px 9px 4px;
+  // Indent to align under metadata content (12px row-pad + 20px indicator + 8px gap = 40px)
+  padding: 0 12px 9px 40px;
 
   button { font-size: 11px; height: 28px; line-height: 28px; padding: 0 6px 0 12px; }
   mat-icon { font-size: 14px; width: 14px; height: 14px; margin-right: 3px; }
