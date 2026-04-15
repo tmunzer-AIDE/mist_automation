@@ -135,3 +135,37 @@ def test_build_session_context_only_includes_latest_three_changes():
     assert "CHANGE_2" in context
     assert "CHANGE_1" not in context
     assert "CHANGE_0" not in context
+
+
+def test_build_session_context_preserves_junos_keywords_in_diffs():
+    """Verify that Junos keywords like 'pre-shared-secret' (auth method type) are not redacted.
+    
+    This tests the fix for over-redaction where lines like:
+      set security ike proposal my-proposal authentication-method pre-shared-secret
+    were incorrectly redacted because 'secret' appeared as a keyword. The fix only redacts
+    when a sensitive keyword is a KEY followed by a separator and VALUE, not when it appears
+    as a compound type name at the end of a line.
+    """
+    now = datetime.now(timezone.utc)
+    junos_diff = """set security ike proposal my-proposal authentication-method pre-shared-secret
+set security ike proposal my-proposal encryption-algorithm aes-256-cbc
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/24
+"""
+    session = _make_session(
+        config_changes=[
+            ConfigChangeEvent(
+                event_type="GW_CONFIGURED",
+                device_mac="aa:bb:cc:dd:ee:ff",
+                device_name="gw1",
+                timestamp=now,
+                config_diff=junos_diff,
+            )
+        ]
+    )
+
+    context = _build_session_context(session)
+
+    # Junos keyword 'pre-shared-secret' should NOT be redacted (it's a type/method name, not a value).
+    assert "authentication-method pre-shared-secret" in context
+    # Non-sensitive lines should be preserved.
+    assert "encryption-algorithm aes-256-cbc" in context

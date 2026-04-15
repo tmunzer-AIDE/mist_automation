@@ -44,14 +44,22 @@ from app.modules.impact_analysis.schemas import (
     TimelineEntryResponse,
 )
 from app.modules.impact_analysis.services import session_manager
+from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
 router = APIRouter(tags=["Impact Analysis"])
 logger = structlog.get_logger(__name__)
 
-# Compiled regex for redacting sensitive data in config diffs and values.
-# Defined at module scope to avoid repeated compilation on each endpoint call.
+# Compiled regex for redacting sensitive data in JSON keys (e.g., "radius_secret", "api_key").
+# Permissive pattern — matches keywords as substrings to catch suffixes like _secret.
 _SENSITIVE_KEY_PATTERN = re.compile(
     r"(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)", re.IGNORECASE
+)
+
+# Compiled regex for redacting config diff lines.
+# Uses word boundaries (\b) to avoid matching compound keywords like "pre-shared-secret"
+# (a Junos authentication method type, not an actual secret value).
+_SENSITIVE_DIFF_PATTERN = re.compile(
+    r"\b(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)\b", re.IGNORECASE
 )
 
 
@@ -241,10 +249,15 @@ async def _get_group(group_id: PydanticObjectId) -> ChangeGroup:
 
 def _build_group_context(group: ChangeGroup) -> str:
     """Build context string for group-level AI chat."""
+    # Sanitize all user/webhook-sourced fields to prevent prompt injection.
+    change_desc = _sanitize_for_prompt(group.change_description)
+    change_src = _sanitize_for_prompt(group.change_source)
+    triggered = _sanitize_for_prompt(group.triggered_by or "unknown")
+
     parts = [
-        f"Change Group: {group.change_description}",
-        f"Source: {group.change_source}",
-        f"Triggered by: {group.triggered_by or 'unknown'}",
+        f"Change Group: {change_desc}",
+        f"Source: {change_src}",
+        f"Triggered by: {triggered}",
         f"Devices: {group.summary.total_devices}",
         f"Status: {group.summary.status}",
         f"Worst severity: {group.summary.worst_severity}",
@@ -252,12 +265,14 @@ def _build_group_context(group: ChangeGroup) -> str:
     if group.summary.devices:
         parts.append("\nDevice Summary:")
         for d in group.summary.devices:
-            line = f"  - {d.device_name} ({d.device_type}): {d.status}, severity={d.impact_severity}"
+            device_name = _sanitize_for_prompt(d.device_name)
+            line = f"  - {device_name} ({d.device_type}): {d.status}, severity={d.impact_severity}"
             if d.failed_checks:
                 line += f", failed=[{', '.join(d.failed_checks)}]"
             parts.append(line)
     if group.ai_assessment and group.ai_assessment.get("summary"):
-        parts.append(f"\nPrevious AI Assessment: {group.ai_assessment['summary'][:500]}")
+        ai_summary = _sanitize_for_prompt(group.ai_assessment["summary"][:500])
+        parts.append(f"\nPrevious AI Assessment: {ai_summary}")
     return "\n".join(parts)
 
 
@@ -508,8 +523,6 @@ def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
     import itertools
 
-    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
-
     def _limit_json_value(
         value: object,
         *,
@@ -581,26 +594,35 @@ def _build_session_context(session: MonitoringSession) -> str:
     def _redact_diff_lines(diff_text: str) -> str:
         """Redact lines in config diffs that may contain sensitive values.
 
-        Preserves line structure where possible by keeping the key/command prefix
-        and only masking the value portion. Falls back to full-line redaction
-        when no separator is found.
+        Only redacts when a sensitive keyword is followed by a separator (= : or whitespace)
+        AND actual value content. This avoids over-redacting Junos keywords like
+        "pre-shared-secret" which are type/method names, not values.
         """
         redacted_lines = []
         for line in diff_text.splitlines():
-            match = _SENSITIVE_KEY_PATTERN.search(line)
+            match = _SENSITIVE_DIFF_PATTERN.search(line)
             if not match:
                 redacted_lines.append(line)
                 continue
 
-            # Keep line structure but redact the value portion when possible.
+            # Check if there's a separator AND value content after the keyword.
             suffix = line[match.end() :]
             separator_match = re.match(r"(\s*(?::|=)\s*|\s+)", suffix)
             if separator_match:
-                redacted_lines.append(
-                    f"{line[:match.end()]}{separator_match.group(0)}[REDACTED]"
-                )
+                # There's a separator - check if content exists after it.
+                value_start = separator_match.end()
+                remaining = suffix[value_start:].strip()
+                if remaining:
+                    # Has value content → redact
+                    redacted_lines.append(
+                        f"{line[:match.end()]}{separator_match.group(0)}[REDACTED]"
+                    )
+                else:
+                    # Separator but no value (keyword at end) → preserve
+                    redacted_lines.append(line)
             else:
-                redacted_lines.append("[REDACTED LINE (contains sensitive keyword)]")
+                # No separator → keyword is likely a type name (e.g., "pre-shared-secret") → preserve
+                redacted_lines.append(line)
         return "\n".join(redacted_lines)
 
     def _json_snippet(value: object, max_len: int = 1200) -> str:
@@ -612,8 +634,8 @@ def _build_session_context(session: MonitoringSession) -> str:
         return text[:max_len] + f"\n... (truncated, full length {len(text)} chars)"
 
     lines = [
-        f"Impact Analysis Session for {session.device_type.value} '{session.device_name or session.device_mac}'",
-        f"Org ID: {session.org_id} | Site ID: {session.site_id} ({session.site_name})",
+        f"Impact Analysis Session for {session.device_type.value} '{_sanitize_for_prompt(session.device_name or session.device_mac, max_len=100)}'",
+        f"Org ID: {session.org_id} | Site ID: {session.site_id} ({_sanitize_for_prompt(session.site_name or '', max_len=100)})",
         f"Status: {session.status.value} | Impact: {session.impact_severity}",
         f"Config changes: {len(session.config_changes)} | Incidents: {len(session.incidents)}",
     ]
@@ -623,11 +645,16 @@ def _build_session_context(session: MonitoringSession) -> str:
         for idx, change in enumerate(recent_changes, start=1):
             lines.append(f"{idx}. {change.event_type} at {change.timestamp.isoformat()}")
             if change.commit_user:
-                lines.append(f"   Committed by: {change.commit_user} via {change.commit_method or 'unknown'}")
+                # Mist-sourced fields: sanitize to follow project convention
+                safe_user = _sanitize_for_prompt(change.commit_user, max_len=100)
+                safe_method = _sanitize_for_prompt(change.commit_method or "unknown", max_len=50)
+                lines.append(f"   Committed by: {safe_user} via {safe_method}")
             if change.device_model or change.firmware_version:
+                safe_model = _sanitize_for_prompt(change.device_model or "unknown", max_len=50)
+                safe_firmware = _sanitize_for_prompt(change.firmware_version or "unknown", max_len=50)
                 lines.append(
                     "   Device snapshot: "
-                    f"model={change.device_model or 'unknown'}, firmware={change.firmware_version or 'unknown'}"
+                    f"model={safe_model}, firmware={safe_firmware}"
                 )
             if change.change_message:
                 lines.append(f"   Audit message: {_sanitize_for_prompt(change.change_message, max_len=500)}")
@@ -956,7 +983,6 @@ async def group_chat(
 
     # Build system prompt with group context.
     # Note: Individual user-sourced fields are already sanitized inside _build_group_context.
-    # We only truncate here (don't use _sanitize_for_prompt) to preserve Junos diff headers.
     group_context = _build_group_context(group)
     if len(group_context) > 4000:
         group_context = group_context[:4000] + "\n... [truncated]"

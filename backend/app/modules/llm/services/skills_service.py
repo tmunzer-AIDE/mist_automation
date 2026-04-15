@@ -31,6 +31,8 @@ _APP_SKILLS_CACHE_TTL_SECONDS = 30.0
 _app_skills_cache: dict[str, tuple[float, list["SkillCatalogEntry"]]] = {}
 # Cache for name → directory mapping (same TTL, shared invalidation with _app_skills_cache)
 _app_skills_index_cache: dict[str, tuple[float, dict[str, Path]]] = {}
+# Track orphaned skills that have already been logged (avoid log spam on hot paths)
+_logged_orphaned_skills: set[str] = set()
 
 
 class SkillCatalogEntry(NamedTuple):
@@ -264,12 +266,15 @@ def _resolve_skill_mcp_id(skill: object, repo_map: dict[str, object] | None = No
         if repo is None:
             # Orphaned skill: repo was deleted but skill still references it.
             # Return sentinel to hide skill from catalog (never matches any active MCP).
-            # Log at info level to avoid noise on hot paths (catalog builds per request).
-            logger.info(
-                "orphaned_skill_missing_repo",
-                skill_name=skill.name if hasattr(skill, "name") else "unknown",
-                git_repo_id=str(skill.git_repo_id),
-            )
+            # Log once per skill per process to avoid flooding logs on hot paths.
+            skill_key = f"{getattr(skill, 'name', 'unknown')}:{skill.git_repo_id}"
+            if skill_key not in _logged_orphaned_skills:
+                _logged_orphaned_skills.add(skill_key)
+                logger.warning(
+                    "orphaned_skill_missing_repo",
+                    skill_name=skill.name if hasattr(skill, "name") else "unknown",
+                    git_repo_id=str(skill.git_repo_id),
+                )
             return ORPHANED_SKILL_SENTINEL
         if repo.mcp_config_id:
             return str(repo.mcp_config_id)
