@@ -508,18 +508,67 @@ def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
     from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
-    def _redact_sensitive(value: object) -> object:
+    def _limit_json_value(
+        value: object,
+        *,
+        depth: int = 0,
+        max_depth: int = 4,
+        max_items: int = 20,
+        max_string_len: int = 200,
+    ) -> object:
+        """Recursively limit a value's depth/size before JSON serialization.
+
+        This avoids serializing very large structures when we'll truncate the output anyway.
+        """
+        if depth >= max_depth:
+            if isinstance(value, dict):
+                return f"[TRUNCATED DICT: {len(value)} keys]"
+            if isinstance(value, (list, tuple)):
+                return f"[TRUNCATED LIST: {len(value)} items]"
+            return str(value)
+
         if isinstance(value, dict):
-            redacted: dict = {}
-            for key, sub_value in value.items():
+            limited: dict = {}
+            items = list(value.items())
+            for key, sub_value in items[:max_items]:
                 if _SENSITIVE_KEY_PATTERN.search(str(key)):
-                    redacted[key] = "[REDACTED]"
+                    limited[key] = "[REDACTED]"
                 else:
-                    redacted[key] = _redact_sensitive(sub_value)
-            return redacted
-        if isinstance(value, list):
-            return [_redact_sensitive(item) for item in value]
-        return value
+                    limited[key] = _limit_json_value(
+                        sub_value,
+                        depth=depth + 1,
+                        max_depth=max_depth,
+                        max_items=max_items,
+                        max_string_len=max_string_len,
+                    )
+            if len(items) > max_items:
+                limited["..."] = f"[{len(items) - max_items} more keys]"
+            return limited
+
+        if isinstance(value, (list, tuple)):
+            limited_list = [
+                _limit_json_value(
+                    item,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_items=max_items,
+                    max_string_len=max_string_len,
+                )
+                for item in value[:max_items]
+            ]
+            if len(value) > max_items:
+                limited_list.append(f"[{len(value) - max_items} more items]")
+            return limited_list
+
+        if isinstance(value, str):
+            if len(value) <= max_string_len:
+                return value
+            return value[:max_string_len] + f"... [truncated, {len(value)} chars total]"
+
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+
+        return str(value)
 
     def _redact_diff_lines(diff_text: str) -> str:
         """Redact lines in config diffs that may contain sensitive values.
@@ -547,7 +596,9 @@ def _build_session_context(session: MonitoringSession) -> str:
         return "\n".join(redacted_lines)
 
     def _json_snippet(value: object, max_len: int = 1200) -> str:
-        text = json.dumps(_redact_sensitive(value), indent=2, default=str)
+        """Convert value to JSON string, pre-limiting structure to avoid expensive full serialization."""
+        preview = _limit_json_value(value)
+        text = json.dumps(preview, indent=2, default=str)
         if len(text) <= max_len:
             return text
         return text[:max_len] + f"\n... (truncated, full length {len(text)} chars)"

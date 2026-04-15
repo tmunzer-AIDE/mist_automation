@@ -233,6 +233,47 @@ def render_skills_catalog(entries: list[SkillCatalogEntry]) -> str:
     return "\n".join(lines)
 
 
+def _resolve_skill_mcp_id(skill: object, repo_map: dict[str, object] | None = None) -> str | None:
+    """Resolve the effective MCP config ID for a skill using an in-memory repo map.
+
+    This is the synchronous helper used by build_skills_catalog() when repos are
+    already loaded. For async single-skill lookups, use get_skill_effective_mcp_id().
+
+    Args:
+        skill: Skill document with mcp_config_id and git_repo_id attributes.
+        repo_map: Pre-fetched repo_id -> SkillGitRepo mapping. If None, repo lookup is skipped.
+
+    Returns:
+        - The effective MCP config ID (str) if bound
+        - ORPHANED_SKILL_SENTINEL if the skill references a deleted repo
+        - None if no binding
+    """
+    # Skill-level binding takes precedence
+    if skill.mcp_config_id:
+        return str(skill.mcp_config_id)
+
+    # Check repo-level binding
+    if skill.git_repo_id:
+        if repo_map is None:
+            # No repo map provided, can't resolve repo binding
+            return None
+        repo = repo_map.get(str(skill.git_repo_id))
+        if repo is None:
+            # Orphaned skill: repo was deleted but skill still references it.
+            # Return sentinel to hide skill from catalog (never matches any active MCP).
+            # Log at info level to avoid noise on hot paths (catalog builds per request).
+            logger.info(
+                "orphaned_skill_missing_repo",
+                skill_name=skill.name if hasattr(skill, "name") else "unknown",
+                git_repo_id=str(skill.git_repo_id),
+            )
+            return ORPHANED_SKILL_SENTINEL
+        if repo.mcp_config_id:
+            return str(repo.mcp_config_id)
+
+    return None
+
+
 async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -> str:
     """Return an XML catalog of enabled skills for injection into LLM system prompts.
 
@@ -252,28 +293,9 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
         repos = await SkillGitRepo.find({"_id": {"$in": [PydanticObjectId(r) for r in repo_ids]}}).to_list()
         repo_map = {str(repo.id): repo for repo in repos}
 
-    def _required_mcp_id(skill: Skill) -> str | None:
-        if skill.mcp_config_id:
-            return str(skill.mcp_config_id)
-        if skill.git_repo_id:
-            repo = repo_map.get(str(skill.git_repo_id))
-            if repo is None:
-                # Orphaned skill: repo was deleted but skill still references it.
-                # Return sentinel to hide skill from catalog (never matches any active MCP).
-                # Log at info level to avoid noise on hot paths (catalog builds per request).
-                logger.info(
-                    "orphaned_skill_missing_repo",
-                    skill_name=skill.name,
-                    git_repo_id=str(skill.git_repo_id),
-                )
-                return ORPHANED_SKILL_SENTINEL
-            if repo.mcp_config_id:
-                return str(repo.mcp_config_id)
-        return None
-
     entries: list[SkillCatalogEntry] = []
     for skill in db_skills:
-        required_mcp_id = _required_mcp_id(skill)
+        required_mcp_id = _resolve_skill_mcp_id(skill, repo_map)
         if required_mcp_id is None or required_mcp_id in active_ids:
             entries.append(SkillCatalogEntry(name=skill.name, description=skill.description))
 
@@ -293,6 +315,9 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
 async def get_skill_effective_mcp_id(skill_name: str | None = None, *, skill: object | None = None) -> str | None:
     """Resolve the effective MCP config ID for a skill (skill-level binding takes precedence over repo-level).
 
+    This is the async version that fetches repo from DB when needed. For batch
+    operations with pre-loaded repos, use _resolve_skill_mcp_id() directly.
+
     Args:
         skill_name: Name of the skill to look up (ignored if skill is provided).
         skill: Pre-fetched Skill document to avoid duplicate DB query.
@@ -308,25 +333,15 @@ async def get_skill_effective_mcp_id(skill_name: str | None = None, *, skill: ob
         if not skill:
             return None
 
-    # Skill-level binding takes precedence
+    # Quick path: skill-level binding (no DB lookup needed)
     if skill.mcp_config_id:
         return str(skill.mcp_config_id)
 
-    # Check repo-level binding
+    # For repo-level binding, fetch the repo and use the shared helper
     if skill.git_repo_id:
         repo = await SkillGitRepo.get(skill.git_repo_id)
-        if repo is None:
-            # Orphaned skill: repo was deleted but skill still references it.
-            # Return sentinel to block activation (never matches any active MCP).
-            # Log at info level to avoid noise on hot paths.
-            logger.info(
-                "orphaned_skill_activation_blocked",
-                skill_name=skill.name if hasattr(skill, "name") else "unknown",
-                git_repo_id=str(skill.git_repo_id),
-            )
-            return ORPHANED_SKILL_SENTINEL
-        if repo.mcp_config_id:
-            return str(repo.mcp_config_id)
+        repo_map = {str(skill.git_repo_id): repo} if repo else {}
+        return _resolve_skill_mcp_id(skill, repo_map)
 
     return None
 
