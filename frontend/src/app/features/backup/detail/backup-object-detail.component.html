@@ -1,405 +1,480 @@
-<div class="page-actions">
-  <a mat-stroked-button routerLink="/backup"> <mat-icon>arrow_back</mat-icon> Back </a>
-  @if (versions().length > 1) {
-    <button mat-stroked-button (click)="toggleCompareMode()" [class.active-compare]="compareMode()">
-      <mat-icon>compare</mat-icon> {{ compareMode() ? 'Exit Compare' : 'Compare Versions' }}
-    </button>
-  }
-</div>
-
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
-@if (!loading() && latestVersion(); as latestVersion) {
-  <!-- ── Object Information Card ──────────────────────────────────────── -->
-  <mat-card class="info-card">
-    <mat-card-header>
-      <mat-card-title>Object Information</mat-card-title>
-    </mat-card-header>
-    <mat-card-content>
-      <div class="info-grid">
-        <div class="info-item">
-          <span class="info-label">Name</span>
-          <span class="info-value">{{ latestVersion.object_name || '—' }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Type</span>
-          <code class="info-value">{{ latestVersion.object_type }}</code>
-        </div>
-        <div class="info-item">
-          <span class="info-label">UUID</span>
-          <code class="info-value uuid">{{ objectId }}</code>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Status</span>
-          <app-status-badge
-            [status]="latestVersion.is_deleted ? 'deleted' : 'active'"
-          ></app-status-badge>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Scope</span>
-          <span class="info-value">{{ latestVersion.site_id ? 'Site' : 'Organization' }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Total Versions</span>
-          <span class="info-value">{{ versions().length }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">First Created</span>
-          <span class="info-value">
-            {{ oldestVersion()?.backed_up_at | dateTime }}
-            @if (oldestVersion() && oldestVersion()!.backed_up_by) {
-              <span class="info-meta">by {{ oldestVersion()!.backed_up_by }}</span>
-            }
-          </span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Last Modified</span>
-          <span class="info-value">
-            {{ latestVersion.backed_up_at | dateTime }}
-            @if (latestVersion.backed_up_by) {
-              <span class="info-meta">by {{ latestVersion.backed_up_by }}</span>
-            }
-          </span>
-        </div>
+@if (!loading() && latestVersion(); as latest) {
+  <!-- ── Zone 1: Object header ── -->
+  <div class="detail-header">
+    <button mat-icon-button aria-label="Back to backup list" (click)="goBack()" matTooltip="Back to backup list">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-info">
+      <div class="header-title">
+        <code class="object-type-badge">{{ latest.object_type }}</code>
+        <span class="object-name">{{ latest.object_name || latest.object_id }}</span>
+        @if (latest.is_deleted) {
+          <app-status-badge status="deleted"></app-status-badge>
+        }
       </div>
-    </mat-card-content>
-  </mat-card>
+      <div class="header-meta">
+        <span>{{ latest.site_id ? 'Site' : 'Org' }}</span>
+        <code class="object-uuid">{{ objectId }}</code>
+        <span>
+          {{ versions().length }} version{{ versions().length === 1 ? '' : 's' }}
+          · first seen {{ oldestVersion()?.backed_up_at | dateTime }}
+        </span>
+      </div>
+    </div>
+  </div>
 
-  <!-- ── Compare Mode ───────────────────────────────────────────────── -->
-  @if (compareMode()) {
-    <section class="compare-section">
-      @if (!compareVersions()[0]) {
-        <p class="compare-hint">Click two rows in the Version History table to compare.</p>
-      } @else if (!compareVersions()[1]) {
-        <p class="compare-hint">
-          Selected v{{ compareVersions()[0]!.version }} (A). Now select a second version (B).
-        </p>
-      } @else {
-        <mat-card class="diff-card">
-          <mat-card-header>
-            <mat-card-title>
-              v{{ compareVersions()[0]!.version }} → v{{ compareVersions()[1]!.version }}
-            </mat-card-title>
-            <span class="diff-summary">
-              {{ filteredCount() }} difference{{ filteredCount() === 1 ? '' : 's' }}
-            </span>
-          </mat-card-header>
-          <mat-card-content>
-            @if (diffEntries().length === 0) {
-              <p class="no-diff">No differences found between these versions.</p>
-            } @else {
-              <!-- Toolbar: filter chips + AI analysis + expand/collapse all -->
-              <div class="diff-toolbar">
-                <div class="diff-filter-chips">
-                  @for (type of ['added', 'removed', 'modified']; track type) {
-                    @if (diffTypeCounts()[type]) {
-                      <button
-                        class="filter-chip"
-                        [class.filter-active]="activeFilters().has(type)"
-                        [ngClass]="'filter-' + type"
-                        (click)="toggleFilter(type)"
-                      >
-                        <span class="filter-label">{{ type }}</span>
-                        <span class="filter-count">{{ diffTypeCounts()[type] }}</span>
-                      </button>
-                    }
+  <!-- ── Zone 2: Sparkline timeline ── -->
+  <div class="timeline-wrapper">
+    <div class="timeline-hint">
+      Bubble size = # of changes · click any bubble or row to pin
+      <span class="pin-label pin-label-a">A</span> /
+      <span class="pin-label pin-label-b">B</span>
+    </div>
+    <div class="timeline-track-area" #timelineTrackArea>
+      <!-- Base track -->
+      <div class="timeline-track"></div>
+      <!-- A→B gradient connector -->
+      @if (timelineConnector(); as connector) {
+        <div
+          class="timeline-connector"
+          [style.left.%]="connector.left"
+          [style.right.%]="connector.right"
+        ></div>
+      }
+      <!-- Bubbles -->
+      @for (bubble of timelineBubbles(); track bubble.version.id) {
+        <div
+          class="timeline-bubble-wrapper"
+          [style.left.%]="bubble.left"
+          tabindex="0"
+          role="button"
+          [attr.aria-label]="'Pin version ' + bubble.version.version + ', ' + bubble.version.changed_fields.length + ' change' + (bubble.version.changed_fields.length === 1 ? '' : 's')"
+          [matTooltip]="
+            'v' +
+            bubble.version.version +
+            ' · ' +
+            (bubble.version.backed_up_at | dateTime) +
+            ' · ' +
+            bubble.version.changed_fields.length +
+            ' change' +
+            (bubble.version.changed_fields.length === 1 ? '' : 's')
+          "
+          (click)="pinVersion(bubble.version)"
+          (keydown.enter)="pinVersion(bubble.version)"
+          (keydown.space)="$event.preventDefault(); pinVersion(bubble.version)"
+        >
+          <div
+            class="timeline-bubble"
+            [class.bubble-pin-a]="pinA()?.id === bubble.version.id"
+            [class.bubble-pin-b]="pinB()?.id === bubble.version.id"
+            [style.width.px]="bubble.diameter"
+            [style.height.px]="bubble.diameter"
+            [style.margin-top.px]="-bubble.diameter / 2"
+          ></div>
+          @if (pinA()?.id === bubble.version.id) {
+            <span class="bubble-pin-label pin-label-a">A</span>
+          } @else if (pinB()?.id === bubble.version.id) {
+            <span class="bubble-pin-label pin-label-b">B</span>
+          }
+        </div>
+      }
+    </div>
+    <!-- Date axis: just show first and last dates -->
+    <div class="timeline-dates">
+      <span>{{ oldestVersion()?.backed_up_at | dateTime }}</span>
+      <span>{{ latestVersion()?.backed_up_at | dateTime }}</span>
+    </div>
+  </div>
+
+  <!-- ── Zone 3: Split layout ── -->
+  <div class="split-layout">
+
+    <!-- Left pane: version list -->
+    <div class="version-list">
+      <h3 class="version-list-header">All versions — newest first</h3>
+
+      @for (v of versions(); track v.id; let i = $index) {
+        <div
+          class="version-row"
+          [class.pin-a-row]="pinA()?.id === v.id"
+          [class.pin-b-row]="pinB()?.id === v.id"
+        >
+          @if (fullRowIds().has(v.id)) {
+            <!-- Full row (3 newest + any pinned version) -->
+            <!-- Pin target: interactive region for pinning — contains only non-button content -->
+            <button
+              class="row-pin-target"
+              [attr.aria-label]="'Pin v' + v.version + ' for comparison'"
+              (click)="pinVersion(v)"
+            >
+              <div
+                class="pin-indicator"
+                [class.pin-indicator-a]="pinA()?.id === v.id"
+                [class.pin-indicator-b]="pinB()?.id === v.id"
+              >
+                @if (pinA()?.id === v.id) { A }
+                @else if (pinB()?.id === v.id) { B }
+              </div>
+              <div class="row-content">
+                <div class="row-title">
+                  <span class="version-number">v{{ v.version }}</span>
+                  @if (i === 0) {
+                    <span class="latest-badge">latest</span>
+                  }
+                  @if (v.is_deleted) {
+                    <span class="deleted-badge">deleted</span>
                   }
                 </div>
-                <app-ai-inline-analysis
-                  class="diff-ai-chip"
-                  [llmAvailable]="llmAvailable()"
-                  [summary]="aiSummary()"
-                  [error]="aiError()"
-                  [loading]="aiLoading()"
-                  [threadId]="aiThreadId()"
-                  loadingLabel="Summarizing changes..."
-                  [buttonOnly]="true"
-                  [(expanded)]="aiExpanded"
-                  (analyzeRequested)="summarizeChanges()"
-                />
-                <button
-                  mat-icon-button
-                  class="expand-all-btn"
-                  (click)="toggleExpandAll()"
-                  [matTooltip]="allExpanded() ? 'Collapse all' : 'Expand all'"
-                >
-                  <mat-icon>{{ allExpanded() ? 'unfold_less' : 'unfold_more' }}</mat-icon>
-                </button>
+                <div class="row-meta">
+                  {{ v.backed_up_at | dateTime }}
+                  @if (v.backed_up_by) { · {{ v.backed_up_by }} }
+                  @else { · {{ eventLabel(v.event_type) }} }
+                </div>
+                <div class="change-bar-row">
+                  <div class="change-bar-track">
+                    <div
+                      class="change-bar-fill"
+                      [style.width.%]="(v.changed_fields.length / maxChanges()) * 100"
+                    ></div>
+                  </div>
+                  <span class="change-count">
+                    {{ v.changed_fields.length }}
+                    change{{ v.changed_fields.length === 1 ? '' : 's' }}
+                  </span>
+                </div>
+                @if (v.changed_fields.length > 0) {
+                  <div class="field-tags">
+                    @for (f of v.changed_fields | slice: 0 : 2; track f) {
+                      <span class="field-tag">{{ f }}</span>
+                    }
+                    @if (v.changed_fields.length > 2) {
+                      <span class="field-tag field-tag-more">+{{ v.changed_fields.length - 2 }}</span>
+                    }
+                  </div>
+                }
               </div>
+            </button>
+            <!-- Action buttons are siblings of the pin target, not nested inside it -->
+            <div class="row-actions">
+              <button mat-stroked-button (click)="viewJson(v)">
+                <mat-icon>code</mat-icon> View
+              </button>
+              <button mat-stroked-button class="action-simulate" (click)="simulateRestore(v)">
+                <mat-icon>science</mat-icon> Simulate
+              </button>
+              <button mat-stroked-button class="action-rollback" (click)="restoreVersion(v)">
+                <mat-icon>restore</mat-icon> Rollback
+              </button>
+            </div>
+          } @else {
+            <!-- Compact row (older versions not pinned) -->
+            <button
+              class="row-pin-target row-pin-target-compact"
+              [attr.aria-label]="'Pin v' + v.version + ' for comparison'"
+              (click)="pinVersion(v)"
+            >
+              <div
+                class="pin-indicator"
+                [class.pin-indicator-a]="pinA()?.id === v.id"
+                [class.pin-indicator-b]="pinB()?.id === v.id"
+              >
+                @if (pinA()?.id === v.id) { A }
+                @else if (pinB()?.id === v.id) { B }
+              </div>
+              <span class="version-number compact-version-number">v{{ v.version }}</span>
+              <span class="compact-meta">
+                {{ v.backed_up_at | dateTime }} ·
+                {{ v.changed_fields.length }} change{{ v.changed_fields.length === 1 ? '' : 's' }}
+              </span>
+            </button>
+            <div class="compact-actions">
+              <button
+                mat-icon-button
+                [attr.aria-label]="'Rollback to v' + v.version"
+                [matTooltip]="'Rollback to v' + v.version"
+                (click)="restoreVersion(v)"
+              >
+                <mat-icon>restore</mat-icon>
+              </button>
+              <button
+                mat-icon-button
+                [attr.aria-label]="'Simulate rollback to v' + v.version"
+                [matTooltip]="'Simulate rollback to v' + v.version"
+                (click)="simulateRestore(v)"
+              >
+                <mat-icon>science</mat-icon>
+              </button>
+            </div>
+          }
+        </div>
+      }
+    </div>
 
-              @if (aiHasContent() && aiExpanded()) {
-                <app-ai-analysis-result
-                  [threadId]="aiThreadId()"
-                  [summary]="aiSummary()"
-                  [error]="aiError()"
-                  [loading]="aiLoading()"
-                  loadingLabel="Summarizing changes..."
-                />
+    <!-- Right pane: diff panel -->
+    <div class="diff-panel">
+      @if (!pinA() || !pinB()) {
+        <div class="diff-placeholder">
+          <mat-icon>compare_arrows</mat-icon>
+          <p>Select two versions to compare</p>
+          <p class="diff-placeholder-hint">
+            Click any row to set <span class="pin-label pin-label-a">A</span>, then another for
+            <span class="pin-label pin-label-b">B</span>
+          </p>
+        </div>
+      } @else {
+        <!-- Diff header -->
+        <div class="diff-panel-header">
+          <span class="pin-chip pin-chip-a">A v{{ pinA()!.version }}</span>
+          <mat-icon class="diff-arrow">arrow_forward</mat-icon>
+          <span class="pin-chip pin-chip-b">B v{{ pinB()!.version }}</span>
+          <span class="diff-panel-meta">
+            · {{ diffEntries().length }} change{{ diffEntries().length === 1 ? '' : 's' }}
+            @if (daysBetweenPins(); as days) {
+              · {{ days }} day{{ days === 1 ? '' : 's' }} apart
+            }
+          </span>
+          <div class="diff-panel-counts">
+            <span class="diff-count-badge badge-added">+{{ diffTypeCounts()['added'] || 0 }}</span>
+            <span class="diff-count-badge badge-removed">−{{ diffTypeCounts()['removed'] || 0 }}</span>
+            <span class="diff-count-badge badge-modified">~{{ diffTypeCounts()['modified'] || 0 }}</span>
+          </div>
+        </div>
+
+        @if (diffEntries().length === 0) {
+          <p class="no-diff">No differences found between these versions.</p>
+        } @else {
+          <!-- Toolbar -->
+          <div class="diff-toolbar">
+            <div class="diff-filter-chips">
+              @for (type of ['added', 'removed', 'modified']; track type) {
+                @if (diffTypeCounts()[type]) {
+                  <button
+                    class="filter-chip"
+                    [class.filter-active]="activeFilters().has(type)"
+                    [ngClass]="'filter-' + type"
+                    (click)="toggleFilter(type)"
+                  >
+                    <span class="filter-label">{{ type }}</span>
+                    <span class="filter-count">{{ diffTypeCounts()[type] }}</span>
+                  </button>
+                }
               }
+            </div>
+            <app-ai-inline-analysis
+              class="diff-ai-chip"
+              [llmAvailable]="llmAvailable()"
+              [summary]="aiSummary()"
+              [error]="aiError()"
+              [loading]="aiLoading()"
+              [threadId]="aiThreadId()"
+              loadingLabel="Summarizing changes..."
+              [buttonOnly]="true"
+              [(expanded)]="aiExpanded"
+              (analyzeRequested)="summarizeChanges()"
+            />
+            <button
+              mat-icon-button
+              class="expand-all-btn"
+              [attr.aria-label]="allExpanded() ? 'Collapse all' : 'Expand all'"
+              (click)="toggleExpandAll()"
+              [matTooltip]="allExpanded() ? 'Collapse all' : 'Expand all'"
+            >
+              <mat-icon>{{ allExpanded() ? 'unfold_less' : 'unfold_more' }}</mat-icon>
+            </button>
+          </div>
 
-              <!-- Grouped diff list -->
-              <div class="diff-list">
-                @for (group of filteredGroups(); track group.key) {
-                  @if (group.isGroup) {
-                    <div class="diff-group">
-                      <div class="diff-group-header" (click)="toggleGroup(group.key)">
-                        <mat-icon class="group-chevron">
-                          {{ isGroupExpanded(group.key) ? 'expand_more' : 'chevron_right' }}
-                        </mat-icon>
-                        <code class="diff-group-key">{{ group.key }}</code>
-                        <span class="diff-group-count">{{ group.entries.length }}</span>
-                        <span class="diff-group-badges">
-                          @for (t of ['added', 'removed', 'modified']; track t) {
-                            @if (group.typeCounts[t]) {
-                              <span class="diff-type-badge mini" [ngClass]="'badge-' + t">
-                                {{ group.typeCounts[t] }} {{ t }}
-                              </span>
-                            }
-                          }
-                        </span>
-                      </div>
-                      @if (isGroupExpanded(group.key)) {
-                        <div class="diff-group-body">
-                          @for (d of group.entries; track d.path) {
-                            <div class="diff-entry" [ngClass]="'diff-' + d.type">
-                              <div class="diff-header" (click)="toggleEntry(d.path)">
-                                <div class="diff-header-left">
-                                  <mat-icon class="entry-chevron">
-                                    {{ isEntryExpanded(d.path) ? 'expand_more' : 'chevron_right' }}
-                                  </mat-icon>
-                                  <code class="diff-path">
-                                    {{ stripGroupPrefix(d.path, group.key) }}
-                                  </code>
-                                </div>
-                                <span class="diff-type-badge">{{ d.type }}</span>
-                              </div>
-                              @if (isEntryExpanded(d.path)) {
-                                <div class="diff-values">
-                                  @if (d.type === 'removed' || d.type === 'modified') {
-                                    <pre class="diff-old">{{ formatValue(d.oldValue) }}</pre>
-                                  }
-                                  @if (d.type === 'added' || d.type === 'modified') {
-                                    <pre class="diff-new">{{ formatValue(d.newValue) }}</pre>
-                                  }
-                                </div>
+          @if (aiHasContent() && aiExpanded()) {
+            <app-ai-analysis-result
+              [threadId]="aiThreadId()"
+              [summary]="aiSummary()"
+              [error]="aiError()"
+              [loading]="aiLoading()"
+              loadingLabel="Summarizing changes..."
+            />
+          }
+
+          <!-- Grouped diff list -->
+          <div class="diff-list">
+            @for (group of filteredGroups(); track group.key) {
+              @if (group.isGroup) {
+                <div class="diff-group">
+                  <div
+                    class="diff-group-header"
+                    tabindex="0"
+                    role="button"
+                    [attr.aria-expanded]="isGroupExpanded(group.key)"
+                    (click)="toggleGroup(group.key)"
+                    (keydown.enter)="toggleGroup(group.key)"
+                    (keydown.space)="$event.preventDefault(); toggleGroup(group.key)"
+                  >
+                    <mat-icon class="group-chevron">
+                      {{ isGroupExpanded(group.key) ? 'expand_more' : 'chevron_right' }}
+                    </mat-icon>
+                    <code class="diff-group-key">{{ group.key }}</code>
+                    <span class="diff-group-count">{{ group.entries.length }}</span>
+                    <span class="diff-group-badges">
+                      @for (t of ['added', 'removed', 'modified']; track t) {
+                        @if (group.typeCounts[t]) {
+                          <span class="diff-type-badge mini" [ngClass]="'badge-' + t">
+                            {{ group.typeCounts[t] }} {{ t }}
+                          </span>
+                        }
+                      }
+                    </span>
+                  </div>
+                  @if (isGroupExpanded(group.key)) {
+                    <div class="diff-group-body">
+                      @for (d of group.entries; track d.path) {
+                        <div class="diff-entry" [ngClass]="'diff-' + d.type">
+                          <div
+                          class="diff-header"
+                          tabindex="0"
+                          role="button"
+                          [attr.aria-expanded]="isEntryExpanded(d.path)"
+                          (click)="toggleEntry(d.path)"
+                          (keydown.enter)="toggleEntry(d.path)"
+                          (keydown.space)="$event.preventDefault(); toggleEntry(d.path)"
+                        >
+                            <div class="diff-header-left">
+                              <mat-icon class="entry-chevron">
+                                {{ isEntryExpanded(d.path) ? 'expand_more' : 'chevron_right' }}
+                              </mat-icon>
+                              <code class="diff-path">{{ stripGroupPrefix(d.path, group.key) }}</code>
+                            </div>
+                            <span class="diff-type-badge">{{ d.type }}</span>
+                          </div>
+                          @if (isEntryExpanded(d.path)) {
+                            <div class="diff-values">
+                              @if (d.type === 'removed' || d.type === 'modified') {
+                                <pre class="diff-old">{{ formatValue(d.oldValue) }}</pre>
+                              }
+                              @if (d.type === 'added' || d.type === 'modified') {
+                                <pre class="diff-new">{{ formatValue(d.newValue) }}</pre>
                               }
                             </div>
                           }
                         </div>
                       }
                     </div>
-                  } @else {
-                    <div class="diff-entry standalone" [ngClass]="'diff-' + group.entries[0].type">
-                      <div class="diff-header" (click)="toggleEntry(group.entries[0].path)">
-                        <div class="diff-header-left">
-                          <mat-icon class="entry-chevron">
-                            {{
-                              isEntryExpanded(group.entries[0].path)
-                                ? 'expand_more'
-                                : 'chevron_right'
-                            }}
-                          </mat-icon>
-                          <code class="diff-path">{{ group.entries[0].path }}</code>
-                        </div>
-                        <span class="diff-type-badge">{{ group.entries[0].type }}</span>
-                      </div>
-                      @if (isEntryExpanded(group.entries[0].path)) {
-                        <div class="diff-values">
-                          @if (
-                            group.entries[0].type === 'removed' ||
-                            group.entries[0].type === 'modified'
-                          ) {
-                            <pre class="diff-old">{{ formatValue(group.entries[0].oldValue) }}</pre>
-                          }
-                          @if (
-                            group.entries[0].type === 'added' ||
-                            group.entries[0].type === 'modified'
-                          ) {
-                            <pre class="diff-new">{{ formatValue(group.entries[0].newValue) }}</pre>
-                          }
-                        </div>
+                  }
+                </div>
+              } @else {
+                <div class="diff-entry standalone" [ngClass]="'diff-' + group.entries[0].type">
+                  <div
+                    class="diff-header"
+                    tabindex="0"
+                    role="button"
+                    [attr.aria-expanded]="isEntryExpanded(group.entries[0].path)"
+                    (click)="toggleEntry(group.entries[0].path)"
+                    (keydown.enter)="toggleEntry(group.entries[0].path)"
+                    (keydown.space)="$event.preventDefault(); toggleEntry(group.entries[0].path)"
+                  >
+                    <div class="diff-header-left">
+                      <mat-icon class="entry-chevron">
+                        {{ isEntryExpanded(group.entries[0].path) ? 'expand_more' : 'chevron_right' }}
+                      </mat-icon>
+                      <code class="diff-path">{{ group.entries[0].path }}</code>
+                    </div>
+                    <span class="diff-type-badge">{{ group.entries[0].type }}</span>
+                  </div>
+                  @if (isEntryExpanded(group.entries[0].path)) {
+                    <div class="diff-values">
+                      @if (group.entries[0].type === 'removed' || group.entries[0].type === 'modified') {
+                        <pre class="diff-old">{{ formatValue(group.entries[0].oldValue) }}</pre>
+                      }
+                      @if (group.entries[0].type === 'added' || group.entries[0].type === 'modified') {
+                        <pre class="diff-new">{{ formatValue(group.entries[0].newValue) }}</pre>
                       }
                     </div>
                   }
-                }
-              </div>
+                </div>
+              }
             }
-          </mat-card-content>
-        </mat-card>
-
+          </div>
+        }
       }
-    </section>
-  }
+    </div>
+  </div>
 
-  <!-- ── References ─────────────────────────────────────────────────── -->
-  @if (dependencies(); as dependencies) {
-    @if (dependencies.parents.length > 0 || dependencies.children.length > 0) {
-    <mat-accordion class="ref-accordion" multi>
-      @if (dependencies.parents.length > 0) {
-        <mat-expansion-panel>
-          <mat-expansion-panel-header>
-            <mat-panel-title>
-              <mat-icon class="ref-icon">arrow_upward</mat-icon>
-              References
-              <span class="ref-count">{{ dependencies.parents.length }}</span>
-            </mat-panel-title>
-            <mat-panel-description
-              >Objects this {{ latestVersion!.object_type }} depends on</mat-panel-description
-            >
-          </mat-expansion-panel-header>
-          <div class="ref-list">
-            @for (p of dependencies.parents; track p.target_id + p.field_path) {
-              <div class="ref-row">
-                <span class="ref-type-badge">{{ p.target_type }}</span>
-                @if (p.exists_in_backup) {
+  <!-- ── Status bar ── -->
+  <div class="status-bar">
+    <span>
+      1st click → set <span class="pin-label pin-label-a">A</span> ·
+      2nd click → set <span class="pin-label pin-label-b">B</span> ·
+      click again to clear · pins are ordered oldest → newest automatically
+    </span>
+    <span>Simulate runs the restore in a Digital Twin — the real network is not affected</span>
+  </div>
+
+  <!-- ── References ── -->
+  @if (dependencies(); as deps) {
+    @if (deps.parents.length > 0 || deps.children.length > 0) {
+      <mat-accordion class="ref-accordion" multi>
+        @if (deps.parents.length > 0) {
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title>
+                <mat-icon class="ref-icon">arrow_upward</mat-icon>
+                References
+                <span class="ref-count">{{ deps.parents.length }}</span>
+              </mat-panel-title>
+              <mat-panel-description>Objects this {{ latest.object_type }} depends on</mat-panel-description>
+            </mat-expansion-panel-header>
+            <div class="ref-list">
+              @for (p of deps.parents; track p.target_id + p.field_path) {
+                <div class="ref-row">
+                  <span class="ref-type-badge">{{ p.target_type }}</span>
+                  @if (p.exists_in_backup) {
+                    <a
+                      class="ref-name ref-link"
+                      [class.ref-deleted]="p.is_deleted"
+                      [routerLink]="'/backup/object/' + p.target_id"
+                    >{{ p.target_name || p.target_id.slice(0, 8) }}</a>
+                  } @else {
+                    <span class="ref-name ref-missing">{{ p.target_name || p.target_id.slice(0, 8) }}</span>
+                  }
+                  <code class="ref-field">{{ p.field_path }}</code>
+                  <app-status-badge
+                    [status]="p.is_deleted ? 'deleted' : p.exists_in_backup ? 'active' : 'missing'"
+                  ></app-status-badge>
+                </div>
+              }
+            </div>
+          </mat-expansion-panel>
+        }
+        @if (deps.children.length > 0) {
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title>
+                <mat-icon class="ref-icon">arrow_downward</mat-icon>
+                Referenced by
+                <span class="ref-count">{{ deps.children.length }}</span>
+              </mat-panel-title>
+              <mat-panel-description>Objects that depend on this {{ latest.object_type }}</mat-panel-description>
+            </mat-expansion-panel-header>
+            <div class="ref-list">
+              @for (c of deps.children; track c.source_id + c.field_path) {
+                <div class="ref-row">
+                  <span class="ref-type-badge">{{ c.source_type }}</span>
                   <a
                     class="ref-name ref-link"
-                    [class.ref-deleted]="p.is_deleted"
-                    [routerLink]="'/backup/object/' + p.target_id"
-                  >
-                    {{ p.target_name || p.target_id.slice(0, 8) }}
-                  </a>
-                } @else {
-                  <span class="ref-name ref-missing">{{
-                    p.target_name || p.target_id.slice(0, 8)
-                  }}</span>
-                }
-                <code class="ref-field">{{ p.field_path }}</code>
-                <app-status-badge
-                  [status]="p.is_deleted ? 'deleted' : p.exists_in_backup ? 'active' : 'missing'"
-                ></app-status-badge>
-              </div>
-            }
-          </div>
-        </mat-expansion-panel>
-      }
-      @if (dependencies.children.length > 0) {
-        <mat-expansion-panel>
-          <mat-expansion-panel-header>
-            <mat-panel-title>
-              <mat-icon class="ref-icon">arrow_downward</mat-icon>
-              Referenced by
-              <span class="ref-count">{{ dependencies.children.length }}</span>
-            </mat-panel-title>
-            <mat-panel-description
-              >Objects that depend on this {{ latestVersion!.object_type }}</mat-panel-description
-            >
-          </mat-expansion-panel-header>
-          <div class="ref-list">
-            @for (c of dependencies.children; track c.source_id + c.field_path) {
-              <div class="ref-row">
-                <span class="ref-type-badge">{{ c.source_type }}</span>
-                <a
-                  class="ref-name ref-link"
-                  [class.ref-deleted]="c.is_deleted"
-                  [routerLink]="'/backup/object/' + c.source_id"
-                >
-                  {{ c.source_name || c.source_id.slice(0, 8) }}
-                </a>
-                <code class="ref-field">{{ c.field_path }}</code>
-                @if (c.is_deleted) {
-                  <app-status-badge status="deleted"></app-status-badge>
-                }
-              </div>
-            }
-          </div>
-        </mat-expansion-panel>
-      }
-    </mat-accordion>
+                    [class.ref-deleted]="c.is_deleted"
+                    [routerLink]="'/backup/object/' + c.source_id"
+                  >{{ c.source_name || c.source_id.slice(0, 8) }}</a>
+                  <code class="ref-field">{{ c.field_path }}</code>
+                  @if (c.is_deleted) { <app-status-badge status="deleted"></app-status-badge> }
+                </div>
+              }
+            </div>
+          </mat-expansion-panel>
+        }
+      </mat-accordion>
     }
   }
-
-  <!-- ── Version History Table ────────────────────────────────────────── -->
-  <section class="version-history-section">
-    <h2 class="section-title">Version History</h2>
-    <div class="table-container">
-      <table mat-table [dataSource]="versions()">
-        <!-- Version Number -->
-        <ng-container matColumnDef="version">
-          <th mat-header-cell *matHeaderCellDef>Version</th>
-          <td mat-cell *matCellDef="let v">
-            <span class="version-badge">v{{ v.version }}</span>
-          </td>
-        </ng-container>
-
-        <!-- Date & Time -->
-        <ng-container matColumnDef="date">
-          <th mat-header-cell *matHeaderCellDef>Date & Time</th>
-          <td mat-cell *matCellDef="let v">{{ v.backed_up_at | dateTime }}</td>
-        </ng-container>
-
-        <!-- Admin -->
-        <ng-container matColumnDef="admin">
-          <th mat-header-cell *matHeaderCellDef>Admin</th>
-          <td mat-cell *matCellDef="let v">{{ v.backed_up_by || '—' }}</td>
-        </ng-container>
-
-        <!-- Change Type -->
-        <ng-container matColumnDef="event_type">
-          <th mat-header-cell *matHeaderCellDef>Change Type</th>
-          <td mat-cell *matCellDef="let v">
-            <span class="event-badge" [ngClass]="'event-' + v.event_type">
-              {{ eventLabel(v.event_type) }}
-            </span>
-          </td>
-        </ng-container>
-
-        <!-- Changed Fields -->
-        <ng-container matColumnDef="changed_fields">
-          <th mat-header-cell *matHeaderCellDef>Changed Fields</th>
-          <td mat-cell *matCellDef="let v">
-            <div class="field-chips">
-              @for (f of v.changed_fields | slice: 0 : 4; track f) {
-                <span class="field-chip">{{ f }}</span>
-              }
-              @if (v.changed_fields.length > 4) {
-                <span class="field-chip field-more">+{{ v.changed_fields.length - 4 }}</span>
-              }
-              @if (v.changed_fields.length === 0) {
-                <span class="no-changes">—</span>
-              }
-            </div>
-          </td>
-        </ng-container>
-
-        <!-- Actions -->
-        <ng-container matColumnDef="actions">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let v">
-            <div class="inline-actions">
-              @if (v.event_type && (v.event_type === 'created' || v.event_type === 'updated' || v.event_type === 'full_backup')) {
-                <button
-                  mat-icon-button
-                  matTooltip="View JSON"
-                  (click)="$event.stopPropagation(); viewJson(v)"
-                >
-                  <mat-icon>code</mat-icon>
-                </button>
-                <button
-                  mat-icon-button
-                  matTooltip="Restore this version"
-                  (click)="$event.stopPropagation(); restoreVersion(v)"
-                >
-                  <mat-icon>restore</mat-icon>
-                </button>
-              }
-            </div>
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="versionColumns"></tr>
-        <tr
-          mat-row
-          *matRowDef="let row; columns: versionColumns"
-          [class.compare-row-selected]="compareMode() && isCompareSelected(row)"
-          [class.compare-row-selectable]="compareMode()"
-          (click)="onRowClick(row)"
-        ></tr>
-      </table>
-    </div>
-  </section>
 }
 
 @if (!loading() && versions().length === 0) {
