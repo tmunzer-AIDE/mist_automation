@@ -321,6 +321,7 @@ export class BackupObjectDetailComponent implements OnInit {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => this.timelineResizeObserver?.disconnect());
     this.topbarService.setTitle('Object Detail');
     this.llmService
       .getStatus()
@@ -576,6 +577,7 @@ export class BackupObjectDetailComponent implements OnInit {
       .get<{ versions: ObjectVersion[]; total: number }>(
         `/backups/objects/${this.objectId}/versions`,
       )
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.versions.set(res.versions);
@@ -613,6 +615,7 @@ export class BackupObjectDetailComponent implements OnInit {
     this.depsLoading.set(true);
     this.api
       .get<ObjectDependencyResponse>(`/backups/objects/${this.objectId}/dependencies`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.dependencies.set(res);

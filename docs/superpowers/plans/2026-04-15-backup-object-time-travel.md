@@ -8,6 +8,8 @@
 
 **Tech Stack:** Angular 21 signals/computed, standalone components, CSS custom properties, existing `deepDiff()` / `CascadeRestoreDialogComponent` / `JsonViewDialogComponent` reused as-is.
 
+> **Implementation note:** The Simulate action was shipped as a dedicated `SimulateRestoreDialogComponent` (not `CascadeRestoreDialogComponent`). It calls `POST /backups/objects/versions/{id}/restore?simulate=true` and shows the `RestoreSimulationResponse` in a step-machine dialog (`confirm → loading → result | error`). The plan tasks below predated this decision.
+
 ---
 
 ## Files
@@ -1785,7 +1787,7 @@ Navigate to any backup object detail page (e.g., via `/backup` → click an obje
 4. Clicking a version row cycles the A/B pin as described in the status bar hint
 5. Clicking a bubble in the timeline has the same effect as clicking the list row
 6. Rollback button opens `CascadeRestoreDialogComponent` (same as before)
-7. Simulate button opens `CascadeRestoreDialogComponent` (same dialog, simulateOnly flag — if the dialog ignores the flag, that's a future enhancement, not a blocker)
+7. Simulate button opens `SimulateRestoreDialogComponent` — starts in `confirm` step, runs `POST .../restore?simulate=true` on user click, shows result with severity chip + warnings list, offers "Open Digital Twin" when `twin_session_id` is returned
 8. Compact rows show for versions older than the 3rd newest (when >3 versions exist)
 9. References accordion still works below the split layout
 

@@ -1,4 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -254,6 +255,7 @@ export class SimulateRestoreDialogComponent {
   private readonly dialogRef = inject(MatDialogRef<SimulateRestoreDialogComponent>);
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   step = signal<DialogStep>('confirm');
   result = signal<RestoreSimulationResponse | null>(null);
@@ -265,6 +267,7 @@ export class SimulateRestoreDialogComponent {
       .post<RestoreSimulationResponse>(
         `/backups/objects/versions/${this.data.versionId}/restore?simulate=true`,
       )
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.result.set(res);
