@@ -18,9 +18,7 @@
       </div>
       <div class="header-meta">
         <span>{{ latest.site_id ? 'Site' : 'Org' }}</span>
-        <span class="meta-sep">·</span>
         <code class="object-uuid">{{ objectId }}</code>
-        <span class="meta-sep">·</span>
         <span>
           {{ versions().length }} version{{ versions().length === 1 ? '' : 's' }}
           · first seen {{ oldestVersion()?.backed_up_at | dateTime }}
