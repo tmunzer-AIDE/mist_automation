@@ -298,3 +298,276 @@ class TestBuildSkillsCatalog:
         assert "<description>DB shared</description>" in catalog
         assert "<name>db-only</name>" in catalog
         assert "<name>app-only</name>" in catalog
+
+    @pytest.mark.asyncio
+    async def test_skill_with_direct_mcp_binding_included_when_active(self, monkeypatch):
+        """Skill with skill-level mcp_config_id is included when the MCP ID is in active list."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        db_skills = [
+            SimpleNamespace(name="bound-skill", description="Bound to MCP", git_repo_id=None, mcp_config_id="mcp-001"),
+            SimpleNamespace(name="free-skill", description="No binding", git_repo_id=None, mcp_config_id=None),
+        ]
+
+        class _Query:
+            def __init__(self, items):
+                self._items = items
+
+            async def to_list(self):
+                return self._items
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query(db_skills)
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query([])
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        # With MCP active
+        catalog = await build_skills_catalog(["mcp-001"])
+
+        assert "<name>bound-skill</name>" in catalog
+        assert "<name>free-skill</name>" in catalog
+
+    @pytest.mark.asyncio
+    async def test_skill_with_direct_mcp_binding_excluded_when_not_active(self, monkeypatch):
+        """Skill with skill-level mcp_config_id is excluded when the MCP ID is NOT in active list."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        db_skills = [
+            SimpleNamespace(name="bound-skill", description="Bound to MCP", git_repo_id=None, mcp_config_id="mcp-001"),
+            SimpleNamespace(name="free-skill", description="No binding", git_repo_id=None, mcp_config_id=None),
+        ]
+
+        class _Query:
+            def __init__(self, items):
+                self._items = items
+
+            async def to_list(self):
+                return self._items
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query(db_skills)
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query([])
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        # Without MCP active (different ID)
+        catalog = await build_skills_catalog(["mcp-999"])
+
+        assert "<name>bound-skill</name>" not in catalog
+        assert "<name>free-skill</name>" in catalog
+
+    @pytest.mark.asyncio
+    async def test_skill_with_repo_level_mcp_binding_included_when_active(self, monkeypatch):
+        """Git-sourced skill inherits repo mcp_config_id and is included when MCP is active."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        repo_id = "aaaabbbbccccddddeeee0001"  # Valid 24-char hex ObjectId
+        db_skills = [
+            SimpleNamespace(
+                name="git-skill", description="From repo", git_repo_id=repo_id, mcp_config_id=None
+            ),
+        ]
+        repos = [
+            SimpleNamespace(id=repo_id, mcp_config_id="mcp-from-repo"),
+        ]
+
+        class _SkillQuery:
+            async def to_list(self):
+                return db_skills
+
+        class _RepoQuery:
+            async def to_list(self):
+                return repos
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _SkillQuery()
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _RepoQuery()
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        # With repo MCP active
+        catalog = await build_skills_catalog(["mcp-from-repo"])
+
+        assert "<name>git-skill</name>" in catalog
+
+    @pytest.mark.asyncio
+    async def test_skill_with_repo_level_mcp_binding_excluded_when_not_active(self, monkeypatch):
+        """Git-sourced skill inherits repo mcp_config_id and is excluded when MCP is not active."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        repo_id = "aaaabbbbccccddddeeee0002"  # Valid 24-char hex ObjectId
+        db_skills = [
+            SimpleNamespace(
+                name="git-skill", description="From repo", git_repo_id=repo_id, mcp_config_id=None
+            ),
+        ]
+        repos = [
+            SimpleNamespace(id=repo_id, mcp_config_id="mcp-from-repo"),
+        ]
+
+        class _SkillQuery:
+            async def to_list(self):
+                return db_skills
+
+        class _RepoQuery:
+            async def to_list(self):
+                return repos
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _SkillQuery()
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _RepoQuery()
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        # Without repo MCP active
+        catalog = await build_skills_catalog(["some-other-mcp"])
+
+        assert "<name>git-skill</name>" not in catalog
+
+    @pytest.mark.asyncio
+    async def test_skill_level_binding_overrides_repo_level(self, monkeypatch):
+        """When skill has its own mcp_config_id, it overrides the repo's binding."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        repo_id = "aaaabbbbccccddddeeee0003"  # Valid 24-char hex ObjectId
+        db_skills = [
+            SimpleNamespace(
+                name="override-skill",
+                description="Skill-level binding",
+                git_repo_id=repo_id,
+                mcp_config_id="skill-mcp",  # Skill-level binding
+            ),
+        ]
+        repos = [
+            SimpleNamespace(id=repo_id, mcp_config_id="repo-mcp"),  # Repo-level binding (should be ignored)
+        ]
+
+        class _SkillQuery:
+            async def to_list(self):
+                return db_skills
+
+        class _RepoQuery:
+            async def to_list(self):
+                return repos
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _SkillQuery()
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _RepoQuery()
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        # Skill's own MCP is active (not the repo's)
+        catalog_with_skill_mcp = await build_skills_catalog(["skill-mcp"])
+        catalog_with_repo_mcp = await build_skills_catalog(["repo-mcp"])
+
+        assert "<name>override-skill</name>" in catalog_with_skill_mcp
+        assert "<name>override-skill</name>" not in catalog_with_repo_mcp
+
+    @pytest.mark.asyncio
+    async def test_empty_or_none_active_ids_excludes_bound_skills(self, monkeypatch):
+        """Skills with bindings are excluded when active_mcp_config_ids is None or empty."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        db_skills = [
+            SimpleNamespace(name="bound", description="Bound", git_repo_id=None, mcp_config_id="mcp-001"),
+            SimpleNamespace(name="unbound", description="Free", git_repo_id=None, mcp_config_id=None),
+        ]
+
+        class _Query:
+            def __init__(self, items):
+                self._items = items
+
+            async def to_list(self):
+                return self._items
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query(db_skills)
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _Query([])
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        catalog_none = await build_skills_catalog(None)
+        catalog_empty = await build_skills_catalog([])
+
+        for catalog in [catalog_none, catalog_empty]:
+            assert "<name>bound</name>" not in catalog
+            assert "<name>unbound</name>" in catalog

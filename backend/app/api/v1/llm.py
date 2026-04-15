@@ -976,7 +976,7 @@ async def _continue_with_mcp(thread, message: str, current_user: User, stream_id
 
         skills_catalog = await build_skills_catalog(thread.mcp_config_ids)
         system_prompt = re.sub(
-            r"\n?<available_skills>.*?</available_skills>\nWhen a task matches a skill's description, call the "
+            r"\n?<available_skills>.*?</available_skills>\s*When a task matches a skill's description, call the "
             r"activate_skill tool with the skill's name to load its full instructions before proceeding\.",
             "",
             system_prompt,
@@ -1882,10 +1882,15 @@ async def delete_thread(
 # ── Skills (Agent Skills support) ────────────────────────────────────────────
 
 
-def _skill_to_response(skill, git_repo_url: str | None = None) -> SkillResponse:
+def _skill_to_response(
+    skill, git_repo_url: str | None = None, repo_mcp_config_id: str | None = None
+) -> SkillResponse:
+    """Build SkillResponse with effective_mcp_config_id resolved from skill or repo."""
     effective_mcp_config_id: str | None = None
     if skill.mcp_config_id:
         effective_mcp_config_id = str(skill.mcp_config_id)
+    elif repo_mcp_config_id:
+        effective_mcp_config_id = repo_mcp_config_id
     return SkillResponse(
         id=str(skill.id),
         name=skill.name,
@@ -1946,9 +1951,8 @@ async def list_skills(
     responses = []
     for skill in skills:
         repo = repos_by_id.get(str(skill.git_repo_id)) if skill.git_repo_id else None
-        resp = _skill_to_response(skill, repo.url if repo else None)
-        if repo and repo.mcp_config_id and not resp.effective_mcp_config_id:
-            resp.effective_mcp_config_id = str(repo.mcp_config_id)
+        repo_mcp_id = str(repo.mcp_config_id) if repo and repo.mcp_config_id else None
+        resp = _skill_to_response(skill, repo.url if repo else None, repo_mcp_id)
         responses.append(resp)
     return responses
 
@@ -2049,7 +2053,7 @@ async def toggle_skill(
     _: User = Depends(require_admin),
 ):
     """Enable or disable a skill. Admin only."""
-    from app.modules.llm.models import Skill
+    from app.modules.llm.models import Skill, SkillGitRepo
 
     oid = _parse_oid(skill_id, "skill ID")
     skill = await Skill.get(oid)
@@ -2059,7 +2063,13 @@ async def toggle_skill(
     skill.enabled = not skill.enabled
     skill.update_timestamp()
     await skill.save()
-    return _skill_to_response(skill)
+
+    # Resolve repo for git-sourced skills to get effective MCP binding
+    repo = None
+    if skill.git_repo_id:
+        repo = await SkillGitRepo.get(skill.git_repo_id)
+    repo_mcp_id = str(repo.mcp_config_id) if repo and repo.mcp_config_id else None
+    return _skill_to_response(skill, repo.url if repo else None, repo_mcp_id)
 
 
 @router.delete("/llm/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["LLM"])

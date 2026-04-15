@@ -237,11 +237,11 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
                 return str(repo.mcp_config_id)
         return None
 
-    entries: list[SkillCatalogEntry] = [
-        SkillCatalogEntry(name=skill.name, description=skill.description)
-        for skill in db_skills
-        if (_required_mcp_id(skill) is None or _required_mcp_id(skill) in active_ids)
-    ]
+    entries: list[SkillCatalogEntry] = []
+    for skill in db_skills:
+        required_mcp_id = _required_mcp_id(skill)
+        if required_mcp_id is None or required_mcp_id in active_ids:
+            entries.append(SkillCatalogEntry(name=skill.name, description=skill.description))
 
     # Built-in app skills are always included, even if no DB skills are configured.
     app_entries = load_app_skill_entries()
