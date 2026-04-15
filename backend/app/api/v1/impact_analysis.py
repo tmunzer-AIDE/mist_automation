@@ -515,6 +515,17 @@ def _build_session_context(session: MonitoringSession) -> str:
             return [_redact_sensitive(item) for item in value]
         return value
 
+    def _redact_diff_lines(diff_text: str) -> str:
+        """Redact lines in config diffs that may contain sensitive values."""
+        redacted_lines = []
+        for line in diff_text.splitlines():
+            if sensitive_key_pattern.search(line):
+                # Keep line structure but redact value portion
+                redacted_lines.append("***REDACTED LINE (contains sensitive keyword)***")
+            else:
+                redacted_lines.append(line)
+        return "\n".join(redacted_lines)
+
     def _json_snippet(value: object, max_len: int = 1200) -> str:
         text = json.dumps(_redact_sensitive(value), indent=2, default=str)
         if len(text) <= max_len:
@@ -545,7 +556,7 @@ def _build_session_context(session: MonitoringSession) -> str:
                 lines.append("   Payload summary:")
                 lines.append(_json_snippet(change.payload_summary, max_len=900))
             if change.config_diff:
-                diff = change.config_diff
+                diff = _redact_diff_lines(change.config_diff)
                 if len(diff) > 1500:
                     diff = diff[:1500] + f"\n... (truncated, full length {len(change.config_diff)} chars)"
                 lines.append("   Config diff (Junos):")

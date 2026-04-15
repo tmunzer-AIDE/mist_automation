@@ -10,7 +10,7 @@ import structlog
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from app.modules.mcp_server.server import mcp
+from app.modules.mcp_server.server import mcp, mcp_thread_id_var
 from app.modules.mcp_server.tools.utils import is_placeholder
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +50,7 @@ async def activate_skill(
     from app.modules.llm.models import Skill
     from app.modules.llm.services.skills_service import (
         find_app_skill_dir,
+        get_skill_effective_mcp_id,
         list_skill_resources,
         parse_skill_md,
     )
@@ -59,6 +60,25 @@ async def activate_skill(
     skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
     source_label: str
     if skill:
+        # Enforce MCP binding: if skill is bound to an MCP server, that server must be active in the thread
+        effective_mcp_id = await get_skill_effective_mcp_id(skill_name)
+        if effective_mcp_id:
+            thread_id = mcp_thread_id_var.get()
+            active_mcp_ids: set[str] = set()
+            if thread_id:
+                from beanie import PydanticObjectId
+
+                from app.modules.llm.models import ConversationThread
+
+                thread = await ConversationThread.get(PydanticObjectId(thread_id))
+                if thread and thread.mcp_config_ids:
+                    active_mcp_ids = set(thread.mcp_config_ids)
+
+            if effective_mcp_id not in active_mcp_ids:
+                raise ToolError(
+                    f"Skill '{skill_name}' requires MCP server that is not enabled for this conversation"
+                )
+
         skill_dir = Path(skill.local_path)
         source_label = str(skill.local_path)
     else:

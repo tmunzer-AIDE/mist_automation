@@ -256,6 +256,30 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
     return render_skills_catalog(entries)
 
 
+async def get_skill_effective_mcp_id(skill_name: str) -> str | None:
+    """Resolve the effective MCP config ID for a skill (skill-level binding takes precedence over repo-level).
+
+    Returns None if the skill has no binding or if the skill doesn't exist.
+    """
+    from app.modules.llm.models import Skill, SkillGitRepo
+
+    skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
+    if not skill:
+        return None
+
+    # Skill-level binding takes precedence
+    if skill.mcp_config_id:
+        return str(skill.mcp_config_id)
+
+    # Check repo-level binding
+    if skill.git_repo_id:
+        repo = await SkillGitRepo.get(skill.git_repo_id)
+        if repo and repo.mcp_config_id:
+            return str(repo.mcp_config_id)
+
+    return None
+
+
 # ── Git helpers ───────────────────────────────────────────────────────────────
 
 
