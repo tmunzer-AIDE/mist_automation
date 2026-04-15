@@ -102,9 +102,9 @@ export class BackupObjectDetailComponent implements OnInit {
   /** Tracked timeline container width (px). Used to convert 20px min-gap to %. */
   timelineContainerWidth = signal(800);
 
-  @HostListener('window:resize', ['$event.target.innerWidth'])
-  onResize(width: number): void {
-    this.timelineContainerWidth.set(width);
+  @HostListener('window:resize')
+  onResize(): void {
+    this.timelineContainerWidth.set(window.innerWidth);
   }
 
   // AI Summary
