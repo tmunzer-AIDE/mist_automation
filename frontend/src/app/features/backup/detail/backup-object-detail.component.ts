@@ -147,7 +147,7 @@ export class BackupObjectDetailComponent implements OnInit {
     const b = this.pinB();
     if (!a || !b) return null;
     const ms = Math.abs(
-      new Date(b.backed_up_at).getTime() - new Date(a.backed_up_at).getTime(),
+      this.toUtcMs(b.backed_up_at) - this.toUtcMs(a.backed_up_at),
     );
     return Math.round(ms / (1000 * 60 * 60 * 24));
   });
@@ -164,13 +164,13 @@ export class BackupObjectDetailComponent implements OnInit {
     // Timeline goes oldest → newest (left → right)
     const sorted = [...versions].reverse();
 
-    const earliest = new Date(sorted[0].backed_up_at).getTime();
-    const latest = new Date(sorted[sorted.length - 1].backed_up_at).getTime();
+    const earliest = this.toUtcMs(sorted[0].backed_up_at);
+    const latest = this.toUtcMs(sorted[sorted.length - 1].backed_up_at);
     const range = latest - earliest;
 
     // Raw proportional positions
     const positions: number[] = sorted.map((v) =>
-      range === 0 ? 50 : ((new Date(v.backed_up_at).getTime() - earliest) / range) * 100,
+      range === 0 ? 50 : ((this.toUtcMs(v.backed_up_at) - earliest) / range) * 100,
     );
 
     // Enforce minimum 20px gap between adjacent bubbles.
@@ -446,7 +446,7 @@ export class BackupObjectDetailComponent implements OnInit {
     });
   }
 
-  /** Simulate rollback: open CascadeRestoreDialogComponent in dry-run mode. */
+  /** Simulate rollback: opens the restore dialog so the user can review the Digital Twin pre-check before committing. */
   simulateRestore(v: ObjectVersion): void {
     this.dialog.open(CascadeRestoreDialogComponent, {
       width: '600px',
@@ -496,6 +496,12 @@ export class BackupObjectDetailComponent implements OnInit {
       }
     }
     return result;
+  }
+
+  /** Parse a backend datetime string as UTC millis. Appends 'Z' if no timezone indicator is present. */
+  private toUtcMs(value: string): number {
+    const utc = /[Zz]$/.test(value) || /[+-]\d{2}:\d{2}$/.test(value) ? value : value + 'Z';
+    return new Date(utc).getTime();
   }
 
   toggleFilter(type: string): void {

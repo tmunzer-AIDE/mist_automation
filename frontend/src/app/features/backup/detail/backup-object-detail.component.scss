@@ -97,12 +97,14 @@
   transition: filter 0.15s;
 
   &.bubble-green { background: var(--app-success-badge); }
-  &.bubble-yellow { background: var(--app-warning-badge, #e3b341); }
+  &.bubble-yellow { background: var(--app-warning); }
   &.bubble-red { background: var(--app-error-badge); }
   &.bubble-blue {
     background: var(--mat-sys-primary);
     box-shadow: 0 0 6px color-mix(in srgb, var(--mat-sys-primary) 50%, transparent);
   }
+  &.bubble-pin-a { outline: 2px solid var(--app-error-badge); outline-offset: 2px; }
+  &.bubble-pin-b { outline: 2px solid var(--mat-sys-primary); outline-offset: 2px; }
 }
 
 .bubble-pin-label {
@@ -336,8 +338,8 @@
   button { font-size: 11px; height: 28px; line-height: 28px; padding: 0 8px; }
   mat-icon { font-size: 14px; width: 14px; height: 14px; margin-right: 3px; }
 
-  &.action-rollback { color: var(--app-error-badge); border-color: var(--app-error-border); }
-  &.action-simulate { color: var(--app-warning-badge, #e3b341); }
+  button.action-rollback { color: var(--app-error-badge); border-color: var(--app-error-border); }
+  button.action-simulate { color: var(--app-warning); }
 }
 
 // Compact row content
