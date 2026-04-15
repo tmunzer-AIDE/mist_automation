@@ -157,7 +157,7 @@
                   }
                 </div>
               }
-              <div class="row-actions" (click)="$event.stopPropagation()">
+              <div class="row-actions" (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()">
                 <button mat-stroked-button (click)="viewJson(v)">
                   <mat-icon>code</mat-icon> View
                 </button>
@@ -177,7 +177,7 @@
                 {{ v.backed_up_at | dateTime }} ·
                 {{ v.changed_fields.length }} change{{ v.changed_fields.length === 1 ? '' : 's' }}
               </span>
-              <div class="compact-actions" (click)="$event.stopPropagation()">
+              <div class="compact-actions" (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()">
                 <button
                   mat-icon-button
                   [matTooltip]="'Rollback to v' + v.version"

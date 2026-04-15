@@ -643,7 +643,7 @@ export class BackupObjectDetailComponent implements OnInit {
     this.aiSummary.set(null);
     this.aiError.set(null);
 
-    this.llmService.summarizeDiff(v0.id, v1.id).subscribe({
+    this.llmService.summarizeDiff(v0.id, v1.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
         this.aiThreadId.set(res.thread_id);
         this.aiSummary.set(res.summary);

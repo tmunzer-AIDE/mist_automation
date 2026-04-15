@@ -54,14 +54,14 @@ type DialogStep = 'confirm' | 'loading' | 'result' | 'error';
             result()!.execution_safe ? 'check_circle' : 'warning'
           }}</mat-icon>
           <span class="result-label">{{
-            result()!.execution_safe ? 'Restore succeeded in Digital Twin' : 'Restore failed in Digital Twin'
+            result()!.execution_safe ? 'Simulation passed — restore is safe' : 'Simulation found issues — review before restoring'
           }}</span>
           <span [class]="'severity-chip sev-' + result()!.overall_severity">
             {{ result()!.overall_severity }}
           </span>
         </div>
 
-        @if (result()!.summary && !result()!.execution_safe) {
+        @if (result()!.summary) {
           <p class="summary-text">{{ result()!.summary }}</p>
         }
 
