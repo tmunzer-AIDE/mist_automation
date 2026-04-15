@@ -96,6 +96,7 @@ async def activate_skill(
     from app.modules.llm.models import Skill
     from app.modules.llm.services.skills_service import (
         find_app_skill_dir,
+        get_skill_effective_mcp_id,
         list_skill_resources,
         parse_skill_md,
     )
@@ -105,8 +106,48 @@ async def activate_skill(
     skill = await Skill.find_one(Skill.name == skill_name, Skill.enabled == True)  # noqa: E712
     source_label: str
     if skill:
-        if not await _is_skill_allowed_in_current_chat(skill):
-            raise ToolError(f"Skill '{skill_name}' is not available in this chat context")
+        # Enforce MCP binding: if skill is bound to an MCP server, that server must be active in the thread
+        effective_mcp_id = await get_skill_effective_mcp_id(skill=skill)
+        if effective_mcp_id:
+            from app.modules.llm.services.skills_service import ORPHANED_SKILL_SENTINEL
+
+            # Handle orphaned skills (git repo was deleted)
+            if effective_mcp_id == ORPHANED_SKILL_SENTINEL:
+                raise ToolError(
+                    f"Skill '{skill_name}' cannot be activated: the git repository it was imported from has been deleted"
+                )
+
+            # mcp_thread_id_var has default=None, so .get() never raises LookupError
+            thread_id = mcp_thread_id_var.get()
+            active_mcp_ids: set[str] = set()
+            if thread_id:
+                from beanie import PydanticObjectId
+                from bson.errors import InvalidId
+
+                from app.modules.llm.models import ConversationThread
+
+                try:
+                    thread_object_id = PydanticObjectId(thread_id)
+                except (InvalidId, TypeError, ValueError) as exc:
+                    raise ToolError(
+                        "Invalid conversation context: unable to determine the active MCP servers"
+                    ) from exc
+
+                thread = await ConversationThread.get(thread_object_id)
+                if thread and thread.mcp_config_ids:
+                    active_mcp_ids = set(thread.mcp_config_ids)
+
+            if effective_mcp_id not in active_mcp_ids:
+                # Provide a more helpful error for external MCP clients (no thread context)
+                if not thread_id:
+                    raise ToolError(
+                        f"Skill '{skill_name}' requires an MCP server binding and can only be used "
+                        f"in an in-app conversation with that MCP server enabled. "
+                        f"External MCP clients (using Personal Access Tokens) cannot activate MCP-bound skills."
+                    )
+                raise ToolError(
+                    f"Skill '{skill_name}' requires MCP server that is not enabled for this conversation"
+                )
 
         skill_dir = Path(skill.local_path)
         source_label = str(skill.local_path)
