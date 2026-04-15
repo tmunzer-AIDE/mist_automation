@@ -8,7 +8,7 @@ from app.modules.automation.services.executor_service import WorkflowExecutor
 from app.utils.variables import create_jinja_env
 
 # Patch path for validate_outbound_host inside executor_service
-_PATCH_VALIDATE = "app.modules.automation.services.executor_service.validate_outbound_host"
+_PATCH_VALIDATE = "app.utils.url_safety.validate_outbound_host_async"
 
 
 def _make_executor() -> WorkflowExecutor:

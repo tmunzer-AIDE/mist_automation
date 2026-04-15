@@ -283,25 +283,38 @@ class TestReconnect:
     """Tests for POST /telemetry/reconnect."""
 
     async def test_reconnect_when_ws_not_initialized(self, client):
-        with patch("app.modules.telemetry._ws_manager", None):
+        with (
+            patch(
+                "app.modules.telemetry.services.lifecycle.stop_telemetry_pipeline",
+                new_callable=AsyncMock,
+            ) as mock_stop,
+            patch(
+                "app.modules.telemetry.services.lifecycle.start_telemetry_pipeline",
+                new_callable=AsyncMock,
+                return_value={"connections": 0, "sites": 0},
+            ) as mock_start,
+        ):
             resp = await client.post("/api/v1/telemetry/reconnect")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["reconnected"] is False
+        assert data["reconnected"] is True
+        assert data["connections"] == 0
+        assert data["sites"] == 0
+        mock_stop.assert_awaited_once()
+        mock_start.assert_awaited_once()
 
     async def test_reconnect_success(self, client):
-        mock_ws = AsyncMock()
-        mock_ws._subscribed_sites = ["site-1", "site-2"]
-        mock_ws.stop = AsyncMock()
-        mock_ws.start = AsyncMock()
-        mock_ws.get_status = MagicMock(
-            return_value={
-                "connections": 1,
-                "sites_subscribed": 2,
-            }
-        )
-
-        with patch("app.modules.telemetry._ws_manager", mock_ws):
+        with (
+            patch(
+                "app.modules.telemetry.services.lifecycle.stop_telemetry_pipeline",
+                new_callable=AsyncMock,
+            ) as mock_stop,
+            patch(
+                "app.modules.telemetry.services.lifecycle.start_telemetry_pipeline",
+                new_callable=AsyncMock,
+                return_value={"connections": 1, "sites": 2},
+            ) as mock_start,
+        ):
             resp = await client.post("/api/v1/telemetry/reconnect")
 
         assert resp.status_code == 200
@@ -309,8 +322,8 @@ class TestReconnect:
         assert data["reconnected"] is True
         assert data["connections"] == 1
         assert data["sites"] == 2
-        mock_ws.stop.assert_called_once()
-        mock_ws.start.assert_called_once()
+        mock_stop.assert_awaited_once()
+        mock_start.assert_awaited_once()
 
     async def test_reconnect_no_sites_skips_start(self, client):
         """When no sites are subscribed, stop is called but start is not."""
@@ -330,14 +343,21 @@ class TestReconnect:
 
     async def test_reconnect_exception_returns_gracefully(self, client):
         """Exception during reconnect is caught and returns reconnected=False."""
-        mock_ws = AsyncMock()
-        mock_ws._subscribed_sites = ["site-1"]
-        mock_ws.stop = AsyncMock(side_effect=Exception("connection error"))
-
-        with patch("app.modules.telemetry._ws_manager", mock_ws):
+        with (
+            patch(
+                "app.modules.telemetry.services.lifecycle.stop_telemetry_pipeline",
+                new_callable=AsyncMock,
+            ) as mock_stop,
+            patch(
+                "app.modules.telemetry.services.lifecycle.start_telemetry_pipeline",
+                new_callable=AsyncMock,
+                side_effect=Exception("connection error"),
+            ),
+        ):
             resp = await client.post("/api/v1/telemetry/reconnect")
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["reconnected"] is False
-        assert "connection error" in data["message"]
+        assert data["message"] == "Pipeline reconnection failed"
+        assert mock_stop.await_count == 2

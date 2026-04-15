@@ -118,7 +118,9 @@ class TestQueryAggregate:
     async def test_returns_empty_when_no_client(self):
         svc = InfluxDBService(url="http://localhost:8086", token="t", org="o", bucket="b")
         result = await svc.query_aggregate(
-            "12345678-1234-1234-1234-123456789012", "device_summary", "cpu_util"
+            measurement="device_summary",
+            field="cpu_util",
+            site_id="12345678-1234-1234-1234-123456789012",
         )
         assert result == []
 
@@ -133,9 +135,9 @@ class TestQueryAggregate:
         svc._client.query_api = MagicMock(return_value=mock_query_api)
 
         result = await svc.query_aggregate(
-            "12345678-1234-1234-1234-123456789012",
-            "device_summary",
-            "cpu_util",
+            measurement="device_summary",
+            field="cpu_util",
+            site_id="12345678-1234-1234-1234-123456789012",
             agg="mean",
             window="5m",
         )
@@ -149,9 +151,9 @@ class TestQueryAggregate:
         svc._client.query_api = MagicMock(return_value=mock_query_api)
 
         await svc.query_aggregate(
-            "12345678-1234-1234-1234-123456789012",
-            "device_summary",
-            "cpu_util",
+            measurement="device_summary",
+            field="cpu_util",
+            site_id="12345678-1234-1234-1234-123456789012",
             agg="max",
             window="10m",
         )
@@ -167,7 +169,9 @@ class TestQueryAggregate:
         svc._client.query_api = MagicMock(return_value=mock_query_api)
 
         result = await svc.query_aggregate(
-            "12345678-1234-1234-1234-123456789012", "device_summary", "cpu_util"
+            measurement="device_summary",
+            field="cpu_util",
+            site_id="12345678-1234-1234-1234-123456789012",
         )
         assert result == []
         assert svc._last_error == "bucket not found"

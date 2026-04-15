@@ -199,7 +199,7 @@ class TestSetVariableAction:
             "variable_expression": "{{ severity }}",
         }
         result = await self.executor._execute_set_variable(config)
-        assert result["variable_name"] == "sev"
+        assert result["sev"] == "critical"
         assert self.executor.variable_context["results"]["sev"] == "critical"
 
     @pytest.mark.asyncio

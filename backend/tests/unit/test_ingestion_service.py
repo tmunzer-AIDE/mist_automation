@@ -206,9 +206,9 @@ class TestIngestionServiceProcessMessage:
         msg = _make_ws_message("site-1", _basic_ap_payload())
         await svc._process_message(msg)
 
-        # Cache still updated (full payload stored for latest state)
+        # Basic AP messages are intentionally not cached (they are partial payloads).
         cached = cache.get("aabbccddeeff")
-        assert cached is not None
+        assert cached is None
 
         # But no points to write to InfluxDB
         if influxdb.write_points.called:
@@ -303,7 +303,7 @@ class TestIngestionServiceCoVFiltering:
 
     @pytest.mark.asyncio
     async def test_radio_stats_filtered_on_no_change(self):
-        """Identical radio_stats should be filtered out on second write (CoV)."""
+        """Identical radio_stats continue to write monotonic counter fields."""
         from app.modules.telemetry.services.ingestion_service import IngestionService
 
         influxdb = _make_influxdb_mock()
@@ -321,11 +321,12 @@ class TestIngestionServiceCoVFiltering:
         first_radios = [p for p in first_points if p["measurement"] == "radio_stats"]
         assert len(first_radios) == 1  # band_5
 
-        # Second write: radio_stats should be filtered (no change)
+        # Second write: radio_stats is still emitted because several fields are
+        # configured as "always" in CoV thresholds (monotonic counters).
         await svc._process_message(msg)
         second_points = influxdb.write_points.call_args[0][0]
         second_radios = [p for p in second_points if p["measurement"] == "radio_stats"]
-        assert len(second_radios) == 0
+        assert len(second_radios) == 1
 
     @pytest.mark.asyncio
     async def test_radio_stats_passes_on_significant_change(self):
@@ -488,7 +489,7 @@ class TestIngestionServiceBroadcast:
 
     @pytest.mark.asyncio
     async def test_broadcast_called_for_ap_after_processing(self):
-        """After processing an AP message, ws_manager.broadcast is awaited."""
+        """After processing an AP message, device + site + org broadcasts are sent."""
         from app.modules.telemetry.services.ingestion_service import IngestionService
 
         influxdb = _make_influxdb_mock()
@@ -506,10 +507,13 @@ class TestIngestionServiceBroadcast:
             mock_ws.broadcast = AsyncMock()
             await svc._process_message(msg)
 
-            mock_ws.broadcast.assert_awaited_once()
-            call_args = mock_ws.broadcast.call_args
-            channel = call_args[0][0]
-            payload = call_args[0][1]
+            assert mock_ws.broadcast.await_count == 3
+            device_call = mock_ws.broadcast.await_args_list[0]
+            site_call = mock_ws.broadcast.await_args_list[1]
+            org_call = mock_ws.broadcast.await_args_list[2]
+
+            channel = device_call[0][0]
+            payload = device_call[0][1]
 
             assert channel == "telemetry:device:aabbccddeeff"
             assert payload["device_type"] == "ap"
@@ -517,10 +521,12 @@ class TestIngestionServiceBroadcast:
             assert "bands" in payload
             assert payload["summary"]["cpu_util"] == 42
             assert payload["summary"]["num_clients"] == 5
+            assert site_call[0][0] == "telemetry:site:site-1"
+            assert org_call[0][0] == "telemetry:org"
 
     @pytest.mark.asyncio
     async def test_broadcast_called_for_switch_after_processing(self):
-        """After processing a switch message, ws_manager.broadcast is awaited with switch fields."""
+        """After processing a switch message, device + site + org broadcasts are sent."""
         from app.modules.telemetry.services.ingestion_service import IngestionService
 
         influxdb = _make_influxdb_mock()
@@ -538,10 +544,13 @@ class TestIngestionServiceBroadcast:
             mock_ws.broadcast = AsyncMock()
             await svc._process_message(msg)
 
-            mock_ws.broadcast.assert_awaited_once()
-            call_args = mock_ws.broadcast.call_args
-            channel = call_args[0][0]
-            payload = call_args[0][1]
+            assert mock_ws.broadcast.await_count == 3
+            device_call = mock_ws.broadcast.await_args_list[0]
+            site_call = mock_ws.broadcast.await_args_list[1]
+            org_call = mock_ws.broadcast.await_args_list[2]
+
+            channel = device_call[0][0]
+            payload = device_call[0][1]
 
             assert channel == "telemetry:device:112233445566"
             assert payload["device_type"] == "switch"
@@ -550,10 +559,12 @@ class TestIngestionServiceBroadcast:
             assert "modules" in payload
             assert "dhcp" in payload
             assert payload["summary"]["cpu_util"] == 20  # 100 - 80 idle
+            assert site_call[0][0] == "telemetry:site:site-1"
+            assert org_call[0][0] == "telemetry:org"
 
     @pytest.mark.asyncio
     async def test_broadcast_called_for_gateway_after_processing(self):
-        """After processing a gateway message, ws_manager.broadcast is awaited with gateway fields."""
+        """After processing a gateway message, device + site + org broadcasts are sent."""
         from app.modules.telemetry.services.ingestion_service import IngestionService
 
         influxdb = _make_influxdb_mock()
@@ -590,10 +601,13 @@ class TestIngestionServiceBroadcast:
             mock_ws.broadcast = AsyncMock()
             await svc._process_message(msg)
 
-            mock_ws.broadcast.assert_awaited_once()
-            call_args = mock_ws.broadcast.call_args
-            channel = call_args[0][0]
-            payload = call_args[0][1]
+            assert mock_ws.broadcast.await_count == 3
+            device_call = mock_ws.broadcast.await_args_list[0]
+            site_call = mock_ws.broadcast.await_args_list[1]
+            org_call = mock_ws.broadcast.await_args_list[2]
+
+            channel = device_call[0][0]
+            payload = device_call[0][1]
 
             assert channel == "telemetry:device:aabb11223344"
             assert payload["device_type"] == "gateway"
@@ -604,6 +618,8 @@ class TestIngestionServiceBroadcast:
             assert payload["summary"]["cpu_util"] == 15  # 100 - 85 idle
             assert payload["summary"]["ha_state"] == "active"
             assert payload["spu"]["spu_sessions"] == 500
+            assert site_call[0][0] == "telemetry:site:site-1"
+            assert org_call[0][0] == "telemetry:org"
 
     @pytest.mark.asyncio
     async def test_no_broadcast_when_mac_missing(self):

@@ -91,7 +91,7 @@ async def test_activate_skill_rejects_skill_not_allowed_in_chat_context(monkeypa
         encoding="utf-8",
     )
 
-    fake_skill = SimpleNamespace(local_path=str(skill_dir), mcp_config_id=None, git_repo_id=None)
+    fake_skill = SimpleNamespace(local_path=str(skill_dir), mcp_config_id="mcp-required", git_repo_id=None)
 
     class _QueryField:
         def __eq__(self, _other):
@@ -105,13 +105,9 @@ async def test_activate_skill_rejects_skill_not_allowed_in_chat_context(monkeypa
         async def find_one(*_args, **_kwargs):
             return fake_skill
 
-    async def _deny(_skill):
-        return False
-
     monkeypatch.setattr(llm_models, "Skill", _FakeSkillModel)
-    monkeypatch.setattr(skills_tool, "_is_skill_allowed_in_current_chat", _deny)
 
-    with pytest.raises(ToolError, match="not available in this chat context"):
+    with pytest.raises(ToolError, match="requires an MCP server binding"):
         await skills_tool.activate_skill("restricted-skill")
 
 
