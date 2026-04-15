@@ -563,7 +563,7 @@ def _build_session_context(session: MonitoringSession) -> str:
             if change.config_diff:
                 diff = _redact_diff_lines(change.config_diff)
                 if len(diff) > 1500:
-                    diff = diff[:1500] + f"\n... (truncated, full length {len(change.config_diff)} chars)"
+                    diff = diff[:1500] + f"\n... (truncated, full length {len(diff)} chars)"
                 lines.append("   Config diff (Junos):")
                 lines.append(diff)
             if change.config_before is not None or change.config_after is not None:
