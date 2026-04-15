@@ -39,10 +39,10 @@ class TestActivateSkillMcpAccessControl:
                 return skill
 
         monkeypatch.setattr("app.modules.llm.models.Skill", _FakeSkill)
-        # No thread context set (mcp_thread_id_var.get() returns None)
+        # No thread context set (mcp_thread_id_var.get() returns None) - external client scenario
         monkeypatch.setattr(mcp_server, "mcp_thread_id_var", SimpleNamespace(get=lambda: None))
 
-        with pytest.raises(ToolError, match="requires MCP server that is not enabled"):
+        with pytest.raises(ToolError, match="External MCP clients.*cannot activate MCP-bound skills"):
             await activate_skill(name="test-skill")
 
     @pytest.mark.asyncio

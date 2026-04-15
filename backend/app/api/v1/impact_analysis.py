@@ -506,6 +506,8 @@ async def get_sle_data(
 
 def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
+    import itertools
+
     from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
     def _limit_json_value(
@@ -529,8 +531,11 @@ def _build_session_context(session: MonitoringSession) -> str:
 
         if isinstance(value, dict):
             limited: dict = {}
-            items = list(value.items())
-            for key, sub_value in items[:max_items]:
+            # Use islice to avoid materializing the full dict for large payloads
+            items_iter = iter(value.items())
+            count = 0
+            for key, sub_value in itertools.islice(items_iter, max_items):
+                count += 1
                 if _SENSITIVE_KEY_PATTERN.search(str(key)):
                     limited[key] = "[REDACTED]"
                 else:
@@ -541,8 +546,11 @@ def _build_session_context(session: MonitoringSession) -> str:
                         max_items=max_items,
                         max_string_len=max_string_len,
                     )
-            if len(items) > max_items:
-                limited["..."] = f"[{len(items) - max_items} more keys]"
+            # Check if there are more items without iterating the rest
+            has_more = next(items_iter, None) is not None
+            if has_more:
+                remaining = len(value) - count
+                limited["..."] = f"[{remaining} more keys]"
             return limited
 
         if isinstance(value, (list, tuple)):

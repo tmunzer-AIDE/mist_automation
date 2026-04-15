@@ -92,6 +92,13 @@ async def activate_skill(
                     active_mcp_ids = set(thread.mcp_config_ids)
 
             if effective_mcp_id not in active_mcp_ids:
+                # Provide a more helpful error for external MCP clients (no thread context)
+                if not thread_id:
+                    raise ToolError(
+                        f"Skill '{skill_name}' requires an MCP server binding and can only be used "
+                        f"in an in-app conversation with that MCP server enabled. "
+                        f"External MCP clients (using Personal Access Tokens) cannot activate MCP-bound skills."
+                    )
                 raise ToolError(
                     f"Skill '{skill_name}' requires MCP server that is not enabled for this conversation"
                 )

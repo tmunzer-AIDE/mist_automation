@@ -20,6 +20,12 @@ logger = structlog.get_logger(__name__)
 # This value will never match any active MCP config ID, effectively blocking the skill.
 ORPHANED_SKILL_SENTINEL = "<orphaned:repo_deleted>"
 
+# Footer appended to skills catalog. Also used by llm.py to strip old catalogs before rebuilding.
+SKILLS_CATALOG_FOOTER = (
+    "When a task matches a skill's description, call the activate_skill tool "
+    "with the skill's name to load its full instructions before proceeding."
+)
+
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".svn"}
 _APP_SKILLS_CACHE_TTL_SECONDS = 30.0
 _app_skills_cache: dict[str, tuple[float, list["SkillCatalogEntry"]]] = {}
@@ -226,10 +232,7 @@ def render_skills_catalog(entries: list[SkillCatalogEntry]) -> str:
         lines.append(f"    <description>{escape(entry.description)}</description>")
         lines.append("  </skill>")
     lines.append("</available_skills>")
-    lines.append(
-        "\nWhen a task matches a skill's description, call the activate_skill tool "
-        "with the skill's name to load its full instructions before proceeding."
-    )
+    lines.append(f"\n{SKILLS_CATALOG_FOOTER}")
     return "\n".join(lines)
 
 
@@ -300,14 +303,16 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
             entries.append(SkillCatalogEntry(name=skill.name, description=skill.description))
 
     # Built-in app skills are always included, even if no DB skills are configured.
+    # Use ALL enabled DB skill names for collision detection (not just included entries),
+    # because activate_skill() finds DB skills first — if a DB skill exists but is filtered
+    # out due to MCP binding, showing an app skill with the same name would be misleading.
     app_entries = load_app_skill_entries()
-    seen = {entry.name for entry in entries}
+    reserved_names = {skill.name for skill in db_skills}
     for entry in app_entries:
-        if entry.name in seen:
+        if entry.name in reserved_names:
             logger.info("app_skill_catalog_name_collision", name=entry.name)
             continue
         entries.append(entry)
-        seen.add(entry.name)
 
     return render_skills_catalog(entries)
 

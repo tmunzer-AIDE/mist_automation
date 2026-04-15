@@ -972,12 +972,13 @@ async def _continue_with_mcp(thread, message: str, current_user: User, stream_id
 
     # Skills bound to MCP servers are only exposed when the corresponding MCP is enabled.
     if thread.feature == "global_chat":
-        from app.modules.llm.services.skills_service import build_skills_catalog
+        from app.modules.llm.services.skills_service import SKILLS_CATALOG_FOOTER, build_skills_catalog
 
         skills_catalog = await build_skills_catalog(thread.mcp_config_ids)
+        # Strip old skills catalog before appending new one (footer constant shared with skills_service)
+        footer_pattern = re.escape(SKILLS_CATALOG_FOOTER)
         system_prompt = re.sub(
-            r"\n?<available_skills>.*?</available_skills>\s*When a task matches a skill's description, call the "
-            r"activate_skill tool with the skill's name to load its full instructions before proceeding\.",
+            rf"\n?<available_skills>.*?</available_skills>\s*{footer_pattern}",
             "",
             system_prompt,
             flags=re.S,
