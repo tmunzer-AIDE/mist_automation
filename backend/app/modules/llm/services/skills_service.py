@@ -16,6 +16,10 @@ import yaml
 
 logger = structlog.get_logger(__name__)
 
+# Sentinel value returned when a skill references a deleted git repo.
+# This value will never match any active MCP config ID, effectively blocking the skill.
+ORPHANED_SKILL_SENTINEL = "<orphaned:repo_deleted>"
+
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".svn"}
 _APP_SKILLS_CACHE_TTL_SECONDS = 30.0
 _app_skills_cache: dict[str, tuple[float, list["SkillCatalogEntry"]]] = {}
@@ -241,7 +245,7 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
                     skill_name=skill.name,
                     git_repo_id=str(skill.git_repo_id),
                 )
-                return "<orphaned:repo_deleted>"
+                return ORPHANED_SKILL_SENTINEL
             if repo.mcp_config_id:
                 return str(repo.mcp_config_id)
         return None
@@ -298,7 +302,7 @@ async def get_skill_effective_mcp_id(skill_name: str | None = None, *, skill: ob
                 skill_name=skill.name if hasattr(skill, "name") else "unknown",
                 git_repo_id=str(skill.git_repo_id),
             )
-            return "<orphaned:repo_deleted>"
+            return ORPHANED_SKILL_SENTINEL
         if repo.mcp_config_id:
             return str(repo.mcp_config_id)
 

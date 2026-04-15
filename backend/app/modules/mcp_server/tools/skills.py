@@ -63,14 +63,36 @@ async def activate_skill(
         # Enforce MCP binding: if skill is bound to an MCP server, that server must be active in the thread
         effective_mcp_id = await get_skill_effective_mcp_id(skill=skill)
         if effective_mcp_id:
-            thread_id = mcp_thread_id_var.get()
+            from app.modules.llm.services.skills_service import ORPHANED_SKILL_SENTINEL
+
+            # Handle orphaned skills (git repo was deleted)
+            if effective_mcp_id == ORPHANED_SKILL_SENTINEL:
+                raise ToolError(
+                    f"Skill '{skill_name}' cannot be activated: the git repository it was imported from has been deleted"
+                )
+
+            try:
+                thread_id = mcp_thread_id_var.get()
+            except LookupError as exc:
+                raise ToolError(
+                    "Unable to determine the active MCP servers for this conversation"
+                ) from exc
+
             active_mcp_ids: set[str] = set()
             if thread_id:
                 from beanie import PydanticObjectId
+                from bson.errors import InvalidId
 
                 from app.modules.llm.models import ConversationThread
 
-                thread = await ConversationThread.get(PydanticObjectId(thread_id))
+                try:
+                    thread_object_id = PydanticObjectId(thread_id)
+                except (InvalidId, TypeError, ValueError) as exc:
+                    raise ToolError(
+                        "Invalid conversation context: unable to determine the active MCP servers"
+                    ) from exc
+
+                thread = await ConversationThread.get(thread_object_id)
                 if thread and thread.mcp_config_ids:
                     active_mcp_ids = set(thread.mcp_config_ids)
 

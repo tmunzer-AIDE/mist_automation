@@ -221,9 +221,9 @@ class TestActivateSkillMcpAccessControl:
 
         monkeypatch.setattr("app.modules.llm.models.Skill", _FakeSkill)
         monkeypatch.setattr("app.modules.llm.models.SkillGitRepo", _FakeSkillGitRepo)
-        # No thread context - orphaned skill gets sentinel MCP ID which never matches
+        # No thread context - orphaned skill gets explicit error about deleted repo
 
-        with pytest.raises(ToolError, match="requires MCP server that is not enabled"):
+        with pytest.raises(ToolError, match="git repository it was imported from has been deleted"):
             await activate_skill(name="orphan-skill")
 
     @pytest.mark.asyncio

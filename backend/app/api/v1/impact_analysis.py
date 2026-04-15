@@ -48,6 +48,12 @@ from app.modules.impact_analysis.services import session_manager
 router = APIRouter(tags=["Impact Analysis"])
 logger = structlog.get_logger(__name__)
 
+# Compiled regex for redacting sensitive data in config diffs and values.
+# Defined at module scope to avoid repeated compilation on each endpoint call.
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)", re.IGNORECASE
+)
+
 
 # ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -500,13 +506,12 @@ async def get_sle_data(
 
 def _build_session_context(session: MonitoringSession) -> str:
     """Build a context string describing the current session state for the LLM."""
-    sensitive_key_pattern = re.compile(r"(?:secret|password|passwd|token|api[_-]?key|psk|private[_-]?key)", re.IGNORECASE)
 
     def _redact_sensitive(value: object) -> object:
         if isinstance(value, dict):
             redacted: dict = {}
             for key, sub_value in value.items():
-                if sensitive_key_pattern.search(str(key)):
+                if _SENSITIVE_KEY_PATTERN.search(str(key)):
                     redacted[key] = "***REDACTED***"
                 else:
                     redacted[key] = _redact_sensitive(sub_value)
@@ -519,7 +524,7 @@ def _build_session_context(session: MonitoringSession) -> str:
         """Redact lines in config diffs that may contain sensitive values."""
         redacted_lines = []
         for line in diff_text.splitlines():
-            if sensitive_key_pattern.search(line):
+            if _SENSITIVE_KEY_PATTERN.search(line):
                 # Keep line structure but redact value portion
                 redacted_lines.append("***REDACTED LINE (contains sensitive keyword)***")
             else:
