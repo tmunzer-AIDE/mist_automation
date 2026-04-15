@@ -9,7 +9,6 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { LlmService } from '../../../core/services/llm.service';
 import { GlobalChatService } from '../../../core/services/global-chat.service';
@@ -75,7 +74,6 @@ interface TimelineBubble {
     MatTooltipModule,
     MatExpansionModule,
     MatDialogModule,
-    MatSnackBarModule,
     EmptyStateComponent,
     StatusBadgeComponent,
     AiInlineAnalysisComponent,
@@ -92,7 +90,6 @@ export class BackupObjectDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
-  private readonly snackBar = inject(MatSnackBar);
   private readonly topbarService = inject(TopbarService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -163,7 +160,6 @@ export class BackupObjectDetailComponent implements OnInit {
    */
   timelineBubbles = computed<TimelineBubble[]>(() => {
     const versions = this.versions();
-    const pinA = this.pinA();
     const pinB = this.pinB();
     if (versions.length === 0) return [];
 
