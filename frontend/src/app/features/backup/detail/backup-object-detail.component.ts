@@ -21,6 +21,7 @@ import { DateTimePipe } from '../../../shared/pipes/date-time.pipe';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 import { JsonViewDialogComponent } from './json-view-dialog.component';
 import { CascadeRestoreDialogComponent } from './cascade-restore-dialog.component';
+import { SimulateRestoreDialogComponent } from './simulate-restore-dialog.component';
 
 interface ObjectVersion {
   id: string;
@@ -440,16 +441,15 @@ export class BackupObjectDetailComponent implements OnInit {
     });
   }
 
-  /** Simulate rollback: opens the restore dialog so the user can review the Digital Twin pre-check before committing. */
+  /** Simulate rollback: runs the Digital Twin pre-check and shows the result. */
   simulateRestore(v: ObjectVersion): void {
-    this.dialog.open(CascadeRestoreDialogComponent, {
-      width: '600px',
+    this.dialog.open(SimulateRestoreDialogComponent, {
+      width: '520px',
       maxHeight: '80vh',
       data: {
         versionId: v.id,
         objectName: v.object_name || v.object_id,
         objectType: v.object_type,
-        isDeleted: v.is_deleted,
       },
     });
   }
