@@ -138,7 +138,7 @@
 }
 
 .bubble-pin-label {
-  &.pin-label-a { background: var(--app-error-badge); color: white; }
+  &.pin-label-a { background: var(--app-error-badge); color: var(--mat-sys-on-error); }
   &.pin-label-b { background: var(--mat-sys-primary); color: var(--mat-sys-on-primary); }
 }
 
@@ -221,7 +221,7 @@
 
   &.pin-indicator-a {
     background: var(--app-error-badge);
-    color: white;
+    color: var(--mat-sys-on-error);
     border-color: var(--app-error-badge);
   }
   &.pin-indicator-b {
