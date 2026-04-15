@@ -5,7 +5,7 @@
 @if (!loading() && latestVersion(); as latest) {
   <!-- ── Zone 1: Object header ── -->
   <div class="detail-header">
-    <button mat-icon-button (click)="goBack()" matTooltip="Back to backup list">
+    <button mat-icon-button aria-label="Back to backup list" (click)="goBack()" matTooltip="Back to backup list">
       <mat-icon>arrow_back</mat-icon>
     </button>
     <div class="header-info">
@@ -194,6 +194,7 @@
             <div class="compact-actions">
               <button
                 mat-icon-button
+                [attr.aria-label]="'Rollback to v' + v.version"
                 [matTooltip]="'Rollback to v' + v.version"
                 (click)="restoreVersion(v)"
               >
@@ -201,6 +202,7 @@
               </button>
               <button
                 mat-icon-button
+                [attr.aria-label]="'Simulate rollback to v' + v.version"
                 [matTooltip]="'Simulate rollback to v' + v.version"
                 (click)="simulateRestore(v)"
               >
@@ -277,6 +279,7 @@
             <button
               mat-icon-button
               class="expand-all-btn"
+              [attr.aria-label]="allExpanded() ? 'Collapse all' : 'Expand all'"
               (click)="toggleExpandAll()"
               [matTooltip]="allExpanded() ? 'Collapse all' : 'Expand all'"
             >
