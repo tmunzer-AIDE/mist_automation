@@ -102,97 +102,110 @@
           class="version-row"
           [class.pin-a-row]="pinA()?.id === v.id"
           [class.pin-b-row]="pinB()?.id === v.id"
-          tabindex="0"
-          role="button"
-          (click)="pinVersion(v)"
-          (keydown.enter)="pinVersion(v)"
-          (keydown.space)="$event.preventDefault(); pinVersion(v)"
         >
-          <!-- Pin indicator circle -->
-          <div
-            class="pin-indicator"
-            [class.pin-indicator-a]="pinA()?.id === v.id"
-            [class.pin-indicator-b]="pinB()?.id === v.id"
-          >
-            @if (pinA()?.id === v.id) { A }
-            @else if (pinB()?.id === v.id) { B }
-          </div>
-
           @if (fullRowIds().has(v.id)) {
             <!-- Full row (3 newest + any pinned version) -->
-            <div class="row-content">
-              <div class="row-title">
-                <span class="version-number">v{{ v.version }}</span>
-                @if (i === 0) {
-                  <span class="latest-badge">latest</span>
-                }
-                @if (v.is_deleted) {
-                  <span class="deleted-badge">deleted</span>
-                }
+            <!-- Pin target: interactive region for pinning — contains only non-button content -->
+            <button
+              class="row-pin-target"
+              [attr.aria-label]="'Pin v' + v.version + ' for comparison'"
+              (click)="pinVersion(v)"
+            >
+              <div
+                class="pin-indicator"
+                [class.pin-indicator-a]="pinA()?.id === v.id"
+                [class.pin-indicator-b]="pinB()?.id === v.id"
+              >
+                @if (pinA()?.id === v.id) { A }
+                @else if (pinB()?.id === v.id) { B }
               </div>
-              <div class="row-meta">
-                {{ v.backed_up_at | dateTime }}
-                @if (v.backed_up_by) { · {{ v.backed_up_by }} }
-                @else { · {{ eventLabel(v.event_type) }} }
-              </div>
-              <div class="change-bar-row">
-                <div class="change-bar-track">
-                  <div
-                    class="change-bar-fill"
-                    [style.width.%]="(v.changed_fields.length / maxChanges()) * 100"
-                  ></div>
-                </div>
-                <span class="change-count">
-                  {{ v.changed_fields.length }}
-                  change{{ v.changed_fields.length === 1 ? '' : 's' }}
-                </span>
-              </div>
-              @if (v.changed_fields.length > 0) {
-                <div class="field-tags">
-                  @for (f of v.changed_fields | slice: 0 : 2; track f) {
-                    <span class="field-tag">{{ f }}</span>
+              <div class="row-content">
+                <div class="row-title">
+                  <span class="version-number">v{{ v.version }}</span>
+                  @if (i === 0) {
+                    <span class="latest-badge">latest</span>
                   }
-                  @if (v.changed_fields.length > 2) {
-                    <span class="field-tag field-tag-more">+{{ v.changed_fields.length - 2 }}</span>
+                  @if (v.is_deleted) {
+                    <span class="deleted-badge">deleted</span>
                   }
                 </div>
-              }
-              <div class="row-actions" (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()">
-                <button mat-stroked-button (click)="viewJson(v)">
-                  <mat-icon>code</mat-icon> View
-                </button>
-                <button mat-stroked-button class="action-simulate" (click)="simulateRestore(v)">
-                  <mat-icon>science</mat-icon> Simulate
-                </button>
-                <button mat-stroked-button class="action-rollback" (click)="restoreVersion(v)">
-                  <mat-icon>restore</mat-icon> Rollback
-                </button>
+                <div class="row-meta">
+                  {{ v.backed_up_at | dateTime }}
+                  @if (v.backed_up_by) { · {{ v.backed_up_by }} }
+                  @else { · {{ eventLabel(v.event_type) }} }
+                </div>
+                <div class="change-bar-row">
+                  <div class="change-bar-track">
+                    <div
+                      class="change-bar-fill"
+                      [style.width.%]="(v.changed_fields.length / maxChanges()) * 100"
+                    ></div>
+                  </div>
+                  <span class="change-count">
+                    {{ v.changed_fields.length }}
+                    change{{ v.changed_fields.length === 1 ? '' : 's' }}
+                  </span>
+                </div>
+                @if (v.changed_fields.length > 0) {
+                  <div class="field-tags">
+                    @for (f of v.changed_fields | slice: 0 : 2; track f) {
+                      <span class="field-tag">{{ f }}</span>
+                    }
+                    @if (v.changed_fields.length > 2) {
+                      <span class="field-tag field-tag-more">+{{ v.changed_fields.length - 2 }}</span>
+                    }
+                  </div>
+                }
               </div>
+            </button>
+            <!-- Action buttons are siblings of the pin target, not nested inside it -->
+            <div class="row-actions">
+              <button mat-stroked-button (click)="viewJson(v)">
+                <mat-icon>code</mat-icon> View
+              </button>
+              <button mat-stroked-button class="action-simulate" (click)="simulateRestore(v)">
+                <mat-icon>science</mat-icon> Simulate
+              </button>
+              <button mat-stroked-button class="action-rollback" (click)="restoreVersion(v)">
+                <mat-icon>restore</mat-icon> Rollback
+              </button>
             </div>
           } @else {
             <!-- Compact row (older versions not pinned) -->
-            <div class="row-content row-content-compact">
-              <span class="version-number">v{{ v.version }}</span>
+            <button
+              class="row-pin-target row-pin-target-compact"
+              [attr.aria-label]="'Pin v' + v.version + ' for comparison'"
+              (click)="pinVersion(v)"
+            >
+              <div
+                class="pin-indicator"
+                [class.pin-indicator-a]="pinA()?.id === v.id"
+                [class.pin-indicator-b]="pinB()?.id === v.id"
+              >
+                @if (pinA()?.id === v.id) { A }
+                @else if (pinB()?.id === v.id) { B }
+              </div>
+              <span class="version-number compact-version-number">v{{ v.version }}</span>
               <span class="compact-meta">
                 {{ v.backed_up_at | dateTime }} ·
                 {{ v.changed_fields.length }} change{{ v.changed_fields.length === 1 ? '' : 's' }}
               </span>
-              <div class="compact-actions" (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()">
-                <button
-                  mat-icon-button
-                  [matTooltip]="'Rollback to v' + v.version"
-                  (click)="restoreVersion(v)"
-                >
-                  <mat-icon>restore</mat-icon>
-                </button>
-                <button
-                  mat-icon-button
-                  [matTooltip]="'Simulate rollback to v' + v.version"
-                  (click)="simulateRestore(v)"
-                >
-                  <mat-icon>science</mat-icon>
-                </button>
-              </div>
+            </button>
+            <div class="compact-actions">
+              <button
+                mat-icon-button
+                [matTooltip]="'Rollback to v' + v.version"
+                (click)="restoreVersion(v)"
+              >
+                <mat-icon>restore</mat-icon>
+              </button>
+              <button
+                mat-icon-button
+                [matTooltip]="'Simulate rollback to v' + v.version"
+                (click)="simulateRestore(v)"
+              >
+                <mat-icon>science</mat-icon>
+              </button>
             </div>
           }
         </div>

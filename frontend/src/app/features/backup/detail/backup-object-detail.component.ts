@@ -419,6 +419,11 @@ export class BackupObjectDetailComponent implements OnInit {
     this.activeFilters.set(new Set());
     this.expandedGroups.set(new Set());
     this.expandedEntries.set(new Set());
+    // Clear stale AI summary from the previous pin pair
+    this.aiThreadId.set(null);
+    this.aiSummary.set(null);
+    this.aiError.set(null);
+    this.aiLoading.set(false);
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────

@@ -211,22 +211,14 @@
 .version-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 9px 12px;
   border-bottom: 1px solid var(--mat-sys-outline-variant);
   border-left: 3px solid transparent;
-  cursor: pointer;
   transition: background 0.1s;
 
   &:last-child { border-bottom: none; }
 
   &:hover:not(.pin-a-row):not(.pin-b-row) {
     background: var(--mat-sys-surface-container-low);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--mat-sys-primary);
-    outline-offset: -2px;
   }
 
   &.pin-a-row {
@@ -237,6 +229,33 @@
   &.pin-b-row {
     border-left-color: var(--mat-sys-primary);
     background: color-mix(in srgb, var(--mat-sys-primary) 8%, transparent);
+  }
+}
+
+// Pin target: a native <button> wrapping only the metadata — no nested interactive controls.
+// The action buttons (View/Simulate/Rollback) are siblings, not children.
+.row-pin-target {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 8px 9px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+
+  &.row-pin-target-compact {
+    align-items: center;
+    padding-right: 0;
   }
 }
 
@@ -366,8 +385,10 @@
 .row-actions {
   display: flex;
   gap: 4px;
-  margin-top: 4px;
   flex-wrap: wrap;
+  flex-shrink: 0;
+  align-self: flex-end;
+  padding: 0 12px 9px 4px;
 
   button { font-size: 11px; height: 28px; line-height: 28px; padding: 0 6px 0 12px; }
   mat-icon { font-size: 14px; width: 14px; height: 14px; margin-right: 3px; }
@@ -381,9 +402,9 @@
   flex-direction: row;
   align-items: center;
   gap: 8px;
-
-  .version-number { color: var(--mat-sys-on-surface-variant); font-weight: 500; }
 }
+
+.compact-version-number { color: var(--mat-sys-on-surface-variant); font-weight: 500; }
 
 .compact-meta {
   flex: 1;
