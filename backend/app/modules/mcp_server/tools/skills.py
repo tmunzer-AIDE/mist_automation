@@ -61,7 +61,7 @@ async def activate_skill(
     source_label: str
     if skill:
         # Enforce MCP binding: if skill is bound to an MCP server, that server must be active in the thread
-        effective_mcp_id = await get_skill_effective_mcp_id(skill_name)
+        effective_mcp_id = await get_skill_effective_mcp_id(skill=skill)
         if effective_mcp_id:
             thread_id = mcp_thread_id_var.get()
             active_mcp_ids: set[str] = set()
