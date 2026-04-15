@@ -1,27 +1,32 @@
-<div class="page-actions">
-  <a mat-stroked-button routerLink="/backup">
-    <mat-icon>arrow_back</mat-icon> Back
-  </a>
-</div>
-
 @if (loading()) {
   <mat-progress-bar mode="indeterminate"></mat-progress-bar>
 }
 
 @if (!loading() && latestVersion(); as latest) {
   <!-- ── Zone 1: Object header ── -->
-  <div class="object-header">
-    <code class="object-type-badge">{{ latest.object_type }}</code>
-    <span class="object-name">{{ latest.object_name || latest.object_id }}</span>
-    @if (latest.is_deleted) {
-      <app-status-badge status="deleted"></app-status-badge>
-    }
-    <span class="object-meta">{{ latest.site_id ? 'Site' : 'Org' }}</span>
-    <code class="object-meta object-uuid">{{ objectId }}</code>
-    <span class="object-meta object-version-count">
-      {{ versions().length }} version{{ versions().length === 1 ? '' : 's' }}
-      · first seen {{ oldestVersion()?.backed_up_at | dateTime }}
-    </span>
+  <div class="detail-header">
+    <button mat-icon-button (click)="goBack()" matTooltip="Back to backup list">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-info">
+      <div class="header-title">
+        <code class="object-type-badge">{{ latest.object_type }}</code>
+        <span class="object-name">{{ latest.object_name || latest.object_id }}</span>
+        @if (latest.is_deleted) {
+          <app-status-badge status="deleted"></app-status-badge>
+        }
+      </div>
+      <div class="header-meta">
+        <span>{{ latest.site_id ? 'Site' : 'Org' }}</span>
+        <span class="meta-sep">·</span>
+        <code class="object-uuid">{{ objectId }}</code>
+        <span class="meta-sep">·</span>
+        <span>
+          {{ versions().length }} version{{ versions().length === 1 ? '' : 's' }}
+          · first seen {{ oldestVersion()?.backed_up_at | dateTime }}
+        </span>
+      </div>
+    </div>
   </div>
 
   <!-- ── Zone 2: Sparkline timeline ── -->
@@ -61,10 +66,6 @@
         >
           <div
             class="timeline-bubble"
-            [class.bubble-green]="bubble.color === 'green'"
-            [class.bubble-yellow]="bubble.color === 'yellow'"
-            [class.bubble-red]="bubble.color === 'red'"
-            [class.bubble-blue]="bubble.color === 'blue'"
             [class.bubble-pin-a]="pinA()?.id === bubble.version.id"
             [class.bubble-pin-b]="pinB()?.id === bubble.version.id"
             [style.width.px]="bubble.diameter"

@@ -1,11 +1,29 @@
-// ── Object header ─────────────────────────────────────────────────────────
+// ── Detail header ─────────────────────────────────────────────────────────
 
-.object-header {
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-title {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 10px 0 16px;
+  margin-bottom: 4px;
+}
+
+.object-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
 }
 
 .object-type-badge {
@@ -19,17 +37,22 @@
   white-space: nowrap;
 }
 
-.object-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--mat-sys-on-surface);
-}
-
-.object-meta {
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--mat-sys-on-surface-variant);
-  &.object-uuid { font-family: var(--app-font-mono); font-size: 11px; }
-  &.object-version-count { margin-left: auto; }
+  flex-wrap: wrap;
+}
+
+.meta-sep {
+  color: var(--mat-sys-outline-variant);
+}
+
+.object-uuid {
+  font-family: var(--app-font-mono);
+  font-size: 11px;
 }
 
 // ── Timeline ──────────────────────────────────────────────────────────────
@@ -94,15 +117,9 @@
 .timeline-bubble {
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--mat-sys-on-surface-variant);
   transition: filter 0.15s;
 
-  &.bubble-green { background: var(--app-success-badge); }
-  &.bubble-yellow { background: var(--app-warning); }
-  &.bubble-red { background: var(--app-error-badge); }
-  &.bubble-blue {
-    background: var(--mat-sys-primary);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--mat-sys-primary) 50%, transparent);
-  }
   &.bubble-pin-a { outline: 2px solid var(--app-error-badge); outline-offset: 2px; }
   &.bubble-pin-b { outline: 2px solid var(--mat-sys-primary); outline-offset: 2px; }
 }

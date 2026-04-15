@@ -56,7 +56,6 @@ interface TimelineBubble {
   version: ObjectVersion;
   left: number;     // 0–100 (%)
   diameter: number; // 8–28 (px)
-  color: 'green' | 'yellow' | 'red' | 'blue';
 }
 
 @Component({
@@ -158,7 +157,6 @@ export class BackupObjectDetailComponent implements OnInit {
    */
   timelineBubbles = computed<TimelineBubble[]>(() => {
     const versions = this.versions();
-    const pinB = this.pinB();
     if (versions.length === 0) return [];
 
     // Timeline goes oldest → newest (left → right)
@@ -194,14 +192,6 @@ export class BackupObjectDetailComponent implements OnInit {
       version: v,
       left: positions[i],
       diameter: Math.min(28, Math.max(8, 8 + v.changed_fields.length * 2)),
-      color:
-        pinB?.id === v.id
-          ? 'blue'
-          : v.changed_fields.length <= 2
-            ? 'green'
-            : v.changed_fields.length <= 6
-              ? 'yellow'
-              : 'red',
     }));
   });
 
@@ -399,6 +389,10 @@ export class BackupObjectDetailComponent implements OnInit {
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
+
+  goBack(): void {
+    this.router.navigate(['/backup']);
+  }
 
   eventLabel(eventType: string): string {
     const labels: Record<string, string> = {
