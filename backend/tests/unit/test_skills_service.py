@@ -571,3 +571,124 @@ class TestBuildSkillsCatalog:
         for catalog in [catalog_none, catalog_empty]:
             assert "<name>bound</name>" not in catalog
             assert "<name>unbound</name>" in catalog
+
+    @pytest.mark.asyncio
+    async def test_orphaned_skill_hidden_when_repo_missing(self, monkeypatch):
+        """Skill referencing a deleted repo is hidden from catalog (treated as restricted)."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import build_skills_catalog
+
+        missing_repo_id = "aaaabbbbccccddddeeee9999"
+        db_skills = [
+            SimpleNamespace(
+                name="orphaned-skill",
+                description="Orphaned",
+                git_repo_id=missing_repo_id,  # References repo that doesn't exist
+                mcp_config_id=None,
+            ),
+            SimpleNamespace(name="normal-skill", description="Normal", git_repo_id=None, mcp_config_id=None),
+        ]
+
+        class _SkillQuery:
+            async def to_list(self):
+                return db_skills
+
+        class _RepoQuery:
+            async def to_list(self):
+                return []  # Repo doesn't exist
+
+        class _FakeSkill:
+            enabled = object()
+
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _SkillQuery()
+
+        class _FakeSkillRepo:
+            @staticmethod
+            def find(*_args, **_kwargs):
+                return _RepoQuery()
+
+        monkeypatch.setattr(llm_models, "Skill", _FakeSkill)
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+        monkeypatch.setattr("app.modules.llm.services.skills_service.load_app_skill_entries", lambda *_args: [])
+
+        # Orphaned skill should be hidden even with all MCPs active
+        catalog = await build_skills_catalog(["any-mcp-id"])
+
+        assert "<name>orphaned-skill</name>" not in catalog
+        assert "<name>normal-skill</name>" in catalog
+
+
+class TestGetSkillEffectiveMcpId:
+    @pytest.mark.asyncio
+    async def test_returns_none_for_unbound_skill(self):
+        """Skill without MCP binding returns None."""
+        from types import SimpleNamespace
+
+        from app.modules.llm.services.skills_service import get_skill_effective_mcp_id
+
+        skill = SimpleNamespace(name="test", mcp_config_id=None, git_repo_id=None)
+
+        result = await get_skill_effective_mcp_id(skill=skill)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_skill_level_binding(self):
+        """Skill-level mcp_config_id is returned when set."""
+        from types import SimpleNamespace
+
+        from app.modules.llm.services.skills_service import get_skill_effective_mcp_id
+
+        skill = SimpleNamespace(name="test", mcp_config_id="skill-mcp-123", git_repo_id=None)
+
+        result = await get_skill_effective_mcp_id(skill=skill)
+
+        assert result == "skill-mcp-123"
+
+    @pytest.mark.asyncio
+    async def test_returns_repo_level_binding(self, monkeypatch):
+        """Repo-level mcp_config_id is returned when skill has none."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import get_skill_effective_mcp_id
+
+        repo_id = "aaaabbbbccccddddeeee0001"
+        skill = SimpleNamespace(name="test", mcp_config_id=None, git_repo_id=repo_id)
+        repo = SimpleNamespace(id=repo_id, mcp_config_id="repo-mcp-456")
+
+        class _FakeSkillRepo:
+            @staticmethod
+            async def get(_id):
+                return repo
+
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+
+        result = await get_skill_effective_mcp_id(skill=skill)
+
+        assert result == "repo-mcp-456"
+
+    @pytest.mark.asyncio
+    async def test_orphaned_skill_returns_sentinel(self, monkeypatch):
+        """Skill referencing deleted repo returns sentinel (blocks activation)."""
+        from types import SimpleNamespace
+
+        import app.modules.llm.models as llm_models
+        from app.modules.llm.services.skills_service import get_skill_effective_mcp_id
+
+        skill = SimpleNamespace(name="orphan", mcp_config_id=None, git_repo_id="missing-repo-id")
+
+        class _FakeSkillRepo:
+            @staticmethod
+            async def get(_id):
+                return None  # Repo doesn't exist
+
+        monkeypatch.setattr(llm_models, "SkillGitRepo", _FakeSkillRepo)
+
+        result = await get_skill_effective_mcp_id(skill=skill)
+
+        assert result == "<orphaned:repo_deleted>"

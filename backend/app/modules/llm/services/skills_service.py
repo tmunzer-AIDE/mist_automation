@@ -233,7 +233,16 @@ async def build_skills_catalog(active_mcp_config_ids: list[str] | None = None) -
             return str(skill.mcp_config_id)
         if skill.git_repo_id:
             repo = repo_map.get(str(skill.git_repo_id))
-            if repo and repo.mcp_config_id:
+            if repo is None:
+                # Orphaned skill: repo was deleted but skill still references it.
+                # Return sentinel to hide skill from catalog (never matches any active MCP).
+                logger.warning(
+                    "orphaned_skill_missing_repo",
+                    skill_name=skill.name,
+                    git_repo_id=str(skill.git_repo_id),
+                )
+                return "<orphaned:repo_deleted>"
+            if repo.mcp_config_id:
                 return str(repo.mcp_config_id)
         return None
 
@@ -281,7 +290,16 @@ async def get_skill_effective_mcp_id(skill_name: str | None = None, *, skill: ob
     # Check repo-level binding
     if skill.git_repo_id:
         repo = await SkillGitRepo.get(skill.git_repo_id)
-        if repo and repo.mcp_config_id:
+        if repo is None:
+            # Orphaned skill: repo was deleted but skill still references it.
+            # Return sentinel to block activation (never matches any active MCP).
+            logger.warning(
+                "orphaned_skill_activation_blocked",
+                skill_name=skill.name if hasattr(skill, "name") else "unknown",
+                git_repo_id=str(skill.git_repo_id),
+            )
+            return "<orphaned:repo_deleted>"
+        if repo.mcp_config_id:
             return str(repo.mcp_config_id)
 
     return None
