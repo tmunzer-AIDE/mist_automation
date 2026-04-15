@@ -32,6 +32,35 @@ _SINGLETON_ENDPOINTS: dict[str, dict[str, str]] = {
 # so cascade restore must use PUT (not POST) to update them on the new site.
 _SITE_SINGLETON_TYPES: set[str] = {"settings"}
 
+# Types whose stored ``object_id`` is a shared literal key (e.g. "settings")
+# because the Mist API response has no ``id`` field.  Queries against these
+# types must include the composite scope (object_type, org_id, site_id) to
+# avoid mutating records belonging to unrelated sites or the org.
+_SINGLETON_OBJECT_TYPES: set[str] = set(_SINGLETON_ENDPOINTS.keys())
+
+
+def _version_scope_query(
+    object_type: str,
+    object_id: str,
+    org_id: Optional[str],
+    site_id: Optional[str],
+) -> dict[str, Any]:
+    """Build a MongoDB query filter scoping to a single logical object.
+
+    For singleton types (shared ``object_id``), returns a composite filter by
+    object_type + object_id + org_id + site_id.  For non-singletons (UUID
+    object_id), returns a single-key filter; the UUID is already globally
+    unique.
+    """
+    if object_type in _SINGLETON_OBJECT_TYPES:
+        return {
+            "object_type": object_type,
+            "object_id": object_id,
+            "org_id": org_id,
+            "site_id": site_id,
+        }
+    return {"object_id": object_id}
+
 
 # ── Helpers for nested config field access ────────────────────────────────────
 
@@ -294,9 +323,18 @@ class RestoreService:
 
         # Collect parents
         parent_backups: list[BackupObject] = []
+        seen_parent_ids: set[str] = set()
         if include_parents:
             for dep in validation.get("deleted_dependencies", []):
-                parent_ver = await self._get_last_active_version(dep["object_id"])
+                if dep["object_id"] in seen_parent_ids:
+                    continue
+                seen_parent_ids.add(dep["object_id"])
+                parent_ver = await self._get_last_active_version(
+                    dep["object_id"],
+                    object_type=dep.get("object_type"),
+                    org_id=dep.get("org_id"),
+                    site_id=dep.get("site_id"),
+                )
                 if parent_ver:
                     parent_backups.append(parent_ver)
                     plan.append(
@@ -323,7 +361,12 @@ class RestoreService:
         child_backups: list[BackupObject] = []
         if include_children:
             for child_info in validation.get("deleted_children", []):
-                child_ver = await self._get_last_active_version(child_info["object_id"])
+                child_ver = await self._get_last_active_version(
+                    child_info["object_id"],
+                    object_type=child_info.get("object_type"),
+                    org_id=child_info.get("org_id"),
+                    site_id=child_info.get("site_id"),
+                )
                 if child_ver:
                     child_backups.append(child_ver)
                     plan.append(
@@ -395,24 +438,44 @@ class RestoreService:
         # 2. Restore target (apply site_id remap if parent site was just recreated)
         target_config = await self._prepare_deleted_object_config(backup, id_remap=id_remap)
         effective_target_site_id = id_remap.get(backup.site_id, backup.site_id) if backup.site_id else None
-        target_result = await self._create_object_in_mist(
-            backup.object_type,
-            target_config,
-            site_id=effective_target_site_id,
-        )
-        target_new_id = target_result.get("id")
         new_target_site_id = effective_target_site_id if effective_target_site_id != backup.site_id else None
-        if target_new_id:
-            id_remap[backup.object_id] = target_new_id
+
+        if backup.object_type in _SITE_SINGLETON_TYPES and effective_target_site_id:
+            # Singleton target: the site singleton already exists on the (possibly
+            # recreated) parent site.  Restore via PUT rather than POST.
+            endpoint = self._build_endpoint(
+                backup.object_type, backup.object_id, effective_target_site_id, backup.org_id
+            )
+            target_result = await self.mist_service.api_put(endpoint, target_config)
             await self._migrate_versions_to_new_id(
                 old_object_id=backup.object_id,
-                new_object_id=target_new_id,
+                new_object_id=backup.object_id,
                 backup=backup,
                 result=target_result,
                 restored_by=restored_by,
                 id_remap=id_remap,
                 new_site_id=new_target_site_id,
             )
+            target_new_id = backup.object_id
+        else:
+            target_result = await self._create_object_in_mist(
+                backup.object_type,
+                target_config,
+                site_id=effective_target_site_id,
+            )
+            target_new_id = target_result.get("id")
+            if target_new_id:
+                id_remap[backup.object_id] = target_new_id
+                await self._migrate_versions_to_new_id(
+                    old_object_id=backup.object_id,
+                    new_object_id=target_new_id,
+                    backup=backup,
+                    result=target_result,
+                    restored_by=restored_by,
+                    id_remap=id_remap,
+                    new_site_id=new_target_site_id,
+                )
+
         restored_objects.append(
             {
                 "role": "target",
@@ -439,11 +502,24 @@ class RestoreService:
             # created site — restore them via PUT instead of POST.
             if child_backup.object_type in _SITE_SINGLETON_TYPES and effective_child_site_id:
                 endpoint = self._build_endpoint(
-                    child_backup.object_type, child_backup.object_id, effective_child_site_id, child_backup.org_id
+                    child_backup.object_type,
+                    child_backup.object_id,
+                    effective_child_site_id,
+                    child_backup.org_id,
                 )
                 child_result = await self.mist_service.api_put(endpoint, child_config)
-                # Singletons keep their logical identity; just create a restore record
-                await self._create_restore_backup_with_site(child_backup, restored_by, effective_child_site_id)
+                # Singletons keep their logical identity.  Migrate existing
+                # versions to the new site_id (if remapped) and append a
+                # RESTORED record that stores the PUT response.
+                await self._migrate_versions_to_new_id(
+                    old_object_id=child_backup.object_id,
+                    new_object_id=child_backup.object_id,
+                    backup=child_backup,
+                    result=child_result,
+                    restored_by=restored_by,
+                    id_remap=id_remap,
+                    new_site_id=new_child_site_id,
+                )
                 restored_objects.append(
                     {
                         "role": "child",
@@ -613,6 +689,7 @@ class RestoreService:
 
         refs = extract_references(backup.object_type, backup.configuration)
         deleted_dependencies: list[dict[str, Any]] = []
+        seen_dep_ids: set[str] = set()
 
         for ref in refs:
             # Check the LATEST version to determine if the referenced object
@@ -631,6 +708,10 @@ class RestoreService:
                 continue
 
             if ref_latest and ref_latest.is_deleted:
+                if ref["target_id"] in seen_dep_ids:
+                    continue
+                seen_dep_ids.add(ref["target_id"])
+
                 # Find version before deletion
                 latest_version_id = None
                 if ref_latest.previous_version_id:
@@ -644,6 +725,8 @@ class RestoreService:
                         "field_path": ref["field_path"],
                         "relationship": "parent",
                         "latest_version_id": latest_version_id,
+                        "org_id": ref_latest.org_id,
+                        "site_id": ref_latest.site_id,
                     }
                 )
                 warnings.append(
@@ -657,7 +740,7 @@ class RestoreService:
                 )
 
         # If this object is site-scoped, check whether its parent site is deleted
-        if backup.site_id:
+        if backup.site_id and backup.site_id not in seen_dep_ids:
             site_latest = (
                 await BackupObject.find(
                     BackupObject.object_type == "sites",
@@ -667,6 +750,7 @@ class RestoreService:
                 .first_or_none()
             )
             if site_latest and site_latest.is_deleted:
+                seen_dep_ids.add(backup.site_id)
                 site_version_id = str(site_latest.previous_version_id) if site_latest.previous_version_id else None
                 deleted_dependencies.append(
                     {
@@ -676,11 +760,11 @@ class RestoreService:
                         "field_path": "site_id",
                         "relationship": "parent",
                         "latest_version_id": site_version_id,
+                        "org_id": site_latest.org_id,
+                        "site_id": None,
                     }
                 )
-                warnings.append(
-                    f"Parent site ({backup.site_id}) is deleted — cascade restore available"
-                )
+                warnings.append(f"Parent site ({backup.site_id}) is deleted — cascade restore available")
 
         # Collect deleted children that reference this object
         deleted_children: list[dict[str, Any]] = []
@@ -695,11 +779,24 @@ class RestoreService:
             if doc.object_id in seen_children:
                 continue
             seen_children.add(doc.object_id)
+
+            # Ensure the object is *currently* deleted: the query may return
+            # an old deletion record for an object that has since been
+            # recreated.  Verify by looking up the latest version within the
+            # child's own scope.
+            latest_scoped = (
+                await BackupObject.find(_version_scope_query(doc.object_type, doc.object_id, doc.org_id, doc.site_id))
+                .sort([("version", -1)])
+                .first_or_none()
+            )
+            if not latest_scoped or not latest_scoped.is_deleted:
+                continue
+
             for ref in doc.references:
                 if ref.target_id == backup.object_id:
-                    latest_version_id = None
-                    if doc.previous_version_id:
-                        latest_version_id = str(doc.previous_version_id)
+                    latest_version_id = (
+                        str(latest_scoped.previous_version_id) if latest_scoped.previous_version_id else None
+                    )
 
                     deleted_children.append(
                         {
@@ -709,6 +806,8 @@ class RestoreService:
                             "field_path": ref.field_path,
                             "relationship": "child",
                             "latest_version_id": latest_version_id,
+                            "org_id": doc.org_id,
+                            "site_id": doc.site_id,
                         }
                     )
                     break
@@ -727,10 +826,28 @@ class RestoreService:
             )
             seen_site_children: set[str] = set()
             for doc in site_child_docs:
-                if doc.object_id in seen_site_children or doc.object_id in seen_children:
+                # Use (object_type, object_id, site_id) as the dedup key:
+                # singleton object_ids (e.g. "settings") collide across scopes
+                # so a plain object_id set would drop valid entries.
+                dedup_key = f"{doc.object_type}:{doc.object_id}:{doc.site_id}"
+                if dedup_key in seen_site_children or doc.object_id in seen_children:
                     continue
-                seen_site_children.add(doc.object_id)
-                latest_version_id = str(doc.previous_version_id) if doc.previous_version_id else None
+                seen_site_children.add(dedup_key)
+
+                # Verify the object is still deleted at its latest version.
+                latest_scoped = (
+                    await BackupObject.find(
+                        _version_scope_query(doc.object_type, doc.object_id, doc.org_id, doc.site_id)
+                    )
+                    .sort([("version", -1)])
+                    .first_or_none()
+                )
+                if not latest_scoped or not latest_scoped.is_deleted:
+                    continue
+
+                latest_version_id = (
+                    str(latest_scoped.previous_version_id) if latest_scoped.previous_version_id else None
+                )
                 deleted_children.append(
                     {
                         "object_id": doc.object_id,
@@ -739,6 +856,8 @@ class RestoreService:
                         "field_path": "site_id",
                         "relationship": "child",
                         "latest_version_id": latest_version_id,
+                        "org_id": doc.org_id,
+                        "site_id": doc.site_id,
                     }
                 )
 
@@ -780,16 +899,30 @@ class RestoreService:
             "active_children": active_children,
         }
 
-    async def _get_last_active_version(self, object_id: str) -> Optional[BackupObject]:
-        """Find the last non-deleted version of an object."""
-        deleted_record = (
-            await BackupObject.find(
-                BackupObject.object_id == object_id,
-                BackupObject.is_deleted == True,
-            )
-            .sort([("version", -1)])
-            .first_or_none()
-        )
+    async def _get_last_active_version(
+        self,
+        object_id: str,
+        *,
+        object_type: Optional[str] = None,
+        org_id: Optional[str] = None,
+        site_id: Optional[str] = None,
+    ) -> Optional[BackupObject]:
+        """Find the last non-deleted version of an object.
+
+        For singleton types whose ``object_id`` is a shared type key (e.g.
+        ``"settings"``), callers must provide ``object_type``, ``org_id``, and
+        ``site_id`` to disambiguate.  For non-singletons with UUID object_ids,
+        those extra fields are optional.
+        """
+        query: dict[str, Any] = {"object_id": object_id, "is_deleted": True}
+        if object_type:
+            query["object_type"] = object_type
+        if org_id is not None:
+            query["org_id"] = org_id
+        if site_id is not None:
+            query["site_id"] = site_id
+
+        deleted_record = await BackupObject.find(query).sort([("version", -1)]).first_or_none()
 
         if not deleted_record or not deleted_record.previous_version_id:
             return None
@@ -837,14 +970,20 @@ class RestoreService:
         original_backup: BackupObject,
         restored_by: Optional[str],
     ) -> BackupObject:
-        """Create a backup record marking the restore event."""
-        latest = (
-            await BackupObject.find(
-                BackupObject.object_id == original_backup.object_id,
-            )
-            .sort([("version", -1)])
-            .first_or_none()
+        """Create a backup record marking the restore event.
+
+        Uses the per-scope ``latest`` for correct ``previous_version_id``
+        chaining (singletons share a literal ``object_id`` across scopes)
+        but the global ``next_version`` for the version counter to stay
+        compatible with the unique ``(object_id, version)`` index.
+        """
+        scope = _version_scope_query(
+            object_type=original_backup.object_type,
+            object_id=original_backup.object_id,
+            org_id=original_backup.org_id,
+            site_id=original_backup.site_id,
         )
+        latest = await BackupObject.find(scope).sort([("version", -1)]).first_or_none()
 
         version = await BackupObject.next_version(original_backup.object_id)
 
@@ -866,52 +1005,6 @@ class RestoreService:
 
         return restore_backup
 
-    async def _create_restore_backup_with_site(
-        self,
-        original_backup: BackupObject,
-        restored_by: Optional[str],
-        new_site_id: str,
-    ) -> BackupObject:
-        """Create a restore record for a singleton updated under a remapped site.
-
-        Used when a site-scoped singleton (e.g. "settings") is restored via PUT
-        onto a newly created site.  The backup records for the singleton are updated
-        to use the new site_id, and a RESTORED version is appended.
-        """
-        # Update all existing versions to the new site_id
-        old_versions = await BackupObject.find(
-            BackupObject.object_id == original_backup.object_id,
-        ).to_list()
-        for old_ver in old_versions:
-            old_ver.site_id = new_site_id
-            await old_ver.save()
-
-        latest = (
-            await BackupObject.find(
-                BackupObject.object_id == original_backup.object_id,
-            )
-            .sort([("version", -1)])
-            .first_or_none()
-        )
-        version = await BackupObject.next_version(original_backup.object_id)
-
-        restore_backup = BackupObject(
-            object_type=original_backup.object_type,
-            object_id=original_backup.object_id,
-            object_name=original_backup.object_name,
-            org_id=original_backup.org_id,
-            site_id=new_site_id,
-            configuration=original_backup.configuration,
-            configuration_hash=original_backup.configuration_hash,
-            version=version,
-            previous_version_id=latest.id if latest else None,
-            event_type=BackupEventType.RESTORED,
-            backed_up_by=restored_by or "system",
-            references=original_backup.references,
-        )
-        await restore_backup.insert()
-        return restore_backup
-
     async def _migrate_versions_to_new_id(
         self,
         old_object_id: str,
@@ -922,30 +1015,81 @@ class RestoreService:
         id_remap: Optional[dict[str, str]] = None,
         new_site_id: Optional[str] = None,
     ) -> None:
-        """Migrate all old versions to a new object ID and create a restore record.
+        """Update historical versions and append a RESTORED record from the Mist response.
 
-        When ``new_site_id`` is provided (parent site was recreated), all migrated
-        versions have their ``site_id`` updated to the new value as well.
+        Handles two cases:
+
+        1. Deleted-and-recreated objects (``new_object_id != old_object_id``):
+           all historical versions are rewritten to use ``new_object_id``; their
+           stored reference metadata is remapped via ``id_remap``; when the
+           parent site was also recreated, ``site_id`` is updated.
+
+        2. Singleton PUT restores (``new_object_id == old_object_id``): only
+           ``site_id`` is migrated on old versions (bulk, via ``update_many``)
+           when ``new_site_id`` is provided.
+
+        Queries are scoped by (object_type, org_id, site_id) for singleton
+        types whose ``object_id`` is a shared literal key, preventing
+        cross-scope data corruption.
+
+        The appended RESTORED record stores ``result`` (the Mist API response)
+        as its ``configuration`` so the snapshot reflects what Mist actually
+        accepted, including any defaults or normalization.
         """
-        import hashlib, json
+        import hashlib
+        import json
         from app.modules.backup.reference_map import extract_references
         from app.modules.backup.models import ObjectReference
 
-        old_versions = await BackupObject.find(
-            BackupObject.object_id == old_object_id,
-        ).to_list()
+        object_id_changed = old_object_id != new_object_id
+        pre_remap_site_id = backup.site_id  # site_id before remap
 
-        # Update old versions: object_id, remap config references, and site_id if remapped
-        for old_ver in old_versions:
-            old_ver.object_id = new_object_id
-            if id_remap and old_ver.references:
-                for ref in old_ver.references:
-                    if ref.target_id in id_remap:
-                        ref.target_id = id_remap[ref.target_id]
-            if new_site_id:
-                old_ver.site_id = new_site_id
-            await old_ver.save()
+        old_scope = _version_scope_query(
+            object_type=backup.object_type,
+            object_id=old_object_id,
+            org_id=backup.org_id,
+            site_id=pre_remap_site_id,
+        )
 
+        if object_id_changed:
+            # Per-document update: object_id (and optionally reference metadata
+            # and site_id) must be rewritten.  Bulk update_many would still work
+            # for object_id + site_id but cannot recompute nested references.
+            old_versions = await BackupObject.find(old_scope).to_list()
+            for old_ver in old_versions:
+                old_ver.object_id = new_object_id
+                if id_remap and old_ver.references:
+                    for ref in old_ver.references:
+                        if ref.target_id in id_remap:
+                            ref.target_id = id_remap[ref.target_id]
+                if new_site_id:
+                    old_ver.site_id = new_site_id
+                await old_ver.save()
+            versions_touched = len(old_versions)
+        else:
+            # Singleton case: object_id stays the same.  Only migrate site_id
+            # when it actually changes, and do so with a single update_many.
+            if new_site_id and new_site_id != pre_remap_site_id:
+                update_result = await BackupObject.find(old_scope).update_many({"$set": {"site_id": new_site_id}})
+                versions_touched = getattr(update_result, "modified_count", 0) if update_result is not None else 0
+            else:
+                versions_touched = 0
+
+        # Re-query latest within the TARGET scope (post-update) to chain the
+        # new RESTORED record correctly.  For singletons this is the same
+        # logical scope with the (possibly new) site_id; for non-singletons
+        # the new UUID is unique.
+        target_scope = _version_scope_query(
+            object_type=backup.object_type,
+            object_id=new_object_id,
+            org_id=backup.org_id,
+            site_id=new_site_id or pre_remap_site_id,
+        )
+        latest = await BackupObject.find(target_scope).sort([("version", -1)]).first_or_none()
+        # Use the global next_version for the new record's version counter to
+        # stay compatible with the unique (object_id, version) index.  The
+        # scoped ``latest`` above is still used for ``previous_version_id``
+        # so chaining remains correct within the site's own history.
         next_ver = await BackupObject.next_version(new_object_id)
 
         config_hash = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
@@ -953,29 +1097,36 @@ class RestoreService:
         # Extract references from the new configuration returned by Mist
         refs = [ObjectReference(**r) for r in extract_references(backup.object_type, result)]
 
+        # Chain the new record: for non-singleton migrations we preserve the
+        # explicit ``backup.id`` link to the source version; for singletons
+        # we chain to the current latest in scope (which may be a deletion
+        # record) to keep the per-scope version history consistent.
+        previous_version_id = backup.id if object_id_changed else (latest.id if latest else None)
+
         restore_backup = BackupObject(
             object_type=backup.object_type,
             object_id=new_object_id,
             object_name=backup.object_name,
             org_id=backup.org_id,
-            site_id=new_site_id or backup.site_id,
+            site_id=new_site_id or pre_remap_site_id,
             configuration=result,
             configuration_hash=config_hash,
             version=next_ver,
-            previous_version_id=backup.id,
+            previous_version_id=previous_version_id,
             event_type=BackupEventType.RESTORED,
             changed_fields=[],
             backed_up_by=restored_by or "system",
-            restored_from_object_id=old_object_id,
+            restored_from_object_id=old_object_id if object_id_changed else None,
             references=refs,
         )
         await restore_backup.insert()
 
         logger.info(
-            "versions_migrated_to_new_id",
+            "versions_migrated",
             original_object_id=old_object_id,
             new_object_id=new_object_id,
-            versions_migrated=len(old_versions),
+            new_site_id=new_site_id,
+            versions_touched=versions_touched,
             restored_by=restored_by,
         )
 
@@ -1043,9 +1194,7 @@ class RestoreService:
                 put_config,
             )
         else:
-            endpoint = self._build_endpoint(
-                child_object_type, child_object_id, child_site_id, parent_backup.org_id
-            )
+            endpoint = self._build_endpoint(child_object_type, child_object_id, child_site_id, parent_backup.org_id)
             result = await self.mist_service.api_put(endpoint, put_config)
 
         # 4. Create a backup record for the updated child
@@ -1316,9 +1465,9 @@ class RestoreService:
             "twin_session_id": str(session.id),
             "overall_severity": session.overall_severity,
             "execution_safe": report.execution_safe if report else False,
-            "summary": report.summary
-            if report
-            else "Simulation completed without a prediction report; treat as unsafe.",
+            "summary": (
+                report.summary if report else "Simulation completed without a prediction report; treat as unsafe."
+            ),
             "counts": {
                 "total": report.total_checks if report else 0,
                 "warnings": report.warnings if report else 0,
