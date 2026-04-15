@@ -589,7 +589,10 @@ export class BackupObjectDetailComponent implements OnInit {
     this.api
       .get<ObjectDependencyResponse>(`/backups/objects/${this.objectId}/dependencies`)
       .subscribe({
-        next: (res) => { this.dependencies.set(res); this.depsLoading.set(false); },
+        next: (res) => {
+          this.dependencies.set(res);
+          this.depsLoading.set(false);
+        },
         error: () => this.depsLoading.set(false),
       });
   }
