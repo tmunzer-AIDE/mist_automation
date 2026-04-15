@@ -50,6 +50,9 @@
         <div
           class="timeline-bubble-wrapper"
           [style.left.%]="bubble.left"
+          tabindex="0"
+          role="button"
+          [attr.aria-label]="'Pin version ' + bubble.version.version + ', ' + bubble.version.changed_fields.length + ' change' + (bubble.version.changed_fields.length === 1 ? '' : 's')"
           [matTooltip]="
             'v' +
             bubble.version.version +
@@ -61,6 +64,8 @@
             (bubble.version.changed_fields.length === 1 ? '' : 's')
           "
           (click)="pinVersion(bubble.version)"
+          (keydown.enter)="pinVersion(bubble.version)"
+          (keydown.space)="$event.preventDefault(); pinVersion(bubble.version)"
         >
           <div
             class="timeline-bubble"
@@ -90,14 +95,18 @@
 
     <!-- Left pane: version list -->
     <div class="version-list">
-      <div class="version-list-header">All versions — newest first</div>
+      <h3 class="version-list-header">All versions — newest first</h3>
 
       @for (v of versions(); track v.id; let i = $index) {
         <div
           class="version-row"
           [class.pin-a-row]="pinA()?.id === v.id"
           [class.pin-b-row]="pinB()?.id === v.id"
+          tabindex="0"
+          role="button"
           (click)="pinVersion(v)"
+          (keydown.enter)="pinVersion(v)"
+          (keydown.space)="$event.preventDefault(); pinVersion(v)"
         >
           <!-- Pin indicator circle -->
           <div
@@ -152,11 +161,11 @@
                 <button mat-stroked-button (click)="viewJson(v)">
                   <mat-icon>code</mat-icon> View
                 </button>
-                <button mat-stroked-button class="action-rollback" (click)="restoreVersion(v)">
-                  <mat-icon>restore</mat-icon> Rollback
-                </button>
                 <button mat-stroked-button class="action-simulate" (click)="simulateRestore(v)">
                   <mat-icon>science</mat-icon> Simulate
+                </button>
+                <button mat-stroked-button class="action-rollback" (click)="restoreVersion(v)">
+                  <mat-icon>restore</mat-icon> Rollback
                 </button>
               </div>
             </div>
@@ -277,7 +286,15 @@
             @for (group of filteredGroups(); track group.key) {
               @if (group.isGroup) {
                 <div class="diff-group">
-                  <div class="diff-group-header" (click)="toggleGroup(group.key)">
+                  <div
+                    class="diff-group-header"
+                    tabindex="0"
+                    role="button"
+                    [attr.aria-expanded]="isGroupExpanded(group.key)"
+                    (click)="toggleGroup(group.key)"
+                    (keydown.enter)="toggleGroup(group.key)"
+                    (keydown.space)="$event.preventDefault(); toggleGroup(group.key)"
+                  >
                     <mat-icon class="group-chevron">
                       {{ isGroupExpanded(group.key) ? 'expand_more' : 'chevron_right' }}
                     </mat-icon>
@@ -297,7 +314,15 @@
                     <div class="diff-group-body">
                       @for (d of group.entries; track d.path) {
                         <div class="diff-entry" [ngClass]="'diff-' + d.type">
-                          <div class="diff-header" (click)="toggleEntry(d.path)">
+                          <div
+                          class="diff-header"
+                          tabindex="0"
+                          role="button"
+                          [attr.aria-expanded]="isEntryExpanded(d.path)"
+                          (click)="toggleEntry(d.path)"
+                          (keydown.enter)="toggleEntry(d.path)"
+                          (keydown.space)="$event.preventDefault(); toggleEntry(d.path)"
+                        >
                             <div class="diff-header-left">
                               <mat-icon class="entry-chevron">
                                 {{ isEntryExpanded(d.path) ? 'expand_more' : 'chevron_right' }}
@@ -323,7 +348,15 @@
                 </div>
               } @else {
                 <div class="diff-entry standalone" [ngClass]="'diff-' + group.entries[0].type">
-                  <div class="diff-header" (click)="toggleEntry(group.entries[0].path)">
+                  <div
+                    class="diff-header"
+                    tabindex="0"
+                    role="button"
+                    [attr.aria-expanded]="isEntryExpanded(group.entries[0].path)"
+                    (click)="toggleEntry(group.entries[0].path)"
+                    (keydown.enter)="toggleEntry(group.entries[0].path)"
+                    (keydown.space)="$event.preventDefault(); toggleEntry(group.entries[0].path)"
+                  >
                     <div class="diff-header-left">
                       <mat-icon class="entry-chevron">
                         {{ isEntryExpanded(group.entries[0].path) ? 'expand_more' : 'chevron_right' }}
