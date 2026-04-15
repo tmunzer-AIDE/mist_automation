@@ -14,7 +14,6 @@ class TestActivateSkillMcpAccessControl:
         """Skill bound to MCP is blocked when that MCP is not active in the thread."""
         from types import SimpleNamespace
 
-        from app.modules.mcp_server import server as mcp_server
         from app.modules.mcp_server.tools.skills import activate_skill
 
         # Create a valid SKILL.md file
@@ -39,8 +38,12 @@ class TestActivateSkillMcpAccessControl:
                 return skill
 
         monkeypatch.setattr("app.modules.llm.models.Skill", _FakeSkill)
-        # No thread context set (mcp_thread_id_var.get() returns None) - external client scenario
-        monkeypatch.setattr(mcp_server, "mcp_thread_id_var", SimpleNamespace(get=lambda: None))
+        # No thread context set - external client scenario.
+        # Patch the module-local reference in skills.py (not the server module) since
+        # it was imported at module load time.
+        import app.modules.mcp_server.tools.skills as skills_module
+
+        monkeypatch.setattr(skills_module, "mcp_thread_id_var", SimpleNamespace(get=lambda: None))
 
         with pytest.raises(ToolError, match="External MCP clients.*cannot activate MCP-bound skills"):
             await activate_skill(name="test-skill")

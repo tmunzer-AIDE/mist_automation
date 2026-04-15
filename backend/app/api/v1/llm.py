@@ -2240,7 +2240,8 @@ async def set_skill_mcp_server(
     if skill.source != "direct":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only direct-imported skills can be configured at skill level. Use repo MCP binding for git skills.",
+            detail=f"Git-sourced skills must be bound at the repo level. "
+            f"Use PATCH /llm/skills/repos/{skill.git_repo_id}/mcp-server instead.",
         )
 
     linked_mcp_oid = await _resolve_mcp_binding(request.mcp_config_id)

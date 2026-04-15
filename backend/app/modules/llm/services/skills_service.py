@@ -327,7 +327,10 @@ async def get_skill_effective_mcp_id(skill_name: str | None = None, *, skill: ob
         skill_name: Name of the skill to look up (ignored if skill is provided).
         skill: Pre-fetched Skill document to avoid duplicate DB query.
 
-    Returns None if the skill has no binding or if the skill doesn't exist.
+    Returns:
+        The effective MCP config ID string when the skill is bound to an MCP config,
+        ORPHANED_SKILL_SENTINEL when the skill references a deleted repo,
+        or None if the skill has no binding or the skill doesn't exist.
     """
     from app.modules.llm.models import Skill, SkillGitRepo
 

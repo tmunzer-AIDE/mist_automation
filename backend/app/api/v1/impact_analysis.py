@@ -707,11 +707,17 @@ async def session_chat(
 
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
-    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
     session = await _get_session(session_id)
 
-    # Build system prompt with session context
+    # Build system prompt with session context.
+    # Note: Individual user-sourced fields inside _build_session_context are already sanitized.
+    # We only truncate here (don't use _sanitize_for_prompt) because it strips '---' which
+    # corrupts Junos unified diff headers that are part of legitimate config_diff content.
+    session_context = _build_session_context(session)
+    if len(session_context) > 12000:
+        session_context = session_context[:12000] + "\n... [truncated]"
+
     system_prompt = (
         "You are an AI network engineer assistant analyzing the impact of a configuration change "
         "on a Juniper Mist network device. You have access to MCP tools to query backups, "
@@ -719,7 +725,7 @@ async def session_chat(
         "Reference specific checks, metrics, and device details in your answers. "
         "When the user says 'this change', assume they mean the most recent config change in session context "
         "unless they explicitly clarify otherwise.\n\n"
-        f"Session context:\n{_sanitize_for_prompt(_build_session_context(session), max_len=12000)}"
+        f"Session context:\n{session_context}"
     )
 
     # Memory instruction (when memory is enabled)
@@ -945,17 +951,22 @@ async def group_chat(
 
     from app.modules.llm.services.agent_service import AIAgentService
     from app.modules.llm.services.llm_service_factory import create_llm_service
-    from app.modules.llm.services.prompt_builders import _sanitize_for_prompt
 
     group = await _get_group(group_id)
 
-    # Build system prompt with group context
+    # Build system prompt with group context.
+    # Note: Individual user-sourced fields are already sanitized inside _build_group_context.
+    # We only truncate here (don't use _sanitize_for_prompt) to preserve Junos diff headers.
+    group_context = _build_group_context(group)
+    if len(group_context) > 4000:
+        group_context = group_context[:4000] + "\n... [truncated]"
+
     system_prompt = (
         "You are an AI network engineer assistant analyzing the impact of a configuration change "
         "across multiple devices in a Juniper Mist network. You have access to MCP tools to query "
         "backups, workflows, device stats, and other app data. Be concise and technical. "
         "Reference specific checks, metrics, and device details in your answers.\n\n"
-        f"Change group context:\n{_sanitize_for_prompt(_build_group_context(group), max_len=4000)}"
+        f"Change group context:\n{group_context}"
     )
 
     # Memory instruction (when memory is enabled)
