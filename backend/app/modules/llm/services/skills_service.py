@@ -40,11 +40,6 @@ class SkillCatalogEntry(NamedTuple):
     description: str
 
 
-class SkillCatalogEntry(NamedTuple):
-    name: str
-    description: str
-
-
 def parse_skill_md(path: Path) -> tuple[str, str, str]:
     """Parse a SKILL.md file.
 

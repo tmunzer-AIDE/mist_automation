@@ -857,7 +857,8 @@ async def summarize_backup_change(
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
-    catalog = await build_skills_catalog()
+    # No thread MCP context in one-shot summary endpoints: include unbound/app skills only.
+    catalog = await build_skills_catalog(active_mcp_config_ids=None)
     prompt_messages = append_skills_to_messages(prompt_messages, catalog)
 
     thread = await _load_or_create_thread(
@@ -1414,7 +1415,8 @@ async def summarize_webhook_events(
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
-    catalog = await build_skills_catalog()
+    # No thread MCP context in one-shot summary endpoints: include unbound/app skills only.
+    catalog = await build_skills_catalog(active_mcp_config_ids=None)
     prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "webhook_summary", prompt_messages)
 
@@ -1457,7 +1459,8 @@ async def summarize_dashboard(
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
-    catalog = await build_skills_catalog()
+    # No thread MCP context in one-shot summary endpoints: include unbound/app skills only.
+    catalog = await build_skills_catalog(active_mcp_config_ids=None)
     prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "dashboard_summary", prompt_messages)
 
@@ -1511,7 +1514,8 @@ async def summarize_audit_logs(
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
-    catalog = await build_skills_catalog()
+    # No thread MCP context in one-shot summary endpoints: include unbound/app skills only.
+    catalog = await build_skills_catalog(active_mcp_config_ids=None)
     prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "audit_log_summary", prompt_messages)
 
@@ -1558,7 +1562,8 @@ async def summarize_system_logs(
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
-    catalog = await build_skills_catalog()
+    # No thread MCP context in one-shot summary endpoints: include unbound/app skills only.
+    catalog = await build_skills_catalog(active_mcp_config_ids=None)
     prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "system_log_summary", prompt_messages)
 
@@ -1606,7 +1611,8 @@ async def summarize_backups(
         prompt_messages[0]["content"] += "\n\n" + canvas_instr
     from app.modules.llm.services.skills_service import append_skills_to_messages, build_skills_catalog
 
-    catalog = await build_skills_catalog()
+    # No thread MCP context in one-shot summary endpoints: include unbound/app skills only.
+    catalog = await build_skills_catalog(active_mcp_config_ids=None)
     prompt_messages = append_skills_to_messages(prompt_messages, catalog)
     thread = await _load_or_create_thread(None, current_user.id, "backup_summary_list", prompt_messages)
 
@@ -2275,8 +2281,7 @@ async def toggle_skill(
     repo = None
     if skill.git_repo_id:
         repo = await SkillGitRepo.get(skill.git_repo_id)
-    repo_mcp_id = str(repo.mcp_config_id) if repo and repo.mcp_config_id else None
-    return _skill_to_response(skill, repo.url if repo else None, repo_mcp_id)
+    return _skill_to_response(skill, repo)
 
 
 @router.delete("/llm/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["LLM"])
