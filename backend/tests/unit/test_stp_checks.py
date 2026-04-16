@@ -443,3 +443,54 @@ class TestCheckDescriptions:
         results = check_stp(snap, snap)
         check = next(r for r in results if r.check_id == "STP-LOOP")
         assert check.description != ""
+
+
+# ---------------------------------------------------------------------------
+# TestStpRootMacTiebreakNormalization — regression
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStpRootMacTiebreakNormalization:
+    """Regression: tiebreak MAC must be normalized (colons/dashes stripped,
+    lowercase) so root election is deterministic regardless of ingest format.
+    """
+
+    def test_mixed_mac_formats_pick_same_root(self):
+        # Two switches with identical priority. Colon-uppercase should sort
+        # the same as plain-lowercase once normalized.
+        sw_a = _dev(
+            "sw-a",
+            mac="AA:BB:CC:00:00:01",
+            stp_config={"bridge_priority": 4096},
+        )
+        sw_b = _dev(
+            "sw-b",
+            mac="aabbcc000002",  # same MAC lexical ordering in both forms
+            stp_config={"bridge_priority": 4096},
+        )
+
+        snap = _snap(devices={"sw-a": sw_a, "sw-b": sw_b})
+        results = check_stp(snap, snap)
+        root = next(r for r in results if r.check_id == "STP-ROOT")
+        # Baseline == predicted -> no shift.
+        assert root.status == "pass"
+
+    def test_colon_separated_mac_sorts_consistently(self):
+        """Root election stays deterministic when ties depend on MAC format."""
+        sw_low = _dev(
+            "sw-low",
+            mac="00:11:22:33:44:55",  # lowest MAC
+            stp_config={"bridge_priority": 8192},
+        )
+        sw_hi = _dev(
+            "sw-hi",
+            mac="ff-ee-dd-cc-bb-aa",  # highest MAC, different format
+            stp_config={"bridge_priority": 8192},
+        )
+
+        snap = _snap(devices={"sw-low": sw_low, "sw-hi": sw_hi})
+        results = check_stp(snap, snap)
+        root = next(r for r in results if r.check_id == "STP-ROOT")
+        # Same snapshot on both sides -> no shift detected regardless of tie.
+        assert root.status == "pass"

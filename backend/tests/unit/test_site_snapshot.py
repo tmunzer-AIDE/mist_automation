@@ -171,6 +171,19 @@ class TestExtractLldpFromStats:
         stats = {"clients": [{"source": "lldp", "mac": "aabb", "port_ids": []}]}
         assert _extract_lldp_from_stats(stats) == {}
 
+    def test_port_ids_are_normalized_at_ingest(self):
+        """Port IDs with .0/:0 suffixes must be normalized on ingest so
+        downstream consumers see the same keys the config layer uses.
+        """
+        stats = {
+            "clients": [
+                {"source": "lldp", "mac": "aabb", "port_ids": ["ge-0/0/1.0"]},
+                {"source": "lldp", "mac": "ccdd", "port_ids": ["xe-0/0/0:0"]},
+            ]
+        }
+        result = _extract_lldp_from_stats(stats)
+        assert result == {"ge-0/0/1": "aabb", "xe-0/0/0": "ccdd"}
+
 
 # ---------------------------------------------------------------------------
 # TestExtractPortStatus
@@ -202,6 +215,12 @@ class TestExtractPortStatus:
         stats = {"if_stat": {"ge-0/0/0": {"speed": 1000}}}
         result = _extract_port_status(stats)
         assert result == {"ge-0/0/0": False}
+
+    def test_suffixed_keys_are_normalized(self):
+        """if_stat keys with `.0` / `:0` must be normalized."""
+        stats = {"if_stat": {"ge-0/0/0.0": {"up": True}, "xe-0/0/1:0": {"up": False}}}
+        result = _extract_port_status(stats)
+        assert result == {"ge-0/0/0": True, "xe-0/0/1": False}
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +264,10 @@ class TestExtractPortDevices:
     def test_empty_mac_skip(self):
         stats = {"clients": [{"mac": "", "port_ids": ["ge-0/0/0"]}]}
         assert _extract_port_devices(stats) == {}
+
+    def test_port_ids_normalized(self):
+        stats = {"clients": [{"mac": "aabb", "port_ids": ["ge-0/0/3.0"]}]}
+        assert _extract_port_devices(stats) == {"ge-0/0/3": "aabb"}
 
 
 # ---------------------------------------------------------------------------

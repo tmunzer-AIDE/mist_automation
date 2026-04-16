@@ -14,6 +14,7 @@ import structlog
 
 from app.core.tasks import create_background_task
 from app.modules.digital_twin.models import TwinSession
+from app.modules.digital_twin.services.site_snapshot import normalize_mac
 
 logger = structlog.get_logger(__name__)
 
@@ -122,7 +123,7 @@ async def _get_devices_at_site(site_id: str, session: TwinSession) -> list[dict[
                 if dev_type in ("switch", "gateway", "ap"):
                     devices.append(
                         {
-                            "mac": stats.get("mac", ""),
+                            "mac": normalize_mac(stats.get("mac", "")),
                             "name": stats.get("name", stats.get("hostname", "")),
                             "type": dev_type,
                             "site_name": stats.get("site_name", site_id),
@@ -150,7 +151,7 @@ async def _get_devices_at_site(site_id: str, session: TwinSession) -> list[dict[
         cfg = b.configuration
         devices.append(
             {
-                "mac": cfg.get("mac", b.object_id),
+                "mac": normalize_mac(cfg.get("mac") or b.object_id),
                 "name": cfg.get("name", ""),
                 "type": cfg.get("type", cfg.get("device_type", "switch")),
                 "site_name": site_id,

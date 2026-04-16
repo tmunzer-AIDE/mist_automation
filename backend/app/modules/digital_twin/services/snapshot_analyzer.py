@@ -139,7 +139,11 @@ def _run_checks_for_change_profile(
         results.extend(_run_check_category("connectivity", check_connectivity, baseline, predicted))
         # Run L1 config checks relevant to switch/gateway changes, but skip
         # Wi-Fi-specific duplicate-SSID checks in this profile.
-        cfg_results = [r for r in _run_check_category("config_conflicts", check_config_conflicts, predicted) if r.check_id != "CFG-SSID"]
+        cfg_results = [
+            r
+            for r in _run_check_category("config_conflicts", check_config_conflicts, predicted)
+            if r.check_id != "CFG-SSID"
+        ]
         results.extend(cfg_results)
         results.extend(_run_check_category("port_impact", check_port_impact, baseline, predicted))
         results.extend(_run_check_category("routing", check_routing, baseline, predicted))
@@ -160,16 +164,26 @@ def _classify_pre_existing(
     the baseline details. New details (worsening) disqualify the mark, so
     changes that *add* issues are still treated as introduced by the change.
     """
-    baseline_by_id: dict[str, CheckResult] = {r.check_id: r for r in baseline_results}
+    # Group by check_id so multi-instance checks (e.g. PORT-DISC, CFG-SUBNET)
+    # don't silently discard prior baseline entries via last-writer-wins.
+    baseline_by_id: dict[str, list[CheckResult]] = {}
+    for r in baseline_results:
+        baseline_by_id.setdefault(r.check_id, []).append(r)
+
     for r in predicted_results:
         if r.status not in _FAILING_STATUSES:
             continue
-        b = baseline_by_id.get(r.check_id)
-        if not b or b.status not in _FAILING_STATUSES:
+        baseline_matches = [b for b in baseline_by_id.get(r.check_id, []) if b.status in _FAILING_STATUSES]
+        if not baseline_matches:
             continue
-        baseline_details = set(b.details)
+        baseline_details: set[str] = set()
+        for b in baseline_matches:
+            baseline_details.update(b.details)
         predicted_details = set(r.details)
-        if not predicted_details or predicted_details <= baseline_details:
+        # Require predicted_details to be non-empty AND a subset of baseline.
+        # Empty-detail failures must not auto-classify as pre_existing since
+        # that bypasses execution_safe blocking for newly introduced issues.
+        if predicted_details and predicted_details <= baseline_details:
             r.pre_existing = True
             logger.info(
                 "twin_check_marked_pre_existing",

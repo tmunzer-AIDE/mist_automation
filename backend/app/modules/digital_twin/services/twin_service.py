@@ -348,9 +348,7 @@ async def simulate(
 
     # Resolve human-readable object label (uses backup data, resolved once at
     # session creation and never refreshed — names captured at simulate-time).
-    object_names = await fetch_object_names_by_type(
-        org_id=org_id, writes=staged_writes
-    )
+    object_names = await fetch_object_names_by_type(org_id=org_id, writes=staged_writes)
     affected_object_label = format_object_label(
         object_types=affected_types,
         object_names_by_type=object_names,
@@ -464,9 +462,7 @@ async def simulate(
 
                 # Resolve site labels once the full fan-out is known (template edits may
                 # expand the scoped sites — we want labels for ALL tested sites).
-                session.affected_site_labels = await fetch_site_names(
-                    org_id=org_id, site_ids=affected_sites
-                )
+                session.affected_site_labels = await fetch_site_names(org_id=org_id, site_ids=affected_sites)
                 logger.info(
                     "twin_site_labels_resolved",
                     site_ids=affected_sites,
@@ -622,13 +618,21 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
             "Session has preflight validation errors and cannot be approved",
         )
 
-    session.status = TwinSessionStatus.APPROVED
-    session.update_timestamp()
-    await session.save()
-
+    # Atomic transition AWAITING_APPROVAL -> EXECUTING guards against concurrent
+    # approval races that could otherwise double-execute staged writes. If another
+    # caller already flipped the status, find_one_and_update returns None.
+    now = datetime.now(timezone.utc)
+    claimed = await TwinSession.get_motor_collection().find_one_and_update(
+        {"_id": session_obj_id, "status": TwinSessionStatus.AWAITING_APPROVAL.value},
+        {"$set": {"status": TwinSessionStatus.EXECUTING.value, "updated_at": now}},
+    )
+    if claimed is None:
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.NOT_AWAITING_APPROVAL,
+            "Session is no longer awaiting approval",
+        )
     session.status = TwinSessionStatus.EXECUTING
-    session.update_timestamp()
-    await session.save()
+    session.updated_at = now
 
     with bind_twin_session(str(session.id), phase="execute"):
         try:

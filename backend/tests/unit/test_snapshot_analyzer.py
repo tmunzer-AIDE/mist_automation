@@ -7,6 +7,7 @@ from __future__ import annotations
 from app.modules.digital_twin.models import CheckResult, PredictionReport
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 from app.modules.digital_twin.services.snapshot_analyzer import (
+    _classify_pre_existing,
     analyze_site,
     analyze_site_with_context,
     build_prediction_report,
@@ -448,3 +449,68 @@ class TestComputeOverallSeverity:
 
     def test_empty_list(self):
         assert compute_overall_severity([]) == "clean"
+
+
+# ---------------------------------------------------------------------------
+# test_classify_pre_existing — regression tests for bug fixes
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyPreExisting:
+    def test_empty_predicted_details_does_not_auto_classify_pre_existing(self):
+        """Empty-details predicted failures must not be auto-marked pre_existing.
+
+        Previously the check ``if not predicted_details or ...`` short-circuited
+        on empty sets, letting newly introduced failures with no detail strings
+        silently bypass execution_safe blocking.
+        """
+        baseline = [_result("CHK", "error", details=["something"])]
+        predicted = [_result("CHK", "error", details=[])]
+
+        _classify_pre_existing(predicted, baseline)
+
+        assert predicted[0].pre_existing is False
+
+    def test_matching_details_subset_marks_pre_existing(self):
+        """Predicted details fully contained in baseline details -> pre_existing."""
+        baseline = [_result("CHK", "error", details=["a", "b", "c"])]
+        predicted = [_result("CHK", "error", details=["a", "b"])]
+
+        _classify_pre_existing(predicted, baseline)
+
+        assert predicted[0].pre_existing is True
+
+    def test_worsening_detail_not_marked_pre_existing(self):
+        """A new detail not present in baseline -> change introduces the issue."""
+        baseline = [_result("CHK", "error", details=["a"])]
+        predicted = [_result("CHK", "error", details=["a", "b_new"])]
+
+        _classify_pre_existing(predicted, baseline)
+
+        assert predicted[0].pre_existing is False
+
+    def test_duplicate_baseline_check_ids_unioned(self):
+        """Multi-instance checks (same check_id, different devices) must union details.
+
+        Previously ``baseline_by_id = {r.check_id: r for r in ...}`` collapsed
+        duplicate ids via last-writer-wins, causing predicted failures to miss
+        pre_existing classification and wrongly block approval.
+        """
+        baseline = [
+            _result("PORT-DISC", "critical", details=["sw1: port 1"]),
+            _result("PORT-DISC", "critical", details=["sw2: port 2"]),
+        ]
+        predicted = [_result("PORT-DISC", "critical", details=["sw1: port 1", "sw2: port 2"])]
+
+        _classify_pre_existing(predicted, baseline)
+
+        assert predicted[0].pre_existing is True
+
+    def test_baseline_passing_keeps_predicted_failure_flagged(self):
+        """Baseline passes, predicted fails -> introduced by the change."""
+        baseline = [_result("CHK", "pass")]
+        predicted = [_result("CHK", "error", details=["boom"])]
+
+        _classify_pre_existing(predicted, baseline)
+
+        assert predicted[0].pre_existing is False

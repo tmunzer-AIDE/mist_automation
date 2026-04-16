@@ -114,8 +114,9 @@ def _extract_lldp_from_stats(device_stats: dict[str, Any]) -> dict[str, str]:
             if not neighbor_mac:
                 continue
             for port_id in client.get("port_ids", []):
-                if port_id:
-                    neighbors[port_id] = neighbor_mac
+                normalized = _normalize_port_id(port_id)
+                if normalized:
+                    neighbors[normalized] = neighbor_mac
     return neighbors
 
 
@@ -123,7 +124,7 @@ def _extract_port_status(device_stats: dict[str, Any]) -> dict[str, bool]:
     """Extract port up/down from ``if_stat`` field.
 
     Returns:
-        dict mapping port_id -> True (up) / False (down)
+        dict mapping normalized port_id -> True (up) / False (down)
     """
     result: dict[str, bool] = {}
     if_stat = device_stats.get("if_stat")
@@ -131,7 +132,9 @@ def _extract_port_status(device_stats: dict[str, Any]) -> dict[str, bool]:
         return result
     for port_id, stat in if_stat.items():
         if isinstance(stat, dict):
-            result[port_id] = stat.get("up", False)
+            normalized = _normalize_port_id(port_id)
+            if normalized:
+                result[normalized] = stat.get("up", False)
     return result
 
 
@@ -158,7 +161,7 @@ def _extract_client_count(device_stats: dict[str, Any]) -> int:
 
 
 def _extract_port_devices(device_stats: dict[str, Any]) -> dict[str, str]:
-    """Extract connected device MACs from LLDP clients, keyed by port.
+    """Extract connected device MACs from LLDP clients, keyed by normalized port.
 
     Unlike _extract_lldp_from_stats which is neighbour-centric, this maps
     every LLDP client to the port it occupies regardless of source.
@@ -169,8 +172,9 @@ def _extract_port_devices(device_stats: dict[str, Any]) -> dict[str, str]:
         if not mac:
             continue
         for port_id in client.get("port_ids", []):
-            if port_id:
-                result[port_id] = mac
+            normalized = _normalize_port_id(port_id)
+            if normalized:
+                result[normalized] = mac
     return result
 
 
@@ -238,7 +242,7 @@ def _extract_protocol_peers(device_stats: dict[str, Any], protocol: str) -> list
 # ---------------------------------------------------------------------------
 
 
-def _normalize_mac(value: Any) -> str:
+def normalize_mac(value: Any) -> str:
     """Lowercase/strip a MAC returned by the Mist API.
 
     Mist sometimes returns MACs as colon-separated uppercase, sometimes as
@@ -247,6 +251,33 @@ def _normalize_mac(value: Any) -> str:
     if not value:
         return ""
     return str(value).replace(":", "").replace("-", "").lower()
+
+
+# Backwards-compat alias (module-private name still referenced elsewhere).
+_normalize_mac = normalize_mac
+
+
+def _normalize_port_id(port_id: Any) -> str:
+    """Normalize a live-data port id to the physical key used in configs.
+
+    Duplicates ``topology_utils.normalize_port_id`` to avoid a circular import
+    (topology_utils already imports ``SiteSnapshot`` from this module). Keep
+    both implementations in sync.
+
+    Prefix-less shorthand (``0/0/1``) is returned as-is; downstream lookups
+    (``topology_utils.port_lookup_candidates``) expand across known physical
+    Junos port prefixes (ge/xe/et/fe) rather than assuming one.
+    """
+    if not port_id:
+        return ""
+    normalized = str(port_id).strip().lower()
+    if not normalized:
+        return ""
+    if normalized.endswith(".0"):
+        normalized = normalized[:-2]
+    if normalized.endswith(":0"):
+        normalized = normalized[:-2]
+    return normalized
 
 
 def _extract_lldp_from_ap_stat(device_stats: dict[str, Any]) -> tuple[str, str] | None:
@@ -350,8 +381,10 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
                         if upstream:
                             sw_mac, sw_port = upstream
                             # Add reverse edge: Switch MAC -> {Port -> AP MAC}
-                            lldp_neighbors.setdefault(sw_mac, {})[sw_port] = mac
-                            port_devices.setdefault(sw_mac, {})[sw_port] = mac
+                            sw_port_norm = _normalize_port_id(sw_port)
+                            if sw_port_norm:
+                                lldp_neighbors.setdefault(sw_mac, {})[sw_port_norm] = mac
+                                port_devices.setdefault(sw_mac, {})[sw_port_norm] = mac
 
                     ports = _extract_port_status(device_stats)
                     if ports:
@@ -388,7 +421,7 @@ async def fetch_live_data(site_id: str, org_id: str) -> LiveSiteData:
             port_lldp_added = 0
             for ps in port_stats_list:
                 dev_mac = _normalize_mac(ps.get("mac"))
-                port_id = ps.get("port_id") or ""
+                port_id = _normalize_port_id(ps.get("port_id"))
                 if not dev_mac or not port_id:
                     continue
 
@@ -664,7 +697,13 @@ async def build_site_snapshot(
             return objects
         if singleton_override.get(_DELETED_SENTINEL_KEY):
             return []
-        return [singleton_override]
+        # Merge the staged write on top of the existing singleton so a partial
+        # PUT (e.g. updating only `vars`) doesn't wipe out unrelated fields like
+        # `port_usages` or `networks`. Mirrors the merge done in
+        # config_compiler._compile_site_devices.
+        existing = objects[0] if objects else {}
+        merged = {**existing, **singleton_override}
+        return [merged]
 
     site_devices = _apply_overrides(site_devices, "devices", site_id)
     site_networks = _apply_overrides(site_networks, "networks", site_id)

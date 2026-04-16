@@ -213,3 +213,37 @@ class TestLoadBaseStateFromBackup:
         assert predicted_info["name"] == "Site Renamed"
         assert predicted_info["networktemplate_id"] == "nt-1"
         assert predicted_info["gatewaytemplate_id"] == "gt-1"
+
+
+@pytest.mark.unit
+class TestApplyStagedWritesIsolation:
+    """Regression: apply_staged_writes must deep-copy base_state so downstream
+    mutations on nested dicts don't leak back into the caller's baseline.
+    """
+
+    def test_nested_dict_mutation_does_not_affect_base_state(self):
+        base_state: dict = {
+            ("settings", "site-1", None): {
+                "vars": {"k1": "v1"},
+                "port_usages": {"uplink": {"mode": "trunk"}},
+            },
+        }
+        write = StagedWrite(
+            sequence=0,
+            method="PUT",
+            endpoint="/api/v1/sites/site-1/setting",
+            body={"vars": {"k1": "changed", "k2": "new"}},
+            object_type="settings",
+            site_id="site-1",
+            object_id=None,
+        )
+
+        predicted = apply_staged_writes(base_state, [write])
+        predicted_obj = predicted[("settings", "site-1", None)]
+        predicted_obj["port_usages"]["uplink"]["mode"] = "mutated"
+
+        base_obj = base_state[("settings", "site-1", None)]
+        # Baseline port_usages.uplink.mode must remain untouched.
+        assert base_obj["port_usages"]["uplink"]["mode"] == "trunk"
+        # Baseline vars must also be untouched.
+        assert base_obj["vars"] == {"k1": "v1"}

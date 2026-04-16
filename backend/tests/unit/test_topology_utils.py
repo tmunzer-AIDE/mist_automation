@@ -6,6 +6,8 @@ from app.modules.digital_twin.services.topology_utils import (
     build_network_name_to_vlan,
     materialize_device_port_config,
     materialize_port_config_entry,
+    normalize_port_id,
+    port_lookup_candidates,
 )
 
 
@@ -76,3 +78,58 @@ def test_materialize_device_port_config_handles_direct_trunk_and_disabled() -> N
 
     assert materialized["ge-0/0/1"]["resolved_vlan_ids"] == [100, 200]
     assert materialized["ge-0/0/2"]["resolved_vlan_ids"] == []
+
+
+# ---------------------------------------------------------------------------
+# normalize_port_id / port_lookup_candidates — regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizePortId:
+    def test_strips_unit_suffix(self):
+        assert normalize_port_id("ge-0/0/9.0") == "ge-0/0/9"
+
+    def test_strips_channelized_suffix(self):
+        assert normalize_port_id("xe-0/0/0:0") == "xe-0/0/0"
+
+    def test_lowercases_prefix(self):
+        assert normalize_port_id("GE-0/0/1") == "ge-0/0/1"
+
+    def test_shorthand_is_not_prefixed_with_ge(self):
+        # Previously auto-added "ge-" which is wrong for fe/xe/et devices.
+        assert normalize_port_id("0/0/1") == "0/0/1"
+
+    def test_et_prefix_preserved(self):
+        assert normalize_port_id("et-0/0/48") == "et-0/0/48"
+
+    def test_empty_returns_empty(self):
+        assert normalize_port_id("") == ""
+        assert normalize_port_id(None) == ""
+
+
+class TestPortLookupCandidates:
+    def test_shorthand_expands_to_all_known_prefixes(self):
+        """Shorthand '0/0/1' must yield candidates for every Junos media prefix.
+
+        The actual interface type cannot be inferred from the shorthand alone
+        (fe/ge/xe/et are all valid), so the lookup must try each.
+        """
+        candidates = port_lookup_candidates("0/0/1")
+        # Must include entries for all known media prefixes (ge/xe/et/fe).
+        for prefix in ("ge", "xe", "et", "fe"):
+            assert f"{prefix}-0/0/1" in candidates
+
+    def test_ae_prefix_not_used_for_shorthand(self):
+        """AE ports use ae0/ae1 format (no fpc/pic/port), so must be excluded."""
+        candidates = port_lookup_candidates("0/0/1")
+        assert "ae-0/0/1" not in candidates
+
+    def test_prefixed_port_includes_suffix_variants(self):
+        candidates = port_lookup_candidates("ge-0/0/5")
+        assert "ge-0/0/5" in candidates
+        assert "ge-0/0/5.0" in candidates
+        assert "ge-0/0/5:0" in candidates
+
+    def test_shorthand_also_returned_as_raw(self):
+        candidates = port_lookup_candidates("0/0/1")
+        assert "0/0/1" in candidates

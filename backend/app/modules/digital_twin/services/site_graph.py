@@ -20,8 +20,8 @@ from app.modules.digital_twin.services.topology_utils import (
     materialize_device_port_config,
     materialize_port_config_entry,
     merge_infra_neighbor_ports,
-    resolve_vlan_id,
     resolve_port_config_entry,
+    resolve_vlan_id,
 )
 
 # ---------------------------------------------------------------------------

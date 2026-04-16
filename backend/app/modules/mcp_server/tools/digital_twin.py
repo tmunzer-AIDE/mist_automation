@@ -23,95 +23,109 @@ logger = structlog.get_logger(__name__)
 
 
 class TwinActionType(str, Enum):
-    SIMULATE = 'simulate'
-    APPROVE = 'approve'
-    REJECT = 'reject'
-    STATUS = 'status'
-    HISTORY = 'history'
+    SIMULATE = "simulate"
+    APPROVE = "approve"
+    REJECT = "reject"
+    STATUS = "status"
+    HISTORY = "history"
 
 
 class Object_type(str, Enum):
-    ORG_ALARMTEMPLATES = 'org_alarmtemplates'
-    ORG_WLANS = 'org_wlans'
-    ORG_SITEGROUPS = 'org_sitegroups'
-    ORG_AVPROFILES = 'org_avprofiles'
-    ORG_DEVICEPROFILES = 'org_deviceprofiles'
-    ORG_GATEWAYTEMPLATES = 'org_gatewaytemplates'
-    ORG_IDPPROFILES = 'org_idpprofiles'
-    ORG_AAMWPROFILES = 'org_aamwprofiles'
-    ORG_NACTAGS = 'org_nactags'
-    ORG_NACRULES = 'org_nacrules'
-    ORG_NETWORKTEMPLATES = 'org_networktemplates'
-    ORG_NETWORKS = 'org_networks'
-    ORG_PSKS = 'org_psks'
-    ORG_RFTEMPLATES = 'org_rftemplates'
-    ORG_SERVICES = 'org_services'
-    ORG_SERVICEPOLICIES = 'org_servicepolicies'
-    ORG_SITETEMPLATES = 'org_sitetemplates'
-    ORG_VPNS = 'org_vpns'
-    ORG_WEBHOOKS = 'org_webhooks'
-    ORG_WLANTEMPLATES = 'org_wlantemplates'
-    ORG_WXRULES = 'org_wxrules'
-    ORG_WXTAGS = 'org_wxtags'
-    SITE_DEVICES = 'site_devices'
-    SITE_EVPN_TOPOLOGIES = 'site_evpn_topologies'
-    SITE_INFO = 'site_info'
-    SITE_PSKS = 'site_psks'
-    SITE_SETTING = 'site_setting'
-    SITE_WEBHOOKS = 'site_webhooks'
-    SITE_WLANS = 'site_wlans'
-    SITE_WXRULES = 'site_wxrules'
-    SITE_WXTAGS = 'site_wxtags'
+    ORG_ALARMTEMPLATES = "org_alarmtemplates"
+    ORG_WLANS = "org_wlans"
+    ORG_SITEGROUPS = "org_sitegroups"
+    ORG_AVPROFILES = "org_avprofiles"
+    ORG_DEVICEPROFILES = "org_deviceprofiles"
+    ORG_GATEWAYTEMPLATES = "org_gatewaytemplates"
+    ORG_IDPPROFILES = "org_idpprofiles"
+    ORG_AAMWPROFILES = "org_aamwprofiles"
+    ORG_NACTAGS = "org_nactags"
+    ORG_NACRULES = "org_nacrules"
+    ORG_NETWORKTEMPLATES = "org_networktemplates"
+    ORG_NETWORKS = "org_networks"
+    ORG_PSKS = "org_psks"
+    ORG_RFTEMPLATES = "org_rftemplates"
+    ORG_SERVICES = "org_services"
+    ORG_SERVICEPOLICIES = "org_servicepolicies"
+    ORG_SITETEMPLATES = "org_sitetemplates"
+    ORG_VPNS = "org_vpns"
+    ORG_WEBHOOKS = "org_webhooks"
+    ORG_WLANTEMPLATES = "org_wlantemplates"
+    ORG_WXRULES = "org_wxrules"
+    ORG_WXTAGS = "org_wxtags"
+    SITE_DEVICES = "site_devices"
+    SITE_EVPN_TOPOLOGIES = "site_evpn_topologies"
+    SITE_INFO = "site_info"
+    SITE_PSKS = "site_psks"
+    SITE_SETTING = "site_setting"
+    SITE_WEBHOOKS = "site_webhooks"
+    SITE_WLANS = "site_wlans"
+    SITE_WXRULES = "site_wxrules"
+    SITE_WXTAGS = "site_wxtags"
 
 
 class Action_type(str, Enum):
-    CREATE = 'create'
-    UPDATE = 'update'
-    DELETE = 'delete'
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
 
 
 _TWIN_ACTIONS: set[str] = {action.value for action in TwinActionType}
-_TWIN_SESSION_ACTIONS: set[str] = {'approve', 'reject', 'status'}
+_TWIN_SESSION_ACTIONS: set[str] = {"approve", "reject", "status"}
+
+
+def _twin_approve_messages() -> dict[Any, str]:
+    """Sanitized messages for TwinApprovalError codes (mirrors REST _approve_error_response)."""
+    from app.modules.digital_twin.services import twin_service
+
+    return {
+        twin_service.TwinApprovalErrorCode.NOT_FOUND: "Session not found",
+        twin_service.TwinApprovalErrorCode.NOT_AWAITING_APPROVAL: "Session is not awaiting approval",
+        twin_service.TwinApprovalErrorCode.NO_VALIDATION_REPORT: "Session has no validation report",
+        twin_service.TwinApprovalErrorCode.BLOCKING_VALIDATION_ISSUES: "Session has blocking validation issues",
+        twin_service.TwinApprovalErrorCode.PREFLIGHT_VALIDATION_ERRORS: "Session has preflight validation errors",
+    }
+
 
 _ACTION_TO_METHOD: dict[Action_type, str] = {
-    Action_type.CREATE: 'POST',
-    Action_type.UPDATE: 'PUT',
-    Action_type.DELETE: 'DELETE',
+    Action_type.CREATE: "POST",
+    Action_type.UPDATE: "PUT",
+    Action_type.DELETE: "DELETE",
 }
 
-_MONGO_OBJECT_ID_RE = re.compile(r'^[0-9a-fA-F]{24}$')
+_MONGO_OBJECT_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
 
 _OBJECT_RESOURCE_OVERRIDES: dict[Object_type, str] = {
     # Mist uses /templates for WLAN template CRUD.
-    Object_type.ORG_WLANTEMPLATES: 'templates',
+    Object_type.ORG_WLANTEMPLATES: "templates",
 }
 
 # Singleton object types map directly to an explicit URL template instead of the
 # generic `{scope}/{id}/{resource}/{object_id}` builder. These endpoints have no
 # object_id (the site_id IS the identifier) and only UPDATE is meaningful.
 _SINGLETON_OAS_PATHS: dict[Object_type, str] = {
-    Object_type.SITE_INFO: '/api/v1/sites/{site_id}',
-    Object_type.SITE_SETTING: '/api/v1/sites/{site_id}/setting',
+    Object_type.SITE_INFO: "/api/v1/sites/{site_id}",
+    Object_type.SITE_SETTING: "/api/v1/sites/{site_id}/setting",
 }
 
-_ORG_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if obj.value.startswith('org_')))
-_SITE_OBJECT_TYPE_VALUES = ', '.join(sorted(obj.value for obj in Object_type if obj.value.startswith('site_')))
+_ORG_OBJECT_TYPE_VALUES = ", ".join(sorted(obj.value for obj in Object_type if obj.value.startswith("org_")))
+_SITE_OBJECT_TYPE_VALUES = ", ".join(sorted(obj.value for obj in Object_type if obj.value.startswith("site_")))
 
 
 def _serialize_check_result(check: Any) -> dict[str, Any]:
     """Serialize one check result into an admin-focused diagnostics payload."""
     return {
-        'check': check.check_id,
-        'name': check.check_name,
-        'layer': check.layer,
-        'status': check.status,
-        'summary': check.summary,
-        'description': check.description,
-        'pre_existing': bool(getattr(check, 'pre_existing', False)),
-        'affected_sites': list(getattr(check, 'affected_sites', []) or []),
-        'affected_objects': list(getattr(check, 'affected_objects', []) or []),
-        'details': list(getattr(check, 'details', []) or []),
-        'remediation_hint': check.remediation_hint,
+        "check": check.check_id,
+        "name": check.check_name,
+        "layer": check.layer,
+        "status": check.status,
+        "summary": check.summary,
+        "description": check.description,
+        "pre_existing": bool(getattr(check, "pre_existing", False)),
+        "affected_sites": list(getattr(check, "affected_sites", []) or []),
+        "affected_objects": list(getattr(check, "affected_objects", []) or []),
+        "details": list(getattr(check, "details", []) or []),
+        "remediation_hint": check.remediation_hint,
     }
 
 
@@ -122,40 +136,33 @@ def _build_report_diagnostics(report: Any) -> dict[str, Any]:
     check_diagnostics = [_serialize_check_result(check) for check in sorted_checks]
     executed_checks = [
         {
-            'check': item['check'],
-            'name': item['name'],
-            'layer': item['layer'],
-            'status': item['status'],
-            'summary': item['summary'],
+            "check": item["check"],
+            "name": item["name"],
+            "layer": item["layer"],
+            "status": item["status"],
+            "summary": item["summary"],
         }
         for item in check_diagnostics
     ]
-    issues = [
-        item
-        for item in check_diagnostics
-        if item['status'] not in ('pass', 'skipped')
-    ]
+    issues = [item for item in check_diagnostics if item["status"] not in ("pass", "skipped")]
     decision_log = [
-        f"L{item['layer']} {item['check']} [{item['status']}] {item['summary']}"
-        for item in check_diagnostics
+        f"L{item['layer']} {item['check']} [{item['status']}] {item['summary']}" for item in check_diagnostics
     ]
 
     return {
-        'executed_checks': executed_checks,
-        'issues': issues,
-        'check_diagnostics': check_diagnostics,
-        'decision_log': decision_log,
-        'pre_existing_issue_count': sum(1 for item in issues if item['pre_existing']),
-        'introduced_issue_count': sum(1 for item in issues if not item['pre_existing']),
+        "executed_checks": executed_checks,
+        "issues": issues,
+        "check_diagnostics": check_diagnostics,
+        "decision_log": decision_log,
+        "pre_existing_issue_count": sum(1 for item in issues if item["pre_existing"]),
+        "introduced_issue_count": sum(1 for item in issues if not item["pre_existing"]),
     }
 
 
 def _validate_session_id_format(session_id: str) -> None:
     """Validate Twin session identifiers are MongoDB ObjectId strings."""
     if not _MONGO_OBJECT_ID_RE.fullmatch(session_id):
-        raise ToolError(
-            "session_id must be a valid Digital Twin session ID (24-character hex ObjectId)"
-        )
+        raise ToolError("session_id must be a valid Digital Twin session ID (24-character hex ObjectId)")
 
 
 def _resolve_source_ref(client_name: str | None) -> str:
@@ -170,7 +177,7 @@ def _resolve_source_ref(client_name: str | None) -> str:
     return trimmed or "Internal Chat"
 
 
-def _first_payload_placeholder(value: Any, path: str = 'payload') -> str | None:
+def _first_payload_placeholder(value: Any, path: str = "payload") -> str | None:
     """Return the first payload path containing an unresolved placeholder value."""
     if isinstance(value, str):
         return path if is_placeholder(value) else None
@@ -179,15 +186,15 @@ def _first_payload_placeholder(value: Any, path: str = 'payload') -> str | None:
         for key, item in value.items():
             key_text = str(key)
             if is_placeholder(key_text):
-                return f'{path}.{key_text}'
-            found = _first_payload_placeholder(item, f'{path}.{key_text}')
+                return f"{path}.{key_text}"
+            found = _first_payload_placeholder(item, f"{path}.{key_text}")
             if found:
                 return found
         return None
 
     if isinstance(value, list):
         for index, item in enumerate(value):
-            found = _first_payload_placeholder(item, f'{path}[{index}]')
+            found = _first_payload_placeholder(item, f"{path}[{index}]")
             if found:
                 return found
         return None
@@ -221,16 +228,15 @@ def _resolve_twin_org_id(
     lets single-org installs omit org_id entirely — the LLM then cannot confuse
     org_id with a site_id it saw in a search result.
     """
-    resolved = _normalize_optional_uuid(explicit_org_id, 'org_id')
+    resolved = _normalize_optional_uuid(explicit_org_id, "org_id")
     if resolved:
         return resolved
     if default_org_id:
-        normalized_default = _normalize_optional_uuid(default_org_id, 'org_id')
+        normalized_default = _normalize_optional_uuid(default_org_id, "org_id")
         if normalized_default:
             return normalized_default
     raise ToolError(
-        "org_id is required when action='simulate' and no default org is configured "
-        "(set SystemConfig.mist_org_id)."
+        "org_id is required when action='simulate' and no default org is configured " "(set SystemConfig.mist_org_id)."
     )
 
 
@@ -245,12 +251,12 @@ def _coerce_action_type(action_type: Action_type | str | None) -> Action_type | 
     if not raw:
         return None
     if is_placeholder(raw):
-        raise ToolError('action_type must be a real value (create, update, delete), not a placeholder')
+        raise ToolError("action_type must be a real value (create, update, delete), not a placeholder")
 
     try:
         return Action_type(raw)
     except ValueError as exc:
-        raise ToolError('action_type must be one of: create, update, delete') from exc
+        raise ToolError("action_type must be one of: create, update, delete") from exc
 
 
 def _coerce_object_type(object_type: Object_type | str | None) -> Object_type | None:
@@ -264,24 +270,24 @@ def _coerce_object_type(object_type: Object_type | str | None) -> Object_type | 
     if not raw:
         return None
     if is_placeholder(raw):
-        raise ToolError('object_type must be a real enum value, not a placeholder')
+        raise ToolError("object_type must be a real enum value, not a placeholder")
 
     try:
         return Object_type(raw)
     except ValueError as exc:
-        valid_values = ', '.join(sorted(obj.value for obj in Object_type))
-        raise ToolError(f'object_type must be one of: {valid_values}') from exc
+        valid_values = ", ".join(sorted(obj.value for obj in Object_type))
+        raise ToolError(f"object_type must be one of: {valid_values}") from exc
 
 
 def _scope_and_resource(object_type: Object_type) -> tuple[str, str]:
     """Translate enum object_type into endpoint scope/resource parts."""
     value = object_type.value
-    if value.startswith('org_'):
-        scope = 'org'
-        resource = value[len('org_') :]
-    elif value.startswith('site_'):
-        scope = 'site'
-        resource = value[len('site_') :]
+    if value.startswith("org_"):
+        scope = "org"
+        resource = value[len("org_") :]
+    elif value.startswith("site_"):
+        scope = "site"
+        resource = value[len("site_") :]
     else:
         raise ToolError(f"Unsupported object_type '{value}'")
 
@@ -304,7 +310,7 @@ def _build_simulation_write(
     method = _ACTION_TO_METHOD[action_type]
     is_singleton = object_type in _SINGLETON_OAS_PATHS
 
-    if scope == 'site':
+    if scope == "site":
         if not site_id:
             raise ToolError(f"site_id is required when object_type='{object_type.value}'")
     elif site_id:
@@ -340,30 +346,24 @@ def _build_simulation_write(
     if is_singleton:
         endpoint = _SINGLETON_OAS_PATHS[object_type].format(site_id=site_id)
     else:
-        if scope == 'org':
-            endpoint_base = f'/api/v1/orgs/{org_id}/{resource}'
+        if scope == "org":
+            endpoint_base = f"/api/v1/orgs/{org_id}/{resource}"
         else:
-            endpoint_base = f'/api/v1/sites/{site_id}/{resource}'
+            endpoint_base = f"/api/v1/sites/{site_id}/{resource}"
 
-        endpoint = endpoint_base if action_type == Action_type.CREATE else f'{endpoint_base}/{object_id}'
+        endpoint = endpoint_base if action_type == Action_type.CREATE else f"{endpoint_base}/{object_id}"
 
     parsed = parse_endpoint(method, endpoint)
     if parsed.error:
-        raise ToolError(
-            f"object_type/action_type combination generated invalid endpoint '{endpoint}': {parsed.error}"
-        )
+        raise ToolError(f"object_type/action_type combination generated invalid endpoint '{endpoint}': {parsed.error}")
     if parsed.org_id and parsed.org_id != org_id:
-        raise ToolError(
-            f"Generated endpoint org_id '{parsed.org_id}' does not match provided org_id '{org_id}'"
-        )
-    if scope == 'site' and parsed.site_id != site_id:
-        raise ToolError(
-            f"Generated endpoint site_id '{parsed.site_id}' does not match provided site_id '{site_id}'"
-        )
+        raise ToolError(f"Generated endpoint org_id '{parsed.org_id}' does not match provided org_id '{org_id}'")
+    if scope == "site" and parsed.site_id != site_id:
+        raise ToolError(f"Generated endpoint site_id '{parsed.site_id}' does not match provided site_id '{site_id}'")
 
-    write: dict[str, Any] = {'method': method, 'endpoint': endpoint}
+    write: dict[str, Any] = {"method": method, "endpoint": endpoint}
     if payload is not None:
-        write['body'] = payload
+        write["body"] = payload
     return write
 
 
@@ -373,7 +373,7 @@ def _build_simulation_writes_from_changes(
     org_id: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Compile a list of change objects into Mist write operations."""
-    allowed_fields = {'action_type', 'object_type', 'site_id', 'payload', 'object_id'}
+    allowed_fields = {"action_type", "object_type", "site_id", "payload", "object_id"}
     writes: list[dict[str, Any]] = []
     normalized_changes: list[dict[str, Any]] = []
 
@@ -391,17 +391,17 @@ def _build_simulation_writes_from_changes(
                 f"Allowed fields: {', '.join(sorted(allowed_fields))}"
             )
 
-        change_action_type = _coerce_action_type(raw_change.get('action_type'))
+        change_action_type = _coerce_action_type(raw_change.get("action_type"))
         if change_action_type is None:
             raise ToolError(f"changes[{index}].action_type is required")
 
-        change_object_type = _coerce_object_type(raw_change.get('object_type'))
+        change_object_type = _coerce_object_type(raw_change.get("object_type"))
         if change_object_type is None:
             raise ToolError(f"changes[{index}].object_type is required")
 
-        change_site_id = _normalize_optional_uuid(raw_change.get('site_id'), f'changes[{index}].site_id')
-        change_object_id = _normalize_optional_uuid(raw_change.get('object_id'), f'changes[{index}].object_id')
-        change_payload = raw_change.get('payload')
+        change_site_id = _normalize_optional_uuid(raw_change.get("site_id"), f"changes[{index}].site_id")
+        change_object_id = _normalize_optional_uuid(raw_change.get("object_id"), f"changes[{index}].object_id")
+        change_payload = raw_change.get("payload")
         if change_payload is not None and not isinstance(change_payload, dict):
             raise ToolError(f"changes[{index}].payload must be a JSON object when provided")
 
@@ -417,10 +417,10 @@ def _build_simulation_writes_from_changes(
         )
         normalized_changes.append(
             {
-                'action_type': change_action_type.value,
-                'object_type': change_object_type.value,
-                'site_id': change_site_id,
-                'object_id': change_object_id,
+                "action_type": change_action_type.value,
+                "object_type": change_object_type.value,
+                "site_id": change_site_id,
+                "object_id": change_object_id,
             }
         )
 
@@ -437,7 +437,7 @@ def _validate_twin_inputs(
     payload: dict[str, Any] | None,
     object_id: UUID | str | None,
     changes: list[dict[str, Any]] | None = None,
-    session_id: str = '',
+    session_id: str = "",
     default_org_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate action-specific input coherence for the Digital Twin tool.
@@ -453,18 +453,18 @@ def _validate_twin_inputs(
     normalized_session_id = session_id.strip()
     if normalized_session_id and is_placeholder(normalized_session_id):
         raise ToolError(f"Invalid session_id '{session_id}': unresolved placeholders are not allowed")
-    if normalized_session_id and normalized_action in (_TWIN_SESSION_ACTIONS | {'simulate'}):
+    if normalized_session_id and normalized_action in (_TWIN_SESSION_ACTIONS | {"simulate"}):
         _validate_session_id_format(normalized_session_id)
 
     normalized_action_type = _coerce_action_type(action_type)
     normalized_object_type = _coerce_object_type(object_type)
-    normalized_org_id = _normalize_optional_uuid(org_id, 'org_id')
-    normalized_site_id = _normalize_optional_uuid(site_id, 'site_id')
-    normalized_object_id = _normalize_optional_uuid(object_id, 'object_id')
+    normalized_org_id = _normalize_optional_uuid(org_id, "org_id")
+    normalized_site_id = _normalize_optional_uuid(site_id, "site_id")
+    normalized_object_id = _normalize_optional_uuid(object_id, "object_id")
     changes_provided = changes is not None
     normalized_changes = changes or []
     if changes is not None and not isinstance(changes, list):
-        raise ToolError('changes must be a list of change objects when provided')
+        raise ToolError("changes must be a list of change objects when provided")
 
     has_simulate_params = any(
         [
@@ -480,12 +480,12 @@ def _validate_twin_inputs(
 
     if normalized_action in _TWIN_SESSION_ACTIONS:
         if not normalized_session_id:
-            raise ToolError(f'session_id required for {normalized_action} action')
+            raise ToolError(f"session_id required for {normalized_action} action")
         if has_simulate_params:
             raise ToolError(
                 f"action_type, org_id, site_id, object_type, payload, object_id, and changes are not supported for action='{normalized_action}'"
             )
-    elif normalized_action == 'history':
+    elif normalized_action == "history":
         if normalized_session_id:
             raise ToolError("session_id is not supported for action='history'")
         if has_simulate_params:
@@ -530,35 +530,35 @@ def _validate_twin_inputs(
             writes = [simulation_write]
             requested_changes = [
                 {
-                    'action_type': normalized_action_type.value,
-                    'object_type': normalized_object_type.value,
-                    'site_id': normalized_site_id,
-                    'object_id': normalized_object_id,
+                    "action_type": normalized_action_type.value,
+                    "object_type": normalized_object_type.value,
+                    "site_id": normalized_site_id,
+                    "object_id": normalized_object_id,
                 }
             ]
 
         return {
-            'action': normalized_action,
-            'writes': writes,
-            'session_id': normalized_session_id,
-            'org_id': resolved_org_id,
-            'action_type': requested_changes[0]['action_type'] if len(requested_changes) == 1 else None,
-            'object_type': requested_changes[0]['object_type'] if len(requested_changes) == 1 else None,
-            'site_id': normalized_site_id,
-            'object_id': normalized_object_id,
-            'requested_changes': requested_changes,
+            "action": normalized_action,
+            "writes": writes,
+            "session_id": normalized_session_id,
+            "org_id": resolved_org_id,
+            "action_type": requested_changes[0]["action_type"] if len(requested_changes) == 1 else None,
+            "object_type": requested_changes[0]["object_type"] if len(requested_changes) == 1 else None,
+            "site_id": normalized_site_id,
+            "object_id": normalized_object_id,
+            "requested_changes": requested_changes,
         }
 
     return {
-        'action': normalized_action,
-        'writes': [],
-        'session_id': normalized_session_id,
-        'org_id': None,
-        'action_type': normalized_action_type.value if normalized_action_type else None,
-        'object_type': normalized_object_type.value if normalized_object_type else None,
-        'site_id': normalized_site_id,
-        'object_id': normalized_object_id,
-        'requested_changes': [],
+        "action": normalized_action,
+        "writes": [],
+        "session_id": normalized_session_id,
+        "org_id": None,
+        "action_type": normalized_action_type.value if normalized_action_type else None,
+        "object_type": normalized_object_type.value if normalized_object_type else None,
+        "site_id": normalized_site_id,
+        "object_id": normalized_object_id,
+        "requested_changes": [],
     }
 
 
@@ -579,18 +579,18 @@ async def digital_twin(
         ),
     ],
     action_type: Annotated[
-        Action_type |None,
+        Action_type | None,
         Field(
             description=(
-                'Whether the simulation change creates, updates, or deletes an object. '
+                "Whether the simulation change creates, updates, or deletes an object. "
                 "Required when action='simulate'. When updating or deleting, object_id is required."
             ),
-            examples=['create', 'update', 'delete'],
+            examples=["create", "update", "delete"],
             default=None,
         ),
-    ]=None,
+    ] = None,
     org_id: Annotated[
-        UUID|None ,
+        UUID | None,
         Field(
             description=(
                 "Organization ID. Required when action='simulate' UNLESS the system has a default "
@@ -601,23 +601,23 @@ async def digital_twin(
                 "org_id will compile a valid-looking write that fails at runtime with a misleading "
                 "'site not found in backup' error."
             ),
-            examples=['8aa21779-1178-4357-b3e0-42c02b93b870'],
+            examples=["8aa21779-1178-4357-b3e0-42c02b93b870"],
             default=None,
         ),
-    ] =None,
+    ] = None,
     site_id: Annotated[
-        UUID |None,
+        UUID | None,
         Field(
             default=None,
             description=(
                 "Site ID. Required for simulate when object_type is site-scoped (value starts with 'site_'). "
                 "Do not pass site_id for org-scoped object_type values."
             ),
-            examples=['2818e386-8dec-4562-9ede-5b8a0fbbdc71'],
+            examples=["2818e386-8dec-4562-9ede-5b8a0fbbdc71"],
         ),
-    ]=None ,
+    ] = None,
     object_type: Annotated[
-        Object_type |None,
+        Object_type | None,
         Field(
             description=(
                 "Type of configuration object to create, update, or delete. Required when action='simulate'. "
@@ -632,12 +632,12 @@ async def digital_twin(
                 "singleton — use this for wireless defaults, DNS/NTP, auto_upgrade, wids/rogue, "
                 "switch_mgmt, etc. Do NOT use site_setting for template bindings."
             ),
-            examples=['org_wlans', 'site_wlans', 'site_devices', 'site_info', 'site_setting'],
+            examples=["org_wlans", "site_wlans", "site_devices", "site_info", "site_setting"],
             default=None,
         ),
-    ] =None,
+    ] = None,
     payload: Annotated[
-        dict[str, Any]|None ,
+        dict[str, Any] | None,
         Field(
             description=(
                 "JSON payload for create/update simulation. Required when action_type is 'create' or 'update'. "
@@ -645,20 +645,20 @@ async def digital_twin(
                 "Recommended workflow: first read the current object via get-configuration tools, then apply only intended changes. "
                 "Do not include unresolved placeholders such as {{var}}, {id}, <id>, or :id."
             ),
-            examples=[{'ssid': 'Guest', 'enabled': True, 'vlan_id': '200'}],
+            examples=[{"ssid": "Guest", "enabled": True, "vlan_id": "200"}],
             default=None,
         ),
-    ]=None,
+    ] = None,
     object_id: Annotated[
-        UUID |None,
+        UUID | None,
         Field(
             description=(
                 "Object ID for update/delete simulation target. Required when action_type is 'update' or 'delete'."
             ),
             default=None,
-            examples=['3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7'],
+            examples=["3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7"],
         ),
-    ] =None,
+    ] = None,
     changes: Annotated[
         list[dict[str, Any]] | None,
         Field(
@@ -668,37 +668,39 @@ async def digital_twin(
                 "Use this to stage multiple writes in one Digital Twin session. "
                 "Mutually exclusive with top-level action_type/site_id/object_type/payload/object_id."
             ),
-            examples=[[
-                {
-                    'action_type': 'update',
-                    'object_type': 'site_wlans',
-                    'site_id': '2818e386-8dec-4562-9ede-5b8a0fbbdc71',
-                    'object_id': '3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7',
-                    'payload': {'ssid': 'Guest'}
-                },
-                {
-                    'action_type': 'update',
-                    'object_type': 'site_psks',
-                    'site_id': '2818e386-8dec-4562-9ede-5b8a0fbbdc71',
-                    'object_id': '6c7f19c2-4c16-4f4c-9f1b-8f5338107bd8',
-                    'payload': {'name': 'Guest-PSK'}
-                }
-            ]],
+            examples=[
+                [
+                    {
+                        "action_type": "update",
+                        "object_type": "site_wlans",
+                        "site_id": "2818e386-8dec-4562-9ede-5b8a0fbbdc71",
+                        "object_id": "3c7f19c2-4c16-4f4c-9f1b-8f5338107bd7",
+                        "payload": {"ssid": "Guest"},
+                    },
+                    {
+                        "action_type": "update",
+                        "object_type": "site_psks",
+                        "site_id": "2818e386-8dec-4562-9ede-5b8a0fbbdc71",
+                        "object_id": "6c7f19c2-4c16-4f4c-9f1b-8f5338107bd8",
+                        "payload": {"name": "Guest-PSK"},
+                    },
+                ]
+            ],
             default=None,
         ),
-    ] =None,
+    ] = None,
     session_id: Annotated[
         str,
         Field(
             description=(
-                'Digital Twin session ID for approve/reject/status actions. '
+                "Digital Twin session ID for approve/reject/status actions. "
                 "For action='simulate', optionally pass an existing session_id to record another remediation iteration. "
-                'Format: 24-character hex MongoDB ObjectId.'
+                "Format: 24-character hex MongoDB ObjectId."
             ),
-            examples=['67f1f77bcf86cd799439011a'],
+            examples=["67f1f77bcf86cd799439011a"],
             default="",
         ),
-    ] ="",
+    ] = "",
     ctx: Context = CurrentContext(),
 ) -> str:
     """Pre-deployment simulation engine (Digital Twin) for Mist config changes.
@@ -790,12 +792,19 @@ async def digital_twin(
     """
     _ = ctx
 
+    from beanie import PydanticObjectId
+
     from app.models.system import SystemConfig
+    from app.models.user import User
     from app.modules.digital_twin.services import twin_service
 
+    # Enforce admin role (mirrors REST API require_admin on /digital-twin/*).
     user_id = mcp_user_id_var.get()
     if not user_id:
-        raise ToolError('User context not available')
+        raise ToolError("Access denied: user context not available")
+    user = await User.get(PydanticObjectId(user_id))
+    if not user or "admin" not in user.roles:
+        raise ToolError("Access denied: admin role required")
 
     default_org_id: str | None = None
     try:
@@ -819,11 +828,11 @@ async def digital_twin(
         default_org_id=default_org_id,
     )
 
-    action_value = validated['action']
-    session_id_value = validated['session_id']
+    action_value = validated["action"]
+    session_id_value = validated["session_id"]
 
-    if action_value == 'simulate':
-        write_list = validated['writes']
+    if action_value == "simulate":
+        write_list = validated["writes"]
         existing_id = session_id_value if session_id_value else None
 
         client_name: str | None = None
@@ -839,183 +848,215 @@ async def digital_twin(
         try:
             session = await twin_service.simulate(
                 user_id=user_id,
-                org_id=validated['org_id'],
+                org_id=validated["org_id"],
                 writes=write_list,
-                source='mcp',
+                source="mcp",
                 source_ref=source_ref,
                 existing_session_id=existing_id,
             )
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
+            logger.warning(
+                "twin_simulate_failed",
+                user_id=user_id,
+                org_id=validated["org_id"],
+                existing_session_id=existing_id,
+                error=str(exc),
+            )
+            raise ToolError("Simulation failed — check inputs and try again") from exc
 
         report = session.prediction_report
         result: dict[str, Any] = {
-            'session_id': str(session.id),
-            'status': session.status.value,
-            'overall_severity': session.overall_severity,
-            'remediation_count': session.remediation_count,
-            'requested_changes': validated['requested_changes'],
-            'compiled_writes': write_list,
+            "session_id": str(session.id),
+            "status": session.status.value,
+            "overall_severity": session.overall_severity,
+            "remediation_count": session.remediation_count,
+            "requested_changes": validated["requested_changes"],
+            "compiled_writes": write_list,
             # Always populate execution_safe / next_action so LLMs can branch reliably.
-            'execution_safe': False,
-            'next_action': 'fix_and_resimulate',
+            "execution_safe": False,
+            "next_action": "fix_and_resimulate",
         }
 
         # Backward-compatible aliases for existing MCP clients.
-        single_change = validated['requested_changes'][0]
-        result['requested_change'] = {
-            'action_type': single_change['action_type'],
-            'object_type': single_change['object_type'],
-            'org_id': validated['org_id'],
-            'site_id': single_change['site_id'],
-            'object_id': single_change['object_id'],
+        single_change = validated["requested_changes"][0]
+        result["requested_change"] = {
+            "action_type": single_change["action_type"],
+            "object_type": single_change["object_type"],
+            "org_id": validated["org_id"],
+            "site_id": single_change["site_id"],
+            "object_id": single_change["object_id"],
         }
-        result['compiled_write'] = write_list[0]
+        result["compiled_write"] = write_list[0]
 
         if report:
-            result['summary'] = report.summary
-            result['execution_safe'] = report.execution_safe
-            result['next_action'] = 'approve' if report.execution_safe else 'fix_and_resimulate'
-            result['counts'] = {
-                'total': report.total_checks,
-                'passed': report.passed,
-                'warnings': report.warnings,
-                'errors': report.errors,
-                'critical': report.critical,
+            result["summary"] = report.summary
+            result["execution_safe"] = report.execution_safe
+            result["next_action"] = "approve" if report.execution_safe else "fix_and_resimulate"
+            result["counts"] = {
+                "total": report.total_checks,
+                "passed": report.passed,
+                "warnings": report.warnings,
+                "errors": report.errors,
+                "critical": report.critical,
             }
             result.update(_build_report_diagnostics(report))
         else:
-            result['warning'] = (
-                'No prediction report generated for this simulation; treat as unsafe until resimulated.'
-            )
+            result["warning"] = "No prediction report generated for this simulation; treat as unsafe until resimulated."
 
         return to_json(result)
 
-    if action_value == 'approve':
+    if action_value == "approve":
         session = await twin_service.get_session(session_id_value)
         if not session:
-            raise ToolError(f'Session {session_id_value} not found')
+            raise ToolError(f"Session {session_id_value} not found")
         if str(session.user_id) != user_id:
             logger.warning(
-                'twin_session_access_denied',
+                "twin_session_access_denied",
                 session_id=session_id_value,
                 requested_by=user_id,
                 session_owner=str(session.user_id),
-                action='approve',
+                action="approve",
             )
-            raise ToolError(f'Session {session_id_value} not found')
+            raise ToolError(f"Session {session_id_value} not found")
 
         write_count = len(session.staged_writes)
         report = session.prediction_report
-        summary_parts = [f'{write_count} write(s) to deploy']
+        summary_parts = [f"{write_count} write(s) to deploy"]
         if report and report.warnings:
-            summary_parts.append(f'{report.warnings} warning(s) acknowledged')
+            summary_parts.append(f"{report.warnings} warning(s) acknowledged")
         if session.remediation_count:
-            summary_parts.append(f'{session.remediation_count} fix iteration(s) applied')
+            summary_parts.append(f"{session.remediation_count} fix iteration(s) applied")
 
         description = f"Digital Twin deployment: {', '.join(summary_parts)}"
 
         approval_data = {
-            'session_id': str(session.id),
-            'writes_count': write_count,
-            'overall_severity': session.overall_severity,
-            'summary': report.summary if report else 'No validation report',
-            'execution_safe': report.execution_safe if report else True,
-            'affected_sites': session.affected_sites,
-            'remediation_count': session.remediation_count,
+            "session_id": str(session.id),
+            "writes_count": write_count,
+            "overall_severity": session.overall_severity,
+            "summary": report.summary if report else "No validation report",
+            "execution_safe": report.execution_safe if report else True,
+            "affected_sites": session.affected_sites,
+            "remediation_count": session.remediation_count,
         }
 
         try:
             await _elicit(
                 {
-                    'type': 'elicitation',
-                    'description': description,
-                    'elicitation_type': 'twin_approve',
-                    'data': approval_data,
+                    "type": "elicitation",
+                    "description": description,
+                    "elicitation_type": "twin_approve",
+                    "data": approval_data,
                 },
                 description,
                 120.0,
             )
         except ValueError as exc:
-            raise ToolError('Deployment cancelled by user') from exc
+            raise ToolError("Deployment cancelled by user") from exc
 
         try:
             session = await twin_service.approve_and_execute(session_id_value, user_id=user_id)
+        except twin_service.TwinApprovalError as exc:
+            logger.warning(
+                "twin_approve_failed",
+                session_id=session_id_value,
+                user_id=user_id,
+                code=exc.code.value,
+                error=str(exc),
+            )
+            raise ToolError(_twin_approve_messages().get(exc.code, "Session cannot be approved")) from exc
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
+            logger.warning(
+                "twin_approve_failed",
+                session_id=session_id_value,
+                user_id=user_id,
+                error=str(exc),
+            )
+            raise ToolError("Session cannot be approved") from exc
         return to_json(
             {
-                'session_id': str(session.id),
-                'status': session.status.value,
-                'message': 'Deployment complete' if session.status.value == 'deployed' else 'Deployment failed',
+                "session_id": str(session.id),
+                "status": session.status.value,
+                "message": "Deployment complete" if session.status.value == "deployed" else "Deployment failed",
             }
         )
 
-    if action_value == 'reject':
+    if action_value == "reject":
         try:
             session = await twin_service.reject_session(session_id_value, user_id=user_id)
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
-        return to_json({'session_id': str(session.id), 'status': session.status.value})
+            logger.warning(
+                "twin_reject_failed",
+                session_id=session_id_value,
+                user_id=user_id,
+                error=str(exc),
+            )
+            raise ToolError("Session cannot be rejected") from exc
+        return to_json({"session_id": str(session.id), "status": session.status.value})
 
-    if action_value == 'status':
+    if action_value == "status":
         try:
             session = await twin_service.get_session(session_id_value)
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
+            logger.warning(
+                "twin_status_failed",
+                session_id=session_id_value,
+                user_id=user_id,
+                error=str(exc),
+            )
+            raise ToolError(f"Session {session_id_value} not found") from exc
         if not session:
-            raise ToolError(f'Session {session_id_value} not found')
+            raise ToolError(f"Session {session_id_value} not found")
         if str(session.user_id) != user_id:
             logger.warning(
-                'twin_session_access_denied',
+                "twin_session_access_denied",
                 session_id=session_id_value,
                 requested_by=user_id,
                 session_owner=str(session.user_id),
-                action='status',
+                action="status",
             )
-            raise ToolError(f'Session {session_id_value} not found')
+            raise ToolError(f"Session {session_id_value} not found")
 
         report = session.prediction_report
         status_result: dict[str, Any] = {
-            'session_id': str(session.id),
-            'status': session.status.value,
-            'severity': session.overall_severity,
-            'writes': len(session.staged_writes),
-            'remediation_count': session.remediation_count,
+            "session_id": str(session.id),
+            "status": session.status.value,
+            "severity": session.overall_severity,
+            "writes": len(session.staged_writes),
+            "remediation_count": session.remediation_count,
             # Always populate execution_safe / next_action for reliable LLM branching.
-            'execution_safe': False,
-            'next_action': 'fix_and_resimulate',
+            "execution_safe": False,
+            "next_action": "fix_and_resimulate",
         }
         if report:
-            status_result['summary'] = report.summary
-            status_result['execution_safe'] = report.execution_safe
-            status_result['next_action'] = 'approve' if report.execution_safe else 'fix_and_resimulate'
-            status_result['counts'] = {
-                'total': report.total_checks,
-                'passed': report.passed,
-                'warnings': report.warnings,
-                'errors': report.errors,
-                'critical': report.critical,
+            status_result["summary"] = report.summary
+            status_result["execution_safe"] = report.execution_safe
+            status_result["next_action"] = "approve" if report.execution_safe else "fix_and_resimulate"
+            status_result["counts"] = {
+                "total": report.total_checks,
+                "passed": report.passed,
+                "warnings": report.warnings,
+                "errors": report.errors,
+                "critical": report.critical,
             }
             status_result.update(_build_report_diagnostics(report))
         else:
-            status_result['warning'] = 'No prediction report on this session; treat as unsafe.'
+            status_result["warning"] = "No prediction report on this session; treat as unsafe."
 
         return to_json(status_result)
 
     sessions, _total = await twin_service.list_sessions(user_id, limit=10)
     return to_json(
         {
-            'sessions': [
+            "sessions": [
                 {
-                    'id': str(s.id),
-                    'status': s.status.value,
-                    'severity': s.overall_severity,
-                    'execution_safe': s.prediction_report.execution_safe if s.prediction_report else None,
-                    'summary': s.prediction_report.summary if s.prediction_report else None,
-                    'source': s.source,
-                    'writes': len(s.staged_writes),
-                    'created_at': s.created_at,
+                    "id": str(s.id),
+                    "status": s.status.value,
+                    "severity": s.overall_severity,
+                    "execution_safe": s.prediction_report.execution_safe if s.prediction_report else None,
+                    "summary": s.prediction_report.summary if s.prediction_report else None,
+                    "source": s.source,
+                    "writes": len(s.staged_writes),
+                    "created_at": s.created_at,
                 }
                 for s in sessions
             ]

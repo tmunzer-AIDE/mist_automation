@@ -10,11 +10,11 @@ All functions are pure — no async, no DB access.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
-
 
 # ---------------------------------------------------------------------------
 # SEC-GUEST: Guest SSID Security
@@ -143,22 +143,37 @@ def _check_security_policies(baseline: SiteSnapshot, predicted: SiteSnapshot) ->
 # ---------------------------------------------------------------------------
 
 
+def _normalize_nac_rule(rule: dict[str, Any]) -> str:
+    """Serialize a NAC rule into a stable, order-insensitive string key."""
+    try:
+        return json.dumps(rule, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return str(rule)
+
+
 def _check_nac_rules(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckResult:
     """Compare NAC rules between baseline and predicted snapshots."""
     base_rules: list[dict[str, Any]] = baseline.site_setting.get("nacrules", []) or []
     pred_rules: list[dict[str, Any]] = predicted.site_setting.get("nacrules", []) or []
 
-    if base_rules != pred_rules:
+    # Compare by content (order-insensitive) so a backup round-trip returning
+    # the same rules in a different order doesn't produce a false-positive.
+    base_keys = {_normalize_nac_rule(r) for r in base_rules if isinstance(r, dict)}
+    pred_keys = {_normalize_nac_rule(r) for r in pred_rules if isinstance(r, dict)}
+
+    if base_keys != pred_keys:
         base_count = len(base_rules)
         pred_count = len(pred_rules)
-        details: list[str] = [f"NAC rules changed from {base_count} to {pred_count}"]
+        added = len(pred_keys - base_keys)
+        removed = len(base_keys - pred_keys)
+        details: list[str] = [f"NAC rules changed from {base_count} to {pred_count} ({added} added, {removed} removed)"]
 
         return CheckResult(
             check_id="SEC-NAC",
             check_name="NAC Rule Changes",
             layer=4,
             status="warning",
-            summary=f"NAC rule count changed from {base_count} to {pred_count}",
+            summary=f"NAC rules changed ({added} added, {removed} removed)",
             details=details,
             affected_sites=[predicted.site_id],
             remediation_hint="Review NAC rule changes to ensure network access control remains correct.",

@@ -14,7 +14,7 @@ import networkx as nx
 
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_graph import build_site_graph
-from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
+from app.modules.digital_twin.services.site_snapshot import SiteSnapshot, normalize_mac
 
 # Default STP bridge priority when none is explicitly configured.
 _DEFAULT_STP_PRIORITY = 32768
@@ -52,13 +52,15 @@ def _find_root(priorities: dict[str, tuple[int, str, str]]) -> tuple[str, int, s
     """Find root bridge: lowest priority, then lowest MAC as tiebreak.
 
     Args:
-        priorities: device_id -> (priority, mac, name)
+        priorities: device_id -> (priority, normalized_mac, name)
 
     Returns:
         (device_id, priority, name) of root or None if empty.
     """
     if not priorities:
         return None
+    # MAC tiebreak must use a normalized form (lowercase, colons/dashes stripped)
+    # so the chosen root is deterministic regardless of ingest format.
     root_id = min(priorities, key=lambda dev: (priorities[dev][0], priorities[dev][1]))
     prio, _mac, name = priorities[root_id]
     return root_id, prio, name
@@ -80,14 +82,14 @@ def _check_stp_root(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
             continue
         prio = _get_stp_priority(dev.stp_config)
         if prio is not None:
-            baseline_prios[dev_id] = (prio, dev.mac or "", dev.name)
+            baseline_prios[dev_id] = (prio, normalize_mac(dev.mac), dev.name)
 
     for dev_id, dev in predicted.devices.items():
         if dev.type != "switch":
             continue
         prio = _get_stp_priority(dev.stp_config)
         if prio is not None:
-            predicted_prios[dev_id] = (prio, dev.mac or "", dev.name)
+            predicted_prios[dev_id] = (prio, normalize_mac(dev.mac), dev.name)
 
     # If no STP priority configured anywhere, skip
     if not baseline_prios and not predicted_prios:
@@ -113,11 +115,11 @@ def _check_stp_root(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
         if dev_id not in baseline_prios:
             dev = baseline.devices.get(dev_id) or predicted.devices.get(dev_id)
             if dev:
-                baseline_prios[dev_id] = (_DEFAULT_STP_PRIORITY, dev.mac or "", dev.name)
+                baseline_prios[dev_id] = (_DEFAULT_STP_PRIORITY, normalize_mac(dev.mac), dev.name)
         if dev_id not in predicted_prios:
             dev = predicted.devices.get(dev_id) or baseline.devices.get(dev_id)
             if dev:
-                predicted_prios[dev_id] = (_DEFAULT_STP_PRIORITY, dev.mac or "", dev.name)
+                predicted_prios[dev_id] = (_DEFAULT_STP_PRIORITY, normalize_mac(dev.mac), dev.name)
 
     baseline_root = _find_root(baseline_prios)
     predicted_root = _find_root(predicted_prios)

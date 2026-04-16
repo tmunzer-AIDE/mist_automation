@@ -271,11 +271,7 @@ def _check_conn_vlan_path(
     has_ap_impact = False
     seen_edge_losses: set[tuple[int, str, str]] = set()
 
-    mac_to_device_id = {
-        dev.mac: dev.device_id
-        for dev in baseline.devices.values()
-        if dev.mac and dev.device_id
-    }
+    mac_to_device_id = {dev.mac: dev.device_id for dev in baseline.devices.values() if dev.mac and dev.device_id}
 
     def _vlan_label(vid: int) -> str:
         label_parts: list[str] = []

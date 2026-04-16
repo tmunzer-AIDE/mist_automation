@@ -19,7 +19,6 @@ from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 from app.modules.digital_twin.services.topology_utils import resolve_vlan_id
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -129,8 +128,7 @@ def _format_route_gw_detail(
 
     if implicit_vlan_wlans:
         parts.append(
-            "WLAN(s) with implicit vlan_id may map through native/default VLAN: "
-            f"{', '.join(implicit_vlan_wlans)}"
+            "WLAN(s) with implicit vlan_id may map through native/default VLAN: " f"{', '.join(implicit_vlan_wlans)}"
         )
 
     return "; ".join(parts)
@@ -242,9 +240,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
                 status="skipped",
                 summary="OSPF appears configured but live peer telemetry is unavailable.",
                 affected_sites=[baseline.site_id],
-                remediation_hint=(
-                    "Ensure live telemetry exposes OSPF peers (peer_ip), then re-run simulation."
-                ),
+                remediation_hint=("Ensure live telemetry exposes OSPF peers (peer_ip), then re-run simulation."),
                 description="Checks that OSPF peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
             )
         return CheckResult(
@@ -329,9 +325,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
                 status="skipped",
                 summary="BGP appears configured but live peer telemetry is unavailable.",
                 affected_sites=[baseline.site_id],
-                remediation_hint=(
-                    "Ensure live telemetry exposes BGP peers (peer_ip), then re-run simulation."
-                ),
+                remediation_hint=("Ensure live telemetry exposes BGP peers (peer_ip), then re-run simulation."),
                 description="Checks that BGP peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
             )
         return CheckResult(
@@ -434,9 +428,7 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
         for port_name, port_cfg in baseline_wan_ports.items():
             if port_name not in predicted_wan_ports:
                 wan_type = port_cfg.get("wan_type", "unknown")
-                removed_details.append(
-                    f"{baseline_dev.name} port {port_name}: WAN link removed (wan_type={wan_type})"
-                )
+                removed_details.append(f"{baseline_dev.name} port {port_name}: WAN link removed (wan_type={wan_type})")
                 if dev_id not in affected_objects:
                     affected_objects.append(dev_id)
 

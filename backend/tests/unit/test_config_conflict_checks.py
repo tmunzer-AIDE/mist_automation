@@ -9,7 +9,6 @@ from __future__ import annotations
 from app.modules.digital_twin.checks.config_conflicts import check_config_conflicts
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -553,6 +552,41 @@ class TestCfgDhcp:
         r = _get_result(results, "CFG-DHCP-CFG")
         assert r is not None
         assert r.status == "pass"
+
+    def test_dhcp_misconfiguration_canonical_aliased_key_flags_error(self):
+        """DHCP keys can appear as "<gateway>/<network>" aliases. The subnet
+        lookup must canonicalize the alias before matching ``networks``.
+
+        Before the fix, aliased keys were looked up verbatim and silently
+        skipped, missing real gateway/subnet misconfigurations.
+        """
+        snap = _snap(
+            networks={
+                "net-1": {"name": "Corp", "subnet": "10.0.0.0/24", "vlan_id": 10},
+            },
+            devices={
+                "dev-1": _dev(
+                    "dev-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "SW-1",
+                    dhcpd_config={
+                        "enabled": True,
+                        # Aliased DHCP key form
+                        "10.0.0.1/Corp": {
+                            "type": "local",
+                            "ip_start": "10.0.0.10",
+                            "ip_end": "10.0.0.100",
+                            "gateway": "192.168.1.1",  # wrong subnet
+                        },
+                    },
+                ),
+            },
+        )
+        results = check_config_conflicts(snap)
+        r = _get_result(results, "CFG-DHCP-CFG")
+        assert r is not None
+        assert r.status == "error"
+        assert any("gateway" in d and "outside" in d for d in r.details)
 
 
 # ---------------------------------------------------------------------------

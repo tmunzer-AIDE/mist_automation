@@ -9,7 +9,6 @@ from __future__ import annotations
 from app.modules.digital_twin.checks.security import check_security
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -330,6 +329,27 @@ class TestSecNac:
         r = _get_result(results, "SEC-NAC")
         assert r is not None
         assert r.status == "warning"
+
+    def test_rule_reorder_is_not_a_change(self):
+        """Reordering identical rules must not trigger a false-positive warning.
+
+        Previously the check compared lists with ``!=`` which is
+        order-sensitive. The fix compares content (order-insensitive).
+        """
+        rules_ordered_a = [
+            {"name": "AllowCorp", "action": "allow"},
+            {"name": "BlockGuest", "action": "deny"},
+        ]
+        rules_ordered_b = [
+            {"name": "BlockGuest", "action": "deny"},
+            {"name": "AllowCorp", "action": "allow"},
+        ]
+        baseline = _snap(site_setting={"nacrules": rules_ordered_a})
+        predicted = _snap(site_setting={"nacrules": rules_ordered_b})
+        results = check_security(baseline, predicted)
+        r = _get_result(results, "SEC-NAC")
+        assert r is not None
+        assert r.status == "pass"
 
 
 # ---------------------------------------------------------------------------

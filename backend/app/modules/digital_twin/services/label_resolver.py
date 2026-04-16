@@ -78,13 +78,17 @@ async def fetch_object_names_by_type(
             return site_name_cache[site_id]
 
         async def _find_latest(query: dict[str, str]) -> object | None:
-            return await BackupObject.find(
-                {
-                    "org_id": org_id,
-                    "is_deleted": False,
-                    **query,
-                }
-            ).sort([("version", -1)]).first_or_none()
+            return (
+                await BackupObject.find(
+                    {
+                        "org_id": org_id,
+                        "is_deleted": False,
+                        **query,
+                    }
+                )
+                .sort([("version", -1)])
+                .first_or_none()
+            )
 
         doc = await _find_latest({"object_type": "info", "site_id": site_id})
         if not doc:
@@ -100,6 +104,7 @@ async def fetch_object_names_by_type(
 
         site_name_cache[site_id] = site_name
         return site_name
+
     for w in writes:
         canonical = canonicalize_object_type(w.object_type) or ""
         if not canonical:
@@ -111,7 +116,14 @@ async def fetch_object_names_by_type(
         body = w.body or {}
         if canonical == "wlans":
             name = body.get("ssid")
-        elif canonical in {"networks", "networktemplates", "sitetemplates", "sitegroups", "services", "servicepolicies"}:
+        elif canonical in {
+            "networks",
+            "networktemplates",
+            "sitetemplates",
+            "sitegroups",
+            "services",
+            "servicepolicies",
+        }:
             name = body.get("name")
         elif canonical == "info":
             # Site rename payloads are on /sites/{site_id} singleton writes.
@@ -122,14 +134,18 @@ async def fetch_object_names_by_type(
             name = await _resolve_site_name(w.site_id)
 
         if w.method != "POST" and w.object_id:
-            doc = await BackupObject.find(
-                {
-                    "org_id": org_id,
-                    "object_type": canonical,
-                    "object_id": w.object_id,
-                    "is_deleted": False,
-                }
-            ).sort("-version").first_or_none()
+            doc = (
+                await BackupObject.find(
+                    {
+                        "org_id": org_id,
+                        "object_type": canonical,
+                        "object_id": w.object_id,
+                        "is_deleted": False,
+                    }
+                )
+                .sort("-version")
+                .first_or_none()
+            )
             if doc:
                 config = doc.configuration or {}
                 # WLANs should always prefer SSID over object_name/name.
