@@ -522,6 +522,21 @@ async def list_backup_objects(
     if match:
         pipeline.append({"$match": match})
 
+    # Normalize a sortable/displayable last-change timestamp for historical records that
+    # may not have last_modified_at populated (e.g., legacy deleted snapshots).
+    pipeline.append(
+        {
+            "$addFields": {
+                "effective_last_modified_at": {
+                    "$ifNull": [
+                        "$last_modified_at",
+                        {"$ifNull": ["$deleted_at", "$backed_up_at"]},
+                    ]
+                }
+            }
+        }
+    )
+
     # Sort by version descending so $first picks latest
     pipeline.append({"$sort": {"version": -1}})
 
@@ -539,7 +554,7 @@ async def list_backup_objects(
                 "version_count": {"$sum": 1},
                 "first_backed_up_at": {"$min": "$backed_up_at"},
                 "last_backed_up_at": {"$first": "$backed_up_at"},
-                "last_modified_at": {"$first": "$last_modified_at"},
+                "last_modified_at": {"$first": "$effective_last_modified_at"},
                 "is_deleted": {"$first": "$is_deleted"},
                 "event_type": {"$first": "$event_type"},
             }

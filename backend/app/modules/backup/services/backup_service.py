@@ -546,6 +546,7 @@ class BackupService:
         for _attempt in range(3):
             next_ver = await BackupObject.next_version(object_id)
             try:
+                deletion_time = datetime.now(timezone.utc)
                 deletion_backup = BackupObject(
                     object_type=latest.object_type,
                     object_id=object_id,
@@ -559,7 +560,8 @@ class BackupService:
                     event_type=BackupEventType.DELETED,
                     changed_fields=[],
                     is_deleted=True,
-                    deleted_at=datetime.now(timezone.utc),
+                    deleted_at=deletion_time,
+                    last_modified_at=deletion_time,
                     backed_up_by=deleted_by or "system",
                     references=latest.references,
                 )

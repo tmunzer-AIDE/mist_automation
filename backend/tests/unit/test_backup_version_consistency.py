@@ -164,6 +164,7 @@ async def test_backup_object_summary_uses_latest_version_timestamp_for_last_back
     assert response.total == 1
     assert len(response.objects) == 1
     assert response.objects[0].object_id == object_id
+    assert response.objects[0].last_modified_at == deleted_at.replace(tzinfo=None)
     assert response.objects[0].last_backed_up_at == deleted_at.replace(tzinfo=None)
     assert response.objects[0].last_backed_up_at != datetime(2026, 4, 16, 6, 0, 4)
 
@@ -184,7 +185,7 @@ async def test_backup_object_summary_defaults_to_last_change_sort():
     config_b = {"id": object_b, "name": "B", "ssid": "B"}
     hash_b = hashlib.sha256(json.dumps(config_b, sort_keys=True).encode()).hexdigest()
 
-    # A has newer last backup but no last change timestamp.
+    # A has no explicit last change timestamp; fallback uses backed_up_at.
     a_doc = BackupObject(
         object_type="psks",
         object_id=object_a,
@@ -196,14 +197,14 @@ async def test_backup_object_summary_defaults_to_last_change_sort():
         version=1,
         event_type=BackupEventType.CREATED,
         changed_fields=[],
-        backed_up_at=datetime(2026, 4, 16, 8, 0, 0, tzinfo=timezone.utc),
+        backed_up_at=datetime(2026, 4, 14, 8, 0, 0, tzinfo=timezone.utc),
         backed_up_by="system",
         last_modified_at=None,
         is_deleted=False,
     )
     await a_doc.insert()
 
-    # B has older last backup but valid last change timestamp; it should sort first by default.
+    # B has a newer effective last change timestamp and should sort first by default.
     b_doc = BackupObject(
         object_type="psks",
         object_id=object_b,
