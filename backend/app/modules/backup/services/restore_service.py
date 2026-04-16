@@ -337,15 +337,31 @@ class RestoreService:
                 )
                 if parent_ver:
                     parent_backups.append(parent_ver)
-                    plan.append(
-                        {
-                            "role": "parent",
-                            "object_id": dep["object_id"],
-                            "object_type": dep["object_type"],
-                            "object_name": dep.get("object_name"),
-                            "field_path": dep["field_path"],
-                        }
-                    )
+
+        # Sort parents: sites first (no site_id), then org-scoped, then site-scoped.
+        # This ensures a deleted parent site is recreated before any objects that
+        # live on it (e.g. wxtags), so id_remap contains the new site UUID when
+        # those objects are posted.
+        def _parent_sort_key(p: BackupObject) -> tuple[int, str]:
+            if p.object_type == "sites":
+                return (0, p.object_id)
+            if p.site_id is None:
+                return (1, p.object_id)
+            return (2, p.object_id)
+
+        parent_backups.sort(key=_parent_sort_key)
+
+        # Emit plan entries in sorted order
+        for pb in parent_backups:
+            plan.append(
+                {
+                    "role": "parent",
+                    "object_id": pb.object_id,
+                    "object_type": pb.object_type,
+                    "object_name": pb.object_name,
+                    "field_path": None,
+                }
+            )
 
         # Target
         plan.append(
@@ -408,11 +424,24 @@ class RestoreService:
 
         # 1. Restore parents
         for parent_backup in parent_backups:
-            parent_config = await self._prepare_deleted_object_config(parent_backup)
+            # Apply id_remap to site_id in case a parent site was already restored
+            # earlier in this same loop (e.g. a site-scoped wxtag whose parent site
+            # was also deleted and restored just before).
+            effective_parent_site_id = (
+                id_remap.get(parent_backup.site_id, parent_backup.site_id)
+                if parent_backup.site_id
+                else None
+            )
+            new_parent_site_id = (
+                effective_parent_site_id
+                if effective_parent_site_id != parent_backup.site_id
+                else None
+            )
+            parent_config = await self._prepare_deleted_object_config(parent_backup, id_remap=id_remap)
             result = await self._create_object_in_mist(
                 parent_backup.object_type,
                 parent_config,
-                site_id=parent_backup.site_id,
+                site_id=effective_parent_site_id,
             )
             new_id = result.get("id")
             if new_id:
@@ -424,6 +453,7 @@ class RestoreService:
                     result=result,
                     restored_by=restored_by,
                     id_remap=id_remap,
+                    new_site_id=new_parent_site_id,
                 )
             restored_objects.append(
                 {
