@@ -166,3 +166,75 @@ async def test_backup_object_summary_uses_latest_version_timestamp_for_last_back
     assert response.objects[0].object_id == object_id
     assert response.objects[0].last_backed_up_at == deleted_at.replace(tzinfo=None)
     assert response.objects[0].last_backed_up_at != datetime(2026, 4, 16, 6, 0, 4)
+
+
+@pytest.mark.unit
+@pytest.mark.usefixtures("test_db")
+async def test_backup_object_summary_defaults_to_last_change_sort():
+    """Default object list ordering should use last_modified_at (last change), not last_backed_up_at."""
+    from app.api.v1.backup import list_backup_objects
+
+    org_id = "2aaa4c8d-8868-4715-ae43-0ebda664edfc"
+
+    object_a = "aaaaaaaa-8868-4715-ae43-0ebda664edfc"
+    config_a = {"id": object_a, "name": "A", "ssid": "A"}
+    hash_a = hashlib.sha256(json.dumps(config_a, sort_keys=True).encode()).hexdigest()
+
+    object_b = "bbbbbbbb-8868-4715-ae43-0ebda664edfc"
+    config_b = {"id": object_b, "name": "B", "ssid": "B"}
+    hash_b = hashlib.sha256(json.dumps(config_b, sort_keys=True).encode()).hexdigest()
+
+    # A has newer last backup but no last change timestamp.
+    a_doc = BackupObject(
+        object_type="psks",
+        object_id=object_a,
+        object_name="A",
+        org_id=org_id,
+        site_id=None,
+        configuration=config_a,
+        configuration_hash=hash_a,
+        version=1,
+        event_type=BackupEventType.CREATED,
+        changed_fields=[],
+        backed_up_at=datetime(2026, 4, 16, 8, 0, 0, tzinfo=timezone.utc),
+        backed_up_by="system",
+        last_modified_at=None,
+        is_deleted=False,
+    )
+    await a_doc.insert()
+
+    # B has older last backup but valid last change timestamp; it should sort first by default.
+    b_doc = BackupObject(
+        object_type="psks",
+        object_id=object_b,
+        object_name="B",
+        org_id=org_id,
+        site_id=None,
+        configuration=config_b,
+        configuration_hash=hash_b,
+        version=1,
+        event_type=BackupEventType.CREATED,
+        changed_fields=[],
+        backed_up_at=datetime(2026, 4, 15, 8, 0, 0, tzinfo=timezone.utc),
+        backed_up_by="system",
+        last_modified_at=datetime(2026, 4, 15, 8, 0, 0, tzinfo=timezone.utc),
+        is_deleted=False,
+    )
+    await b_doc.insert()
+
+    current_user = type("UserStub", (), {"id": "u-1"})()
+    response = await list_backup_objects(
+        skip=0,
+        limit=50,
+        search=None,
+        object_type=None,
+        site_id=None,
+        scope=None,
+        status_filter=None,
+        sort=None,
+        order=None,
+        _current_user=current_user,
+    )
+
+    assert response.total == 2
+    assert [response.objects[0].object_id, response.objects[1].object_id] == [object_b, object_a]

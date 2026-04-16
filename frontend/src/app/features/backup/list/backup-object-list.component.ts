@@ -100,12 +100,13 @@ export class BackupObjectListComponent implements OnInit {
     'object_type',
     'scope',
     'version_count',
+    'last_modified_at',
     'last_backed_up_at',
     'status',
   ];
 
   // ── Sort ──────────────────────────────────────────────────────────────
-  sortField = 'last_backed_up_at';
+  sortField = 'last_modified_at';
   sortDirection: 'asc' | 'desc' | '' = 'desc';
 
   // ── Filters ──────────────────────────────────────────────────────────

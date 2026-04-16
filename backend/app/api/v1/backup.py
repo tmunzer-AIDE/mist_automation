@@ -468,6 +468,7 @@ OBJECT_SORT_FIELDS = {
     "object_name",
     "object_type",
     "version_count",
+    "last_modified_at",
     "last_backed_up_at",
     "first_backed_up_at",
     "latest_version",
@@ -557,7 +558,7 @@ async def list_backup_objects(
     total = count_result[0]["total"] if count_result else 0
 
     # Sort, skip, limit
-    sort_field = sort if sort in OBJECT_SORT_FIELDS else "last_backed_up_at"
+    sort_field = sort if sort in OBJECT_SORT_FIELDS else "last_modified_at"
     sort_dir = 1 if order == "asc" else -1
     pipeline.append({"$sort": {sort_field: sort_dir}})
     pipeline.append({"$skip": skip})
