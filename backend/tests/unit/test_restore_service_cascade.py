@@ -497,3 +497,222 @@ async def test_validate_restore_collects_site_scoped_children_when_restoring_sit
     # site-B settings must not appear
     site_b_settings = [c for c in result["deleted_children"] if c["object_id"] == "settings" and c.get("site_id") == "site-B"]
     assert len(site_b_settings) == 0, f"site-B settings must not appear; got: {site_b_settings}"
+
+
+async def test_cascade_restore_singleton_target_uses_put(test_db, monkeypatch):
+    """
+    Characterization test: when the target of cascade_restore is a settings
+    singleton whose parent site was deleted, cascade_restore must:
+      - POST the site (creates a new UUID)
+      - PUT the singleton (not POST) using the NEW site UUID from id_remap
+    """
+    org_id = "org-1"
+    site_id = "site-A"
+
+    # --- seed: site-A (active v1, deleted v2) ---
+    site_v1 = await _seed_backup(
+        "sites",
+        site_id,
+        org_id,
+        configuration={"name": "Site A"},
+        version=1,
+        object_name="Site A",
+    )
+    site_v2 = await _seed_backup(
+        "sites",
+        site_id,
+        org_id,
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="Site A",
+        previous_version_id=site_v1.id,
+    )
+
+    # --- seed: settings singleton on site-A (active v1, deleted v2) ---
+    # object_id="settings" does not collide with object_id="site-A" on the
+    # (object_id, version) unique index, so version=1 and version=2 are safe.
+    settings_v1 = await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id=site_id,
+        configuration={"rf_template_id": None},
+        version=1,
+        object_name="settings",
+    )
+    await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id=site_id,
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="settings",
+        previous_version_id=settings_v1.id,
+    )
+
+    # --- patch _validate_restore to return site as a deleted parent dependency ---
+    async def _fake_validate(backup: BackupObject) -> dict[str, Any]:
+        return {
+            "valid": True,
+            "exists_in_mist": False,
+            "warnings": [],
+            "deleted_dependencies": [
+                {
+                    "object_id": site_id,
+                    "object_type": "sites",
+                    "object_name": "Site A",
+                    "field_path": "site_id",
+                    "relationship": "parent",
+                    "org_id": org_id,
+                    "site_id": None,
+                },
+            ],
+            "deleted_children": [],
+            "active_children": [],
+        }
+
+    # --- patch _prepare_deleted_object_config to pass through backup.configuration ---
+    async def _fake_prepare(backup: BackupObject, id_remap=None) -> dict:
+        return dict(backup.configuration)
+
+    fake_mist = _FakeMistService()
+    service = RestoreService(fake_mist)
+    monkeypatch.setattr(service, "_validate_restore", _fake_validate)
+    monkeypatch.setattr(service, "_prepare_deleted_object_config", _fake_prepare)
+
+    result = await service.cascade_restore(
+        version_id=settings_v1.id,
+        include_parents=True,
+        include_children=False,
+        dry_run=False,
+        restored_by="test",
+    )
+
+    assert result["status"] == "success", f"Expected success; got: {result}"
+
+    # Site must be restored via POST (one call)
+    assert len(fake_mist.post_calls) == 1, (
+        f"Expected exactly 1 POST (for the site); got: {fake_mist.post_calls}"
+    )
+    assert "sites" in fake_mist.post_calls[0][0], (
+        f"POST should be for 'sites'; endpoint was: {fake_mist.post_calls[0][0]}"
+    )
+
+    # Settings singleton must be restored via PUT (one call)
+    assert len(fake_mist.put_calls) == 1, (
+        f"Expected exactly 1 PUT (for settings); got: {fake_mist.put_calls}"
+    )
+
+    # The PUT endpoint must contain the NEW site UUID from id_remap (not the original site_id)
+    new_site_uuid = result["id_remap"].get(site_id)
+    assert new_site_uuid is not None, "id_remap must contain a new UUID for the restored site"
+    put_endpoint = fake_mist.put_calls[0][0]
+    assert f"/sites/{new_site_uuid}/setting" in put_endpoint, (
+        f"PUT endpoint '{put_endpoint}' should contain '/sites/{{new_site_uuid}}/setting' "
+        f"with new_site_uuid='{new_site_uuid}'"
+    )
+    assert site_id not in put_endpoint, (
+        f"PUT endpoint '{put_endpoint}' must NOT use original site_id '{site_id}'"
+    )
+
+
+async def test_migrate_versions_to_new_id_singleton_with_new_site_id(test_db):
+    """
+    Characterization test: _migrate_versions_to_new_id in singleton mode
+    (old_object_id == new_object_id) updates site_id on all scoped versions
+    via update_many, leaving other-site records untouched, and appends a
+    RESTORED record under the new site_id.
+    """
+    org_id = "org-1"
+    old_site = "old-site"
+    new_site = "new-site"
+    other_site = "other-site"
+
+    # --- seed: two historical versions of settings on old-site ---
+    settings_v1 = await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id=old_site,
+        configuration={"rf_template_id": "tmpl-1"},
+        version=1,
+        object_name="settings",
+    )
+    settings_v2 = await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id=old_site,
+        configuration={"rf_template_id": "tmpl-2"},
+        version=2,
+        object_name="settings",
+        previous_version_id=settings_v1.id,
+    )
+
+    # --- seed: decoy settings on other-site (version=3 avoids (object_id, version) collision) ---
+    decoy = await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id=other_site,
+        configuration={"rf_template_id": "decoy"},
+        version=3,
+        object_name="settings",
+    )
+    decoy_id = decoy.id
+    decoy_config = dict(decoy.configuration)
+
+    # --- call _migrate_versions_to_new_id in singleton mode ---
+    fake_mist = _FakeMistService()
+    service = RestoreService(fake_mist)
+
+    mist_result = {"rf_template_id": "tmpl-2", "_via": "put"}
+    await service._migrate_versions_to_new_id(
+        old_object_id="settings",
+        new_object_id="settings",
+        backup=settings_v2,
+        result=mist_result,
+        restored_by="test",
+        id_remap={"old-site": "new-site"},
+        new_site_id=new_site,
+    )
+
+    # 1. Both old-site versions should now have site_id == new_site
+    from app.modules.backup.models import BackupEventType
+
+    old_site_records = await BackupObject.find(
+        {"object_type": "settings", "object_id": "settings", "org_id": org_id, "site_id": old_site}
+    ).to_list()
+    assert len(old_site_records) == 0, (
+        f"Expected 0 records remaining on old-site after migration; got {len(old_site_records)}"
+    )
+
+    new_site_records = await BackupObject.find(
+        {"object_type": "settings", "object_id": "settings", "org_id": org_id, "site_id": new_site}
+    ).to_list()
+    # v1 + v2 migrated + 1 RESTORED record appended = 3
+    assert len(new_site_records) == 3, (
+        f"Expected 3 records on new-site (v1 + v2 migrated + RESTORED); got {len(new_site_records)}"
+    )
+    for rec in new_site_records:
+        assert rec.site_id == new_site, f"Record {rec.id} should have site_id={new_site!r}; got {rec.site_id!r}"
+
+    # 2. A RESTORED record was appended with site_id == new_site
+    restored_records = [r for r in new_site_records if r.event_type == BackupEventType.RESTORED]
+    assert len(restored_records) == 1, (
+        f"Expected exactly 1 RESTORED record on new-site; got {len(restored_records)}"
+    )
+    assert restored_records[0].site_id == new_site
+
+    # 3. Decoy on other-site is completely untouched
+    decoy_after = await BackupObject.get(decoy_id)
+    assert decoy_after is not None, "Decoy record should still exist"
+    assert decoy_after.site_id == other_site, (
+        f"Decoy site_id should remain '{other_site}'; got '{decoy_after.site_id}'"
+    )
+    assert decoy_after.configuration == decoy_config, (
+        f"Decoy configuration should be unchanged; got {decoy_after.configuration}"
+    )
