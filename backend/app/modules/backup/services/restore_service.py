@@ -62,6 +62,28 @@ def _version_scope_query(
     return {"object_id": object_id}
 
 
+def _latest_deleted_by_scope_pipeline(match: dict[str, Any]) -> list[dict[str, Any]]:
+    """Aggregation: find the latest version per composite scope matching ``match``,
+    then keep only those whose latest version is a deletion record."""
+    return [
+        {"$match": match},
+        {"$sort": {"version": -1}},
+        {
+            "$group": {
+                "_id": {
+                    "object_type": "$object_type",
+                    "object_id": "$object_id",
+                    "org_id": "$org_id",
+                    "site_id": "$site_id",
+                },
+                "doc": {"$first": "$$ROOT"},
+            }
+        },
+        {"$replaceRoot": {"newRoot": "$doc"}},
+        {"$match": {"is_deleted": True}},
+    ]
+
+
 # ── Helpers for nested config field access ────────────────────────────────────
 
 
@@ -798,36 +820,16 @@ class RestoreService:
 
         # Collect deleted children that reference this object
         deleted_children: list[dict[str, Any]] = []
-        child_docs = (
-            await BackupObject.find({"references.target_id": backup.object_id, "is_deleted": True})
-            .sort([("version", -1)])
-            .to_list()
-        )
+        seen_children_keys: set[tuple[str, str, Optional[str], Optional[str]]] = set()
 
-        seen_children: set[str] = set()
-        for doc in child_docs:
-            if doc.object_id in seen_children:
-                continue
-            seen_children.add(doc.object_id)
+        ref_latest_docs = await BackupObject.aggregate(
+            _latest_deleted_by_scope_pipeline({"references.target_id": backup.object_id}),
+            projection_model=BackupObject,
+        ).to_list()
 
-            # Ensure the object is *currently* deleted: the query may return
-            # an old deletion record for an object that has since been
-            # recreated.  Verify by looking up the latest version within the
-            # child's own scope.
-            latest_scoped = (
-                await BackupObject.find(_version_scope_query(doc.object_type, doc.object_id, doc.org_id, doc.site_id))
-                .sort([("version", -1)])
-                .first_or_none()
-            )
-            if not latest_scoped or not latest_scoped.is_deleted:
-                continue
-
+        for doc in ref_latest_docs:
             for ref in doc.references:
                 if ref.target_id == backup.object_id:
-                    latest_version_id = (
-                        str(latest_scoped.previous_version_id) if latest_scoped.previous_version_id else None
-                    )
-
                     deleted_children.append(
                         {
                             "object_id": doc.object_id,
@@ -835,10 +837,15 @@ class RestoreService:
                             "object_name": doc.object_name,
                             "field_path": ref.field_path,
                             "relationship": "child",
-                            "latest_version_id": latest_version_id,
+                            "latest_version_id": (
+                                str(doc.previous_version_id) if doc.previous_version_id else None
+                            ),
                             "org_id": doc.org_id,
                             "site_id": doc.site_id,
                         }
+                    )
+                    seen_children_keys.add(
+                        (doc.object_type, doc.object_id, doc.org_id, doc.site_id)
                     )
                     break
 
@@ -847,37 +854,19 @@ class RestoreService:
         # implicit (stored as site_id on the document, not as a config-level reference).
         # Exclude "info" — it is the site-level view of the same object already being restored.
         if backup.object_type == "sites":
-            site_child_docs = (
-                await BackupObject.find(
-                    {"site_id": backup.object_id, "is_deleted": True, "object_type": {"$ne": "info"}}
-                )
-                .sort([("version", -1)])
-                .to_list()
-            )
-            seen_site_children: set[str] = set()
-            for doc in site_child_docs:
-                # Use (object_type, object_id, site_id) as the dedup key:
-                # singleton object_ids (e.g. "settings") collide across scopes
-                # so a plain object_id set would drop valid entries.
-                dedup_key = f"{doc.object_type}:{doc.object_id}:{doc.site_id}"
-                if dedup_key in seen_site_children or doc.object_id in seen_children:
-                    continue
-                seen_site_children.add(dedup_key)
+            site_latest_docs = await BackupObject.aggregate(
+                _latest_deleted_by_scope_pipeline(
+                    {"site_id": backup.object_id, "object_type": {"$ne": "info"}}
+                ),
+                projection_model=BackupObject,
+            ).to_list()
 
-                # Verify the object is still deleted at its latest version.
-                latest_scoped = (
-                    await BackupObject.find(
-                        _version_scope_query(doc.object_type, doc.object_id, doc.org_id, doc.site_id)
-                    )
-                    .sort([("version", -1)])
-                    .first_or_none()
-                )
-                if not latest_scoped or not latest_scoped.is_deleted:
+            for doc in site_latest_docs:
+                key = (doc.object_type, doc.object_id, doc.org_id, doc.site_id)
+                if key in seen_children_keys:
                     continue
+                seen_children_keys.add(key)
 
-                latest_version_id = (
-                    str(latest_scoped.previous_version_id) if latest_scoped.previous_version_id else None
-                )
                 deleted_children.append(
                     {
                         "object_id": doc.object_id,
@@ -885,7 +874,9 @@ class RestoreService:
                         "object_name": doc.object_name,
                         "field_path": "site_id",
                         "relationship": "child",
-                        "latest_version_id": latest_version_id,
+                        "latest_version_id": (
+                            str(doc.previous_version_id) if doc.previous_version_id else None
+                        ),
                         "org_id": doc.org_id,
                         "site_id": doc.site_id,
                     }
@@ -899,11 +890,12 @@ class RestoreService:
             active_child_docs = (
                 await BackupObject.find({"references.target_id": backup.object_id}).sort([("version", -1)]).to_list()
             )
-            seen_active: set[str] = set()
+            seen_active_keys: set[tuple[str, str, Optional[str], Optional[str]]] = set()
             for doc in active_child_docs:
-                if doc.object_id in seen_active or doc.object_id in seen_children:
+                key = (doc.object_type, doc.object_id, doc.org_id, doc.site_id)
+                if key in seen_active_keys or key in seen_children_keys:
                     continue
-                seen_active.add(doc.object_id)
+                seen_active_keys.add(key)
                 if doc.is_deleted:
                     continue
                 for ref in doc.references:
