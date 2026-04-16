@@ -156,6 +156,19 @@ class LLMService:
     # OpenAI SDK path (openai, lm_studio, azure_openai, mistral)
     # ------------------------------------------------------------------
 
+    def _get_max_tokens_param(self) -> dict[str, int]:
+        """Return the correct max tokens parameter for the model.
+
+        Newer OpenAI models (gpt-4o, gpt-5.x, o1, o3, etc.) require
+        'max_completion_tokens' while older models use 'max_tokens'.
+        """
+        # Models that require max_completion_tokens
+        new_style_prefixes = ("gpt-4o", "gpt-5", "o1", "o3", "chatgpt-4o")
+        model_lower = self.model.lower()
+        if any(model_lower.startswith(prefix) for prefix in new_style_prefixes):
+            return {"max_completion_tokens": self.max_tokens}
+        return {"max_tokens": self.max_tokens}
+
     def _get_openai_client(self) -> tuple[Any, Any | None]:
         """Create an ``openai.AsyncOpenAI`` client and optional custom HTTP client."""
         from openai import AsyncOpenAI
@@ -201,7 +214,7 @@ class LLMService:
             "model": self.model,
             "messages": self._messages_to_dicts(messages),
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            **self._get_max_tokens_param(),
         }
         if json_mode:
             # Some OpenAI-compat servers (LM Studio) reject json_object.
@@ -232,14 +245,15 @@ class LLMService:
 
     async def _stream_openai(self, messages: list[LLMMessage]) -> AsyncGenerator[str, None]:
         client, custom_http_client = self._get_openai_client()
+        kwargs: dict = {
+            "model": self.model,
+            "messages": self._messages_to_dicts(messages),
+            "temperature": self.temperature,
+            **self._get_max_tokens_param(),
+            "stream": True,
+        }
         try:
-            stream = await client.chat.completions.create(
-                model=self.model,
-                messages=self._messages_to_dicts(messages),
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                stream=True,
-            )
+            stream = await client.chat.completions.create(**kwargs)
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
@@ -261,7 +275,7 @@ class LLMService:
             "model": self.model,
             "messages": self._messages_to_dicts(messages),
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            **self._get_max_tokens_param(),
             "tools": tools,
         }
         if tool_choice is not None:
@@ -298,7 +312,7 @@ class LLMService:
             "model": self.model,
             "messages": self._messages_to_dicts(messages),
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            **self._get_max_tokens_param(),
             "tools": tools,
             "stream": True,
         }
