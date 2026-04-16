@@ -353,7 +353,7 @@ async def test_validate_restore_collects_site_scoped_children_when_restoring_sit
         version=1,
         object_name="Site A",
     )
-    site_v2 = await _seed_backup(
+    await _seed_backup(
         "sites",
         "site-A",
         org_id,
@@ -518,7 +518,7 @@ async def test_cascade_restore_singleton_target_uses_put(test_db, monkeypatch):
         version=1,
         object_name="Site A",
     )
-    site_v2 = await _seed_backup(
+    await _seed_backup(
         "sites",
         site_id,
         org_id,

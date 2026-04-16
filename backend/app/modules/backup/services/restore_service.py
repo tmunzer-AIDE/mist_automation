@@ -820,7 +820,7 @@ class RestoreService:
 
         # Collect deleted children that reference this object
         deleted_children: list[dict[str, Any]] = []
-        seen_children_keys: set[tuple[str, str, Optional[str], Optional[str]]] = set()
+        seen_children_keys: set[tuple[str, str, str | None, str | None]] = set()
 
         ref_latest_docs = await BackupObject.aggregate(
             _latest_deleted_by_scope_pipeline({"references.target_id": backup.object_id}),
@@ -890,7 +890,7 @@ class RestoreService:
             active_child_docs = (
                 await BackupObject.find({"references.target_id": backup.object_id}).sort([("version", -1)]).to_list()
             )
-            seen_active_keys: set[tuple[str, str, Optional[str], Optional[str]]] = set()
+            seen_active_keys: set[tuple[str, str, str | None, str | None]] = set()
             for doc in active_child_docs:
                 key = (doc.object_type, doc.object_id, doc.org_id, doc.site_id)
                 if key in seen_active_keys or key in seen_children_keys:
