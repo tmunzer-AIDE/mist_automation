@@ -4,17 +4,19 @@ A self-hosted platform for automating Juniper Mist network operations and managi
 
 ## Features
 
-- **Configuration Backup & Restore** — Scheduled snapshots of your Mist org/site configs with retention policies. Optional Git versioning for full history tracking.
-- **Webhook-driven Automation** — Receive Mist webhooks and trigger workflows automatically. Includes a visual graph editor for building workflows (see the [workflow guide](docs/workflows.md) for details).
-- **Post-deployment Reports** — Validate AP, switch, and gateway health after changes. Checks firmware, port status, cable tests, virtual chassis consistency. Export to PDF or CSV.
+- **Configuration Backup & Restore** — Scheduled snapshots of Mist org/site configs with retention policies and optional Git history tracking. Details: [Backup object time travel](docs/backup-object-time-travel-implementation-plan.md).
+- **Webhook-driven Automation** — Receive Mist webhooks and run graph-based workflows with trigger/filter/action nodes. Details: [Workflow guide](docs/workflows.md).
+- **Digital Twin (Pre-deployment Simulation)** — Simulate config changes before deployment and catch conflicts across config, topology, routing, security, and L2 checks. Details: [Digital Twin guide](docs/digital-twin.md).
+- **Config Change Impact Analysis** — Automatically monitor post-change behavior, run validation checks, and generate AI-assisted impact assessments. Details: [Impact Analysis guide](docs/impact-analysis.md).
+- **Telemetry & Live Device Analytics** — Always-on Mist WebSocket ingestion with InfluxDB-backed queries, live device streams, and site/client observability views. Details: [Telemetry module docs](backend/app/modules/telemetry/CLAUDE.md).
+- **AI Assistance & MCP Tooling** — Multi-provider LLM support (OpenAI, Anthropic, Ollama, LM Studio, and others), conversational threads, MCP tool-calling, and persistent memory. Details: [LLM integration architecture](docs/llm-integration.md), [MCP server module](backend/app/modules/mcp_server/CLAUDE.md).
+- **AP Power Scheduling** — Define off-hours windows per site to reduce AP power usage while protecting client roaming and critical APs.
+- **Post-deployment Reports** — Validate AP, switch, and gateway health after changes (firmware, ports, cable tests, virtual chassis consistency) with PDF/CSV export.
 - **Webhook Monitor** — Real-time view of incoming Mist webhook events with filtering and history.
-- **AI Assistance** — Multi-provider LLM integration (OpenAI, Anthropic, Ollama, LM Studio, etc.) with MCP tool calling. Global chat panel, workflow AI agent nodes, and autonomous backup analysis.
-- **Notifications** — Per-workflow failure alerts via Slack, Email (SMTP), PagerDuty, or ServiceNow. Integration test buttons for all channels.
-- **User Management** — Role-based access (admin, automation, backup, post_deployment, impact_analysis), JWT auth with optional 2FA (TOTP), passkey/WebAuthn passwordless login, session management.
-- **Maintenance Mode** — Admin toggle that returns 503 to non-admin users. Health endpoint stays available for monitoring.
-- **Config Change Impact Analysis** — Automated post-change monitoring triggered by device-events webhooks (`AP_CONFIGURED`, `SW_CONFIGURED`, `GW_CONFIGURED`). Captures SLE baselines, monitors for degradation over a configurable window (default 60 minutes), correlates device incidents, and runs 14 validation checks (connectivity, SLE performance, stability, loop/black hole detection, client impact, alarm correlation, port flapping, DHCP health, VC/MCLAG integrity, routing adjacency, config drift, PoE budget, WAN failover). Uses a two-tier SLE strategy: site-level polling at every interval (shared across sessions via `SiteDataCoordinator`) with device-level drill-down only when degradation is detected. An AI Agent analyzes all collected data to produce severity assessments and actionable recommendations, with a rule-based fallback when LLM is unavailable. Dedicated UI with session list, detail view (SLE charts, topology diagrams, event timeline), and a dashboard widget with live WebSocket updates.
-- **Digital Twin (Pre-deployment Simulation)** — Proactive configuration validation that simulates proposed Mist changes against a virtual network state *before* deployment. Detects IP/subnet conflicts, VLAN collisions, SSID duplicates, unresolved template variables, DHCP misconfigurations, airtime overhead, PSK rotation impact, and more (37 checks across 5 layers). Integrates with the LLM chat panel for intent-based workflows: describe what you want in natural language, the AI translates to API payloads, the Twin validates them, and proposes fixes for any issues found. See the [Digital Twin guide](docs/digital-twin.md) for details.
-- **Dashboard** — Overview of system activity, backup status, recent executions, and active impact analysis sessions.
+- **Notifications** — Per-workflow failure alerts via Slack, Email (SMTP), PagerDuty, or ServiceNow with built-in integration tests.
+- **User Management** — Role-based access (admin, automation, backup, post_deployment, impact_analysis), JWT auth with optional TOTP, passkey/WebAuthn login, and session controls.
+- **Maintenance Mode** — Admin toggle that returns 503 to non-admin users while keeping health endpoints available.
+- **Dashboard** — Overview of system activity, backup status, workflow executions, and impact analysis activity.
 - **Dark Mode** — Because of course.
 
 ## Tech Stack
