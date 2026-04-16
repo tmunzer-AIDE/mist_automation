@@ -149,6 +149,25 @@ export class BackupObjectDetailComponent implements OnInit {
     return v.length > 0 ? v[v.length - 1] : null;
   });
 
+  firstSeenAt = computed<string | null>(() => {
+    const versions = this.versions();
+    if (versions.length === 0) return null;
+
+    let earliest = this.toUtcMs(versions[0].backed_up_at);
+    let earliestRaw = versions[0].backed_up_at;
+
+    for (let i = 1; i < versions.length; i++) {
+      const currentRaw = versions[i].backed_up_at;
+      const current = this.toUtcMs(currentRaw);
+      if (current < earliest) {
+        earliest = current;
+        earliestRaw = currentRaw;
+      }
+    }
+
+    return earliestRaw;
+  });
+
   maxChanges = computed(() => {
     const counts = this.versions().map((v) => v.changed_fields.length);
     return Math.max(1, ...counts);
@@ -172,8 +191,11 @@ export class BackupObjectDetailComponent implements OnInit {
     const versions = this.versions();
     if (versions.length === 0) return [];
 
-    // Timeline goes oldest → newest (left → right)
-    const sorted = [...versions].reverse();
+    // Timeline goes oldest -> newest (left -> right) using backup timestamp, not version number.
+    const sorted = [...versions].sort((a, b) => {
+      const delta = this.toUtcMs(a.backed_up_at) - this.toUtcMs(b.backed_up_at);
+      return delta !== 0 ? delta : a.version - b.version;
+    });
 
     const earliest = this.toUtcMs(sorted[0].backed_up_at);
     const latest = this.toUtcMs(sorted[sorted.length - 1].backed_up_at);

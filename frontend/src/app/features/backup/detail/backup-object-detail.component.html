@@ -21,7 +21,7 @@
         <code class="object-uuid">{{ objectId }}</code>
         <span>
           {{ versions().length }} version{{ versions().length === 1 ? '' : 's' }}
-          · first seen {{ oldestVersion()?.backed_up_at | dateTime }}
+          · first seen {{ firstSeenAt() | dateTime }}
         </span>
       </div>
     </div>
@@ -85,7 +85,7 @@
     </div>
     <!-- Date axis: just show first and last dates -->
     <div class="timeline-dates">
-      <span>{{ oldestVersion()?.backed_up_at | dateTime }}</span>
+      <span>{{ firstSeenAt() | dateTime }}</span>
       <span>{{ latestVersion()?.backed_up_at | dateTime }}</span>
     </div>
   </div>

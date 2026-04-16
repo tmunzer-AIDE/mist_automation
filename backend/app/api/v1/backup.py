@@ -537,7 +537,7 @@ async def list_backup_objects(
                 "latest_version": {"$first": "$version"},
                 "version_count": {"$sum": 1},
                 "first_backed_up_at": {"$min": "$backed_up_at"},
-                "last_backed_up_at": {"$max": "$backed_up_at"},
+                "last_backed_up_at": {"$first": "$backed_up_at"},
                 "last_modified_at": {"$first": "$last_modified_at"},
                 "is_deleted": {"$first": "$is_deleted"},
                 "event_type": {"$first": "$event_type"},

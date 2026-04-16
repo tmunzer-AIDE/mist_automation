@@ -254,11 +254,10 @@ class BackupService:
         # Extract cross-object references
         refs = [ObjectReference(**r) for r in extract_references(object_type, config)]
 
-        # Check if object already exists (latest version)
-        existing = (
+        # Resolve latest version first (including deleted) so version chain and state stay consistent.
+        latest_any = (
             await BackupObject.find(
                 BackupObject.object_id == object_id,
-                BackupObject.is_deleted == False,
             )
             .sort([("version", -1)])
             .first_or_none()
@@ -266,7 +265,10 @@ class BackupService:
 
         now = datetime.now(timezone.utc)
 
-        if existing:
+        # Latest is active: normal unchanged/updated behavior.
+        if latest_any and not latest_any.is_deleted:
+            existing = latest_any
+
             if existing.configuration_hash == config_hash:
                 # No diff — just update backed_up_at on the existing version
                 existing.backed_up_at = now
@@ -327,60 +329,60 @@ class BackupService:
                 )
             return "updated"
 
-        else:
-            for _attempt in range(3):
-                try:
-                    # Check if a deleted version exists (object was deleted then re-created)
-                    latest_any = (
-                        await BackupObject.find(
-                            BackupObject.object_id == object_id,
-                        )
-                        .sort([("version", -1)])
-                        .first_or_none()
+        # No active latest version exists. This means a true first backup OR a re-created object
+        # after a deleted latest version. In both cases, create a fresh version linked to latest_any.
+        for _attempt in range(3):
+            try:
+                # Recompute next version each retry to avoid repeating the same duplicate key.
+                next_ver_new = await BackupObject.next_version(object_id)
+                latest_for_chain = (
+                    await BackupObject.find(
+                        BackupObject.object_id == object_id,
                     )
+                    .sort([("version", -1)])
+                    .first_or_none()
+                )
+                prev_id = latest_for_chain.id if latest_for_chain else None
 
-                    next_ver_new = (latest_any.version + 1) if latest_any else 1
-                    prev_id = latest_any.id if latest_any else None
-
-                    new_backup = BackupObject(
-                        object_type=object_type,
-                        object_id=object_id,
-                        object_name=object_name,
-                        org_id=org_id,
-                        site_id=site_id,
-                        configuration=config,
-                        configuration_hash=config_hash,
-                        version=next_ver_new,
-                        previous_version_id=prev_id,
-                        event_type=event_type_if_new,
-                        changed_fields=[],
-                        backed_up_at=now,
-                        last_modified_at=now,
-                        references=refs,
-                    )
-                    await new_backup.insert()
-                    break
-                except DuplicateKeyError:
-                    continue
-            else:
-                raise BackupError(f"Failed to create backup version for {object_id} after retries")
-
-            logger.info(
-                "object_created",
-                object_type=object_type,
-                object_id=object_id,
-                object_name=object_name,
-            )
-            if self.backup_logger:
-                await self.backup_logger.info(
-                    "org_objects" if not site_id else "site_objects",
-                    f"Created {object_type} '{object_name}'",
+                new_backup = BackupObject(
                     object_type=object_type,
                     object_id=object_id,
                     object_name=object_name,
+                    org_id=org_id,
                     site_id=site_id,
+                    configuration=config,
+                    configuration_hash=config_hash,
+                    version=next_ver_new,
+                    previous_version_id=prev_id,
+                    event_type=event_type_if_new,
+                    changed_fields=[],
+                    backed_up_at=now,
+                    last_modified_at=now,
+                    references=refs,
                 )
-            return "created"
+                await new_backup.insert()
+                break
+            except DuplicateKeyError:
+                continue
+        else:
+            raise BackupError(f"Failed to create backup version for {object_id} after retries")
+
+        logger.info(
+            "object_created",
+            object_type=object_type,
+            object_id=object_id,
+            object_name=object_name,
+        )
+        if self.backup_logger:
+            await self.backup_logger.info(
+                "org_objects" if not site_id else "site_objects",
+                f"Created {object_type} '{object_name}'",
+                object_type=object_type,
+                object_id=object_id,
+                object_name=object_name,
+                site_id=site_id,
+            )
+        return "created"
 
     async def perform_manual_backup(
         self,
@@ -525,38 +527,41 @@ class BackupService:
         deleted_by: Optional[str] = None,
     ) -> Optional[BackupObject]:
         """Mark an object as deleted."""
-        existing = (
+        latest = (
             await BackupObject.find(
                 BackupObject.object_id == object_id,
-                BackupObject.is_deleted == False,
             )
             .sort([("version", -1)])
             .first_or_none()
         )
 
-        if not existing:
+        if not latest:
             logger.warning("object_not_found_for_deletion", object_id=object_id)
+            return None
+
+        if latest.is_deleted:
+            logger.debug("object_already_deleted", object_id=object_id)
             return None
 
         for _attempt in range(3):
             next_ver = await BackupObject.next_version(object_id)
             try:
                 deletion_backup = BackupObject(
-                    object_type=existing.object_type,
+                    object_type=latest.object_type,
                     object_id=object_id,
-                    object_name=existing.object_name,
-                    org_id=existing.org_id,
-                    site_id=existing.site_id,
-                    configuration=existing.configuration,
-                    configuration_hash=existing.configuration_hash,
+                    object_name=latest.object_name,
+                    org_id=latest.org_id,
+                    site_id=latest.site_id,
+                    configuration=latest.configuration,
+                    configuration_hash=latest.configuration_hash,
                     version=next_ver,
-                    previous_version_id=existing.id,
+                    previous_version_id=latest.id,
                     event_type=BackupEventType.DELETED,
                     changed_fields=[],
                     is_deleted=True,
                     deleted_at=datetime.now(timezone.utc),
                     backed_up_by=deleted_by or "system",
-                    references=existing.references,
+                    references=latest.references,
                 )
                 await deletion_backup.insert()
                 break
@@ -568,7 +573,7 @@ class BackupService:
         logger.info(
             "object_marked_deleted",
             object_id=object_id,
-            object_name=existing.object_name,
+            object_name=latest.object_name,
             deleted_by=deleted_by,
         )
         return deletion_backup
