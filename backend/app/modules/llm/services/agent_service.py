@@ -81,6 +81,7 @@ class AIAgentService:
         system_prompt: str = "",
         context: dict | None = None,
         on_tool_call: ToolCallCallback | None = None,
+        messages: list[LLMMessage] | None = None,
     ) -> AgentResult:
         """Run the agent loop until task completion or iteration limit."""
         # Gather tools from all MCP servers
@@ -104,15 +105,17 @@ class AIAgentService:
                 error="No tools found",
             )
 
-        # Build initial messages
-        sys_content = system_prompt or "You are an AI agent that uses tools to accomplish tasks."
-        if context:
-            sys_content += f"\n\nContext:\n```json\n{json.dumps(context, default=str)[:3000]}\n```"
-
-        messages = [
-            LLMMessage(role="system", content=sys_content),
-            LLMMessage(role="user", content=task),
-        ]
+        if messages is not None:
+            llm_messages = list(messages)
+            llm_messages.append(LLMMessage(role="user", content=task))
+        else:
+            sys_content = system_prompt or "You are an AI agent that uses tools to accomplish tasks."
+            if context:
+                sys_content += f"\n\nContext:\n```json\n{json.dumps(context, default=str)[:3000]}\n```"
+            llm_messages = [
+                LLMMessage(role="system", content=sys_content),
+                LLMMessage(role="user", content=task),
+            ]
 
         tool_calls: list[ToolCallRecord] = []
         thinking_texts: list[str] = []
@@ -127,9 +130,9 @@ class AIAgentService:
 
             if on_tool_call:
 
-                response = await self.llm.stream_with_tools(messages, all_tools, on_content=_on_content)
+                response = await self.llm.stream_with_tools(llm_messages, all_tools, on_content=_on_content)
             else:
-                response = await self.llm.complete_with_tools(messages, all_tools)
+                response = await self.llm.complete_with_tools(llm_messages, all_tools)
 
             # Check if the LLM wants to call tools
             raw_tool_calls = response.tool_calls
@@ -188,7 +191,7 @@ class AIAgentService:
                 }
                 for tc in raw_tool_calls
             ]
-            messages.append(LLMMessage(role="assistant", content=response.content or "", tool_calls=raw_tc_dicts))
+            llm_messages.append(LLMMessage(role="assistant", content=response.content or "", tool_calls=raw_tc_dicts))
 
             # Execute each tool call and append results with tool_call_id
             for tc in raw_tool_calls:
@@ -197,7 +200,7 @@ class AIAgentService:
                 try:
                     arguments = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
                 except json.JSONDecodeError:
-                    messages.append(
+                    llm_messages.append(
                         LLMMessage(
                             role="tool",
                             content="Error: tool arguments were not valid JSON",
@@ -251,7 +254,7 @@ class AIAgentService:
                     )
                 )
 
-                messages.append(
+                llm_messages.append(
                     LLMMessage(
                         role="tool",
                         content=result_text[:2000],
@@ -260,7 +263,7 @@ class AIAgentService:
                 )
 
         # Iteration limit reached — get final response without tools
-        response = await self.llm.complete(messages)
+        response = await self.llm.complete(llm_messages)
         return AgentResult(
             status="max_iterations",
             result=response.content,

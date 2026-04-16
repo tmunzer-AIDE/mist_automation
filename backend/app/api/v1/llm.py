@@ -1680,18 +1680,13 @@ async def global_chat(
 
     if not thread.messages:
         thread.add_message("system", system_prompt)
-        await thread.save()
-    elif safe_ctx:
-        # Update system prompt with latest page context for existing threads
-        if thread.messages and thread.messages[0].role == "system":
-            base_prompt = build_global_chat_system_prompt(current_user.roles, tz_name=current_user.timezone)
-            if canvas_instr:
-                base_prompt += "\n\n" + canvas_instr
-            if skills_catalog:
-                base_prompt += "\n\n" + skills_catalog
-            if getattr(sys_conf, "memory_enabled", True):
-                base_prompt += "\n\n" + build_memory_instruction()
-            thread.messages[0].content = base_prompt + f"\n\nCurrent UI context:\n{safe_ctx}"
+    elif thread.messages[0].role == "system":
+        thread.messages[0].content = system_prompt
+    else:
+        from app.modules.llm.models import ConversationMessage
+
+        thread.messages.insert(0, ConversationMessage(role="system", content=system_prompt))
+    await thread.save()
 
     # Add user message
     thread.add_message("user", request.message)
@@ -1713,18 +1708,23 @@ async def global_chat(
     ) as all_clients:
         agent = AIAgentService(llm=llm, mcp_clients=all_clients, max_iterations=10)
 
-        # Include recent conversation history as context for multi-turn
-        history = thread.get_messages_for_llm(max_turns=10)
-        context_summary = ""
-        if len(history) > 2:
-            prior_turns = [f"{m['role']}: {_sanitize_prior_turn(m['content'], 200)}" for m in history[1:-1]]
-            context_summary = "\n\nPrior conversation:\n" + "\n".join(prior_turns[-6:])
+        prior_messages = thread.to_llm_messages(max_turns=20)[:-1]
+        if not prior_messages or prior_messages[0].role != "system":
+            prior_messages = None
 
-        result = await agent.run(
-            task=request.message,
-            system_prompt=system_prompt + context_summary,
-            on_tool_call=_make_tool_notifier(request.stream_id),
-        )
+        try:
+            result = await agent.run(
+                task=request.message,
+                messages=prior_messages,
+                system_prompt=system_prompt,
+                on_tool_call=_make_tool_notifier(request.stream_id),
+            )
+        except Exception as exc:
+            # Save error to thread so context isn't lost on next request
+            error_msg = f"[Agent error: {type(exc).__name__}. Please retry your request.]"
+            thread.add_message("assistant", error_msg, metadata={"error": type(exc).__name__})
+            await thread.save()
+            raise
 
         reply = result.result
         tool_calls_summary = [{"tool": tc.tool, "arguments": tc.arguments} for tc in result.tool_calls]
