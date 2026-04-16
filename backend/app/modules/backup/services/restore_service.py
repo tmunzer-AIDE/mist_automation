@@ -797,6 +797,7 @@ class RestoreService:
                 await BackupObject.find(
                     BackupObject.object_type == "sites",
                     BackupObject.object_id == backup.site_id,
+                    BackupObject.org_id == backup.org_id,
                 )
                 .sort([("version", -1)])
                 .first_or_none()
@@ -823,7 +824,7 @@ class RestoreService:
         seen_children_keys: set[tuple[str, str, str | None, str | None]] = set()
 
         ref_latest_docs = await BackupObject.aggregate(
-            _latest_deleted_by_scope_pipeline({"references.target_id": backup.object_id}),
+            _latest_deleted_by_scope_pipeline({"references.target_id": backup.object_id, "org_id": backup.org_id}),
             projection_model=BackupObject,
         ).to_list()
 
@@ -856,7 +857,7 @@ class RestoreService:
         if backup.object_type == "sites":
             site_latest_docs = await BackupObject.aggregate(
                 _latest_deleted_by_scope_pipeline(
-                    {"site_id": backup.object_id, "object_type": {"$ne": "info"}}
+                    {"site_id": backup.object_id, "object_type": {"$ne": "info"}, "org_id": backup.org_id}
                 ),
                 projection_model=BackupObject,
             ).to_list()
@@ -888,7 +889,7 @@ class RestoreService:
         active_children: list[dict[str, Any]] = []
         if not exists:
             active_child_docs = (
-                await BackupObject.find({"references.target_id": backup.object_id}).sort([("version", -1)]).to_list()
+                await BackupObject.find({"references.target_id": backup.object_id, "org_id": backup.org_id}).sort([("version", -1)]).to_list()
             )
             seen_active_keys: set[tuple[str, str, str | None, str | None]] = set()
             for doc in active_child_docs:
