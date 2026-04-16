@@ -5,7 +5,7 @@ import json
 import uuid
 from typing import Any
 
-from app.modules.backup.models import BackupEventType, BackupObject
+from app.modules.backup.models import BackupEventType, BackupObject, ObjectReference
 from app.modules.backup.services.restore_service import RestoreService
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -40,11 +40,13 @@ async def _seed_backup(
     is_deleted: bool = False,
     previous_version_id=None,
     object_name: str | None = None,
+    references: list[dict] | None = None,
 ) -> BackupObject:
     """Insert a BackupObject into the test DB and return it."""
     if configuration is None:
         configuration = {}
     config_hash = hashlib.sha256(json.dumps(configuration, sort_keys=True).encode()).hexdigest()
+    refs = [ObjectReference(**r) for r in references] if references else []
     doc = BackupObject(
         object_type=object_type,
         object_id=object_id,
@@ -57,6 +59,7 @@ async def _seed_backup(
         previous_version_id=previous_version_id,
         event_type=BackupEventType.DELETED if is_deleted else BackupEventType.CREATED,
         is_deleted=is_deleted,
+        references=refs,
     )
     await doc.insert()
     return doc
@@ -209,3 +212,288 @@ async def test_cascade_restore_reorders_parents_site_first(test_db, monkeypatch)
     assert site_id not in wxtag_endpoint, (
         f"wxtag POST endpoint '{wxtag_endpoint}' must NOT use original site_id '{site_id}'"
     )
+
+
+async def test_validate_restore_batches_deleted_children(test_db, monkeypatch):
+    """
+    Characterization test: _validate_restore collects deleted children that
+    reference the target via the BackupObject.references index.
+
+    Scenario:
+      - target: wxtag "tag-1" on site-A
+      - rule-1: 3 versions (v1 active, v2 active, v3 deleted) — references tag-1
+      - rule-2: 2 versions (v1 active, v2 deleted)            — references tag-1
+      - rule-3: 1 version  (v1 active, NOT deleted)           — decoy, must be excluded
+    """
+    org_id = "org-1"
+    site_id = "site-A"
+    tag_id = "tag-1"
+
+    # --- target: wxtag tag-1 (active v1) ---
+    tag_v1 = await _seed_backup(
+        "wxtags",
+        tag_id,
+        org_id,
+        site_id=site_id,
+        configuration={"name": "My Tag"},
+        version=1,
+        object_name="My Tag",
+    )
+
+    # --- rule-1: 3 versions, v3 deleted ---
+    rule1_v1 = await _seed_backup(
+        "wxrules",
+        "rule-1",
+        org_id,
+        site_id=site_id,
+        configuration={"src_wxtags": [tag_id]},
+        version=1,
+        object_name="Rule 1",
+        references=[{"target_type": "wxtags", "target_id": tag_id, "field_path": "src_wxtags"}],
+    )
+    rule1_v2 = await _seed_backup(
+        "wxrules",
+        "rule-1",
+        org_id,
+        site_id=site_id,
+        configuration={"src_wxtags": [tag_id]},
+        version=2,
+        object_name="Rule 1",
+        previous_version_id=rule1_v1.id,
+        references=[{"target_type": "wxtags", "target_id": tag_id, "field_path": "src_wxtags"}],
+    )
+    await _seed_backup(
+        "wxrules",
+        "rule-1",
+        org_id,
+        site_id=site_id,
+        configuration={},
+        version=3,
+        is_deleted=True,
+        object_name="Rule 1",
+        previous_version_id=rule1_v2.id,
+        references=[{"target_type": "wxtags", "target_id": tag_id, "field_path": "src_wxtags"}],
+    )
+
+    # --- rule-2: 2 versions, v2 deleted ---
+    rule2_v1 = await _seed_backup(
+        "wxrules",
+        "rule-2",
+        org_id,
+        site_id=site_id,
+        configuration={"src_wxtags": [tag_id]},
+        version=1,
+        object_name="Rule 2",
+        references=[{"target_type": "wxtags", "target_id": tag_id, "field_path": "src_wxtags"}],
+    )
+    await _seed_backup(
+        "wxrules",
+        "rule-2",
+        org_id,
+        site_id=site_id,
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="Rule 2",
+        previous_version_id=rule2_v1.id,
+        references=[{"target_type": "wxtags", "target_id": tag_id, "field_path": "src_wxtags"}],
+    )
+
+    # --- rule-3: decoy — active v1, NOT deleted, references tag-1 ---
+    await _seed_backup(
+        "wxrules",
+        "rule-3",
+        org_id,
+        site_id=site_id,
+        configuration={"src_wxtags": [tag_id]},
+        version=1,
+        object_name="Rule 3",
+        references=[{"target_type": "wxtags", "target_id": tag_id, "field_path": "src_wxtags"}],
+    )
+
+    # --- patch _fetch_current_config to return {} (exists_in_mist=True) ---
+    async def _fake_fetch(object_type, object_id, site_id=None):
+        return {}
+
+    fake_mist = _FakeMistService()
+    service = RestoreService(fake_mist)
+    monkeypatch.setattr(service, "_fetch_current_config", _fake_fetch)
+
+    result = await service._validate_restore(tag_v1)
+
+    child_ids = [c["object_id"] for c in result["deleted_children"]]
+    assert "rule-1" in child_ids, f"rule-1 should be a deleted child; got: {child_ids}"
+    assert "rule-2" in child_ids, f"rule-2 should be a deleted child; got: {child_ids}"
+    assert "rule-3" not in child_ids, f"rule-3 is active and must NOT appear; got: {child_ids}"
+    # Each rule should appear exactly once (deduplication)
+    assert child_ids.count("rule-1") == 1, f"rule-1 appears more than once: {child_ids}"
+    assert child_ids.count("rule-2") == 1, f"rule-2 appears more than once: {child_ids}"
+
+
+async def test_validate_restore_collects_site_scoped_children_when_restoring_site(test_db, monkeypatch):
+    """
+    Characterization test: _validate_restore collects deleted site-scoped
+    children (via site_id membership) when the target is a site.
+
+    Scenario:
+      - site-A: v1 active, v2 deleted
+      - children of site-A (all with v1 active, v2 deleted):
+          map-1 (maps), wlan-1 (wlans), settings singleton (settings)
+      - decoy: settings on site-B — active v1 only, must be excluded
+      - excluded: info record for site-A — must be excluded by object_type != "info"
+    """
+    org_id = "org-1"
+
+    # --- site-A: v1 active, v2 deleted ---
+    site_v1 = await _seed_backup(
+        "sites",
+        "site-A",
+        org_id,
+        configuration={"name": "Site A"},
+        version=1,
+        object_name="Site A",
+    )
+    site_v2 = await _seed_backup(
+        "sites",
+        "site-A",
+        org_id,
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="Site A",
+        previous_version_id=site_v1.id,
+    )
+
+    # --- map-1 on site-A ---
+    map_v1 = await _seed_backup(
+        "maps",
+        "map-1",
+        org_id,
+        site_id="site-A",
+        configuration={"name": "Floor 1"},
+        version=1,
+        object_name="Floor 1",
+    )
+    await _seed_backup(
+        "maps",
+        "map-1",
+        org_id,
+        site_id="site-A",
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="Floor 1",
+        previous_version_id=map_v1.id,
+    )
+
+    # --- wlan-1 on site-A ---
+    wlan_v1 = await _seed_backup(
+        "wlans",
+        "wlan-1",
+        org_id,
+        site_id="site-A",
+        configuration={"ssid": "Corp"},
+        version=1,
+        object_name="Corp",
+    )
+    await _seed_backup(
+        "wlans",
+        "wlan-1",
+        org_id,
+        site_id="site-A",
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="Corp",
+        previous_version_id=wlan_v1.id,
+    )
+
+    # --- settings singleton on site-A ---
+    settings_v1 = await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id="site-A",
+        configuration={"rf_template_id": None},
+        version=1,
+        object_name="settings",
+    )
+    await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id="site-A",
+        configuration={},
+        version=2,
+        is_deleted=True,
+        object_name="settings",
+        previous_version_id=settings_v1.id,
+    )
+
+    # --- decoy: settings on site-B — active only, must NOT appear ---
+    # Note: unique_object_version index is on (object_id, version) globally,
+    # so we use version=3 to avoid colliding with site-A settings v1/v2.
+    await _seed_backup(
+        "settings",
+        "settings",
+        org_id,
+        site_id="site-B",
+        configuration={"rf_template_id": None},
+        version=3,
+        object_name="settings",
+    )
+
+    # --- excluded: info record for site-A — excluded by object_type != "info" filter ---
+    # Use version=3 and version=4 to avoid colliding with the sites records (v1, v2).
+    # The unique index is on (object_id, version) globally.
+    info_v1 = await _seed_backup(
+        "info",
+        "site-A",
+        org_id,
+        site_id="site-A",
+        configuration={"name": "Site A"},
+        version=3,
+        object_name="Site A",
+    )
+    await _seed_backup(
+        "info",
+        "site-A",
+        org_id,
+        site_id="site-A",
+        configuration={},
+        version=4,
+        is_deleted=True,
+        object_name="Site A",
+        previous_version_id=info_v1.id,
+    )
+
+    # --- patch _fetch_current_config to raise (exists_in_mist=False) ---
+    async def _fake_fetch_raises(object_type, object_id, site_id=None):
+        raise Exception("not found")
+
+    fake_mist = _FakeMistService()
+    service = RestoreService(fake_mist)
+    monkeypatch.setattr(service, "_fetch_current_config", _fake_fetch_raises)
+
+    # Pass the active version (v1) of the site — the code checks object_type == "sites"
+    result = await service._validate_restore(site_v1)
+
+    child_ids = [c["object_id"] for c in result["deleted_children"]]
+    child_types = {c["object_id"]: c["object_type"] for c in result["deleted_children"]}
+
+    assert "map-1" in child_ids, f"map-1 should be a site-scoped child; got: {child_ids}"
+    assert "wlan-1" in child_ids, f"wlan-1 should be a site-scoped child; got: {child_ids}"
+
+    # settings from site-A must be present; identify by (object_id, site_id) pair
+    settings_children = [c for c in result["deleted_children"] if c["object_id"] == "settings"]
+    assert len(settings_children) >= 1, f"settings (site-A) should be a child; got: {result['deleted_children']}"
+    assert all(c["site_id"] == "site-A" for c in settings_children), (
+        f"settings child must be from site-A only; got: {settings_children}"
+    )
+
+    # info must be excluded
+    assert "info" not in child_types.values(), f"info type must be excluded; got: {child_ids}"
+
+    # site-B settings must not appear
+    site_b_settings = [c for c in result["deleted_children"] if c["object_id"] == "settings" and c.get("site_id") == "site-B"]
+    assert len(site_b_settings) == 0, f"site-B settings must not appear; got: {site_b_settings}"
