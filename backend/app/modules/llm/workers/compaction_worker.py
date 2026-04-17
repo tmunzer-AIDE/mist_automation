@@ -17,18 +17,72 @@ logger = structlog.get_logger(__name__)
 # Reserve 30% of context window for the response + new messages
 _COMPACTION_THRESHOLD = 0.7
 
+# Aim to shrink prompt context closer to this post-compaction target.
+_POST_COMPACTION_TARGET = 0.55
+
 # Keep at least the last N non-system messages un-compacted
 _MIN_RECENT_MESSAGES = 4
 
 COMPACTION_PROMPT = """\
-Summarize the following conversation between a user and an AI assistant on a \
-network automation platform. Preserve:
-- Key facts, decisions, and action items
-- Names of specific network objects (sites, APs, SSIDs, VLANs, etc.)
-- Any errors or issues discussed
+You are creating a continuity summary for an ongoing network automation chat.
 
-Be concise but thorough. The summary will be used as context for continuing the \
-conversation, so don't lose important details. Output only the summary text."""
+Write a compact summary that preserves high-value context needed for future turns:
+- Confirmed facts and current state
+- Decisions made and why
+- Open questions, unresolved issues, and pending action items
+- Errors/failures, troubleshooting done, and outcomes
+- Concrete identifiers and values (site names, AP names, SSIDs, VLAN IDs,
+  IPs/subnets, object IDs, workflow/report names, tool outputs)
+
+Requirements:
+- Do not invent information.
+- Keep specific names/IDs/numbers exactly when present.
+- Prefer concise bullets over prose.
+- Keep chronology only where it matters for understanding decisions/outcomes.
+- Keep the result short but complete enough to continue the conversation safely.
+
+Output only the summary text."""
+
+
+def _estimate_message_tokens(role: str, content: str, model: str) -> int:
+    """Estimate tokens for a single message using the configured model."""
+    return count_message_tokens([{"role": role, "content": content}], model)
+
+
+def _select_cutoff_index(thread, start_index: int, context_window: int, model: str) -> int | None:
+    """Pick a cutoff index that keeps recent messages within a token budget.
+
+    Keeps at least `_MIN_RECENT_MESSAGES` non-system turns, and then keeps more
+    only while the recent-message token budget allows.
+    """
+    non_system_indices = [i for i, m in enumerate(thread.messages) if m.role != "system" and i >= start_index]
+    if len(non_system_indices) <= _MIN_RECENT_MESSAGES:
+        return None
+
+    recent_budget = int(context_window * (_COMPACTION_THRESHOLD - _POST_COMPACTION_TARGET))
+    recent_budget = max(recent_budget, 1)
+
+    keep_indices: list[int] = []
+    recent_tokens = 0
+    for idx in reversed(non_system_indices):
+        msg = thread.messages[idx]
+        msg_tokens = _estimate_message_tokens(msg.role, msg.content, model)
+        if len(keep_indices) < _MIN_RECENT_MESSAGES:
+            keep_indices.append(idx)
+            recent_tokens += msg_tokens
+            continue
+        if recent_tokens + msg_tokens <= recent_budget:
+            keep_indices.append(idx)
+            recent_tokens += msg_tokens
+            continue
+        break
+
+    if not keep_indices:
+        return None
+    cutoff_index = min(keep_indices)
+    if cutoff_index <= start_index:
+        return None
+    return cutoff_index
 
 
 async def compact_thread(
@@ -76,18 +130,17 @@ async def compact_thread(
     summary = None
     cutoff_index = None
     try:
-        # Determine cutoff: keep the last _MIN_RECENT_MESSAGES non-system messages
-        non_system_indices = [i for i, m in enumerate(thread.messages) if m.role != "system"]
-        if len(non_system_indices) <= _MIN_RECENT_MESSAGES:
-            logger.info("compaction_too_few_messages", thread_id=thread_id)
+        # Incremental compaction: only summarize messages not already compacted.
+        start_index = thread.compacted_up_to_index or 1
+
+        cutoff_index = _select_cutoff_index(thread, start_index, context_window, llm.model)
+        if cutoff_index is None:
+            logger.info("compaction_too_few_messages", thread_id=thread_id, start_index=start_index)
             return
 
-        # Cutoff: compact everything before the last _MIN_RECENT_MESSAGES non-system msgs
-        cutoff_index = non_system_indices[-_MIN_RECENT_MESSAGES]
-
-        # Gather messages to summarize (non-system messages from index 0 to cutoff)
+        # Gather messages to summarize (non-system messages from start_index to cutoff)
         messages_to_summarize = []
-        for m in thread.messages[1:cutoff_index]:  # Skip system prompt (index 0)
+        for m in thread.messages[start_index:cutoff_index]:  # Skip system prompt (index 0)
             if m.role != "system":
                 messages_to_summarize.append(f"{m.role}: {_sanitize_for_prompt(m.content, max_len=500)}")
 
@@ -96,10 +149,21 @@ async def compact_thread(
 
         conversation_text = "\n".join(messages_to_summarize)
 
+        existing_summary = (thread.compaction_summary or "").strip()
+        if existing_summary:
+            summary_input = (
+                "Existing continuity summary (preserve still-valid context):\n"
+                f"{existing_summary}\n\n"
+                "New conversation messages to merge:\n"
+                f"{conversation_text}"
+            )
+        else:
+            summary_input = conversation_text
+
         # Call LLM to summarize
         summary_messages = [
             LLMMessage(role="system", content=COMPACTION_PROMPT),
-            LLMMessage(role="user", content=conversation_text),
+            LLMMessage(role="user", content=summary_input),
         ]
         response = await llm.complete(summary_messages)
         summary = response.content.strip()

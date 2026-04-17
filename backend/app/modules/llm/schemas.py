@@ -372,6 +372,11 @@ class ConversationThreadDetail(BaseModel):
     messages: list[ConversationMessageResponse] = Field(default_factory=list)
     mcp_config_ids: list[str] = Field(default_factory=list)
     compacted: bool = False
+    context_window_tokens: int | None = None
+    context_tokens_estimate: int | None = None
+    context_usage_percent: float | None = None
+    compressed_messages: int = 0
+    compression_ratio: float | None = None
     created_at: datetime
     updated_at: datetime
 

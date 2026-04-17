@@ -1805,6 +1805,55 @@ def _thread_to_summary(thread) -> ConversationThreadSummary:
     )
 
 
+async def _thread_context_metrics(thread) -> dict[str, int | float | None]:
+    """Compute context-window usage and compaction metrics for a thread."""
+    from app.modules.llm.models import LLMConfig
+    from app.modules.llm.services.llm_service_factory import _default_model
+    from app.modules.llm.services.token_service import (
+        DEFAULT_CONTEXT_WINDOW,
+        count_message_tokens,
+        resolve_context_window,
+    )
+
+    default_cfg = await LLMConfig.find_one(LLMConfig.is_default, LLMConfig.enabled)
+    if default_cfg:
+        model = default_cfg.model or _default_model(default_cfg.provider)
+        context_window = resolve_context_window(default_cfg.context_window_tokens, model)
+    else:
+        model = "gpt-4o-mini"
+        context_window = DEFAULT_CONTEXT_WINDOW
+
+    prompt_messages = [{"role": m.role, "content": m.content} for m in thread.messages]
+    used_tokens = count_message_tokens(prompt_messages, model) if prompt_messages else 0
+    usage_percent = round((used_tokens / context_window) * 100, 1) if context_window > 0 else None
+
+    compressed_messages = 0
+    compression_ratio = None
+    cutoff_index = thread.compacted_up_to_index
+    if thread.compaction_summary and cutoff_index:
+        compacted_slice = [m for m in thread.messages[:cutoff_index] if m.role != "system"]
+        compressed_messages = len(compacted_slice)
+        if compacted_slice:
+            compacted_tokens = count_message_tokens(
+                [{"role": m.role, "content": m.content} for m in compacted_slice],
+                model,
+            )
+            summary_tokens = count_message_tokens(
+                [{"role": "system", "content": thread.compaction_summary}],
+                model,
+            )
+            if summary_tokens > 0:
+                compression_ratio = round(compacted_tokens / summary_tokens, 2)
+
+    return {
+        "context_window_tokens": context_window,
+        "context_tokens_estimate": used_tokens,
+        "context_usage_percent": usage_percent,
+        "compressed_messages": compressed_messages,
+        "compression_ratio": compression_ratio,
+    }
+
+
 @router.get("/llm/threads", response_model=ConversationThreadListResponse, tags=["LLM"])
 async def list_threads(
     skip: int = Query(0, ge=0),
@@ -1854,6 +1903,8 @@ async def get_thread(
     if thread.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
+    context_metrics = await _thread_context_metrics(thread)
+
     return ConversationThreadDetail(
         id=str(thread.id),
         feature=thread.feature,
@@ -1864,6 +1915,11 @@ async def get_thread(
         ],
         mcp_config_ids=thread.mcp_config_ids,
         compacted=bool(thread.compaction_summary),
+        context_window_tokens=context_metrics["context_window_tokens"],
+        context_tokens_estimate=context_metrics["context_tokens_estimate"],
+        context_usage_percent=context_metrics["context_usage_percent"],
+        compressed_messages=context_metrics["compressed_messages"] or 0,
+        compression_ratio=context_metrics["compression_ratio"],
         created_at=thread.created_at,
         updated_at=thread.updated_at,
     )

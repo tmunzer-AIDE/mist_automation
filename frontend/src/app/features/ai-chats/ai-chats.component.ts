@@ -157,6 +157,33 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
             </div>
           </div>
         }
+        @if (activeThreadId() && threadContextWindowTokens()) {
+          <div
+            class="context-status"
+            [class.warn]="(contextUsagePercent() || 0) >= 70"
+            [class.critical]="(contextUsagePercent() || 0) >= 85"
+          >
+            <div class="context-primary">
+              <mat-icon>memory</mat-icon>
+              <span>
+                Context: {{ formatTokenCount(threadContextTokensEstimate()) }} /
+                {{ formatTokenCount(threadContextWindowTokens()) }} tokens
+                ({{ formatPercent(contextUsagePercent()) }})
+              </span>
+            </div>
+            @if (threadCompressedMessages() > 0) {
+              <div class="context-secondary">
+                <mat-icon>compress</mat-icon>
+                <span>
+                  {{ threadCompressedMessages() }} message(s) summarized
+                  @if (threadCompressionRatio()) {
+                    <span>(~{{ threadCompressionRatio() }}x compression)</span>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
         <!-- Chat panel: always in DOM so startStream() can access it via viewChild -->
         <div class="chat-view" [class.hidden]="!activeThreadId() && !sending()">
           <app-ai-chat-panel
@@ -489,6 +516,51 @@ function groupByDate(threads: ConversationThreadSummary[]): ThreadGroup[] {
 
       /* ── Chat view ───────────────────────────────────────── */
 
+      .context-status {
+        max-width: 900px;
+        width: 100%;
+        margin: 10px auto 0;
+        border: 1px solid var(--mat-sys-outline-variant);
+        border-radius: 10px;
+        background: var(--mat-sys-surface-container-low, var(--mat-sys-surface-container));
+        color: var(--mat-sys-on-surface-variant);
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+
+        &.warn {
+          border-color: var(--app-warning);
+        }
+
+        &.critical {
+          border-color: var(--app-error);
+        }
+      }
+
+      .context-primary,
+      .context-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+
+        mat-icon {
+          width: 16px;
+          height: 16px;
+          font-size: 16px;
+          opacity: 0.8;
+        }
+
+        span {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+      }
+
       .chat-view {
         flex: 1;
         min-height: 0;
@@ -538,6 +610,11 @@ export class AiChatsComponent implements OnInit {
   inputText = '';
   availableMcpConfigs = signal<McpConfigAvailable[]>([]);
   selectedMcpIds = signal<string[]>([]);
+  threadContextWindowTokens = signal<number | null>(null);
+  threadContextTokensEstimate = signal<number | null>(null);
+  contextUsagePercent = signal<number | null>(null);
+  threadCompressedMessages = signal<number>(0);
+  threadCompressionRatio = signal<number | null>(null);
 
   threadGroups = computed(() => groupByDate(this.threads()));
 
@@ -585,6 +662,11 @@ export class AiChatsComponent implements OnInit {
     this.loadingThread.set(true);
     this.loadedMessages.set([]);
     this.replySummary.set(null);
+    this.threadContextWindowTokens.set(null);
+    this.threadContextTokensEstimate.set(null);
+    this.contextUsagePercent.set(null);
+    this.threadCompressedMessages.set(0);
+    this.threadCompressionRatio.set(null);
 
     this.llmService.getThread(thread.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (detail) => {
@@ -600,6 +682,11 @@ export class AiChatsComponent implements OnInit {
         this.loadedMessages.set(msgs);
         // Restore MCP selection from thread
         this.selectedMcpIds.set(detail.mcp_config_ids || []);
+        this.threadContextWindowTokens.set(detail.context_window_tokens);
+        this.threadContextTokensEstimate.set(detail.context_tokens_estimate);
+        this.contextUsagePercent.set(detail.context_usage_percent);
+        this.threadCompressedMessages.set(detail.compressed_messages || 0);
+        this.threadCompressionRatio.set(detail.compression_ratio);
         this.loadingThread.set(false);
         if (detail.compacted) {
           this.chatPanel()?.setCompacted(true);
@@ -616,6 +703,11 @@ export class AiChatsComponent implements OnInit {
     this.loadedMessages.set([]);
     this.replySummary.set(null);
     this.selectedMcpIds.set([]);
+    this.threadContextWindowTokens.set(null);
+    this.threadContextTokensEstimate.set(null);
+    this.contextUsagePercent.set(null);
+    this.threadCompressedMessages.set(0);
+    this.threadCompressionRatio.set(null);
     this.inputText = '';
   }
 
@@ -627,9 +719,24 @@ export class AiChatsComponent implements OnInit {
         if (this.activeThreadId() === id) {
           this.activeThreadId.set(null);
           this.loadedMessages.set([]);
+          this.threadContextWindowTokens.set(null);
+          this.threadContextTokensEstimate.set(null);
+          this.contextUsagePercent.set(null);
+          this.threadCompressedMessages.set(0);
+          this.threadCompressionRatio.set(null);
         }
       },
     });
+  }
+
+  formatTokenCount(value: number | null): string {
+    if (value === null || value === undefined) return '--';
+    return value.toLocaleString();
+  }
+
+  formatPercent(value: number | null): string {
+    if (value === null || value === undefined) return '--';
+    return `${value.toFixed(1)}%`;
   }
 
   autoGrow(event: Event): void {

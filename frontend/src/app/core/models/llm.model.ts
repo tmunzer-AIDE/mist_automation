@@ -108,6 +108,11 @@ export interface ConversationThreadDetail {
   messages: ChatMessage[];
   mcp_config_ids: string[];
   compacted: boolean;
+  context_window_tokens: number | null;
+  context_tokens_estimate: number | null;
+  context_usage_percent: number | null;
+  compressed_messages: number;
+  compression_ratio: number | null;
   created_at: string;
   updated_at: string;
 }

@@ -344,7 +344,7 @@ export class SkillsAdminComponent implements OnInit, OnDestroy {
       }
 
       const repo = this.repos().find((r) => r.id === skill.git_repo_id);
-      this._editRepoBindingById(skill.git_repo_id, repo?.url ?? skill.name, skill.effective_mcp_config_id);
+      this._editRepoBindingById(skill.git_repo_id, repo?.url ?? skill.name, repo?.mcp_config_id);
       return;
     }
 

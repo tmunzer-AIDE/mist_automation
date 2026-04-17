@@ -48,7 +48,7 @@ export interface SkillMcpBindingDialogData {
           }
         </mat-select>
       </mat-form-field>
-      @if (mcpConfigs().length === 0) {
+      @if (!loading() && mcpConfigs().length === 0) {
         <p class="hint">No MCP servers are configured. Save to clear binding or keep unbound.</p>
       }
     </mat-dialog-content>

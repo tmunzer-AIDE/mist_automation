@@ -59,7 +59,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
         </mat-form-field>
       </form>
 
-      @if (mcpConfigs().length === 0) {
+      @if (mcpConfigsLoaded() && mcpConfigs().length === 0) {
         <p class="hint">No MCP servers configured yet. You can still add the repo unbound.</p>
       }
 
@@ -95,11 +95,18 @@ export class AddRepoDialogComponent implements OnInit {
   saving = signal(false);
   error = signal<string | null>(null);
   mcpConfigs = signal<McpConfig[]>([]);
+  mcpConfigsLoaded = signal(false);
 
   ngOnInit(): void {
     this.llmService.listMcpConfigs().subscribe({
-      next: (configs) => this.mcpConfigs.set(configs),
-      error: () => this.mcpConfigs.set([]),
+      next: (configs) => {
+        this.mcpConfigs.set(configs);
+        this.mcpConfigsLoaded.set(true);
+      },
+      error: () => {
+        this.mcpConfigs.set([]);
+        this.mcpConfigsLoaded.set(true);
+      },
     });
   }
 
