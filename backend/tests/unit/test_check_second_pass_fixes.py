@@ -243,3 +243,41 @@ class TestSingletonDeepMerge:
         base = {"vars": {"x": 1}}
         _ = _deep_merge_singleton(base, {"vars": {"x": 99, "y": 2}})
         assert base == {"vars": {"x": 1}}
+
+    def test_result_does_not_share_nested_refs_with_base(self):
+        """Regression: a shallow ``dict(base)`` would leave nested values
+        (dicts, lists) as the same references in result and base. Mutating
+        result's nested values must NOT bleed into base.
+        """
+        from app.modules.digital_twin.services.site_snapshot import _deep_merge_singleton
+
+        # Untouched-by-override nested entries.
+        base = {
+            "port_usages": {"uplink": {"mode": "trunk", "vlans": [10, 20]}},
+            "networks": [{"name": "Corp"}],
+        }
+        # Override touches only `vars`, leaving port_usages/networks alone.
+        merged = _deep_merge_singleton(base, {"vars": {"x": 1}})
+
+        # Mutate untouched nested fields on the result.
+        merged["port_usages"]["uplink"]["mode"] = "MUTATED"
+        merged["port_usages"]["uplink"]["vlans"].append(999)
+        merged["networks"][0]["name"] = "MUTATED"
+
+        # Base must still be pristine.
+        assert base["port_usages"]["uplink"]["mode"] == "trunk"
+        assert base["port_usages"]["uplink"]["vlans"] == [10, 20]
+        assert base["networks"][0]["name"] == "Corp"
+
+    def test_result_does_not_share_nested_refs_with_override(self):
+        """Override values must also be deep-copied so the caller can keep
+        using the override dict without observing post-merge mutations.
+        """
+        from app.modules.digital_twin.services.site_snapshot import _deep_merge_singleton
+
+        override_networks = [{"name": "Guest"}]
+        override = {"networks": override_networks}
+        merged = _deep_merge_singleton({}, override)
+
+        merged["networks"][0]["name"] = "MUTATED"
+        assert override_networks[0]["name"] == "Guest"

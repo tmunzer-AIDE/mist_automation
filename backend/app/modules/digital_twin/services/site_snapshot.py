@@ -270,21 +270,31 @@ def _normalize_port_id(port_id: Any) -> str:
 
 
 def _deep_merge_singleton(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge ``override`` on top of ``base``.
+    """Recursively merge ``override`` on top of ``base`` with full reference isolation.
 
     Nested dicts are merged key-wise so partial PUTs (e.g. updating only
     ``settings.vars.foo``) don't erase sibling keys at any nesting level.
     Scalars and lists are replaced wholesale, matching Mist partial-PUT
-    semantics for leaf values. Used by :func:`build_site_snapshot`'s
-    singleton-override pipeline.
+    semantics for leaf values.
+
+    Both inputs are deep-copied as values are assigned, so the returned
+    dict shares no nested references with ``base`` or ``override``.
+    Without this, downstream snapshot compilation/normalization could
+    mutate values that still belong to the caller's baseline.
     """
-    result = dict(base)
+    result: dict[str, Any] = {}
+    # Deep-copy the keys that aren't being overridden so the result owns
+    # its own copy and downstream mutations can't bleed into ``base``.
+    for key, value in base.items():
+        if key not in override:
+            result[key] = copy.deepcopy(value)
+    # Merge override entries with reference isolation.
     for key, value in override.items():
-        existing_value = result.get(key)
-        if isinstance(existing_value, dict) and isinstance(value, dict):
-            result[key] = _deep_merge_singleton(existing_value, value)
+        existing = base.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            result[key] = _deep_merge_singleton(existing, value)
         else:
-            result[key] = value
+            result[key] = copy.deepcopy(value)
     return result
 
 
