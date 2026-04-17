@@ -1923,7 +1923,10 @@ async def _thread_context_metrics(thread) -> dict[str, int | float | None]:
         resolve_context_window,
     )
 
-    default_cfg = await LLMConfig.find_one(LLMConfig.is_default, LLMConfig.enabled)
+    default_cfg = await LLMConfig.find_one(
+        LLMConfig.is_default == True,
+        LLMConfig.enabled == True,
+    )
     if default_cfg:
         model = default_cfg.model or _default_model(default_cfg.provider)
         context_window = resolve_context_window(default_cfg.context_window_tokens, model)
