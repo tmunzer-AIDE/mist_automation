@@ -328,8 +328,8 @@ export class LlmService {
     return this.api.get<Skill[]>('/llm/skills');
   }
 
-  addDirectSkill(content: string): Observable<Skill> {
-    return this.api.post<Skill>('/llm/skills/direct', { content });
+  addDirectSkill(content: string, mcpConfigId: string | null = null): Observable<Skill> {
+    return this.api.post<Skill>('/llm/skills/direct', { content, mcp_config_id: mcpConfigId });
   }
 
   toggleSkill(id: string): Observable<Skill> {
@@ -348,8 +348,26 @@ export class LlmService {
     return this.api.get<SkillGitRepo>(`/llm/skills/repos/${id}`);
   }
 
-  addSkillRepo(url: string, branch: string, token: string | null): Observable<SkillGitRepo> {
-    return this.api.post<SkillGitRepo>('/llm/skills/repos', { url, branch, token });
+  addSkillRepo(
+    url: string,
+    branch: string,
+    token: string | null,
+    mcpConfigId: string | null = null,
+  ): Observable<SkillGitRepo> {
+    return this.api.post<SkillGitRepo>('/llm/skills/repos', {
+      url,
+      branch,
+      token,
+      mcp_config_id: mcpConfigId,
+    });
+  }
+
+  setSkillMcpServer(id: string, mcpConfigId: string | null): Observable<Skill> {
+    return this.api.patch<Skill>(`/llm/skills/${id}/mcp-server`, { mcp_config_id: mcpConfigId });
+  }
+
+  setSkillRepoMcpServer(id: string, mcpConfigId: string | null): Observable<SkillGitRepo> {
+    return this.api.patch<SkillGitRepo>(`/llm/skills/repos/${id}/mcp-server`, { mcp_config_id: mcpConfigId });
   }
 
   refreshSkillRepo(id: string): Observable<{ status: string }> {

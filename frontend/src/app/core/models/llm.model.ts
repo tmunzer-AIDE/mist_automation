@@ -125,6 +125,8 @@ export interface Skill {
   enabled: boolean;
   git_repo_id: string | null;
   git_repo_url: string | null;
+  mcp_config_id: string | null;
+  effective_mcp_config_id: string | null;
   error: string | null;
   last_synced_at: string | null;
 }
@@ -134,6 +136,7 @@ export interface SkillGitRepo {
   url: string;
   branch: string;
   token_set: boolean;
+  mcp_config_id: string | null;
   local_path: string;
   last_refreshed_at: string | null;
   error: string | null;
