@@ -7,6 +7,7 @@ import re
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
+import datetime as dt
 
 import structlog
 from beanie import PydanticObjectId
@@ -39,6 +40,9 @@ from app.modules.llm.schemas import (
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigUpdate,
+    LLMUsageDashboardResponse,
+    LLMUsageFeatureStat,
+    LLMUsageTotals,
     LLMConnectionTestRequest,
     LLMModelDiscoveryRequest,
     MCPConfigAvailable,
@@ -252,6 +256,21 @@ def _config_to_response(cfg) -> LLMConfigResponse:
     )
 
 
+def _usage_totals_from_agg(row: dict | None) -> LLMUsageTotals:
+    """Normalize aggregate row into LLMUsageTotals."""
+    if not row:
+        return LLMUsageTotals()
+    avg_duration = row.get("avg_duration_ms")
+    return LLMUsageTotals(
+        calls=int(row.get("calls", 0) or 0),
+        prompt_tokens=int(row.get("prompt_tokens", 0) or 0),
+        completion_tokens=int(row.get("completion_tokens", 0) or 0),
+        total_tokens=int(row.get("total_tokens", 0) or 0),
+        avg_tokens=round(float(row.get("avg_tokens", 0.0) or 0.0), 1),
+        avg_duration_ms=round(float(avg_duration), 1) if avg_duration is not None else None,
+    )
+
+
 @router.get("/llm/configs", tags=["LLM"])
 async def list_llm_configs(_current_user: User = Depends(require_admin)):
     """List all LLM configurations."""
@@ -259,6 +278,95 @@ async def list_llm_configs(_current_user: User = Depends(require_admin)):
 
     configs = await LLMConfig.find_all().to_list()
     return [_config_to_response(c) for c in configs]
+
+
+@router.get("/llm/usage/dashboard", response_model=LLMUsageDashboardResponse, tags=["LLM"])
+async def get_llm_usage_dashboard(
+    hours: int = Query(24, ge=1, le=720),
+    _current_user: User = Depends(require_admin),
+):
+    """Return aggregate LLM usage metrics for the requested time window."""
+    from app.modules.llm.models import LLMUsageLog
+
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": since}}},
+        {
+            "$facet": {
+                "totals": [
+                    {
+                        "$group": {
+                            "_id": None,
+                            "calls": {"$sum": 1},
+                            "prompt_tokens": {"$sum": "$prompt_tokens"},
+                            "completion_tokens": {"$sum": "$completion_tokens"},
+                            "total_tokens": {"$sum": "$total_tokens"},
+                            "avg_tokens": {"$avg": "$total_tokens"},
+                            "avg_duration_ms": {"$avg": "$duration_ms"},
+                        }
+                    }
+                ],
+                "compaction": [
+                    {"$match": {"feature": "conversation_compaction"}},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "calls": {"$sum": 1},
+                            "prompt_tokens": {"$sum": "$prompt_tokens"},
+                            "completion_tokens": {"$sum": "$completion_tokens"},
+                            "total_tokens": {"$sum": "$total_tokens"},
+                            "avg_tokens": {"$avg": "$total_tokens"},
+                            "avg_duration_ms": {"$avg": "$duration_ms"},
+                        }
+                    }
+                ],
+                "features": [
+                    {
+                        "$group": {
+                            "_id": "$feature",
+                            "calls": {"$sum": 1},
+                            "total_tokens": {"$sum": "$total_tokens"},
+                            "avg_tokens": {"$avg": "$total_tokens"},
+                            "avg_duration_ms": {"$avg": "$duration_ms"},
+                        }
+                    },
+                    {"$sort": {"total_tokens": -1}},
+                    {"$limit": 10},
+                ],
+            }
+        },
+    ]
+    rows = await LLMUsageLog.aggregate(pipeline).to_list()
+    row = rows[0] if rows else {}
+
+    totals = _usage_totals_from_agg((row.get("totals") or [None])[0])
+    compaction = _usage_totals_from_agg((row.get("compaction") or [None])[0])
+
+    features: list[LLMUsageFeatureStat] = []
+    for item in row.get("features", []):
+        avg_duration = item.get("avg_duration_ms")
+        features.append(
+            LLMUsageFeatureStat(
+                feature=str(item.get("_id") or "unknown"),
+                calls=int(item.get("calls", 0) or 0),
+                total_tokens=int(item.get("total_tokens", 0) or 0),
+                avg_tokens=round(float(item.get("avg_tokens", 0.0) or 0.0), 1),
+                avg_duration_ms=round(float(avg_duration), 1) if avg_duration is not None else None,
+            )
+        )
+
+    share = 0.0
+    if totals.total_tokens > 0:
+        share = round((compaction.total_tokens / totals.total_tokens) * 100, 1)
+
+    return LLMUsageDashboardResponse(
+        hours=hours,
+        since=since,
+        totals=totals,
+        compaction=compaction,
+        compaction_token_share_percent=share,
+        features=features,
+    )
 
 
 @router.post("/llm/configs", tags=["LLM"])
@@ -1823,7 +1931,9 @@ async def _thread_context_metrics(thread) -> dict[str, int | float | None]:
         model = "gpt-4o-mini"
         context_window = DEFAULT_CONTEXT_WINDOW
 
-    prompt_messages = [{"role": m.role, "content": m.content} for m in thread.messages]
+    # Use the same prompt shape we send to the LLM (compaction/sliding-window aware)
+    # so UI context telemetry reflects real request size.
+    prompt_messages = thread.get_messages_for_llm(max_turns=20)
     used_tokens = count_message_tokens(prompt_messages, model) if prompt_messages else 0
     usage_percent = round((used_tokens / context_window) * 100, 1) if context_window > 0 else None
 

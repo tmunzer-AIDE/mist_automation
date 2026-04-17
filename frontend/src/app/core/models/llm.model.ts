@@ -91,6 +91,32 @@ export interface LlmUsage {
   total_tokens: number;
 }
 
+export interface LlmUsageTotals {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  avg_tokens: number;
+  avg_duration_ms: number | null;
+}
+
+export interface LlmUsageFeatureStat {
+  feature: string;
+  calls: number;
+  total_tokens: number;
+  avg_tokens: number;
+  avg_duration_ms: number | null;
+}
+
+export interface LlmUsageDashboard {
+  hours: number;
+  since: string;
+  totals: LlmUsageTotals;
+  compaction: LlmUsageTotals;
+  compaction_token_share_percent: number;
+  features: LlmUsageFeatureStat[];
+}
+
 export interface ConversationThreadSummary {
   id: string;
   feature: string;

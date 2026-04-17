@@ -172,3 +172,53 @@ async def test_compact_thread_fallback_on_llm_error(test_db, test_user):
     updated = await ConversationThread.get(thread.id)
     assert updated.compaction_in_progress is False
     assert updated.compaction_summary is None  # No summary on failure
+
+
+async def test_compact_thread_incremental_merge_uses_new_range_only(test_db, test_user, monkeypatch):
+    """Incremental compaction merges existing summary and only summarizes new message range."""
+    import app.modules.llm.workers.compaction_worker as compaction_worker
+    from app.modules.llm.workers.compaction_worker import compact_thread
+
+    thread = ConversationThread(user_id=test_user.id, feature="global_chat")
+    thread.add_message("system", "You are an assistant.")
+    thread.add_message("user", "old question")
+    thread.add_message("assistant", "old answer")
+    thread.add_message("user", "new question 1")
+    thread.add_message("assistant", "new answer 1")
+    thread.add_message("user", "new question 2")
+    thread.add_message("assistant", "new answer 2")
+    thread.compaction_summary = "Prior continuity summary"
+    thread.compacted_up_to_index = 3
+    await thread.insert()
+
+    mock_response = MagicMock()
+    mock_response.content = "Merged continuity summary"
+    mock_response.model = "gpt-4o"
+    mock_response.usage = MagicMock(prompt_tokens=80, completion_tokens=40, total_tokens=120)
+    mock_response.duration_ms = 300
+
+    mock_llm = AsyncMock()
+    mock_llm.complete = AsyncMock(return_value=mock_response)
+    mock_llm.provider = "openai"
+    mock_llm.model = "gpt-4o"
+
+    # Force compaction path and deterministic cutoff for this test.
+    monkeypatch.setattr(compaction_worker, "count_message_tokens", lambda *_args, **_kwargs: 9999)
+    monkeypatch.setattr(compaction_worker, "_select_cutoff_index", lambda *_args, **_kwargs: 5)
+
+    await compact_thread(str(thread.id), mock_llm, context_window=100)
+
+    sent_messages = mock_llm.complete.await_args.args[0]
+    user_payload = sent_messages[1].content
+
+    assert "Existing continuity summary" in user_payload
+    assert "Prior continuity summary" in user_payload
+    assert "new question 1" in user_payload
+    assert "new answer 1" in user_payload
+    assert "old question" not in user_payload
+    assert "new question 2" not in user_payload
+
+    updated = await ConversationThread.get(thread.id)
+    assert updated.compaction_summary == "Merged continuity summary"
+    assert updated.compacted_up_to_index == 5
+    assert updated.compaction_in_progress is False

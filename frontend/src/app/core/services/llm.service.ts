@@ -9,6 +9,7 @@ import {
   GlobalChatResponse,
   LlmConfig,
   LlmConfigAvailable,
+  LlmUsageDashboard,
   LlmModel,
   LlmStatus,
   LlmTestResult,
@@ -214,6 +215,11 @@ export class LlmService {
   /** Summarize dashboard state */
   summarizeDashboard(): Observable<SummaryResponse> {
     return this.api.post<SummaryResponse>('/llm/dashboard/summarize', {});
+  }
+
+  /** Admin usage dashboard metrics for LLM calls and compaction */
+  getUsageDashboard(hours = 24): Observable<LlmUsageDashboard> {
+    return this.api.get<LlmUsageDashboard>('/llm/usage/dashboard', { hours });
   }
 
   /** Summarize audit logs with current filters */

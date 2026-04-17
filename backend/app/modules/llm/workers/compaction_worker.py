@@ -17,7 +17,14 @@ logger = structlog.get_logger(__name__)
 # Reserve 30% of context window for the response + new messages
 _COMPACTION_THRESHOLD = 0.7
 
-# Aim to shrink prompt context closer to this post-compaction target.
+# Soft post-compaction usage target.
+#
+# Important: this is not enforced as a strict final token cap. The current
+# algorithm uses it to derive the raw recent-turn budget kept unsummarized:
+#   recent_budget ~= context_window * (_COMPACTION_THRESHOLD - _POST_COMPACTION_TARGET)
+#
+# With current defaults, compaction triggers above 70% usage and keeps roughly
+# 15% of the window as recent raw user/assistant turns (plus a minimum floor).
 _POST_COMPACTION_TARGET = 0.55
 
 # Keep at least the last N non-system messages un-compacted
@@ -54,6 +61,10 @@ def _select_cutoff_index(thread, start_index: int, context_window: int, model: s
 
     Keeps at least `_MIN_RECENT_MESSAGES` non-system turns, and then keeps more
     only while the recent-message token budget allows.
+
+    The budget is derived from threshold-target delta, not a hard post-
+    compaction token limit. This makes `_POST_COMPACTION_TARGET` a tuning knob
+    for aggressiveness rather than a strict ratio guarantee.
     """
     non_system_indices = [i for i, m in enumerate(thread.messages) if m.role != "system" and i >= start_index]
     if len(non_system_indices) <= _MIN_RECENT_MESSAGES:
