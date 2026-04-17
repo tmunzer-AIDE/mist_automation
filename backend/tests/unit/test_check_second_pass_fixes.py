@@ -182,3 +182,64 @@ class TestStpLoopAffectedObjects:
         # affected_objects must be IDs — not display names like "SW-A".
         assert set(loop.affected_objects) == {"id-a", "id-b", "id-c"}
         assert "SW-A" not in loop.affected_objects
+
+
+# ---------------------------------------------------------------------------
+# Fix D — _apply_singleton_override must deep-merge so partial nested PUTs
+# don't silently erase sibling keys.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSingletonDeepMerge:
+    """Regression for the singleton-override deep-merge.
+
+    The pre-fix shallow ``{**existing, **override}`` would REPLACE
+    ``vars`` entirely with the override's ``vars`` dict, wiping any
+    sibling keys that weren't part of the PUT body.
+    """
+
+    def test_partial_nested_update_preserves_sibling_keys(self):
+        from app.modules.digital_twin.services.site_snapshot import _deep_merge_singleton
+
+        base = {
+            "vars": {
+                "corp_vlan": 10,
+                "dns_server": "8.8.8.8",
+                "guest_vlan": 20,
+            },
+            "port_usages": {"uplink": {"mode": "trunk"}},
+        }
+        override = {"vars": {"corp_vlan": 99}}
+
+        merged = _deep_merge_singleton(base, override)
+
+        assert merged["vars"]["corp_vlan"] == 99
+        # Sibling vars keys MUST be preserved.
+        assert merged["vars"]["dns_server"] == "8.8.8.8"
+        assert merged["vars"]["guest_vlan"] == 20
+        # Top-level siblings also preserved.
+        assert merged["port_usages"]["uplink"]["mode"] == "trunk"
+
+    def test_scalar_override_replaces_value(self):
+        from app.modules.digital_twin.services.site_snapshot import _deep_merge_singleton
+
+        merged = _deep_merge_singleton({"name": "old"}, {"name": "new"})
+        assert merged["name"] == "new"
+
+    def test_list_override_replaces_entire_list(self):
+        """Lists follow Mist's replace semantics at the leaf level."""
+        from app.modules.digital_twin.services.site_snapshot import _deep_merge_singleton
+
+        merged = _deep_merge_singleton(
+            {"networks": ["a", "b", "c"]},
+            {"networks": ["z"]},
+        )
+        assert merged["networks"] == ["z"]
+
+    def test_base_not_mutated(self):
+        from app.modules.digital_twin.services.site_snapshot import _deep_merge_singleton
+
+        base = {"vars": {"x": 1}}
+        _ = _deep_merge_singleton(base, {"vars": {"x": 99, "y": 2}})
+        assert base == {"vars": {"x": 1}}

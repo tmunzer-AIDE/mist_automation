@@ -258,26 +258,34 @@ _normalize_mac = normalize_mac
 
 
 def _normalize_port_id(port_id: Any) -> str:
-    """Normalize a live-data port id to the physical key used in configs.
+    """Normalize a live-data port id using the shared topology helper.
 
-    Duplicates ``topology_utils.normalize_port_id`` to avoid a circular import
-    (topology_utils already imports ``SiteSnapshot`` from this module). Keep
-    both implementations in sync.
-
-    Prefix-less shorthand (``0/0/1``) is returned as-is; downstream lookups
-    (``topology_utils.port_lookup_candidates``) expand across known physical
-    Junos port prefixes (ge/xe/et/fe) rather than assuming one.
+    Lazy import to avoid a module-level circular dependency: ``topology_utils``
+    imports ``SiteSnapshot`` from this module at load time. Calling the
+    helper at runtime — after both modules have finished loading — is safe.
     """
-    if not port_id:
-        return ""
-    normalized = str(port_id).strip().lower()
-    if not normalized:
-        return ""
-    if normalized.endswith(".0"):
-        normalized = normalized[:-2]
-    if normalized.endswith(":0"):
-        normalized = normalized[:-2]
-    return normalized
+    from app.modules.digital_twin.services.topology_utils import normalize_port_id
+
+    return normalize_port_id(port_id)
+
+
+def _deep_merge_singleton(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``override`` on top of ``base``.
+
+    Nested dicts are merged key-wise so partial PUTs (e.g. updating only
+    ``settings.vars.foo``) don't erase sibling keys at any nesting level.
+    Scalars and lists are replaced wholesale, matching Mist partial-PUT
+    semantics for leaf values. Used by :func:`build_site_snapshot`'s
+    singleton-override pipeline.
+    """
+    result = dict(base)
+    for key, value in override.items():
+        existing_value = result.get(key)
+        if isinstance(existing_value, dict) and isinstance(value, dict):
+            result[key] = _deep_merge_singleton(existing_value, value)
+        else:
+            result[key] = value
+    return result
 
 
 def _extract_lldp_from_ap_stat(device_stats: dict[str, Any]) -> tuple[str, str] | None:
@@ -697,13 +705,12 @@ async def build_site_snapshot(
             return objects
         if singleton_override.get(_DELETED_SENTINEL_KEY):
             return []
-        # Merge the staged write on top of the existing singleton so a partial
-        # PUT (e.g. updating only `vars`) doesn't wipe out unrelated fields like
-        # `port_usages` or `networks`. Mirrors the merge done in
+        # Deep-merge the staged write on top of the existing singleton so a
+        # partial PUT (e.g. updating only `vars.foo`) doesn't wipe sibling
+        # keys at any nesting level. Mirrors the merge done in
         # config_compiler._compile_site_devices.
         existing = objects[0] if objects else {}
-        merged = {**existing, **singleton_override}
-        return [merged]
+        return [_deep_merge_singleton(existing, singleton_override)]
 
     site_devices = _apply_overrides(site_devices, "devices", site_id)
     site_networks = _apply_overrides(site_networks, "networks", site_id)

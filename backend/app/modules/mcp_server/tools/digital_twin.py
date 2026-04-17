@@ -942,14 +942,22 @@ async def digital_twin(
         if session.remediation_count:
             summary_parts.append(f"{session.remediation_count} fix iteration(s) applied")
 
+        # A missing prediction_report means the session has never been
+        # successfully simulated: approve_and_execute will reject it. Surface
+        # that as execution_safe=False in the elicitation so the caller is
+        # never prompted as if the deployment were safe.
         description = f"Digital Twin deployment: {', '.join(summary_parts)}"
+        if report is None:
+            description = (
+                "Digital Twin deployment BLOCKED: no validation report available. " "Re-simulate before approving."
+            )
 
         approval_data = {
             "session_id": str(session.id),
             "writes_count": write_count,
             "overall_severity": session.overall_severity,
-            "summary": report.summary if report else "No validation report",
-            "execution_safe": report.execution_safe if report else True,
+            "summary": report.summary if report else "No validation report — cannot approve",
+            "execution_safe": bool(report.execution_safe) if report else False,
             "affected_sites": session.affected_sites,
             "remediation_count": session.remediation_count,
         }

@@ -363,6 +363,17 @@ async def simulate(
         object_names_by_type=object_names,
     )
 
+    # Re-simulate is only valid from mutable lifecycle states. Overwriting an
+    # executing/deployed/rejected session would damage auditability and can
+    # race with approve_and_execute (which re-reads staged_writes after an
+    # atomic claim). Restrict to pending/validating/awaiting_approval/failed.
+    _RESIMULATE_ALLOWED_STATES = {
+        TwinSessionStatus.PENDING,
+        TwinSessionStatus.VALIDATING,
+        TwinSessionStatus.AWAITING_APPROVAL,
+        TwinSessionStatus.FAILED,
+    }
+
     old_severity = "clean"
     if existing_session_id:
         try:
@@ -376,6 +387,8 @@ async def simulate(
             raise ValueError("Twin session not found")
         if session.org_id != org_id:
             raise ValueError("Twin session org mismatch")
+        if session.status not in _RESIMULATE_ALLOWED_STATES:
+            raise ValueError(f"Twin session cannot be re-simulated in '{session.status.value}' state")
         old_severity = session.overall_severity
         session.staged_writes = staged_writes
         session.affected_sites = affected_sites
@@ -641,13 +654,46 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
             "Session is no longer awaiting approval",
         )
 
-    # Re-fetch to capture any concurrent mutations to staged_writes (e.g. a
-    # re-simulate that appended writes between our initial read and the
-    # atomic claim). The status guard above closes the status race, but
-    # staged_writes could still have been mutated without a status change.
+    # Re-fetch to capture any concurrent mutations to staged_writes or the
+    # prediction_report (e.g. a re-simulate that appended writes / regenerated
+    # the report between our initial read and the atomic claim). The status
+    # guard above closes the status race, but other fields could still have
+    # changed without a status flip.
     session = await TwinSession.get(session_obj_id)
     if not session:
         raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found")
+    # Re-run the safety gates on the fresh session. Without this, a concurrent
+    # re-simulate could replace an execution_safe=True report with a failing
+    # one (or add risky writes) and the write loop below would execute
+    # un-approved content. Revert the status to AWAITING_APPROVAL on failure
+    # so the session stays approvable from the UI/MCP.
+    if not session.prediction_report:
+        await TwinSession.get_motor_collection().update_one(
+            {"_id": session_obj_id, "status": TwinSessionStatus.EXECUTING.value},
+            {"$set": {"status": TwinSessionStatus.AWAITING_APPROVAL.value, "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.NO_VALIDATION_REPORT,
+            "Session has no validation report",
+        )
+    if not session.prediction_report.execution_safe:
+        await TwinSession.get_motor_collection().update_one(
+            {"_id": session_obj_id, "status": TwinSessionStatus.EXECUTING.value},
+            {"$set": {"status": TwinSessionStatus.AWAITING_APPROVAL.value, "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.BLOCKING_VALIDATION_ISSUES,
+            "Session has blocking validation issues and cannot be approved",
+        )
+    if _has_blocking_preflight_errors(session.prediction_report.check_results):
+        await TwinSession.get_motor_collection().update_one(
+            {"_id": session_obj_id, "status": TwinSessionStatus.EXECUTING.value},
+            {"$set": {"status": TwinSessionStatus.AWAITING_APPROVAL.value, "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.PREFLIGHT_VALIDATION_ERRORS,
+            "Session has preflight validation errors and cannot be approved",
+        )
     session.status = TwinSessionStatus.EXECUTING
     session.updated_at = now
 
