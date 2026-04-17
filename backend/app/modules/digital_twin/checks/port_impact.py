@@ -139,7 +139,11 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
         # or because the baseline's port_config doesn't carry the usage
         # (compile_base_state didn't surface it). Fires only when the device's
         # compiled port_config actually differs between baseline and predicted.
-        all_ports = {normalize_port_id(p) for p in set(old_port_config) | set(new_port_config) if normalize_port_id(p)}
+        all_ports = {
+            normalized_port
+            for p in set(old_port_config) | set(new_port_config)
+            if (normalized_port := normalize_port_id(p))
+        }
         changed_ports = sorted(
             {
                 p
