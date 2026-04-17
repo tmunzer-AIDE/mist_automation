@@ -71,14 +71,16 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
     """
     has_l2_device = any(dev.type in ("switch", "gateway") for dev in baseline.devices.values())
     neighbor_ports = merge_infra_neighbor_ports(baseline, include_unknown_lldp_neighbors=True)
+
+    skipped_hint = (
+        "Re-run the simulation once live device telemetry is reachable. "
+        "Check that listOrgDevicesStats returns clients[] with source='lldp' for this site."
+    )
+
     if has_l2_device and not any(neighbor_ports.values()):
         skipped_summary = (
             "Live LLDP data unavailable — cannot verify which ports connect to neighbors. "
             "Port disconnect impact was not evaluated."
-        )
-        skipped_hint = (
-            "Re-run the simulation once live device telemetry is reachable. "
-            "Check that listOrgDevicesStats returns clients[] with source='lldp' for this site."
         )
         return [
             CheckResult(
@@ -109,6 +111,10 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
     disconnected_ap_ids: list[str] = []
     has_physical_disconnect = False
     has_vlan_isolation = False
+    # Per-device LLDP gaps: L2 devices with port_config changes but no LLDP
+    # entries. Partial LLDP coverage must surface as `skipped` per device
+    # rather than silently passing (CLAUDE.md invariant).
+    devices_with_changes_missing_lldp: list[str] = []
     baseline_site_vars = baseline.site_setting.get("vars") or {}
     predicted_site_vars = predicted.site_setting.get("vars") or {}
     baseline_network_map = build_network_name_to_vlan(baseline.networks, baseline_site_vars)
@@ -134,9 +140,9 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
         # (compile_base_state didn't surface it). Fires only when the device's
         # compiled port_config actually differs between baseline and predicted.
         all_ports = {
-            normalize_port_id(p)
+            normalized_port
             for p in set(old_port_config) | set(new_port_config)
-            if normalize_port_id(p)
+            if (normalized_port := normalize_port_id(p))
         }
         changed_ports = sorted(
             {
@@ -154,11 +160,20 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
                 changed_ports=changed_ports,
                 lldp_ports_for_device=sorted(neighbors_for_device.keys()),
                 missing_lldp_for_changed_ports=sorted(set(changed_ports) - set(neighbors_for_device.keys())),
-                baseline_usage={p: resolve_port_config_entry(old_port_config, p).get("usage", "") for p in changed_ports},
-                predicted_usage={p: resolve_port_config_entry(new_port_config, p).get("usage", "") for p in changed_ports},
+                baseline_usage={
+                    p: resolve_port_config_entry(old_port_config, p).get("usage", "") for p in changed_ports
+                },
+                predicted_usage={
+                    p: resolve_port_config_entry(new_port_config, p).get("usage", "") for p in changed_ports
+                },
             )
 
         if not neighbors_for_device:
+            # L2 infra device with port config changes but no LLDP — cannot
+            # verify impact for this specific device. Track so the overall
+            # result reflects incomplete coverage instead of a silent pass.
+            if baseline_dev.type in ("switch", "gateway") and changed_ports:
+                devices_with_changes_missing_lldp.append(baseline_dev.name or baseline_dev.mac or dev_id)
             continue
 
         for port, neighbor_mac in neighbors_for_device.items():
@@ -268,20 +283,40 @@ def check_port_impact(baseline: SiteSnapshot, predicted: SiteSnapshot) -> list[C
     else:
         disc_summary = "No port changes disconnect connected LLDP neighbors or remove VLAN reachability"
 
+    # If some L2 devices lacked LLDP, surface that as incomplete coverage.
+    # When there are no real findings, downgrade pass -> skipped so the
+    # overall result does not claim "all clear" on devices we couldn't see.
+    disc_status = disc_max_severity
+    disc_remediation = (
+        "Review port/profile changes and verify affected links still carry required VLANs for downstream devices."
+        if disc_details
+        else None
+    )
+    if devices_with_changes_missing_lldp:
+        lldp_gap_detail = "LLDP data unavailable for device(s) with port_config changes: " + ", ".join(
+            sorted(set(devices_with_changes_missing_lldp))
+        )
+        if not disc_details:
+            disc_status = "skipped"
+            disc_summary = (
+                "Partial LLDP coverage — some devices with port_config changes could not be verified. "
+                "Port disconnect impact was not fully evaluated."
+            )
+            disc_details = [lldp_gap_detail]
+            disc_remediation = skipped_hint
+        else:
+            disc_details = list(disc_details) + [lldp_gap_detail]
+
     port_disc = CheckResult(
         check_id=disc_check_id,
         check_name=disc_check_name,
         layer=2,
-        status=disc_max_severity,
+        status=disc_status,
         summary=disc_summary,
         details=disc_details,
         affected_objects=disc_affected,
-        affected_sites=[baseline.site_id] if disc_details else [],
-        remediation_hint=(
-            "Review port/profile changes and verify affected links still carry required VLANs for downstream devices."
-            if disc_details
-            else None
-        ),
+        affected_sites=[baseline.site_id] if (disc_details or devices_with_changes_missing_lldp) else [],
+        remediation_hint=disc_remediation,
         description="Compares switch/gateway port profiles to find LLDP-confirmed neighbors that would be disconnected or lose VLAN membership.",
     )
 

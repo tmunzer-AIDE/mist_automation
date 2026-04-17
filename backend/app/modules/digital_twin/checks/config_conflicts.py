@@ -21,7 +21,6 @@ from typing import Any
 from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # CFG-SUBNET: IP Subnet Overlap — Layer 1, critical
 # ---------------------------------------------------------------------------
@@ -357,7 +356,10 @@ def _check_dhcp_misconfiguration(snap: SiteSnapshot) -> CheckResult:
 
     for r in ranges:
         net_name = r["network_name"]
-        subnet = network_subnets.get(net_name)
+        canonical = r.get("network_name_canonical") or net_name
+        # DHCP keys can appear as "<gateway>/<network>" aliases; network_subnets
+        # is keyed on the plain name, so try canonical first then raw.
+        subnet = network_subnets.get(canonical) or network_subnets.get(net_name)
         if not subnet:
             continue
 

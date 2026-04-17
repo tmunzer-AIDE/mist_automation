@@ -201,6 +201,53 @@ class TestTmplVar:
         assert any("site_ntp_server" in d for d in results[0].details)
 
 
+class TestJinjaLiteralsExcluded:
+    """Regression: ``{{ true }}`` / ``{{ false }}`` / ``{{ none }}`` and
+    Jinja2 builtins (``range``, ``loop``, …) must NOT be flagged as
+    unresolved template variables.
+    """
+
+    def test_boolean_literal_not_flagged(self):
+        snap = _make_snapshot(
+            site_setting={
+                "vars": {},
+                "enabled": "{{ true }}",
+                "disabled": "{{ false }}",
+                "nothing": "{{ none }}",
+            }
+        )
+        results = check_template_variables(snap)
+        assert len(results) == 1
+        assert results[0].status == "pass"
+
+    def test_jinja_builtin_not_flagged(self):
+        snap = _make_snapshot(
+            site_setting={
+                "vars": {},
+                # Common Jinja2 builtin callable; previously flagged as unresolved.
+                "items": "{{ range(5) }}",
+                "loop_ref": "{{ loop.index }}",
+            }
+        )
+        results = check_template_variables(snap)
+        assert len(results) == 1
+        assert results[0].status == "pass"
+
+    def test_real_undefined_var_still_flagged_alongside_literal(self):
+        snap = _make_snapshot(
+            site_setting={
+                "vars": {},
+                "a": "{{ true }}",
+                "b": "{{ missing_var }}",
+            }
+        )
+        results = check_template_variables(snap)
+        assert len(results) == 1
+        assert results[0].status == "error"
+        assert any("missing_var" in d for d in results[0].details)
+        assert not any("true" in d for d in results[0].details)
+
+
 class TestCheckDescriptions:
     def test_tmpl_var_description_populated(self):
         """TMPL-VAR populates the description field for both pass and fail outcomes."""

@@ -8,14 +8,27 @@ from typing import Any
 
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 
+# Known Juniper physical interface media prefixes for fpc/pic/port shorthand:
+#   fe – Fast Ethernet
+#   ge – Gigabit Ethernet
+#   xe – 10-Gigabit Ethernet
+#   et – Ethernet (>10Gbps)
+# ae (Aggregated Ethernet) uses a different naming scheme ("ae0", "ae1", …),
+# so it is not part of the fpc/pic/port shorthand expansion.
+_JUNOS_PORT_PREFIXES: tuple[str, ...] = ("ge", "xe", "et", "fe")
+
 
 def normalize_port_id(port_id: str | None) -> str:
     """Normalize live-data port IDs to the physical key used in configs.
 
     Handles:
     - Trailing unit/pic suffixes: 'ge-0/0/1.0', 'xe-0/0/0:0' -> 'ge-0/0/1'
-    - Missing prefixes (stacks): '0/0/1' -> 'ge-0/0/1' (common for Juniper)
     - Case sensitivity: 'GE-0/0/1' -> 'ge-0/0/1'
+
+    Shorthand without media prefix (e.g. '0/0/1') is returned as-is. The
+    caller must use :func:`port_lookup_candidates` for tolerant matching,
+    which tries every known physical-port Junos prefix (ge/xe/et/fe) since
+    a single prefix cannot be assumed from the shorthand.
     """
     if not port_id:
         return ""
@@ -30,15 +43,16 @@ def normalize_port_id(port_id: str | None) -> str:
     if normalized.endswith(":0"):
         normalized = normalized[:-2]
 
-    # Handle common Juniper shorthand from some LLDP sources (0/0/1 -> ge-0/0/1)
-    if normalized.count("/") == 2 and not normalized[0].isalpha():
-        normalized = f"ge-{normalized}"
-
     return normalized
 
 
 def port_lookup_candidates(port_id: str | None) -> list[str]:
-    """Return equivalent config-key forms for a port identifier."""
+    """Return equivalent config-key forms for a port identifier.
+
+    Includes suffix variants (`.0`, `:0`) and, for prefix-less shorthand
+    (`0/0/1`), every known Junos media prefix since the actual media type
+    is not recoverable from the shorthand alone.
+    """
     if not port_id:
         return []
 
@@ -50,7 +64,16 @@ def port_lookup_candidates(port_id: str | None) -> list[str]:
         if candidate and candidate not in candidates:
             candidates.append(candidate)
 
-    # Also try without prefix if config uses shorthand (rare but possible)
+    # Prefix-less shorthand (e.g. '0/0/1' from some LLDP sources): try each
+    # known Junos media prefix since we cannot infer the actual type.
+    if normalized.count("/") == 2 and not normalized[0].isalpha():
+        for prefix in _JUNOS_PORT_PREFIXES:
+            prefixed = f"{prefix}-{normalized}"
+            for candidate in (prefixed, f"{prefixed}.0", f"{prefixed}:0"):
+                if candidate not in candidates:
+                    candidates.append(candidate)
+
+    # Conversely: config key uses shorthand but input has a prefix.
     if "-" in normalized:
         shorthand = normalized.split("-", 1)[1]
         if shorthand and shorthand not in candidates:

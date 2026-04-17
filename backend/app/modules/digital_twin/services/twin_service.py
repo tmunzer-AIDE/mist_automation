@@ -60,6 +60,15 @@ _SENSITIVE_KEYS = {
     "ssh_key",
     "private_key",
     "psk",
+    # Additional Mist/RADIUS/PSK-portal fields that can appear in staged writes.
+    "passphrase",
+    "wpa_psk",
+    "wpa_key",
+    "radius_secret",
+    "shared_secret",
+    "client_secret",
+    "key_id",
+    "signing_key",
 }
 
 
@@ -348,13 +357,26 @@ async def simulate(
 
     # Resolve human-readable object label (uses backup data, resolved once at
     # session creation and never refreshed — names captured at simulate-time).
-    object_names = await fetch_object_names_by_type(
-        org_id=org_id, writes=staged_writes
-    )
+    object_names = await fetch_object_names_by_type(org_id=org_id, writes=staged_writes)
     affected_object_label = format_object_label(
         object_types=affected_types,
         object_names_by_type=object_names,
     )
+
+    # Re-simulate is only valid from terminal-but-retryable states. We
+    # explicitly exclude PENDING and VALIDATING — a session in those states
+    # has a simulation in flight, and overwriting its staged_writes /
+    # prediction_report from a second concurrent caller produces a
+    # last-writer-wins race (corrupted audit trail, mismatched report vs
+    # writes, possible TOCTOU against approve_and_execute).
+    #
+    # Allowed prior states: AWAITING_APPROVAL (user wants to remediate the
+    # current proposal) and FAILED (user wants to retry after a
+    # validation failure).
+    _RESIMULATE_ALLOWED_STATES = {
+        TwinSessionStatus.AWAITING_APPROVAL,
+        TwinSessionStatus.FAILED,
+    }
 
     old_severity = "clean"
     if existing_session_id:
@@ -369,12 +391,32 @@ async def simulate(
             raise ValueError("Twin session not found")
         if session.org_id != org_id:
             raise ValueError("Twin session org mismatch")
+        if session.status not in _RESIMULATE_ALLOWED_STATES:
+            raise ValueError(f"Twin session cannot be re-simulated in '{session.status.value}' state")
+
+        # Atomic compare-and-set: claim the session by transitioning its
+        # status to VALIDATING only if it's still in one of the allowed
+        # prior states. This wins-once even when two simulate() calls land
+        # concurrently against the same session_id.
+        now = datetime.now(timezone.utc)
+        claimed = await TwinSession.get_motor_collection().find_one_and_update(
+            {
+                "_id": existing_id,
+                "status": {"$in": [s.value for s in _RESIMULATE_ALLOWED_STATES]},
+            },
+            {"$set": {"status": TwinSessionStatus.VALIDATING.value, "updated_at": now}},
+        )
+        if claimed is None:
+            raise ValueError(f"Twin session {existing_session_id} is no longer in a re-simulatable state")
+
         old_severity = session.overall_severity
         session.staged_writes = staged_writes
         session.affected_sites = affected_sites
         session.affected_object_types = affected_types
         session.affected_object_label = affected_object_label
         session.remediation_count += 1
+        session.status = TwinSessionStatus.VALIDATING
+        session.updated_at = now
     else:
         session = TwinSession(
             user_id=PydanticObjectId(user_id),
@@ -386,8 +428,8 @@ async def simulate(
             affected_object_types=affected_types,
             affected_object_label=affected_object_label,
         )
+        session.status = TwinSessionStatus.VALIDATING
 
-    session.status = TwinSessionStatus.VALIDATING
     session.base_snapshot_refs = []
     session.live_fetched_at = None
     session.update_timestamp()
@@ -464,9 +506,7 @@ async def simulate(
 
                 # Resolve site labels once the full fan-out is known (template edits may
                 # expand the scoped sites — we want labels for ALL tested sites).
-                session.affected_site_labels = await fetch_site_names(
-                    org_id=org_id, site_ids=affected_sites
-                )
+                session.affected_site_labels = await fetch_site_names(org_id=org_id, site_ids=affected_sites)
                 logger.info(
                     "twin_site_labels_resolved",
                     site_ids=affected_sites,
@@ -622,13 +662,62 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
             "Session has preflight validation errors and cannot be approved",
         )
 
-    session.status = TwinSessionStatus.APPROVED
-    session.update_timestamp()
-    await session.save()
+    # Atomic transition AWAITING_APPROVAL -> EXECUTING guards against concurrent
+    # approval races that could otherwise double-execute staged writes. If another
+    # caller already flipped the status, find_one_and_update returns None.
+    now = datetime.now(timezone.utc)
+    claimed = await TwinSession.get_motor_collection().find_one_and_update(
+        {"_id": session_obj_id, "status": TwinSessionStatus.AWAITING_APPROVAL.value},
+        {"$set": {"status": TwinSessionStatus.EXECUTING.value, "updated_at": now}},
+    )
+    if claimed is None:
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.NOT_AWAITING_APPROVAL,
+            "Session is no longer awaiting approval",
+        )
 
+    # Re-fetch to capture any concurrent mutations to staged_writes or the
+    # prediction_report (e.g. a re-simulate that appended writes / regenerated
+    # the report between our initial read and the atomic claim). The status
+    # guard above closes the status race, but other fields could still have
+    # changed without a status flip.
+    session = await TwinSession.get(session_obj_id)
+    if not session:
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found")
+    # Re-run the safety gates on the fresh session. Without this, a concurrent
+    # re-simulate could replace an execution_safe=True report with a failing
+    # one (or add risky writes) and the write loop below would execute
+    # un-approved content. Revert the status to AWAITING_APPROVAL on failure
+    # so the session stays approvable from the UI/MCP.
+    if not session.prediction_report:
+        await TwinSession.get_motor_collection().update_one(
+            {"_id": session_obj_id, "status": TwinSessionStatus.EXECUTING.value},
+            {"$set": {"status": TwinSessionStatus.AWAITING_APPROVAL.value, "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.NO_VALIDATION_REPORT,
+            "Session has no validation report",
+        )
+    if not session.prediction_report.execution_safe:
+        await TwinSession.get_motor_collection().update_one(
+            {"_id": session_obj_id, "status": TwinSessionStatus.EXECUTING.value},
+            {"$set": {"status": TwinSessionStatus.AWAITING_APPROVAL.value, "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.BLOCKING_VALIDATION_ISSUES,
+            "Session has blocking validation issues and cannot be approved",
+        )
+    if _has_blocking_preflight_errors(session.prediction_report.check_results):
+        await TwinSession.get_motor_collection().update_one(
+            {"_id": session_obj_id, "status": TwinSessionStatus.EXECUTING.value},
+            {"$set": {"status": TwinSessionStatus.AWAITING_APPROVAL.value, "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise TwinApprovalError(
+            TwinApprovalErrorCode.PREFLIGHT_VALIDATION_ERRORS,
+            "Session has preflight validation errors and cannot be approved",
+        )
     session.status = TwinSessionStatus.EXECUTING
-    session.update_timestamp()
-    await session.save()
+    session.updated_at = now
 
     with bind_twin_session(str(session.id), phase="execute"):
         try:

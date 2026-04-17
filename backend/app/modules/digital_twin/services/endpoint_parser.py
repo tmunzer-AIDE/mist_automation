@@ -161,9 +161,7 @@ def _validate_method_target_shape(
         return False
 
     if verb == "POST" and object_id:
-        result.error = (
-            f"Method 'POST' must target a collection endpoint without object_id for resource '{resource}'"
-        )
+        result.error = f"Method 'POST' must target a collection endpoint without object_id for resource '{resource}'"
         return False
 
     return True
@@ -244,8 +242,7 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
 
         # Unknown resource — set error but still populate site_id/scope
         result.error = (
-            f"Unknown site resource '{resource}'. "
-            f"Valid: {', '.join(sorted(_SITE_RESOURCES | _SITE_SINGLETONS))}"
+            f"Unknown site resource '{resource}'. " f"Valid: {', '.join(sorted(_SITE_RESOURCES | _SITE_SINGLETONS))}"
         )
         return result
 
@@ -301,14 +298,12 @@ def parse_endpoint(method: str, endpoint: str) -> ParsedEndpoint:
 
         # Unknown resource — set error but still populate org_id/scope
         result.error = (
-            f"Unknown org resource '{resource}'. "
-            f"Valid: {', '.join(sorted(_ORG_RESOURCES | _ORG_SINGLETONS))}"
+            f"Unknown org resource '{resource}'. " f"Valid: {', '.join(sorted(_ORG_RESOURCES | _ORG_SINGLETONS))}"
         )
         return result
 
     # Neither pattern matched
     result.error = (
-        "Endpoint does not match Mist API pattern "
-        "(/api/v1/sites/{site_id}/... or /api/v1/orgs/{org_id}/...)"
+        "Endpoint does not match Mist API pattern " "(/api/v1/sites/{site_id}/... or /api/v1/orgs/{org_id}/...)"
     )
     return result

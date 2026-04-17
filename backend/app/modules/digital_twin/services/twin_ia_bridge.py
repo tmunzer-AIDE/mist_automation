@@ -14,6 +14,7 @@ import structlog
 
 from app.core.tasks import create_background_task
 from app.modules.digital_twin.models import TwinSession
+from app.modules.digital_twin.services.site_snapshot import normalize_mac
 
 logger = structlog.get_logger(__name__)
 
@@ -122,7 +123,7 @@ async def _get_devices_at_site(site_id: str, session: TwinSession) -> list[dict[
                 if dev_type in ("switch", "gateway", "ap"):
                     devices.append(
                         {
-                            "mac": stats.get("mac", ""),
+                            "mac": normalize_mac(stats.get("mac", "")),
                             "name": stats.get("name", stats.get("hostname", "")),
                             "type": dev_type,
                             "site_name": stats.get("site_name", site_id),
@@ -148,9 +149,16 @@ async def _get_devices_at_site(site_id: str, session: TwinSession) -> list[dict[
             continue
         seen.add(b.object_id)
         cfg = b.configuration
+        # Backup ``object_id`` is the Mist device UUID, not a MAC. Skip devices
+        # with no stored MAC rather than feeding a UUID through normalize_mac
+        # (which would produce garbage that fails IA session matching).
+        mac = normalize_mac(cfg.get("mac"))
+        if not mac:
+            logger.debug("twin_ia_bridge_skip_device_missing_mac", site_id=site_id, object_id=b.object_id)
+            continue
         devices.append(
             {
-                "mac": cfg.get("mac", b.object_id),
+                "mac": mac,
                 "name": cfg.get("name", ""),
                 "type": cfg.get("type", cfg.get("device_type", "switch")),
                 "site_name": site_id,

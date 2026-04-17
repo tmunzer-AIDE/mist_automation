@@ -19,6 +19,34 @@ from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 #   {{ var }}, {{ var | default('x') }}, {{ var.nested }}, {{- var }}
 _VAR_RE = re.compile(r"\{\{-?\s*(\w+)")
 
+# Jinja2 literals, constants, and common built-in tests/functions that are
+# valid without being declared in site_vars. They must NOT be flagged as
+# "undefined" when they appear first inside a {{ ... }} expression.
+_JINJA_RESERVED: frozenset[str] = frozenset(
+    {
+        # Literals / constants
+        "true",
+        "false",
+        "none",
+        "True",
+        "False",
+        "None",
+        # Common callables / namespaces
+        "range",
+        "dict",
+        "list",
+        "lipsum",
+        "cycler",
+        "joiner",
+        "namespace",
+        "loop",
+        "self",
+        "super",
+        "varargs",
+        "kwargs",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,7 +109,9 @@ def check_template_variables(predicted: SiteSnapshot) -> list[CheckResult]:
         referenced.update(_extract_vars(device.ip_config))
         referenced.update(_extract_vars(device.dhcpd_config))
 
-    unresolved = sorted(referenced - defined_names)
+    # Filter out Jinja2 literals/builtins (true/false/none/range/…) which are
+    # valid even though they match the \w+ variable-name regex.
+    unresolved = sorted((referenced - defined_names) - _JINJA_RESERVED)
 
     if unresolved:
         details = [f"Variable '{{{{ {var} }}}}' not defined in site vars" for var in unresolved]

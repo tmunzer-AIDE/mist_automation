@@ -442,6 +442,47 @@ class TestPortDisc:
         assert disc.status == "pass"
         assert client.status == "pass"
 
+    def test_partial_lldp_coverage_with_changes_downgrades_to_skipped(self):
+        """Partial LLDP: one switch has LLDP data, another doesn't. Port config
+        changes on the LLDP-less switch must surface as ``skipped`` rather than
+        silently passing.
+        """
+        sw_with_lldp = _dev(
+            "sw-1",
+            mac="aa:bb:cc:00:00:10",
+            name="SW-Covered",
+            port_config={"ge-0/0/0": {"usage": "trunk"}},
+        )
+        sw_no_lldp = _dev(
+            "sw-2",
+            mac="aa:bb:cc:00:00:20",
+            name="SW-NoLLDP",
+            port_config={"ge-0/0/5": {"usage": "access"}},
+        )
+
+        baseline = _snap(
+            devices={"sw-1": sw_with_lldp, "sw-2": sw_no_lldp},
+            lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/0": "ff:ff:ff:ff:ff:ff"}},
+        )
+
+        sw_no_lldp_pred = _dev(
+            "sw-2",
+            mac="aa:bb:cc:00:00:20",
+            name="SW-NoLLDP",
+            port_config={"ge-0/0/5": {"usage": "disabled"}},
+        )
+        predicted = _snap(
+            devices={"sw-1": sw_with_lldp, "sw-2": sw_no_lldp_pred},
+            lldp_neighbors={"aa:bb:cc:00:00:10": {"ge-0/0/0": "ff:ff:ff:ff:ff:ff"}},
+        )
+
+        disc, _ = check_port_impact(baseline, predicted)
+
+        # Without findings on the LLDP-covered switch, the overall result must
+        # not claim "pass" while the LLDP-less switch has unverifiable changes.
+        assert disc.status == "skipped"
+        assert any("SW-NoLLDP" in d for d in disc.details)
+
 
 # ---------------------------------------------------------------------------
 # TestPortClient

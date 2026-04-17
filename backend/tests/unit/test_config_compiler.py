@@ -529,6 +529,17 @@ class TestProcessSwitchInterface:
         result = _process_switch_interface({"ge-notvalid": {"usage": "x"}})
         assert result == {"ge-notvalid": {"usage": "x"}}
 
+    def test_reversed_range_passes_key_through_rather_than_emitting_empty(self) -> None:
+        """Reversed ranges (start > end) previously produced an empty Python
+        ``range`` and silently dropped the key, leaving port_config with gaps.
+        The fix preserves the original key so the misconfiguration remains
+        visible to checks/preflight.
+        """
+        for key in ("ge-9-0/0/0", "ge-0/9-0/0", "ge-0/0/9-0"):
+            result = _process_switch_interface({key: {"usage": "trunk"}})
+            assert key in result
+            assert result[key] == {"usage": "trunk"}
+
 
 # ---------------------------------------------------------------------------
 # _match_switch_condition
@@ -951,6 +962,29 @@ class TestPreloadCompileCache:
 
         assert result == {}
         assert call_count["n"] == 0  # cache hit, no backup query
+
+    async def test_cache_returns_deep_copy(self, monkeypatch) -> None:
+        """Regression: the template cache must return a deep copy so callers
+        that mutate nested dicts (port_config, networks) don't poison the
+        shared cache entry for subsequent sites.
+        """
+        from app.modules.digital_twin.services import config_compiler
+
+        shared_cached = {
+            "port_config": {"ge-0/0/0": {"usage": "trunk"}},
+            "networks": ["a", "b"],
+        }
+        cache: config_compiler.CompileCache = {("networktemplates", "nt-shared"): shared_cached}
+
+        first = await config_compiler._load_template({}, "networktemplates", "nt-shared", "org-1", cache=cache)
+        # Mutate a nested dict in the caller's copy.
+        first["port_config"]["ge-0/0/0"]["usage"] = "mutated"
+
+        second = await config_compiler._load_template({}, "networktemplates", "nt-shared", "org-1", cache=cache)
+        # The second load must see the original value, not the mutation.
+        assert second["port_config"]["ge-0/0/0"]["usage"] == "trunk"
+        # And the underlying cache entry must also be pristine.
+        assert shared_cached["port_config"]["ge-0/0/0"]["usage"] == "trunk"
 
 
 # ---------------------------------------------------------------------------

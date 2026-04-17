@@ -37,10 +37,7 @@ def build_write_diff(
     old_body = base_body or {}
 
     if write.method == "POST":
-        entries = [
-            {"path": k, "change": "added", "before": None, "after": v}
-            for k, v in new_body.items()
-        ]
+        entries = [{"path": k, "change": "added", "before": None, "after": v} for k, v in new_body.items()]
         return entries, "new object"
 
     # PUT — compare against the effective body after root-level partial update.

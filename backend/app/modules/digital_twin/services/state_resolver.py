@@ -11,6 +11,7 @@ which is async and requires database access. The pure functions here
 
 from __future__ import annotations
 
+import copy
 import uuid
 from typing import Any
 
@@ -104,8 +105,14 @@ def apply_staged_writes(
     base_state: dict[StateKey, dict[str, Any]],
     writes: list[StagedWrite],
 ) -> dict[StateKey, dict[str, Any]]:
-    """Apply all staged writes to a copy of the base state, in sequence order."""
-    state = {k: dict(v) for k, v in base_state.items()}
+    """Apply all staged writes to a deep copy of the base state, in sequence order.
+
+    A deep copy is required because ``merge_write_into_state`` mutates nested
+    dicts in place (e.g. PUT updates under a site setting). A shallow copy
+    would share nested refs with ``base_state`` and silently mutate the
+    caller's baseline.
+    """
+    state = copy.deepcopy(base_state)
     sorted_writes = sorted(writes, key=lambda w: w.sequence)
     for write in sorted_writes:
         merge_write_into_state(state, write)

@@ -156,17 +156,48 @@ def _process_switch_interface(port_config: dict[str, Any]) -> dict[str, Any]:
             except ValueError:
                 expanded[key] = value
                 continue
+            # A reversed range (start > end) produces an empty Python `range`
+            # and silently drops the key. Log and preserve the original key so
+            # the misconfiguration is visible rather than causing missing
+            # port_config entries downstream.
             if "-" in fpc:
                 fpc_start, fpc_end = fpc.split("-")
-                for fpc_num in range(int(fpc_start), int(fpc_end) + 1):
+                try:
+                    start_i, end_i = int(fpc_start), int(fpc_end)
+                except ValueError:
+                    expanded[key] = value
+                    continue
+                if start_i > end_i:
+                    logger.warning("port_range_reversed", key=key, axis="fpc")
+                    expanded[key] = value
+                    continue
+                for fpc_num in range(start_i, end_i + 1):
                     expanded[f"{prefix}-{fpc_num}/{pic}/{port}"] = value
             elif "-" in pic:
                 pic_start, pic_end = pic.split("-")
-                for pic_num in range(int(pic_start), int(pic_end) + 1):
+                try:
+                    start_i, end_i = int(pic_start), int(pic_end)
+                except ValueError:
+                    expanded[key] = value
+                    continue
+                if start_i > end_i:
+                    logger.warning("port_range_reversed", key=key, axis="pic")
+                    expanded[key] = value
+                    continue
+                for pic_num in range(start_i, end_i + 1):
                     expanded[f"{prefix}-{fpc}/{pic_num}/{port}"] = value
             elif "-" in port:
                 port_start, port_end = port.split("-")
-                for port_num in range(int(port_start), int(port_end) + 1):
+                try:
+                    start_i, end_i = int(port_start), int(port_end)
+                except ValueError:
+                    expanded[key] = value
+                    continue
+                if start_i > end_i:
+                    logger.warning("port_range_reversed", key=key, axis="port")
+                    expanded[key] = value
+                    continue
+                for port_num in range(start_i, end_i + 1):
                     expanded[f"{prefix}-{fpc}/{pic}/{port_num}"] = value
             else:
                 expanded[key] = value
@@ -714,7 +745,11 @@ async def _load_template(
     cache_key = (object_type, template_id)
     if cache is not None and cache_key in cache:
         cached = cache[cache_key]
-        return dict(cached) if cached else {}
+        # Deep copy: downstream merges mutate nested dicts (port_config,
+        # networks). A shallow copy shares nested refs with the cache entry,
+        # which poisons subsequent baseline-vs-predicted compares when the
+        # same template is loaded for multiple sites.
+        return copy.deepcopy(cached) if cached else {}
 
     from app.modules.backup.models import BackupObject
 
@@ -730,10 +765,10 @@ async def _load_template(
         .sort([("version", -1)])
         .first_or_none()
     )
-    config = dict(backup.configuration) if backup else None
+    config = copy.deepcopy(backup.configuration) if backup else None
     if cache is not None:
         cache[cache_key] = config
-    return config or {}
+    return copy.deepcopy(config) if config else {}
 
 
 async def _load_device_profile(
@@ -760,7 +795,7 @@ async def _load_device_profile(
     cache_key = ("deviceprofiles", dp_id)
     if cache is not None and cache_key in cache:
         cached = cache[cache_key]
-        return dict(cached) if cached else None
+        return copy.deepcopy(cached) if cached else None
 
     from app.modules.backup.models import BackupObject
 
@@ -776,10 +811,10 @@ async def _load_device_profile(
         .sort([("version", -1)])
         .first_or_none()
     )
-    config = dict(backup.configuration) if backup else None
+    config = copy.deepcopy(backup.configuration) if backup else None
     if cache is not None:
         cache[cache_key] = config
-    return config
+    return copy.deepcopy(config) if config else None
 
 
 # ---------------------------------------------------------------------------

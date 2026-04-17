@@ -9,7 +9,6 @@ from __future__ import annotations
 from app.modules.digital_twin.checks.routing import check_routing
 from app.modules.digital_twin.services.site_snapshot import DeviceSnapshot, SiteSnapshot
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -599,8 +598,10 @@ class TestRouteWan:
         assert "lte" in r.details[0]
         assert r.affected_sites == ["site-1"]
 
-    def test_multiple_wan_removed_error(self):
-        """Removing multiple WAN links should produce an error."""
+    def test_multiple_wan_removed_with_full_outage_is_critical(self):
+        """Removing every WAN from a gateway leaves it with zero WAN
+        connectivity — escalates to ``critical`` (was ``error`` pre-fix).
+        """
         baseline = _snap(
             devices={
                 "gw-1": _dev(
@@ -623,6 +624,45 @@ class TestRouteWan:
                     "GW-1",
                     dtype="gateway",
                     port_config={},  # Both WAN links removed
+                ),
+            },
+        )
+        results = check_routing(baseline, predicted)
+        r = _get_result(results, "ROUTE-WAN")
+        assert r.status == "critical"
+        # 2 removal details + 1 appended outage note.
+        assert len(r.details) == 3
+        assert any("no WAN links" in d for d in r.details)
+
+    def test_multiple_wan_removed_error_when_some_remain(self):
+        """Removing multiple WANs while other WANs remain -> ``error``
+        (not critical, because the gateway still has WAN connectivity).
+        """
+        baseline = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    port_config={
+                        "ge-0/0/0": {"usage": "wan", "wan_type": "broadband"},
+                        "ge-0/0/1": {"usage": "wan", "wan_type": "lte"},
+                        "ge-0/0/2": {"usage": "wan", "wan_type": "fiber"},
+                    },
+                ),
+            },
+        )
+        predicted = _snap(
+            devices={
+                "gw-1": _dev(
+                    "gw-1",
+                    "aa:bb:cc:dd:ee:01",
+                    "GW-1",
+                    dtype="gateway",
+                    port_config={
+                        "ge-0/0/2": {"usage": "wan", "wan_type": "fiber"},
+                    },
                 ),
             },
         )

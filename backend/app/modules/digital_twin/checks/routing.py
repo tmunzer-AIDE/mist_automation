@@ -19,7 +19,6 @@ from app.modules.digital_twin.models import CheckResult
 from app.modules.digital_twin.services.site_snapshot import SiteSnapshot
 from app.modules.digital_twin.services.topology_utils import resolve_vlan_id
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -129,8 +128,7 @@ def _format_route_gw_detail(
 
     if implicit_vlan_wlans:
         parts.append(
-            "WLAN(s) with implicit vlan_id may map through native/default VLAN: "
-            f"{', '.join(implicit_vlan_wlans)}"
+            "WLAN(s) with implicit vlan_id may map through native/default VLAN: " f"{', '.join(implicit_vlan_wlans)}"
         )
 
     return "; ".join(parts)
@@ -242,9 +240,7 @@ def _check_route_ospf(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckR
                 status="skipped",
                 summary="OSPF appears configured but live peer telemetry is unavailable.",
                 affected_sites=[baseline.site_id],
-                remediation_hint=(
-                    "Ensure live telemetry exposes OSPF peers (peer_ip), then re-run simulation."
-                ),
+                remediation_hint=("Ensure live telemetry exposes OSPF peers (peer_ip), then re-run simulation."),
                 description="Checks that OSPF peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
             )
         return CheckResult(
@@ -329,9 +325,7 @@ def _check_route_bgp(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
                 status="skipped",
                 summary="BGP appears configured but live peer telemetry is unavailable.",
                 affected_sites=[baseline.site_id],
-                remediation_hint=(
-                    "Ensure live telemetry exposes BGP peers (peer_ip), then re-run simulation."
-                ),
+                remediation_hint=("Ensure live telemetry exposes BGP peers (peer_ip), then re-run simulation."),
                 description="Checks that BGP peer IPs from live telemetry remain reachable within the predicted gateway interface subnets.",
             )
         return CheckResult(
@@ -404,10 +398,15 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
     Compares port_config entries with usage == "wan" between baseline and
     predicted for each gateway device. Flags removed WAN links.
 
-    Severity: warning if 1 link removed, error if multiple.
+    Severity escalates to ``critical`` when a gateway drops to zero WANs
+    (full WAN outage on that device). Multiple removals without full
+    outage are ``error``; a single removal with remaining WANs is
+    ``warning``.
     """
     removed_details: list[str] = []
     affected_objects: list[str] = []
+    # Devices whose predicted WAN count drops to 0 (total WAN outage).
+    devices_losing_all_wans: list[str] = []
 
     for dev_id, baseline_dev in baseline.devices.items():
         if baseline_dev.type != "gateway":
@@ -431,14 +430,17 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
                 predicted_wan_ports.add(port_name)
 
         # Detect removed WAN links
+        removed_on_device = 0
         for port_name, port_cfg in baseline_wan_ports.items():
             if port_name not in predicted_wan_ports:
                 wan_type = port_cfg.get("wan_type", "unknown")
-                removed_details.append(
-                    f"{baseline_dev.name} port {port_name}: WAN link removed (wan_type={wan_type})"
-                )
+                removed_details.append(f"{baseline_dev.name} port {port_name}: WAN link removed (wan_type={wan_type})")
+                removed_on_device += 1
                 if dev_id not in affected_objects:
                     affected_objects.append(dev_id)
+
+        if removed_on_device and not predicted_wan_ports and baseline_wan_ports:
+            devices_losing_all_wans.append(baseline_dev.name or dev_id)
 
     if not removed_details:
         return CheckResult(
@@ -450,15 +452,25 @@ def _check_route_wan(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRe
             description="Detects WAN ports removed from gateway devices, which reduces redundancy and available bandwidth.",
         )
 
-    status = "warning" if len(removed_details) == 1 else "error"
+    if devices_losing_all_wans:
+        status = "critical"
+        outage_note = (
+            f"Gateway(s) {', '.join(sorted(devices_losing_all_wans))} will have no WAN links after this change."
+        )
+        details_with_outage = list(removed_details) + [outage_note]
+        summary = f"{len(removed_details)} WAN link(s) removed; {len(devices_losing_all_wans)} gateway(s) lose all WAN connectivity."
+    else:
+        status = "warning" if len(removed_details) == 1 else "error"
+        details_with_outage = removed_details
+        summary = f"{len(removed_details)} WAN link(s) removed from gateway device(s)."
 
     return CheckResult(
         check_id="ROUTE-WAN",
         check_name="WAN Failover Impact",
         layer=3,
         status=status,
-        summary=f"{len(removed_details)} WAN link(s) removed from gateway device(s).",
-        details=removed_details,
+        summary=summary,
+        details=details_with_outage,
         affected_objects=affected_objects,
         affected_sites=[baseline.site_id],
         remediation_hint="Verify that remaining WAN links provide sufficient redundancy and bandwidth.",
