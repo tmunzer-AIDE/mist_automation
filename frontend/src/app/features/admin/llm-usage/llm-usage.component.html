@@ -1,0 +1,78 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>LLM Usage Dashboard</mat-card-title>
+    <div class="header-actions">
+      @for (opt of windowOptions; track opt.hours) {
+        <button
+          mat-stroked-button
+          class="window-btn"
+          [class.active]="selectedHours() === opt.hours"
+          (click)="setWindow(opt.hours)"
+        >
+          {{ opt.label }}
+        </button>
+      }
+      <button mat-icon-button matTooltip="Refresh" (click)="load()" [disabled]="loading()">
+        <mat-icon>refresh</mat-icon>
+      </button>
+    </div>
+  </mat-card-header>
+
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+
+  <mat-card-content>
+    @if (!loading() && dashboard(); as d) {
+      @if (d.totals.calls === 0) {
+        <p class="empty-hint">No LLM usage recorded in this window.</p>
+      } @else {
+        <div class="since-row">Window since: {{ d.since | date: 'medium' }}</div>
+
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-value">{{ d.totals.calls | number }}</span>
+            <span class="stat-label">Total Calls</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ d.totals.total_tokens | number }}</span>
+            <span class="stat-label">Total Tokens</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ d.totals.avg_tokens | number: '1.0-1' }}</span>
+            <span class="stat-label">Avg Tokens / Call</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ formatMs(d.totals.avg_duration_ms) }}</span>
+            <span class="stat-label">Avg Latency</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ d.compaction.calls | number }}</span>
+            <span class="stat-label">Compaction Calls</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ d.compaction_token_share_percent | number: '1.0-1' }}%</span>
+            <span class="stat-label">Compaction Token Share</span>
+          </div>
+        </div>
+
+        @if (d.features.length > 0) {
+          <div class="section-title">Top Features by Token Usage</div>
+          <div class="feature-list">
+            @for (f of d.features; track f.feature) {
+              <div class="feature-row">
+                <div class="feature-name">{{ f.feature | titlecase }}</div>
+                <div class="feature-metrics">
+                  <span>{{ f.calls | number }} calls</span>
+                  <span>{{ f.total_tokens | number }} tokens</span>
+                  <span>{{ f.avg_tokens | number: '1.0-1' }} avg</span>
+                  <span>{{ formatMs(f.avg_duration_ms) }}</span>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+    }
+  </mat-card-content>
+</mat-card>

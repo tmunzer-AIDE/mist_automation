@@ -7,6 +7,7 @@ import re
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
+import datetime as dt
 
 import structlog
 from beanie import PydanticObjectId
@@ -39,6 +40,9 @@ from app.modules.llm.schemas import (
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigUpdate,
+    LLMUsageDashboardResponse,
+    LLMUsageFeatureStat,
+    LLMUsageTotals,
     LLMConnectionTestRequest,
     LLMModelDiscoveryRequest,
     MCPConfigAvailable,
@@ -252,6 +256,21 @@ def _config_to_response(cfg) -> LLMConfigResponse:
     )
 
 
+def _usage_totals_from_agg(row: dict | None) -> LLMUsageTotals:
+    """Normalize aggregate row into LLMUsageTotals."""
+    if not row:
+        return LLMUsageTotals()
+    avg_duration = row.get("avg_duration_ms")
+    return LLMUsageTotals(
+        calls=int(row.get("calls", 0) or 0),
+        prompt_tokens=int(row.get("prompt_tokens", 0) or 0),
+        completion_tokens=int(row.get("completion_tokens", 0) or 0),
+        total_tokens=int(row.get("total_tokens", 0) or 0),
+        avg_tokens=round(float(row.get("avg_tokens", 0.0) or 0.0), 1),
+        avg_duration_ms=round(float(avg_duration), 1) if avg_duration is not None else None,
+    )
+
+
 @router.get("/llm/configs", tags=["LLM"])
 async def list_llm_configs(_current_user: User = Depends(require_admin)):
     """List all LLM configurations."""
@@ -259,6 +278,95 @@ async def list_llm_configs(_current_user: User = Depends(require_admin)):
 
     configs = await LLMConfig.find_all().to_list()
     return [_config_to_response(c) for c in configs]
+
+
+@router.get("/llm/usage/dashboard", response_model=LLMUsageDashboardResponse, tags=["LLM"])
+async def get_llm_usage_dashboard(
+    hours: int = Query(24, ge=1, le=720),
+    _current_user: User = Depends(require_admin),
+):
+    """Return aggregate LLM usage metrics for the requested time window."""
+    from app.modules.llm.models import LLMUsageLog
+
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": since}}},
+        {
+            "$facet": {
+                "totals": [
+                    {
+                        "$group": {
+                            "_id": None,
+                            "calls": {"$sum": 1},
+                            "prompt_tokens": {"$sum": "$prompt_tokens"},
+                            "completion_tokens": {"$sum": "$completion_tokens"},
+                            "total_tokens": {"$sum": "$total_tokens"},
+                            "avg_tokens": {"$avg": "$total_tokens"},
+                            "avg_duration_ms": {"$avg": "$duration_ms"},
+                        }
+                    }
+                ],
+                "compaction": [
+                    {"$match": {"feature": "conversation_compaction"}},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "calls": {"$sum": 1},
+                            "prompt_tokens": {"$sum": "$prompt_tokens"},
+                            "completion_tokens": {"$sum": "$completion_tokens"},
+                            "total_tokens": {"$sum": "$total_tokens"},
+                            "avg_tokens": {"$avg": "$total_tokens"},
+                            "avg_duration_ms": {"$avg": "$duration_ms"},
+                        }
+                    }
+                ],
+                "features": [
+                    {
+                        "$group": {
+                            "_id": "$feature",
+                            "calls": {"$sum": 1},
+                            "total_tokens": {"$sum": "$total_tokens"},
+                            "avg_tokens": {"$avg": "$total_tokens"},
+                            "avg_duration_ms": {"$avg": "$duration_ms"},
+                        }
+                    },
+                    {"$sort": {"total_tokens": -1}},
+                    {"$limit": 10},
+                ],
+            }
+        },
+    ]
+    rows = await LLMUsageLog.aggregate(pipeline).to_list()
+    row = rows[0] if rows else {}
+
+    totals = _usage_totals_from_agg((row.get("totals") or [None])[0])
+    compaction = _usage_totals_from_agg((row.get("compaction") or [None])[0])
+
+    features: list[LLMUsageFeatureStat] = []
+    for item in row.get("features", []):
+        avg_duration = item.get("avg_duration_ms")
+        features.append(
+            LLMUsageFeatureStat(
+                feature=str(item.get("_id") or "unknown"),
+                calls=int(item.get("calls", 0) or 0),
+                total_tokens=int(item.get("total_tokens", 0) or 0),
+                avg_tokens=round(float(item.get("avg_tokens", 0.0) or 0.0), 1),
+                avg_duration_ms=round(float(avg_duration), 1) if avg_duration is not None else None,
+            )
+        )
+
+    share = 0.0
+    if totals.total_tokens > 0:
+        share = round((compaction.total_tokens / totals.total_tokens) * 100, 1)
+
+    return LLMUsageDashboardResponse(
+        hours=hours,
+        since=since,
+        totals=totals,
+        compaction=compaction,
+        compaction_token_share_percent=share,
+        features=features,
+    )
 
 
 @router.post("/llm/configs", tags=["LLM"])
@@ -1805,6 +1913,60 @@ def _thread_to_summary(thread) -> ConversationThreadSummary:
     )
 
 
+async def _thread_context_metrics(thread) -> dict[str, int | float | None]:
+    """Compute context-window usage and compaction metrics for a thread."""
+    from app.modules.llm.models import LLMConfig
+    from app.modules.llm.services.llm_service_factory import _default_model
+    from app.modules.llm.services.token_service import (
+        DEFAULT_CONTEXT_WINDOW,
+        count_message_tokens,
+        resolve_context_window,
+    )
+
+    default_cfg = await LLMConfig.find_one(
+        LLMConfig.is_default == True,
+        LLMConfig.enabled == True,
+    )
+    if default_cfg:
+        model = default_cfg.model or _default_model(default_cfg.provider)
+        context_window = resolve_context_window(default_cfg.context_window_tokens, model)
+    else:
+        model = "gpt-4o-mini"
+        context_window = DEFAULT_CONTEXT_WINDOW
+
+    # Use the same prompt shape we send to the LLM (compaction/sliding-window aware)
+    # so UI context telemetry reflects real request size.
+    prompt_messages = thread.get_messages_for_llm(max_turns=20)
+    used_tokens = count_message_tokens(prompt_messages, model) if prompt_messages else 0
+    usage_percent = round((used_tokens / context_window) * 100, 1) if context_window > 0 else None
+
+    compressed_messages = 0
+    compression_ratio = None
+    cutoff_index = thread.compacted_up_to_index
+    if thread.compaction_summary and cutoff_index is not None:
+        compacted_slice = [m for m in thread.messages[:cutoff_index] if m.role != "system"]
+        compressed_messages = len(compacted_slice)
+        if compacted_slice:
+            compacted_tokens = count_message_tokens(
+                [{"role": m.role, "content": m.content} for m in compacted_slice],
+                model,
+            )
+            summary_tokens = count_message_tokens(
+                [{"role": "system", "content": thread.compaction_summary}],
+                model,
+            )
+            if summary_tokens > 0:
+                compression_ratio = round(compacted_tokens / summary_tokens, 2)
+
+    return {
+        "context_window_tokens": context_window,
+        "context_tokens_estimate": used_tokens,
+        "context_usage_percent": usage_percent,
+        "compressed_messages": compressed_messages,
+        "compression_ratio": compression_ratio,
+    }
+
+
 @router.get("/llm/threads", response_model=ConversationThreadListResponse, tags=["LLM"])
 async def list_threads(
     skip: int = Query(0, ge=0),
@@ -1854,6 +2016,8 @@ async def get_thread(
     if thread.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
+    context_metrics = await _thread_context_metrics(thread)
+
     return ConversationThreadDetail(
         id=str(thread.id),
         feature=thread.feature,
@@ -1864,6 +2028,11 @@ async def get_thread(
         ],
         mcp_config_ids=thread.mcp_config_ids,
         compacted=bool(thread.compaction_summary),
+        context_window_tokens=context_metrics["context_window_tokens"],
+        context_tokens_estimate=context_metrics["context_tokens_estimate"],
+        context_usage_percent=context_metrics["context_usage_percent"],
+        compressed_messages=context_metrics["compressed_messages"] or 0,
+        compression_ratio=context_metrics["compression_ratio"],
         created_at=thread.created_at,
         updated_at=thread.updated_at,
     )

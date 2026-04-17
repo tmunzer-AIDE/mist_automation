@@ -91,6 +91,32 @@ export interface LlmUsage {
   total_tokens: number;
 }
 
+export interface LlmUsageTotals {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  avg_tokens: number;
+  avg_duration_ms: number | null;
+}
+
+export interface LlmUsageFeatureStat {
+  feature: string;
+  calls: number;
+  total_tokens: number;
+  avg_tokens: number;
+  avg_duration_ms: number | null;
+}
+
+export interface LlmUsageDashboard {
+  hours: number;
+  since: string;
+  totals: LlmUsageTotals;
+  compaction: LlmUsageTotals;
+  compaction_token_share_percent: number;
+  features: LlmUsageFeatureStat[];
+}
+
 export interface ConversationThreadSummary {
   id: string;
   feature: string;
@@ -108,6 +134,11 @@ export interface ConversationThreadDetail {
   messages: ChatMessage[];
   mcp_config_ids: string[];
   compacted: boolean;
+  context_window_tokens: number | null;
+  context_tokens_estimate: number | null;
+  context_usage_percent: number | null;
+  compressed_messages: number;
+  compression_ratio: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,6 +156,8 @@ export interface Skill {
   enabled: boolean;
   git_repo_id: string | null;
   git_repo_url: string | null;
+  mcp_config_id: string | null;
+  effective_mcp_config_id: string | null;
   error: string | null;
   last_synced_at: string | null;
 }
@@ -134,6 +167,7 @@ export interface SkillGitRepo {
   url: string;
   branch: string;
   token_set: boolean;
+  mcp_config_id: string | null;
   local_path: string;
   last_refreshed_at: string | null;
   error: string | null;

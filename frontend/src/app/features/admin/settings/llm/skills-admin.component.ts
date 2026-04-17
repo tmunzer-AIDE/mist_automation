@@ -13,10 +13,11 @@ import { interval, Subscription } from 'rxjs';
 import { take, takeWhile } from 'rxjs/operators';
 import { ConfirmDialogComponent } from '../../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { LlmService } from '../../../../core/services/llm.service';
-import { Skill, SkillGitRepo } from '../../../../core/models/llm.model';
+import { McpConfig, Skill, SkillGitRepo } from '../../../../core/models/llm.model';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 import { AddSkillDialogComponent } from './add-skill-dialog.component';
 import { AddRepoDialogComponent } from './add-repo-dialog.component';
+import { SkillMcpBindingDialogComponent } from './skill-mcp-binding-dialog.component';
 
 @Component({
   selector: 'app-skills-admin',
@@ -74,10 +75,23 @@ import { AddRepoDialogComponent } from './add-repo-dialog.component';
                   }
                 </td>
               </ng-container>
+              <ng-container matColumnDef="binding">
+                <th mat-header-cell *matHeaderCellDef>MCP Binding</th>
+                <td mat-cell *matCellDef="let r">
+                  @if (r.mcp_config_id) {
+                    <span class="badge badge-bound" [matTooltip]="r.mcp_config_id">{{ mcpLabel(r.mcp_config_id) }}</span>
+                  } @else {
+                    <span class="badge badge-unbound">unbound</span>
+                  }
+                </td>
+              </ng-container>
               <ng-container matColumnDef="actions">
                 <th mat-header-cell *matHeaderCellDef></th>
                 <td mat-cell *matCellDef="let r">
                   <div class="inline-actions">
+                    <button mat-icon-button matTooltip="Set MCP binding" (click)="editRepoBinding(r)">
+                      <mat-icon>link</mat-icon>
+                    </button>
                     <button
                       mat-icon-button
                       matTooltip="Refresh"
@@ -137,6 +151,21 @@ import { AddRepoDialogComponent } from './add-repo-dialog.component';
                   }
                 </td>
               </ng-container>
+              <ng-container matColumnDef="binding">
+                <th mat-header-cell *matHeaderCellDef>MCP Binding</th>
+                <td mat-cell *matCellDef="let s">
+                  @if (s.effective_mcp_config_id) {
+                    <span class="badge badge-bound" [matTooltip]="s.effective_mcp_config_id">
+                      {{ mcpLabel(s.effective_mcp_config_id) }}
+                    </span>
+                    @if (s.source === 'git' && !s.mcp_config_id) {
+                      <span class="binding-origin" matTooltip="Inherited from repo binding">repo</span>
+                    }
+                  } @else {
+                    <span class="badge badge-unbound">unbound</span>
+                  }
+                </td>
+              </ng-container>
               <ng-container matColumnDef="enabled">
                 <th mat-header-cell *matHeaderCellDef>Enabled</th>
                 <td mat-cell *matCellDef="let s">
@@ -152,6 +181,9 @@ import { AddRepoDialogComponent } from './add-repo-dialog.component';
               <ng-container matColumnDef="actions">
                 <th mat-header-cell *matHeaderCellDef></th>
                 <td mat-cell *matCellDef="let s">
+                  <button mat-icon-button [matTooltip]="bindingActionTooltip(s)" (click)="editSkillBinding(s)">
+                    <mat-icon>link</mat-icon>
+                  </button>
                   @if (s.source === 'direct') {
                     <button mat-icon-button matTooltip="Delete" (click)="deleteSkill(s)">
                       <mat-icon>delete</mat-icon>
@@ -184,6 +216,15 @@ import { AddRepoDialogComponent } from './add-repo-dialog.component';
     .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
     .badge-direct { background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
     .badge-git { background: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container); }
+    .badge-bound { background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container); }
+    .badge-unbound { background: var(--mat-sys-surface-variant); color: var(--mat-sys-on-surface-variant); }
+    .binding-origin {
+      margin-left: 6px;
+      font-size: 11px;
+      color: var(--mat-sys-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
     .inline-actions { display: flex; justify-content: flex-end; }
   `],
 })
@@ -195,10 +236,11 @@ export class SkillsAdminComponent implements OnInit, OnDestroy {
   loading = signal(true);
   skills = signal<Skill[]>([]);
   repos = signal<SkillGitRepo[]>([]);
+  mcpConfigs = signal<McpConfig[]>([]);
   syncingRepos = signal<Set<string>>(new Set());
 
-  skillColumns = ['name', 'description', 'source', 'enabled', 'synced', 'actions'];
-  repoColumns = ['url', 'status', 'actions'];
+  skillColumns = ['name', 'description', 'source', 'binding', 'enabled', 'synced', 'actions'];
+  repoColumns = ['url', 'binding', 'status', 'actions'];
 
   private pollSubs = new Map<string, Subscription>();
 
@@ -213,6 +255,12 @@ export class SkillsAdminComponent implements OnInit, OnDestroy {
 
   load(): void {
     this.loading.set(true);
+
+    this.llmService.listMcpConfigs().subscribe({
+      next: (configs) => this.mcpConfigs.set(configs),
+      error: () => this.mcpConfigs.set([]),
+    });
+
     this.llmService.listSkillRepos().subscribe({
       next: (repos) => {
         this.repos.set(repos);
@@ -284,6 +332,66 @@ export class SkillsAdminComponent implements OnInit, OnDestroy {
     });
   }
 
+  editRepoBinding(repo: SkillGitRepo): void {
+    this._editRepoBindingById(repo.id, repo.url, repo.mcp_config_id);
+  }
+
+  editSkillBinding(skill: Skill): void {
+    if (skill.source === 'git') {
+      if (!skill.git_repo_id) {
+        this.snackBar.open('Git skill is missing its repository reference', 'OK', { duration: 5000 });
+        return;
+      }
+
+      const repo = this.repos().find((r) => r.id === skill.git_repo_id);
+      this._editRepoBindingById(skill.git_repo_id, repo?.url ?? skill.name, repo?.mcp_config_id ?? null);
+      return;
+    }
+
+    const ref = this.dialog.open(SkillMcpBindingDialogComponent, {
+      width: '520px',
+      data: {
+        title: 'Set MCP Binding for Skill',
+        subtitle: skill.name,
+        currentMcpConfigId: skill.mcp_config_id,
+      },
+    });
+
+    ref.afterClosed().subscribe((mcpConfigId: string | null | undefined) => {
+      if (mcpConfigId === undefined || mcpConfigId === skill.mcp_config_id) {
+        return;
+      }
+
+      this.llmService.setSkillMcpServer(skill.id, mcpConfigId).subscribe({
+        next: (updatedSkill) => {
+          this.skills.update((list) => list.map((s) => (s.id === updatedSkill.id ? updatedSkill : s)));
+          this.snackBar.open(mcpConfigId ? 'Skill bound to MCP server' : 'Skill MCP binding cleared', 'OK', {
+            duration: 3000,
+          });
+        },
+        error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
+      });
+    });
+  }
+
+  bindingActionTooltip(skill: Skill): string {
+    return skill.source === 'git' ? 'Set MCP binding (repo-level)' : 'Set MCP binding';
+  }
+
+  mcpLabel(mcpConfigId: string | null): string {
+    if (!mcpConfigId) {
+      return 'unbound';
+    }
+    const match = this.mcpConfigs().find((cfg) => cfg.id === mcpConfigId);
+    if (match) {
+      return match.name;
+    }
+    if (mcpConfigId.length <= 12) {
+      return mcpConfigId;
+    }
+    return `${mcpConfigId.slice(0, 8)}...`;
+  }
+
   deleteRepo(repo: SkillGitRepo): void {
     const ref = this.dialog.open(ConfirmDialogComponent, {
       data: {
@@ -349,5 +457,32 @@ export class SkillsAdminComponent implements OnInit, OnDestroy {
     });
     this.pollSubs.get(repoId)?.unsubscribe();
     this.pollSubs.delete(repoId);
+  }
+
+  private _editRepoBindingById(repoId: string, repoLabel: string, currentMcpConfigId: string | null): void {
+    const ref = this.dialog.open(SkillMcpBindingDialogComponent, {
+      width: '520px',
+      data: {
+        title: 'Set MCP Binding for Repository',
+        subtitle: repoLabel,
+        currentMcpConfigId,
+      },
+    });
+
+    ref.afterClosed().subscribe((mcpConfigId: string | null | undefined) => {
+      if (mcpConfigId === undefined || mcpConfigId === currentMcpConfigId) {
+        return;
+      }
+
+      this.llmService.setSkillRepoMcpServer(repoId, mcpConfigId).subscribe({
+        next: () => {
+          this.load();
+          this.snackBar.open(mcpConfigId ? 'Repository bound to MCP server' : 'Repository MCP binding cleared', 'OK', {
+            duration: 3000,
+          });
+        },
+        error: (err) => this.snackBar.open(extractErrorMessage(err), 'OK', { duration: 5000 }),
+      });
+    });
   }
 }
