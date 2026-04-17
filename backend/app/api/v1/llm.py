@@ -1943,7 +1943,7 @@ async def _thread_context_metrics(thread) -> dict[str, int | float | None]:
     compressed_messages = 0
     compression_ratio = None
     cutoff_index = thread.compacted_up_to_index
-    if thread.compaction_summary and cutoff_index:
+    if thread.compaction_summary and cutoff_index is not None:
         compacted_slice = [m for m in thread.messages[:cutoff_index] if m.role != "system"]
         compressed_messages = len(compacted_slice)
         if compacted_slice:

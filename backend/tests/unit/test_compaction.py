@@ -222,3 +222,47 @@ async def test_compact_thread_incremental_merge_uses_new_range_only(test_db, tes
     assert updated.compaction_summary == "Merged continuity summary"
     assert updated.compacted_up_to_index == 5
     assert updated.compaction_in_progress is False
+
+
+async def test_compact_thread_first_run_skips_first_user_message(test_user, monkeypatch):
+    """First compaction run should not summarize the first user turn (kept raw in prompt)."""
+    import app.modules.llm.workers.compaction_worker as compaction_worker
+    from app.modules.llm.workers.compaction_worker import compact_thread
+
+    thread = ConversationThread(user_id=test_user.id, feature="global_chat")
+    thread.add_message("system", "You are an assistant.")
+    thread.add_message("user", "first user question")
+    thread.add_message("assistant", "first assistant reply")
+    thread.add_message("user", "second user question")
+    thread.add_message("assistant", "second assistant reply")
+    thread.add_message("user", "third user question")
+    await thread.insert()
+
+    mock_response = MagicMock()
+    mock_response.content = "Compacted summary"
+    mock_response.model = "gpt-4o"
+    mock_response.usage = MagicMock(prompt_tokens=50, completion_tokens=25, total_tokens=75)
+    mock_response.duration_ms = 200
+
+    mock_llm = AsyncMock()
+    mock_llm.complete = AsyncMock(return_value=mock_response)
+    mock_llm.provider = "openai"
+    mock_llm.model = "gpt-4o"
+
+    # Force compaction path and deterministic cutoff.
+    monkeypatch.setattr(compaction_worker, "count_message_tokens", lambda *_args, **_kwargs: 9999)
+    monkeypatch.setattr(compaction_worker, "_select_cutoff_index", lambda *_args, **_kwargs: 4)
+
+    await compact_thread(str(thread.id), mock_llm, context_window=100)
+
+    sent_messages = mock_llm.complete.await_args.args[0]
+    user_payload = sent_messages[1].content
+
+    # first user turn is intentionally preserved outside summary context
+    assert "first user question" not in user_payload
+    assert "first assistant reply" in user_payload
+    assert "second user question" in user_payload
+
+    updated = await ConversationThread.get(thread.id)
+    assert updated.compaction_summary == "Compacted summary"
+    assert updated.compacted_up_to_index == 4

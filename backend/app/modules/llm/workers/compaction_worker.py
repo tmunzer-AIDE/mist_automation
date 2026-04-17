@@ -52,8 +52,16 @@ Output only the summary text."""
 
 
 def _estimate_message_tokens(role: str, content: str, model: str) -> int:
-    """Estimate tokens for a single message using the configured model."""
-    return count_message_tokens([{"role": role, "content": content}], model)
+    """Estimate per-message tokens with a lightweight heuristic.
+
+    We intentionally avoid calling the tokenizer per message here because
+    cutoff selection may scan many messages. This budget estimate only guides
+    recent-turn selection; final prompt/token accounting still uses real counts.
+    """
+    del model  # kept for call-site compatibility
+    # Rough token approximation for English-like text: ~4 chars/token.
+    # Add a small fixed overhead for role/wrapper metadata.
+    return max(1, (len(content) // 4) + 4 + (1 if role == "assistant" else 0))
 
 
 def _select_cutoff_index(thread, start_index: int, context_window: int, model: str) -> int | None:
@@ -70,7 +78,7 @@ def _select_cutoff_index(thread, start_index: int, context_window: int, model: s
     if len(non_system_indices) <= _MIN_RECENT_MESSAGES:
         return None
 
-    recent_budget = int(context_window * (_COMPACTION_THRESHOLD - _POST_COMPACTION_TARGET))
+    recent_budget = int(round(context_window * (_COMPACTION_THRESHOLD - _POST_COMPACTION_TARGET)))
     recent_budget = max(recent_budget, 1)
 
     keep_indices: list[int] = []
@@ -142,7 +150,13 @@ async def compact_thread(
     cutoff_index = None
     try:
         # Incremental compaction: only summarize messages not already compacted.
-        start_index = thread.compacted_up_to_index or 1
+        # On first compaction, skip the first user message because
+        # ConversationThread._get_compacted_messages() preserves it raw.
+        if thread.compacted_up_to_index is not None:
+            start_index = thread.compacted_up_to_index
+        else:
+            first_user_idx = next((i for i, m in enumerate(thread.messages) if m.role == "user"), None)
+            start_index = max(1, first_user_idx + 1) if first_user_idx is not None else 1
 
         cutoff_index = _select_cutoff_index(thread, start_index, context_window, llm.model)
         if cutoff_index is None:
