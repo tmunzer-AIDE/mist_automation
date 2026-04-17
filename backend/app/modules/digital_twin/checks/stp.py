@@ -294,9 +294,12 @@ def _check_stp_loop(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
     # call wasn't enough because ``dev.name`` can be stored as an empty string,
     # which is still a *present* key and suppresses the default.
     mac_to_name: dict[str, str] = {}
+    mac_to_device_id: dict[str, str] = {}
     for dev in predicted.devices.values():
         if dev.mac:
             mac_to_name[dev.mac] = dev.name or dev.mac
+            if dev.device_id:
+                mac_to_device_id[dev.mac] = dev.device_id
 
     def _label(mac: str) -> str:
         return mac_to_name.get(mac) or mac
@@ -309,7 +312,9 @@ def _check_stp_loop(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
         details.append(f"New cycle: {' -> '.join(names)}")
         all_affected |= cycle_set
 
-    affected_names = sorted({_label(mac) for mac in all_affected if mac})
+    # affected_objects must carry stable device_ids (matching other checks'
+    # contract). Names go into the human-readable details above.
+    affected_ids = sorted({mac_to_device_id[mac] for mac in all_affected if mac in mac_to_device_id})
 
     return CheckResult(
         check_id="STP-LOOP",
@@ -318,7 +323,7 @@ def _check_stp_loop(baseline: SiteSnapshot, predicted: SiteSnapshot) -> CheckRes
         status="warning",
         summary=f"{len(new_cycles)} new L2 loop(s) detected — potential broadcast storm risk.",
         details=details,
-        affected_objects=affected_names,
+        affected_objects=affected_ids,
         affected_sites=[baseline.site_id],
         remediation_hint=(
             "Enable STP/RSTP on all ports in the loop path, convert redundant links to LAG, "

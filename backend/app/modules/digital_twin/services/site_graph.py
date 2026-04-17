@@ -143,6 +143,11 @@ def build_site_graph(snapshot: SiteSnapshot) -> SiteGraph:
     edge_ports: dict[tuple[str, str], dict[str, str]] = {}
     for src_mac, port_neighbors in merge_infra_neighbor_ports(snapshot).items():
         for src_port, neighbor_mac in port_neighbors.items():
+            # Defensive guards: skip self-loops (malformed LLDP) and unknown
+            # nodes. A self-loop would add a degenerate edge and corrupt
+            # cycle detection in STP-LOOP.
+            if src_mac == neighbor_mac:
+                continue
             if src_mac in physical.nodes and neighbor_mac in physical.nodes:
                 physical.add_edge(src_mac, neighbor_mac, src_port=src_port)
                 key = tuple(sorted((src_mac, neighbor_mac)))

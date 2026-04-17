@@ -73,6 +73,11 @@ class Action_type(str, Enum):
 _TWIN_ACTIONS: set[str] = {action.value for action in TwinActionType}
 _TWIN_SESSION_ACTIONS: set[str] = {"approve", "reject", "status"}
 
+# Caps the number of changes an LLM/external client can stage in a single
+# simulate call. Each change triggers DB queries and snapshot builds, so an
+# unbounded list is a DoS/resource-exhaustion surface.
+_MAX_CHANGES_PER_SIMULATE = 50
+
 
 def _twin_approve_messages() -> dict[Any, str]:
     """Sanitized messages for TwinApprovalError codes (mirrors REST _approve_error_response)."""
@@ -379,6 +384,11 @@ def _build_simulation_writes_from_changes(
 
     if not changes:
         raise ToolError("changes must contain at least one change object")
+    if len(changes) > _MAX_CHANGES_PER_SIMULATE:
+        raise ToolError(
+            f"changes list exceeds maximum size of {_MAX_CHANGES_PER_SIMULATE} "
+            f"(received {len(changes)}). Split into multiple simulate calls."
+        )
 
     for index, raw_change in enumerate(changes):
         if not isinstance(raw_change, dict):
@@ -802,7 +812,12 @@ async def digital_twin(
     user_id = mcp_user_id_var.get()
     if not user_id:
         raise ToolError("Access denied: user context not available")
-    user = await User.get(PydanticObjectId(user_id))
+    try:
+        user_obj_id = PydanticObjectId(user_id)
+    except Exception as exc:
+        logger.warning("twin_mcp_invalid_user_id", user_id=user_id, error=str(exc))
+        raise ToolError("Access denied: invalid user context") from None
+    user = await User.get(user_obj_id)
     if not user or "admin" not in user.roles:
         raise ToolError("Access denied: admin role required")
 

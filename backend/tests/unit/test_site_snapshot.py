@@ -271,6 +271,42 @@ class TestExtractPortDevices:
 
 
 # ---------------------------------------------------------------------------
+# TestSearchPortsPathNormalization — regression for the searchSiteSwOrGwPorts
+# ingestion path (fetch_live_data). The helper _normalize_port_id is the
+# contract used at that call site (see fetch_live_data around the
+# ports_resp block), so directly asserting its behavior covers the path.
+# ---------------------------------------------------------------------------
+
+
+class TestSearchPortsNormalizationContract:
+    """The port_id values from searchSiteSwOrGwPorts must be normalized at
+    ingest (same contract used by _extract_lldp_from_stats) so downstream
+    lookups match config-side keys regardless of .0/:0 suffixes or case.
+    """
+
+    def test_normalizes_dotted_suffix(self):
+        from app.modules.digital_twin.services.site_snapshot import _normalize_port_id
+
+        assert _normalize_port_id("ge-0/0/5.0") == "ge-0/0/5"
+
+    def test_normalizes_channelized_suffix(self):
+        from app.modules.digital_twin.services.site_snapshot import _normalize_port_id
+
+        assert _normalize_port_id("xe-0/0/0:0") == "xe-0/0/0"
+
+    def test_lowercases_uppercased_prefix(self):
+        from app.modules.digital_twin.services.site_snapshot import _normalize_port_id
+
+        assert _normalize_port_id("GE-0/0/1") == "ge-0/0/1"
+
+    def test_empty_returns_empty(self):
+        from app.modules.digital_twin.services.site_snapshot import _normalize_port_id
+
+        assert _normalize_port_id(None) == ""
+        assert _normalize_port_id("") == ""
+
+
+# ---------------------------------------------------------------------------
 # TestBuildDeviceSnapshot
 # ---------------------------------------------------------------------------
 

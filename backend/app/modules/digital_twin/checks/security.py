@@ -143,10 +143,35 @@ def _check_security_policies(baseline: SiteSnapshot, predicted: SiteSnapshot) ->
 # ---------------------------------------------------------------------------
 
 
+def _canonicalize_for_compare(value: Any) -> Any:
+    """Recursively produce an order-insensitive canonical form of a value.
+
+    - dicts -> sort keys, recurse
+    - lists -> recurse, then sort (by canonical JSON of each element) so that
+      reordered match-conditions / tag lists inside a rule don't produce
+      a false-positive diff
+    - scalars -> returned as-is (json.dumps(default=str) handles non-JSON-safe)
+    """
+    if isinstance(value, dict):
+        return {k: _canonicalize_for_compare(value[k]) for k in sorted(value, key=str)}
+    if isinstance(value, list):
+        canonicalized = [_canonicalize_for_compare(v) for v in value]
+        try:
+            return sorted(canonicalized, key=lambda v: json.dumps(v, sort_keys=True, default=str))
+        except (TypeError, ValueError):
+            return canonicalized
+    return value
+
+
 def _normalize_nac_rule(rule: dict[str, Any]) -> str:
-    """Serialize a NAC rule into a stable, order-insensitive string key."""
+    """Serialize a NAC rule into a stable, order-insensitive string key.
+
+    Dict keys AND list element order are normalized so semantically identical
+    rules (e.g. same match conditions in a different order after a backup
+    round-trip) collapse to the same key.
+    """
     try:
-        return json.dumps(rule, sort_keys=True, default=str)
+        return json.dumps(_canonicalize_for_compare(rule), sort_keys=True, default=str)
     except (TypeError, ValueError):
         return str(rule)
 

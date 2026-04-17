@@ -60,6 +60,15 @@ _SENSITIVE_KEYS = {
     "ssh_key",
     "private_key",
     "psk",
+    # Additional Mist/RADIUS/PSK-portal fields that can appear in staged writes.
+    "passphrase",
+    "wpa_psk",
+    "wpa_key",
+    "radius_secret",
+    "shared_secret",
+    "client_secret",
+    "key_id",
+    "signing_key",
 }
 
 
@@ -631,6 +640,14 @@ async def approve_and_execute(session_id: str, user_id: str | None = None) -> Tw
             TwinApprovalErrorCode.NOT_AWAITING_APPROVAL,
             "Session is no longer awaiting approval",
         )
+
+    # Re-fetch to capture any concurrent mutations to staged_writes (e.g. a
+    # re-simulate that appended writes between our initial read and the
+    # atomic claim). The status guard above closes the status race, but
+    # staged_writes could still have been mutated without a status change.
+    session = await TwinSession.get(session_obj_id)
+    if not session:
+        raise TwinApprovalError(TwinApprovalErrorCode.NOT_FOUND, f"Twin session {session_id} not found")
     session.status = TwinSessionStatus.EXECUTING
     session.updated_at = now
 

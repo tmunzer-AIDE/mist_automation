@@ -104,6 +104,25 @@ def _check_conn_phys(
             description="Detects devices that were reachable from a gateway in baseline but become isolated after the change.",
         )
 
+    # Predicted has no gateways at all: every previously reachable device
+    # becomes "newly isolated" by construction. Rather than drown the report
+    # in per-device findings, surface one high-severity "no predicted gateway"
+    # result — the root cause is the gateway removal itself.
+    if baseline_graph.gateways and not predicted_graph.gateways:
+        return CheckResult(
+            check_id="CONN-PHYS",
+            check_name="Physical connectivity loss",
+            layer=2,
+            status="critical",
+            summary="Predicted state has no gateway -- all devices lose upstream reachability.",
+            details=[
+                f"Baseline had {len(baseline_graph.gateways)} gateway(s); predicted has none.",
+            ],
+            affected_sites=[baseline.site_id],
+            remediation_hint="Keep at least one gateway in the site, or stage the replacement gateway before removing the old one.",
+            description="Detects devices that were reachable from a gateway in baseline but become isolated after the change.",
+        )
+
     baseline_reachable = _reachable_from_gateways(baseline_graph)
     predicted_reachable = _reachable_from_gateways(predicted_graph)
 

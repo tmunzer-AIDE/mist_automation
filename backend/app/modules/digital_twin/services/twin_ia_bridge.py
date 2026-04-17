@@ -149,9 +149,16 @@ async def _get_devices_at_site(site_id: str, session: TwinSession) -> list[dict[
             continue
         seen.add(b.object_id)
         cfg = b.configuration
+        # Backup ``object_id`` is the Mist device UUID, not a MAC. Skip devices
+        # with no stored MAC rather than feeding a UUID through normalize_mac
+        # (which would produce garbage that fails IA session matching).
+        mac = normalize_mac(cfg.get("mac"))
+        if not mac:
+            logger.debug("twin_ia_bridge_skip_device_missing_mac", site_id=site_id, object_id=b.object_id)
+            continue
         devices.append(
             {
-                "mac": normalize_mac(cfg.get("mac") or b.object_id),
+                "mac": mac,
                 "name": cfg.get("name", ""),
                 "type": cfg.get("type", cfg.get("device_type", "switch")),
                 "site_name": site_id,

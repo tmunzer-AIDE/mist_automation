@@ -274,8 +274,12 @@ class WorkflowExecutor:
             from app.modules.digital_twin.services import twin_service
             from app.services.mist_service import twin_session_var
 
+            # Ownership: the user who triggered the execution, or — for cron —
+            # the workflow's creator. Falling back to workflow_id (not a real
+            # user) would leave the session un-approvable from the UI/MCP.
+            twin_owner_id = str(execution.triggered_by) if execution.triggered_by else str(workflow.created_by)
             twin_session = await twin_service.simulate(
-                user_id=str(execution.triggered_by) if execution.triggered_by else str(execution.workflow_id),
+                user_id=twin_owner_id,
                 org_id=self.mist_service.org_id if self.mist_service else "",
                 writes=[],
                 source="workflow",
@@ -333,11 +337,13 @@ class WorkflowExecutor:
                 if twin_sess and twin_sess.staged_writes:
                     # Re-run simulation with captured writes
                     writes_data = [
-                        {"method": w.method, "endpoint": w.endpoint, "body": w.body}
-                        for w in twin_sess.staged_writes
+                        {"method": w.method, "endpoint": w.endpoint, "body": w.body} for w in twin_sess.staged_writes
                     ]
+                    validated_owner_id = (
+                        str(execution.triggered_by) if execution.triggered_by else str(workflow.created_by)
+                    )
                     validated = await dt_twin_service.simulate(
-                        user_id=str(execution.triggered_by) if execution.triggered_by else str(execution.workflow_id),
+                        user_id=validated_owner_id,
                         org_id=self.mist_service.org_id if self.mist_service else "",
                         writes=writes_data,
                         source="workflow",
