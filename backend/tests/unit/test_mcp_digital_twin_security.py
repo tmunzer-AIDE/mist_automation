@@ -22,6 +22,17 @@ class _FakeUser:
         self.roles = roles
 
 
+class _SafeReport:
+    """Minimal prediction_report stand-in that passes the elicitation
+    short-circuit (execution_safe=True) so tests can exercise the
+    downstream approve_and_execute paths.
+    """
+
+    execution_safe = True
+    summary = "All checks passed"
+    warnings = 0
+
+
 @pytest.fixture
 def set_mcp_user():
     """Set ``mcp_user_id_var`` for a single test.
@@ -158,7 +169,7 @@ class TestMcpDigitalTwinErrorSanitization:
             id = session_id
             user_id = "507f1f77bcf86cd799439011"
             staged_writes: list[Any] = []
-            prediction_report = None
+            prediction_report = _SafeReport()
             remediation_count = 0
             overall_severity = "clean"
             affected_sites: list[str] = []
@@ -195,7 +206,7 @@ class TestMcpDigitalTwinErrorSanitization:
             id = session_id
             user_id = "507f1f77bcf86cd799439011"
             staged_writes: list[Any] = []
-            prediction_report = None
+            prediction_report = _SafeReport()
             remediation_count = 0
             overall_severity = "clean"
             affected_sites: list[str] = []
@@ -214,6 +225,105 @@ class TestMcpDigitalTwinErrorSanitization:
             await self._invoke_approve(session_id, monkeypatch=monkeypatch, set_mcp_user=set_mcp_user)
         assert "internal stack detail" not in str(exc_info.value)
         assert "cannot be approved" in str(exc_info.value).lower()
+
+
+@pytest.mark.unit
+class TestMcpApproveShortCircuit:
+    """The MCP approve path must reject impossible approvals BEFORE prompting
+    the user via _elicit. Otherwise the user is asked to confirm an
+    operation that the backend will reject anyway.
+    """
+
+    async def _invoke_approve_no_elicit(self, session_id, *, monkeypatch, set_mcp_user, session_obj):
+        """Invoke the approve action with a tracking _elicit stub."""
+        from app.models.system import SystemConfig as _SystemConfig
+        from app.models.user import User as _User
+        from app.modules.digital_twin.services import twin_service
+
+        set_mcp_user("507f1f77bcf86cd799439011")
+
+        async def fake_user_get(_id):
+            return _FakeUser(roles=["admin"])
+
+        monkeypatch.setattr(_User, "get", fake_user_get)
+
+        async def fake_get_config():
+            return SimpleNamespace(mist_org_id="550e8400-e29b-41d4-a716-446655440000")
+
+        monkeypatch.setattr(_SystemConfig, "get_config", fake_get_config)
+
+        elicit_calls = {"n": 0}
+
+        async def tracking_elicit(*_args, **_kwargs):
+            elicit_calls["n"] += 1
+            return None
+
+        monkeypatch.setattr(dt_tool, "_elicit", tracking_elicit)
+
+        async def fake_get_session(_id):
+            return session_obj
+
+        monkeypatch.setattr(twin_service, "get_session", fake_get_session)
+
+        # If the short-circuit fails and we reach approve_and_execute, blow up.
+        async def should_not_be_called(*_args, **_kwargs):
+            raise AssertionError("approve_and_execute called despite short-circuit")
+
+        monkeypatch.setattr(twin_service, "approve_and_execute", should_not_be_called)
+
+        fn = getattr(dt_tool.digital_twin, "fn", dt_tool.digital_twin)
+        await fn(
+            action="approve",
+            action_type=None,
+            org_id=None,
+            site_id=None,
+            object_type=None,
+            payload=None,
+            object_id=None,
+            changes=None,
+            session_id=session_id,
+            ctx=SimpleNamespace(client=None),
+        )
+        return elicit_calls
+
+    async def test_missing_report_short_circuits_before_elicit(self, monkeypatch, set_mcp_user):
+        session_id = "507f1f77bcf86cd799439040"
+
+        class _Session:
+            id = session_id
+            user_id = "507f1f77bcf86cd799439011"
+            staged_writes: list[Any] = []
+            prediction_report = None  # missing
+            remediation_count = 0
+            overall_severity = "clean"
+            affected_sites: list[str] = []
+
+        with pytest.raises(ToolError, match="no validation report"):
+            await self._invoke_approve_no_elicit(
+                session_id, monkeypatch=monkeypatch, set_mcp_user=set_mcp_user, session_obj=_Session()
+            )
+
+    async def test_unsafe_report_short_circuits_before_elicit(self, monkeypatch, set_mcp_user):
+        session_id = "507f1f77bcf86cd799439041"
+
+        class _UnsafeReport:
+            execution_safe = False
+            summary = "blocking validation issues"
+            warnings = 0
+
+        class _Session:
+            id = session_id
+            user_id = "507f1f77bcf86cd799439011"
+            staged_writes: list[Any] = []
+            prediction_report = _UnsafeReport()
+            remediation_count = 0
+            overall_severity = "error"
+            affected_sites: list[str] = []
+
+        with pytest.raises(ToolError, match="blocking validation issues"):
+            await self._invoke_approve_no_elicit(
+                session_id, monkeypatch=monkeypatch, set_mcp_user=set_mcp_user, session_obj=_Session()
+            )
 
 
 @pytest.mark.unit

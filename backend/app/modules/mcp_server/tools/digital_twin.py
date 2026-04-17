@@ -936,28 +936,29 @@ async def digital_twin(
 
         write_count = len(session.staged_writes)
         report = session.prediction_report
+
+        # Short-circuit before prompting the user when approval is already
+        # impossible — approve_and_execute would reject these anyway, and
+        # asking the user to confirm an impossible operation is wasted UX.
+        if report is None:
+            raise ToolError("Cannot approve: session has no validation report. Re-simulate before approving.")
+        if not report.execution_safe:
+            raise ToolError("Cannot approve: session has blocking validation issues. Re-simulate after remediation.")
+
         summary_parts = [f"{write_count} write(s) to deploy"]
-        if report and report.warnings:
+        if report.warnings:
             summary_parts.append(f"{report.warnings} warning(s) acknowledged")
         if session.remediation_count:
             summary_parts.append(f"{session.remediation_count} fix iteration(s) applied")
 
-        # A missing prediction_report means the session has never been
-        # successfully simulated: approve_and_execute will reject it. Surface
-        # that as execution_safe=False in the elicitation so the caller is
-        # never prompted as if the deployment were safe.
         description = f"Digital Twin deployment: {', '.join(summary_parts)}"
-        if report is None:
-            description = (
-                "Digital Twin deployment BLOCKED: no validation report available. " "Re-simulate before approving."
-            )
 
         approval_data = {
             "session_id": str(session.id),
             "writes_count": write_count,
             "overall_severity": session.overall_severity,
-            "summary": report.summary if report else "No validation report — cannot approve",
-            "execution_safe": bool(report.execution_safe) if report else False,
+            "summary": report.summary,
+            "execution_safe": bool(report.execution_safe),
             "affected_sites": session.affected_sites,
             "remediation_count": session.remediation_count,
         }

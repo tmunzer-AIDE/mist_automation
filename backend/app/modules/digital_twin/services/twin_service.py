@@ -363,13 +363,17 @@ async def simulate(
         object_names_by_type=object_names,
     )
 
-    # Re-simulate is only valid from mutable lifecycle states. Overwriting an
-    # executing/deployed/rejected session would damage auditability and can
-    # race with approve_and_execute (which re-reads staged_writes after an
-    # atomic claim). Restrict to pending/validating/awaiting_approval/failed.
+    # Re-simulate is only valid from terminal-but-retryable states. We
+    # explicitly exclude PENDING and VALIDATING — a session in those states
+    # has a simulation in flight, and overwriting its staged_writes /
+    # prediction_report from a second concurrent caller produces a
+    # last-writer-wins race (corrupted audit trail, mismatched report vs
+    # writes, possible TOCTOU against approve_and_execute).
+    #
+    # Allowed prior states: AWAITING_APPROVAL (user wants to remediate the
+    # current proposal) and FAILED (user wants to retry after a
+    # validation failure).
     _RESIMULATE_ALLOWED_STATES = {
-        TwinSessionStatus.PENDING,
-        TwinSessionStatus.VALIDATING,
         TwinSessionStatus.AWAITING_APPROVAL,
         TwinSessionStatus.FAILED,
     }
@@ -389,12 +393,30 @@ async def simulate(
             raise ValueError("Twin session org mismatch")
         if session.status not in _RESIMULATE_ALLOWED_STATES:
             raise ValueError(f"Twin session cannot be re-simulated in '{session.status.value}' state")
+
+        # Atomic compare-and-set: claim the session by transitioning its
+        # status to VALIDATING only if it's still in one of the allowed
+        # prior states. This wins-once even when two simulate() calls land
+        # concurrently against the same session_id.
+        now = datetime.now(timezone.utc)
+        claimed = await TwinSession.get_motor_collection().find_one_and_update(
+            {
+                "_id": existing_id,
+                "status": {"$in": [s.value for s in _RESIMULATE_ALLOWED_STATES]},
+            },
+            {"$set": {"status": TwinSessionStatus.VALIDATING.value, "updated_at": now}},
+        )
+        if claimed is None:
+            raise ValueError(f"Twin session {existing_session_id} is no longer in a re-simulatable state")
+
         old_severity = session.overall_severity
         session.staged_writes = staged_writes
         session.affected_sites = affected_sites
         session.affected_object_types = affected_types
         session.affected_object_label = affected_object_label
         session.remediation_count += 1
+        session.status = TwinSessionStatus.VALIDATING
+        session.updated_at = now
     else:
         session = TwinSession(
             user_id=PydanticObjectId(user_id),
@@ -406,8 +428,8 @@ async def simulate(
             affected_object_types=affected_types,
             affected_object_label=affected_object_label,
         )
+        session.status = TwinSessionStatus.VALIDATING
 
-    session.status = TwinSessionStatus.VALIDATING
     session.base_snapshot_refs = []
     session.live_fetched_at = None
     session.update_timestamp()
