@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-17T15:30:32Z",
+  "generated_at": "2026-04-28T18:36:45Z",
   "backend": [
     {
       "name": "aiocsv",
@@ -24,7 +24,7 @@
     },
     {
       "name": "aiohttp",
-      "version": "3.13.5",
+      "version": "3.13.4",
       "license": "Apache-2.0 AND MIT",
       "url": "https://github.com/aio-libs/aiohttp",
       "author": "UNKNOWN"
@@ -114,13 +114,6 @@
       "author": "R Oudkerk / Python Software Foundation"
     },
     {
-      "name": "black",
-      "version": "26.3.1",
-      "license": "MIT",
-      "url": "https://github.com/psf/black",
-      "author": "\u0141ukasz Langa <lukasz@langa.pl>"
-    },
-    {
       "name": "cachetools",
       "version": "7.0.5",
       "license": "MIT",
@@ -171,8 +164,8 @@
     },
     {
       "name": "click",
-      "version": "8.3.1",
-      "license": "BSD-3-Clause",
+      "version": "8.1.8",
+      "license": "BSD License",
       "url": "https://github.com/pallets/click/",
       "author": "UNKNOWN"
     },
@@ -196,13 +189,6 @@
       "license": "MIT",
       "url": "https://github.com/untitaker/click-repl",
       "author": "Markus Unterwaditzer"
-    },
-    {
-      "name": "coverage",
-      "version": "7.13.5",
-      "license": "Apache-2.0",
-      "url": "https://github.com/coveragepy/coveragepy",
-      "author": "Ned Batchelder and 253 others"
     },
     {
       "name": "croniter",
@@ -402,8 +388,8 @@
     },
     {
       "name": "importlib_metadata",
-      "version": "8.7.1",
-      "license": "Apache-2.0",
+      "version": "8.5.0",
+      "license": "Apache Software License",
       "url": "https://github.com/python/importlib_metadata",
       "author": "\"Jason R. Coombs\" <jaraco@jaraco.com>"
     },
@@ -413,13 +399,6 @@
       "license": "MIT License",
       "url": "https://github.com/influxdata/influxdb-client-python",
       "author": "UNKNOWN"
-    },
-    {
-      "name": "iniconfig",
-      "version": "2.3.0",
-      "license": "MIT",
-      "url": "https://github.com/pytest-dev/iniconfig",
-      "author": "Ronny Pfannschmidt <opensource@ronnypfannschmidt.de>, Holger Krekel <holger.krekel@gmail.com>"
     },
     {
       "name": "jaraco.classes",
@@ -465,8 +444,8 @@
     },
     {
       "name": "jsonschema",
-      "version": "4.26.0",
-      "license": "MIT",
+      "version": "4.23.0",
+      "license": "MIT License",
       "url": "https://github.com/python-jsonschema/jsonschema",
       "author": "Julian Berman <Julian+jsonschema@GrayVines.com>"
     },
@@ -507,8 +486,8 @@
     },
     {
       "name": "litellm",
-      "version": "1.83.0",
-      "license": "MIT License",
+      "version": "1.83.14",
+      "license": "MIT",
       "url": "https://litellm.ai",
       "author": "BerriAI"
     },
@@ -569,13 +548,6 @@
       "author": "Andrew Svetlov"
     },
     {
-      "name": "mypy_extensions",
-      "version": "1.1.0",
-      "license": "MIT",
-      "url": "https://github.com/python/mypy_extensions",
-      "author": "The mypy developers <jukka.lehtosalo@iki.fi>"
-    },
-    {
       "name": "netaddr",
       "version": "1.3.0",
       "license": "BSD License",
@@ -591,7 +563,7 @@
     },
     {
       "name": "openai",
-      "version": "2.30.0",
+      "version": "2.24.0",
       "license": "Apache Software License",
       "url": "https://github.com/openai/openai-python",
       "author": "OpenAI <support@openai.com>"
@@ -632,13 +604,6 @@
       "author": "Artur Maciag"
     },
     {
-      "name": "pathspec",
-      "version": "1.0.4",
-      "license": "Mozilla Public License 2.0 (MPL 2.0)",
-      "url": "https://python-path-specification.readthedocs.io/en/latest/index.html",
-      "author": "\"Caleb P. Burns\" <cpburnz@gmail.com>"
-    },
-    {
       "name": "pillow",
       "version": "12.2.0",
       "license": "MIT-CMU",
@@ -651,13 +616,6 @@
       "license": "MIT",
       "url": "https://github.com/tox-dev/platformdirs",
       "author": "UNKNOWN"
-    },
-    {
-      "name": "pluggy",
-      "version": "1.6.0",
-      "license": "MIT License",
-      "url": "UNKNOWN",
-      "author": "Holger Krekel <holger@merlinux.eu>"
     },
     {
       "name": "prompt_toolkit",
@@ -758,27 +716,6 @@
       "author": "Al Sweigart <al@inventwithpython.com>"
     },
     {
-      "name": "pytest",
-      "version": "9.0.3",
-      "license": "MIT",
-      "url": "https://docs.pytest.org/en/latest/",
-      "author": "Holger Krekel, Bruno Oliveira, Ronny Pfannschmidt, Floris Bruynooghe, Brianna Laugher, Freya Bruhin, Others (See AUTHORS)"
-    },
-    {
-      "name": "pytest-asyncio",
-      "version": "1.3.0",
-      "license": "Apache-2.0",
-      "url": "https://github.com/pytest-dev/pytest-asyncio",
-      "author": "Tin Tvrtkovi\u0107 <tinchester@gmail.com>"
-    },
-    {
-      "name": "pytest-cov",
-      "version": "7.1.0",
-      "license": "MIT",
-      "url": "https://pytest-cov.readthedocs.io/en/latest/changelog.html",
-      "author": "Marc Schlaich <marc.schlaich@gmail.com>"
-    },
-    {
       "name": "python-dateutil",
       "version": "2.9.0.post0",
       "license": "Apache Software License; BSD License",
@@ -812,13 +749,6 @@
       "license": "Apache-2.0",
       "url": "https://github.com/Kludex/python-multipart",
       "author": "Andrew Dunham <andrew@du.nham.ca>, Marcelo Trylesinski <marcelotryle@gmail.com>"
-    },
-    {
-      "name": "pytokens",
-      "version": "0.4.1",
-      "license": "MIT License",
-      "url": "https://github.com/tusharsadhwani/pytokens",
-      "author": "Tushar Sadhwani <tushar.sadhwani000@gmail.com>"
     },
     {
       "name": "pytz",
@@ -910,13 +840,6 @@
       "license": "Apache Software License",
       "url": "https://stuvel.eu/rsa",
       "author": "Sybren A. St\u00fcvel"
-    },
-    {
-      "name": "ruff",
-      "version": "0.15.10",
-      "license": "MIT",
-      "url": "https://docs.astral.sh/ruff",
-      "author": "\"Astral Software Inc.\" <hey@astral.sh>"
     },
     {
       "name": "shellingham",
@@ -1011,7 +934,7 @@
     },
     {
       "name": "typer",
-      "version": "0.24.1",
+      "version": "0.23.1",
       "license": "MIT",
       "url": "https://github.com/fastapi/typer",
       "author": "=?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>"
