@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-28T18:36:45Z",
+  "generated_at": "2026-05-05T20:28:39Z",
   "backend": [
     {
       "name": "aiocsv",
@@ -189,6 +189,13 @@
       "license": "MIT",
       "url": "https://github.com/untitaker/click-repl",
       "author": "Markus Unterwaditzer"
+    },
+    {
+      "name": "coverage",
+      "version": "7.13.5",
+      "license": "Apache-2.0",
+      "url": "https://github.com/coveragepy/coveragepy",
+      "author": "Ned Batchelder and 253 others"
     },
     {
       "name": "croniter",
@@ -399,6 +406,13 @@
       "license": "MIT License",
       "url": "https://github.com/influxdata/influxdb-client-python",
       "author": "UNKNOWN"
+    },
+    {
+      "name": "iniconfig",
+      "version": "2.3.0",
+      "license": "MIT",
+      "url": "https://github.com/pytest-dev/iniconfig",
+      "author": "Ronny Pfannschmidt <opensource@ronnypfannschmidt.de>, Holger Krekel <holger.krekel@gmail.com>"
     },
     {
       "name": "jaraco.classes",
@@ -618,6 +632,13 @@
       "author": "UNKNOWN"
     },
     {
+      "name": "pluggy",
+      "version": "1.6.0",
+      "license": "MIT License",
+      "url": "UNKNOWN",
+      "author": "Holger Krekel <holger@merlinux.eu>"
+    },
+    {
       "name": "prompt_toolkit",
       "version": "3.0.52",
       "license": "BSD License",
@@ -714,6 +735,27 @@
       "license": "BSD License",
       "url": "https://github.com/asweigart/pyperclip",
       "author": "Al Sweigart <al@inventwithpython.com>"
+    },
+    {
+      "name": "pytest",
+      "version": "9.0.3",
+      "license": "MIT",
+      "url": "https://docs.pytest.org/en/latest/",
+      "author": "Holger Krekel, Bruno Oliveira, Ronny Pfannschmidt, Floris Bruynooghe, Brianna Laugher, Freya Bruhin, Others (See AUTHORS)"
+    },
+    {
+      "name": "pytest-asyncio",
+      "version": "1.3.0",
+      "license": "Apache-2.0",
+      "url": "https://github.com/pytest-dev/pytest-asyncio",
+      "author": "Tin Tvrtkovi\u0107 <tinchester@gmail.com>"
+    },
+    {
+      "name": "pytest-cov",
+      "version": "7.1.0",
+      "license": "MIT",
+      "url": "https://pytest-cov.readthedocs.io/en/latest/changelog.html",
+      "author": "Marc Schlaich <marc.schlaich@gmail.com>"
     },
     {
       "name": "python-dateutil",

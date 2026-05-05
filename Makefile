@@ -6,7 +6,10 @@ STATIC_DIR       = $(BACKEND_DIR)/app/frontend/static
 INDEX_DIR        = $(BACKEND_DIR)/app/frontend
 OPENAPI_SECRET_KEY ?= dev-secret
 
-.PHONY: angular clean docker publish all set-version licenses openapi
+.PHONY: angular clean docker publish all set-version licenses openapi test
+
+test:
+	cd $(BACKEND_DIR) && .venv/bin/pytest -q
 
 # Build Angular frontend and copy output into the backend static directory
 angular:

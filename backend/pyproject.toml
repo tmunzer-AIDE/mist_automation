@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mist-automation-backend"
-version = "0.2.10"
+version = "0.2.11"
 description = "FastAPI backend for Mist Automation Platform application"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,11 +52,11 @@ dependencies = [
     "gitpython>=3.1.43",
     "python-dotenv>=1.0.1",
     "pyyaml>=6.0.2",
-    "jinja2>=3.1.4",
+    "jinja2>=3.1.6",
     "reportlab>=4.0",
     "structlog>=24.4.0",
     "python-json-logger>=2.0.7",
-    "litellm>=1.83.7",
+    "litellm>=1.83.14",
     "fastmcp>=3.0.0",
     "influxdb-client[async]>=1.46.0",
     "croniter>=1.3.0",
