@@ -14,7 +14,8 @@ This guide covers creating, configuring, and running workflows in Mist Automatio
 6. [Sub-Flows](#sub-flows)
 7. [Error Handling](#error-handling)
 8. [Simulation and Testing](#simulation-and-testing)
-9. [Examples](#examples)
+9. [Sending AI Results to Slack](#sending-ai-results-to-slack)
+10. [Examples](#examples)
 
 ---
 
@@ -493,6 +494,66 @@ After simulation completes:
 
 - **Dry Run ON**: API calls return mock data based on the OpenAPI spec. Device utilities and webhooks are skipped. Safe to run repeatedly.
 - **Dry Run OFF**: Real API calls are made. Device commands are executed. Use with caution.
+
+---
+
+## Sending AI Results to Slack
+
+When you want an AI Agent's analysis of an event to land directly in a Slack channel, there are two common patterns. Pick based on how long you expect the AI's response to be.
+
+### Direct Handoff Pattern
+
+The simplest path: the AI Agent's `result` is wired straight into the Slack node's JSON Payload field. Best for short, focused alerts (a few hundred to a couple thousand characters).
+
+1. Add an **AI Agent** node (name it `AI_Agent` for clarity — using underscores keeps `{{ nodes.AI_Agent.result }}` aligned with the node name without sanitization).
+2. Add a **Slack** node.
+3. Set the Slack node's **JSON Payload** field to `{{ nodes.AI_Agent.result }}`.
+4. Set your **Slack Webhook URL**.
+
+That is it — no Format Report, no glue node. The Slack executor renders the AI's text as Slack `mrkdwn` section blocks.
+
+### Format Report Pattern
+
+For longer outputs (multi-paragraph reports, tables, structured sections), route the AI Agent's result through a **Format Report** node first. This gives you titles, footers, and predictable formatting without surprise chunking.
+
+1. Wire **AI Agent → Format Report** (with `format: "slack"`) **→ Slack**.
+2. Set the Slack node's **Message Template** to `{{ nodes.Format_Report.report }}`.
+
+The Format Report node also exposes `slack_blocks` on its output, which downstream Slack nodes pick up automatically for rich formatting.
+
+### Note on Long Outputs
+
+When you use the Direct Handoff Pattern with a long AI response, the executor automatically chunks the text into **3,000-character Slack section blocks** — Slack's per-block limit. Each chunk becomes its own `section` block in the message.
+
+This works fine for moderate overflow, but very long responses produce many blocks and can hit Slack's overall message limits. For responses likely to exceed 3,000 characters, prefer one of:
+
+- The **Format Report Pattern** above
+- Configuring **`output_fields`** on the AI Agent node so it returns structured JSON instead of free text
+- Limiting the agent's response length via its system prompt (e.g., "Reply in under 500 words")
+
+### Markdown Auto-Conversion
+
+AI Agents typically emit standard Markdown (`**bold**`, `[link](url)`), but Slack expects its own `mrkdwn` syntax. The Slack node has an **Auto-convert Markdown** toggle (default **ON**) that bridges the two.
+
+When enabled, the executor applies these conversions to all `mrkdwn` text before sending to Slack:
+
+| Markdown | Slack mrkdwn |
+|----------|--------------|
+| `**bold**` | `*bold*` |
+| `__bold__` | `*bold*` |
+| `~~strike~~` | `~strike~` |
+| `[text](url)` | `<url\|text>` (with safety constraints — URLs containing `<`, `>`, whitespace, or parentheses are left unchanged, as are display texts containing `\|` or `>`) |
+
+**Not converted in v1**: single-asterisk italic (`*italic*`) — it cannot be reliably distinguished from Slack's `*bold*` syntax. If you want italics in your AI output:
+
+- Recommend the AI use **underscore italic** (`_italic_`) — Slack already supports this natively
+- Or **disable** the Auto-convert Markdown toggle and have the AI emit Slack `mrkdwn` directly
+
+Code spans (`` `code` ``) and fenced code blocks (` ``` `) are left untouched, so any `**bold**` inside them is preserved as-is.
+
+### Recipe
+
+The **AI Alert to Slack** recipe in the recipe picker (Workflows → New Workflow → Use a Recipe) is a ready-to-use 3-node template implementing the Direct Handoff Pattern. Pick it as a starting point and fill in the Slack webhook URL and the AI agent's task prompt.
 
 ---
 
