@@ -1,7 +1,9 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { JsonPipe } from '@angular/common';
+import { JsonPipe, SlicePipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
@@ -14,12 +16,24 @@ import { WorkflowExecution, NodeExecutionResult } from '../../../core/models/wor
 import { DurationPipe } from '../../../shared/pipes/duration.pipe';
 import { extractErrorMessage } from '../../../shared/utils/error.utils';
 
+interface AIAgentOutputData {
+  result?: string;
+  iterations?: number;
+  tool_calls?: Array<Record<string, unknown>>;
+  output_fields?: Record<string, unknown> | Array<{ label?: string; value?: unknown }>;
+  status?: string;
+  error?: string;
+}
+
 @Component({
   selector: 'app-execution-detail-dialog',
   standalone: true,
   imports: [
     JsonPipe,
+    SlicePipe,
     MatButtonModule,
+    MatChipsModule,
+    MatExpansionModule,
     MatIconModule,
     MatTabsModule,
     MatDialogModule,
@@ -78,6 +92,64 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
                         <div class="action-error">
                           <mat-icon>error_outline</mat-icon>
                           {{ result.error }}
+                        </div>
+                      }
+                      @if (result.node_type === 'ai_agent' && aiOutputData(result); as ai) {
+                        <div class="ai-result-card">
+                          <div class="ai-result-header">
+                            <app-status-badge [status]="result.status"></app-status-badge>
+                            <span class="ai-result-title">AI Agent Result</span>
+                            @if (ai.iterations) {
+                              <span class="ai-result-meta">{{ ai.iterations }} iterations</span>
+                            }
+                          </div>
+
+                          @if (ai.result) {
+                            <div class="ai-result-text">{{ ai.result }}</div>
+                          } @else if (ai.status !== 'error') {
+                            <div class="ai-result-text ai-result-empty">No result</div>
+                          }
+
+                          @let fields = outputFieldsEntries(ai);
+                          @if (fields.length > 0) {
+                            <div class="ai-result-fields">
+                              @for (field of fields; track field.key) {
+                                <mat-chip>{{ field.key }}: {{ field.value }}</mat-chip>
+                              }
+                            </div>
+                          }
+
+                          @if (ai.tool_calls && ai.tool_calls.length > 0) {
+                            <mat-expansion-panel class="ai-tool-calls-panel">
+                              <mat-expansion-panel-header>
+                                <mat-panel-title>
+                                  {{ ai.tool_calls.length }}
+                                  {{ ai.tool_calls.length === 1 ? 'tool call' : 'tool calls' }}
+                                </mat-panel-title>
+                              </mat-expansion-panel-header>
+                              @for (tc of ai.tool_calls; track $index) {
+                                @let name = toolName(tc);
+                                @let preview = toolPreview(tc);
+                                <div class="ai-tool-call-row">
+                                  <strong>{{ name || 'Tool call (format unrecognized)' }}</strong>
+                                  <span class="ai-tool-preview">{{ preview | slice: 0 : 120 }}</span>
+                                  @if (!name && !preview) {
+                                    <details class="ai-tool-raw-json">
+                                      <summary>Raw tool call JSON</summary>
+                                      <pre>{{ tc | json }}</pre>
+                                    </details>
+                                  }
+                                </div>
+                              }
+                            </mat-expansion-panel>
+                          }
+
+                          @if (ai.status === 'error') {
+                            <div class="ai-result-error">
+                              <mat-icon>error_outline</mat-icon>
+                              {{ ai.error || 'No result' }}
+                            </div>
+                          }
                         </div>
                       }
                       @if (result.output_data) {
@@ -298,6 +370,95 @@ import { extractErrorMessage } from '../../../shared/utils/error.utils';
         button { margin-left: auto; }
       }
 
+      /* AI Agent result card */
+      .ai-result-card {
+        border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+        border-radius: 8px;
+        padding: 12px;
+        margin: 8px 0;
+      }
+      .ai-result-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .ai-result-title {
+        font-weight: 500;
+      }
+      .ai-result-meta {
+        margin-left: auto;
+        color: var(--mat-sys-on-surface-variant, #666);
+        font-size: 0.875rem;
+      }
+      .ai-result-text {
+        white-space: pre-wrap;
+        max-height: 320px;
+        overflow-y: auto;
+        padding: 8px;
+        background: var(--mat-sys-surface-container, #f5f5f5);
+        border-radius: 4px;
+        margin-bottom: 8px;
+      }
+      .ai-result-empty {
+        color: var(--mat-sys-on-surface-variant, #666);
+        font-style: italic;
+      }
+      .ai-result-fields {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .ai-tool-calls-panel {
+        margin-bottom: 8px;
+      }
+      .ai-tool-call-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
+      }
+      .ai-tool-call-row:last-child {
+        border-bottom: none;
+      }
+      .ai-tool-preview {
+        color: var(--mat-sys-on-surface-variant, #666);
+        font-size: 0.875rem;
+      }
+      .ai-tool-raw-json {
+        margin-top: 8px;
+        font-size: 12px;
+      }
+      .ai-tool-raw-json summary {
+        cursor: pointer;
+        color: var(--mat-sys-primary);
+        font-weight: 500;
+      }
+      .ai-tool-raw-json pre {
+        margin: 8px 0 0 0;
+        padding: 8px;
+        background: var(--mat-sys-surface-container);
+        border-radius: 4px;
+        font-size: 11px;
+        overflow-x: auto;
+      }
+      .ai-result-error {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--mat-sys-error, #b3261e);
+        font-size: 0.875rem;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          flex-shrink: 0;
+        }
+      }
+
       /* JSON */
       .json-pre {
         background: var(--mat-sys-surface-container);
@@ -366,6 +527,43 @@ export class ExecutionDetailDialogComponent implements OnInit {
 
   isEmptyObj(obj: Record<string, unknown>): boolean {
     return Object.keys(obj).length === 0;
+  }
+
+  aiOutputData(result: NodeExecutionResult): AIAgentOutputData | null {
+    const data = result.output_data;
+    if (!data || typeof data !== 'object') return null;
+    return data as AIAgentOutputData;
+  }
+
+  outputFieldsEntries(data: AIAgentOutputData): Array<{ key: string; value: unknown }> {
+    if (!data.output_fields) return [];
+    if (Array.isArray(data.output_fields)) {
+      return data.output_fields
+        .filter(
+          (f): f is { label: string; value: unknown } =>
+            !!f && typeof f === 'object' && !!f.label && f.value !== undefined,
+        )
+        .map((f) => ({ key: f.label, value: f.value }));
+    }
+    if (typeof data.output_fields === 'object') {
+      return Object.entries(data.output_fields).map(([key, value]) => ({ key, value }));
+    }
+    return [];
+  }
+
+  toolName(tc: Record<string, unknown> | null | undefined): string | null {
+    if (!tc || typeof tc !== 'object') return null;
+    // 'tool' is the production shape from AgentResult.to_dict();
+    // 'name'/'tool_name' are accepted for resilience to upstream changes.
+    const name = tc['tool'] ?? tc['name'] ?? tc['tool_name'];
+    return typeof name === 'string' && name.length > 0 ? name : null;
+  }
+
+  toolPreview(tc: Record<string, unknown> | null | undefined): string {
+    if (!tc || typeof tc !== 'object') return '';
+    const value = tc['result'] ?? tc['output'] ?? tc['response'];
+    if (value === undefined || value === null) return '';
+    return typeof value === 'string' ? value : JSON.stringify(value);
   }
 
   debugWithAI(): void {
