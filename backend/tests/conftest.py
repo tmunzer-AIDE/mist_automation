@@ -8,9 +8,17 @@ from typing import AsyncGenerator
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 
-from app.config import settings
-from app.models.user import User
-from app.modules import get_all_document_models
+# Route litellm calls through its httpx transport in tests. The default
+# aiohttp transport leaks ClientSession instances per call (sessions are
+# never closed); during interpreter shutdown GC then triggers noisy
+# "Unclosed client session" logs that race with already-torn-down logging
+# infrastructure ("sys.meta_path is None, Python is likely shutting down").
+import litellm  # noqa: E402
+litellm.disable_aiohttp_transport = True
+
+from app.config import settings  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.modules import get_all_document_models  # noqa: E402
 
 
 @pytest.fixture(scope="session")
