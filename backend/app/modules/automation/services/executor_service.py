@@ -39,6 +39,82 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", name)
 
 
+def convert_markdown_to_mrkdwn(text: Any) -> Any:
+    """Convert common Markdown syntax to Slack mrkdwn.
+
+    Guaranteed conversions (v1):
+      - **bold** → *bold*
+      - __bold__ → *bold*
+      - ~~strikethrough~~ → ~strikethrough~
+      - [text](url) → <url|text> (with safety constraints)
+
+    Not converted (v1):
+      - *italic* (single-asterisk italic) — cannot distinguish from Slack bold
+      - Tables, nested formatting, arbitrary HTML
+      - Fenced code blocks — left unchanged
+      - Inline code spans — left unchanged
+
+    Idempotent: running twice produces the same result as running once.
+
+    Safety: never inspects or mutates non-string values (dicts, lists, Block Kit payloads).
+    """
+    if not isinstance(text, str):
+        return text
+
+    placeholders: dict[str, str] = {}
+    counter = [0]
+
+    def _placeholder(match: re.Match) -> str:
+        key = f"__SHIM_PH_{counter[0]}__"
+        placeholders[key] = match.group(0)
+        counter[0] += 1
+        return key
+
+    # 1. Protect existing Slack link syntax <url|text>
+    text = re.sub(r"<[^>]+\|[^>]+>", _placeholder, text)
+
+    # 2. Protect fenced code blocks ```...``` BEFORE inline code spans
+    text = re.sub(r"```[\s\S]*?```", _placeholder, text)
+
+    # 3. Protect inline code spans `code`
+    text = re.sub(r"`[^`]+`", _placeholder, text)
+
+    # 4. Convert **bold** → *bold* (bounded character class avoids backtracking)
+    text = re.sub(r"\*\*([^*]+?)\*\*", r"*\1*", text)
+
+    # 5. Convert __bold__ → *bold*
+    text = re.sub(r"__([^_]+?)__", r"*\1*", text)
+
+    # 6. Convert ~~strikethrough~~ → ~strike~
+    text = re.sub(r"~~([^~]+?)~~", r"~\1~", text)
+
+    # 7. Convert [text](url) → <url|text> with safety checks
+    def _convert_link(match: re.Match) -> str:
+        original: str = match.group(0)
+        display: str = match.group(1)
+        url: str = match.group(2)
+        # Safety: leave unchanged if URL contains <, >, whitespace, or parentheses
+        if re.search(r"[<>\s()]", url):
+            return original
+        # Safety: leave unchanged if display text contains | or >
+        if "|" in display or ">" in display:
+            return original
+        return f"<{url}|{display}>"
+
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _convert_link, text)
+
+    # 8. Restore protected content in REVERSE insertion order to prevent
+    #    sentinel leakage (e.g., __SHIM_PH_0__ inside __SHIM_PH_1__).
+    #    If a fenced code block contains an existing Slack link, the inner
+    #    placeholder key would otherwise be captured inside the outer
+    #    placeholder value. Reverse iteration restores outer first, then
+    #    naturally restores any inner placeholder text it just produced.
+    for key, value in reversed(placeholders.items()):
+        text = text.replace(key, value)
+
+    return text
+
+
 def _sanitize_execution_error(exc: Exception) -> str:
     """Return a user-safe error message from an exception.
 
@@ -1595,21 +1671,40 @@ class WorkflowExecutor:
         logger.warning("structured_output_empty", fields=[f.get("name") for f in output_fields])
         return {}
 
+    def _apply_shim(self, text: Any, auto_convert: bool) -> tuple[Any, bool, bool]:
+        """Apply markdown-to-mrkdwn shim if auto_convert is enabled.
+
+        Returns (converted_text, was_processed, was_converted) tuple for logging counters.
+        Non-string values and disabled conversion return was_processed=False.
+        """
+        if not auto_convert or not isinstance(text, str):
+            return text, False, False
+        result = convert_markdown_to_mrkdwn(text)
+        return result, True, result != text
+
     def _build_slack_message_blocks(self, config: dict, message: str) -> list[dict[str, Any]] | None:
         """Assemble Slack Block Kit blocks from node config + upstream data.
 
         Returns None if no blocks are needed (fall back to legacy attachments).
         """
         blocks: list[dict[str, Any]] = []
+        auto_convert = config.get("auto_convert_markdown", True)
+        counter_processed = 0
+        counter_converted = 0
+        counter_skipped = 0
 
-        # 1. Header block
+        # 1. Header block (rendered as plain_text, NOT subject to mrkdwn shim)
         header = self._render_template(config.get("slack_header", ""))
         if header.strip():
             blocks.append({"type": "header", "text": {"type": "plain_text", "text": header[:150]}})
 
         # 2. Section block with message text (skip if message looks like raw JSON blocks)
         if message.strip() and not message.strip().startswith("[{"):
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": message[:3000]}})
+            converted_message, processed, converted = self._apply_shim(message, auto_convert)
+            counter_processed += int(processed)
+            counter_converted += int(converted)
+            counter_skipped += int(not processed)
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": converted_message[:3000]}})
 
         # 3. Section block with key-value fields
         fields_config = config.get("slack_fields", [])
@@ -1618,8 +1713,12 @@ class WorkflowExecutor:
             for f in fields_config:
                 label = self._render_template(f.get("label", ""))
                 value = self._render_template(f.get("value", ""))
+                converted_value, processed, converted = self._apply_shim(value, auto_convert)
+                counter_processed += int(processed)
+                counter_converted += int(converted)
+                counter_skipped += int(not processed)
                 if label.strip():
-                    rendered_fields.append({"type": "mrkdwn", "text": f"*{label}*\n{value}"})
+                    rendered_fields.append({"type": "mrkdwn", "text": f"*{label}*\n{converted_value}"})
             if rendered_fields:
                 blocks.append({"type": "section", "fields": rendered_fields[:10]})
 
@@ -1666,7 +1765,12 @@ class WorkflowExecutor:
                     # Plain text (e.g., AI Agent response) — render as readable mrkdwn
                     text = resolved.strip()
                     for i in range(0, len(text), 3000):
-                        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[i : i + 3000]}})
+                        chunk = text[i : i + 3000]
+                        converted_chunk, processed, converted = self._apply_shim(chunk, auto_convert)
+                        counter_processed += int(processed)
+                        counter_converted += int(converted)
+                        counter_skipped += int(not processed)
+                        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": converted_chunk}})
                 else:
                     # Structured data — render as formatted code block
                     blocks.extend(self._build_slack_json_block(resolved))
@@ -1674,7 +1778,19 @@ class WorkflowExecutor:
         # 5. Footer as context block
         footer = self._render_template(config.get("slack_footer", ""))
         if footer.strip():
-            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
+            converted_footer, processed, converted = self._apply_shim(footer, auto_convert)
+            counter_processed += int(processed)
+            counter_converted += int(converted)
+            counter_skipped += int(not processed)
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": converted_footer}]})
+
+        if auto_convert:
+            logger.info(
+                "markdown_shim_converted",
+                strings_processed=counter_processed,
+                strings_converted=counter_converted,
+                strings_skipped=counter_skipped,
+            )
 
         return blocks if blocks else None
 
@@ -2032,7 +2148,7 @@ class WorkflowExecutor:
                 .replace("\t", "\\t")
             )
             # Inject inputs and wrap user code in an IIFE that returns the result
-            wrapped = f"var inputs = JSON.parse('{safe_json}');\n" f"(function() {{\n{code}\n}})();"
+            wrapped = f"var inputs = JSON.parse('{safe_json}');\n(function() {{\n{code}\n}})();"
             result = ctx.eval(wrapped, timeout=5, max_memory=50 * 1024 * 1024)  # 5s timeout, 50MB memory
 
             # Convert result to Python dict
