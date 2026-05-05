@@ -29,6 +29,7 @@ import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatExpansionModule } from '@angular/material/expansion';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subject, takeUntil } from 'rxjs';
 import {
   WorkflowNode,
@@ -66,6 +67,7 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
     MatMenuModule,
     MatSlideToggleModule,
     MatExpansionModule,
+    MatTooltipModule,
     VariablePickerComponent,
     JsonSectionToggleComponent,
     TemplateValidationDirective,
@@ -542,7 +544,7 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
             <!-- Notification fields -->
             @if (isNotificationAction) {
               <mat-form-field appearance="outline">
-                <mat-label>Channel</mat-label>
+                <mat-label>{{ node.type === 'slack' ? 'Slack Webhook URL' : 'Channel' }}</mat-label>
                 <input matInput formControlName="notification_channel" />
               </mat-form-field>
 
@@ -630,6 +632,27 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
                   </mat-menu>
                   <mat-hint>Dumps the variable as a formatted JSON code block</mat-hint>
                 </mat-form-field>
+
+                <div class="slack-guidance">
+                  <mat-icon>info_outline</mat-icon>
+                  <div class="slack-guidance-text">
+                    <p>Use <strong>Message Template</strong> for simple alerts. If a previous node produced Slack-ready blocks, they are included automatically. If you want to send AI text directly, use the AI result variable or start from the recipe.</p>
+                    <details class="slack-guidance-more">
+                      <summary>Show more</summary>
+                      <p>Common Markdown emphasis (bold, strikethrough) and simple Markdown links in text sent to Slack through the normal text path (especially AI-generated output) are automatically converted to Slack mrkdwn. Code blocks are converted best-effort; unsupported constructs are left as-is. The conversion handles double-asterisk bold (<code>**bold**</code> &rarr; <code>*bold*</code>) and double-underscore bold (<code>__bold__</code> &rarr; <code>*bold*</code>), strikethrough (<code>~~strike~~</code> &rarr; <code>~strike~</code>), and links (<code>[text](url)</code> &rarr; <code>&lt;url|text&gt;</code>). Markdown lists and blockquotes render natively in Slack mrkdwn; no conversion is performed or needed. Single-asterisk italic is <strong>not</strong> auto-converted in v1.</p>
+                      <p><strong>Note:</strong> If you need to use hand-authored Slack mrkdwn (e.g., <code>*bold*</code> for emphasis), disable <strong>Auto-convert Markdown to Slack mrkdwn</strong> in the Slack node settings. When disabled, the text is sent to Slack unchanged.</p>
+                    </details>
+                  </div>
+                </div>
+
+                <mat-checkbox formControlName="auto_convert_markdown">
+                  Auto-convert Markdown to Slack mrkdwn
+                  <mat-icon
+                    matTooltip="Converts common AI-generated Markdown (**bold**, __bold__, ~~strike~~, and simple links) before sending to Slack. Disable this if you hand-write Slack mrkdwn and want it sent unchanged."
+                    matTooltipPosition="above"
+                    >info</mat-icon
+                  >
+                </mat-checkbox>
 
                 <div class="config-hint">
                   <mat-icon>info_outline</mat-icon>
@@ -1793,6 +1816,32 @@ return apList.filter(ap =>
         }
       }
 
+      .slack-guidance {
+        display: flex;
+        gap: 8px;
+        padding: 12px;
+        margin: 12px 0;
+        background-color: #f5f5f5;
+        border-radius: 8px;
+        border-left: 3px solid #1976d2;
+      }
+      .slack-guidance-text {
+        flex: 1;
+        font-size: 0.875rem;
+        line-height: 1.5;
+      }
+      .slack-guidance-text p {
+        margin: 0 0 8px 0;
+      }
+      .slack-guidance-text p:last-child {
+        margin-bottom: 0;
+      }
+      .slack-guidance-more summary {
+        cursor: pointer;
+        color: var(--mat-sys-primary);
+        font-weight: 500;
+      }
+
       .syslog-row {
         display: flex;
         gap: 12px;
@@ -2421,6 +2470,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
       ),
       slack_footer: [config['slack_footer'] || ''],
       slack_json_variable: [config['slack_json_variable'] || ''],
+      auto_convert_markdown: [config['auto_convert_markdown'] ?? true],
       email_subject: [config['email_subject'] || ''],
       email_html: [config['email_html'] ?? false],
       // Syslog
@@ -2831,6 +2881,7 @@ export class NodeConfigPanelComponent implements OnChanges, OnInit {
           );
           config['slack_footer'] = raw.slack_footer || undefined;
           config['slack_json_variable'] = raw.slack_json_variable || undefined;
+          config['auto_convert_markdown'] = raw.auto_convert_markdown ?? true;
         }
       }
 
