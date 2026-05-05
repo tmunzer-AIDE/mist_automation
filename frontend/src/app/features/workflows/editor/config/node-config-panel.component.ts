@@ -639,7 +639,7 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
                     <p>Use <strong>Message Template</strong> for simple alerts. If a previous node produced Slack-ready blocks, they are included automatically. If you want to send AI text directly, use the AI result variable or start from the recipe.</p>
                     <details class="slack-guidance-more">
                       <summary>Show more</summary>
-                      <p>Common Markdown emphasis (bold, strikethrough) and simple Markdown links in text sent to Slack through the normal text path (especially AI-generated output) are automatically converted to Slack mrkdwn. Code blocks are converted best-effort; unsupported constructs are left as-is. The conversion handles double-asterisk bold (<code>**bold**</code> &rarr; <code>*bold*</code>) and double-underscore bold (<code>__bold__</code> &rarr; <code>*bold*</code>), strikethrough (<code>~~strike~~</code> &rarr; <code>~strike~</code>), and links (<code>[text](url)</code> &rarr; <code>&lt;url|text&gt;</code>). Markdown lists and blockquotes render natively in Slack mrkdwn; no conversion is performed or needed. Single-asterisk italic is <strong>not</strong> auto-converted in v1.</p>
+                      <p>Common Markdown emphasis (bold, strikethrough) and simple Markdown links in text sent to Slack through the normal text path (especially AI-generated output) are automatically converted to Slack mrkdwn. Code blocks and inline code spans are preserved verbatim; unsupported constructs are left as-is. The conversion handles double-asterisk bold (<code>**bold**</code> &rarr; <code>*bold*</code>) and double-underscore bold (<code>__bold__</code> &rarr; <code>*bold*</code>), strikethrough (<code>~~strike~~</code> &rarr; <code>~strike~</code>), and links (<code>[text](url)</code> &rarr; <code>&lt;url|text&gt;</code>). Markdown lists and blockquotes render natively in Slack mrkdwn; no conversion is performed or needed. Single-asterisk italic is <strong>not</strong> auto-converted in v1.</p>
                       <p><strong>Note:</strong> If you need to use hand-authored Slack mrkdwn (e.g., <code>*bold*</code> for emphasis), disable <strong>Auto-convert Markdown to Slack mrkdwn</strong> in the Slack node settings. When disabled, the text is sent to Slack unchanged.</p>
                     </details>
                   </div>
@@ -1823,9 +1823,9 @@ return apList.filter(ap =>
         gap: 8px;
         padding: 12px;
         margin: 12px 0;
-        background-color: #f5f5f5;
+        background-color: var(--mat-sys-surface-container, #f5f5f5);
         border-radius: 8px;
-        border-left: 3px solid #1976d2;
+        border-left: 3px solid var(--mat-sys-primary, #1976d2);
       }
       .slack-guidance-text {
         flex: 1;
