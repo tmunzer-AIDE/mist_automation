@@ -1571,7 +1571,12 @@ class WorkflowExecutor:
             if output_fields and result.status == "completed":
                 try:
                     structured = await self._extract_structured_output(llm, result, output_fields)
+                    # Flat merge keeps existing variable references like
+                    # {{ nodes.AI_Agent.alarm_summary }} working.
                     result_dict.update(structured)
+                    # Nested copy lets the execution-detail renderer locate the
+                    # structured fields without knowing the field schema.
+                    result_dict["output_fields"] = structured
                     execution.add_log(f"Structured output extracted: {list(structured.keys())}")
                 except Exception as exc:
                     execution.add_log(f"Structured output extraction failed: {_sanitize_execution_error(exc)}")

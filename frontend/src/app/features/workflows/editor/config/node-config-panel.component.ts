@@ -630,7 +630,11 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
                       (variableSelected)="insertJsonVariablePath($event)"
                     />
                   </mat-menu>
-                  <mat-hint>Dumps the variable as a formatted JSON code block</mat-hint>
+                  <mat-hint
+                    >Renders the variable as Slack content: plain text → mrkdwn sections
+                    (auto-chunked at 3,000 chars), structured data → formatted JSON code block,
+                    Slack-ready Block Kit → used directly</mat-hint
+                  >
                 </mat-form-field>
 
                 <div class="slack-guidance">

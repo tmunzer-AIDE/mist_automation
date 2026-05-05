@@ -52,7 +52,8 @@ const NODE_REQUIRED_FIELDS: Record<string, ValidationRule> = {
   mist_api_put: ['api_endpoint'],
   mist_api_delete: ['api_endpoint'],
   webhook: ['webhook_url'],
-  slack: ['notification_channel', 'notification_template'],
+  slack: (c) =>
+    !!c['notification_channel'] && (!!c['notification_template'] || !!c['slack_json_variable']),
   email: ['notification_channel', 'notification_template', 'email_subject'],
   pagerduty: ['notification_channel', 'notification_template'],
   servicenow: (c) => !!c['servicenow_instance_url'] && !!c['servicenow_table'],

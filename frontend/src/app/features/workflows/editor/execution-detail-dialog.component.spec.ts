@@ -118,11 +118,12 @@ describe('ExecutionDetailDialogComponent — AI agent rendering', () => {
   });
 
   it('renders the collapsible tool calls panel with tool name and preview', async () => {
+    // Production AI agent results use the `tool` key (per AgentResult.to_dict()).
     const result = makeNodeResult({
       output_data: {
         result: 'done',
         tool_calls: [
-          { name: 'mist_get_sites', result: 'Returned 3 sites: site-a, site-b, site-c' },
+          { tool: 'mist_get_sites', result: 'Returned 3 sites: site-a, site-b, site-c' },
         ],
       },
     });

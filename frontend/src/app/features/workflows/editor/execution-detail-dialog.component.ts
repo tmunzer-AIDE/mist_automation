@@ -553,7 +553,9 @@ export class ExecutionDetailDialogComponent implements OnInit {
 
   toolName(tc: Record<string, unknown> | null | undefined): string | null {
     if (!tc || typeof tc !== 'object') return null;
-    const name = tc['name'] ?? tc['tool_name'];
+    // 'tool' is the production shape from AgentResult.to_dict();
+    // 'name'/'tool_name' are accepted for resilience to upstream changes.
+    const name = tc['tool'] ?? tc['name'] ?? tc['tool_name'];
     return typeof name === 'string' && name.length > 0 ? name : null;
   }
 
