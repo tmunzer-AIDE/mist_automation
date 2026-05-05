@@ -37,5 +37,6 @@ export const ADMIN_NAV_ITEM: NavItem = {
     { label: 'Audit Logs', icon: 'receipt_long', route: '/admin/logs' },
     { label: 'System Logs', icon: 'terminal', route: '/admin/system-logs' },
     { label: 'System Stats', icon: 'monitoring', route: '/admin/stats' },
+    { label: 'LLM Usage', icon: 'smart_toy', route: '/admin/llm-usage' },
   ],
 };

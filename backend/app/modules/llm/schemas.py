@@ -88,6 +88,38 @@ class LLMModelDiscoveryRequest(BaseModel):
     config_id: str | None = None
 
 
+class LLMUsageTotals(BaseModel):
+    """Aggregate usage totals for a time window."""
+
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    avg_tokens: float = 0.0
+    avg_duration_ms: float | None = None
+
+
+class LLMUsageFeatureStat(BaseModel):
+    """Per-feature usage aggregate for a time window."""
+
+    feature: str
+    calls: int = 0
+    total_tokens: int = 0
+    avg_tokens: float = 0.0
+    avg_duration_ms: float | None = None
+
+
+class LLMUsageDashboardResponse(BaseModel):
+    """Admin dashboard view of LLM usage and compaction efficiency."""
+
+    hours: int
+    since: datetime
+    totals: LLMUsageTotals
+    compaction: LLMUsageTotals
+    compaction_token_share_percent: float = 0.0
+    features: list[LLMUsageFeatureStat] = Field(default_factory=list)
+
+
 # ── MCP Config CRUD ──────────────────────────────────────────────────────────
 
 
@@ -372,6 +404,11 @@ class ConversationThreadDetail(BaseModel):
     messages: list[ConversationMessageResponse] = Field(default_factory=list)
     mcp_config_ids: list[str] = Field(default_factory=list)
     compacted: bool = False
+    context_window_tokens: int | None = None
+    context_tokens_estimate: int | None = None
+    context_usage_percent: float | None = None
+    compressed_messages: int = 0
+    compression_ratio: float | None = None
     created_at: datetime
     updated_at: datetime
 

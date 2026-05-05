@@ -1,10 +1,12 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
+import { McpConfig } from '../../../../core/models/llm.model';
 import { LlmService } from '../../../../core/services/llm.service';
 import { extractErrorMessage } from '../../../../shared/utils/error.utils';
 
@@ -18,6 +20,7 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
     MatFormFieldModule,
     MatInputModule,
     MatProgressBarModule,
+    MatSelectModule,
   ],
   template: `
     <h2 mat-dialog-title>Add Skill</h2>
@@ -38,6 +41,21 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
           <mat-error>Content is required</mat-error>
         }
       </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>MCP Server Binding (optional)</mat-label>
+        <mat-select [formControl]="mcpConfigCtrl">
+          <mat-option [value]="null">No binding</mat-option>
+          @for (cfg of mcpConfigs(); track cfg.id) {
+            <mat-option [value]="cfg.id">{{ cfg.name }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      @if (mcpConfigsLoaded() && mcpConfigs().length === 0) {
+        <p class="hint">No MCP servers configured yet. You can still add the skill unbound.</p>
+      }
+
       @if (error()) {
         <p class="api-error">{{ error() }}</p>
       }
@@ -54,19 +72,35 @@ import { extractErrorMessage } from '../../../../shared/utils/error.utils';
     mat-dialog-content { min-width: 480px; }
   `],
 })
-export class AddSkillDialogComponent {
+export class AddSkillDialogComponent implements OnInit {
   private readonly llmService = inject(LlmService);
   private readonly dialogRef = inject(MatDialogRef<AddSkillDialogComponent>);
 
   contentCtrl = new FormControl('', [Validators.required, Validators.minLength(10)]);
+  mcpConfigCtrl = new FormControl<string | null>(null);
   saving = signal(false);
   error = signal<string | null>(null);
+  mcpConfigs = signal<McpConfig[]>([]);
+  mcpConfigsLoaded = signal(false);
+
+  ngOnInit(): void {
+    this.llmService.listMcpConfigs().subscribe({
+      next: (configs) => {
+        this.mcpConfigs.set(configs);
+        this.mcpConfigsLoaded.set(true);
+      },
+      error: () => {
+        this.mcpConfigs.set([]);
+        this.mcpConfigsLoaded.set(true);
+      },
+    });
+  }
 
   save(): void {
     if (this.contentCtrl.invalid || !this.contentCtrl.value) return;
     this.saving.set(true);
     this.error.set(null);
-    this.llmService.addDirectSkill(this.contentCtrl.value).subscribe({
+    this.llmService.addDirectSkill(this.contentCtrl.value, this.mcpConfigCtrl.value).subscribe({
       next: () => this.dialogRef.close(true),
       error: (err) => {
         this.error.set(extractErrorMessage(err));

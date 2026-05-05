@@ -76,6 +76,11 @@ const routes: Routes = [
     path: 'stats',
     loadComponent: () => import('./stats/stats.component').then((m) => m.StatsComponent),
   },
+  {
+    path: 'llm-usage',
+    loadComponent: () =>
+      import('./llm-usage/llm-usage.component').then((m) => m.LlmUsageComponent),
+  },
 ];
 
 export default routes;
