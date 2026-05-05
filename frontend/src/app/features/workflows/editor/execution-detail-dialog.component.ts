@@ -540,7 +540,8 @@ export class ExecutionDetailDialogComponent implements OnInit {
     if (Array.isArray(data.output_fields)) {
       return data.output_fields
         .filter(
-          (f): f is { label: string; value: unknown } => !!f.label && f.value !== undefined,
+          (f): f is { label: string; value: unknown } =>
+            !!f && typeof f === 'object' && !!f.label && f.value !== undefined,
         )
         .map((f) => ({ key: f.label, value: f.value }));
     }
@@ -550,12 +551,14 @@ export class ExecutionDetailDialogComponent implements OnInit {
     return [];
   }
 
-  toolName(tc: Record<string, unknown>): string | null {
+  toolName(tc: Record<string, unknown> | null | undefined): string | null {
+    if (!tc || typeof tc !== 'object') return null;
     const name = tc['name'] ?? tc['tool_name'];
     return typeof name === 'string' && name.length > 0 ? name : null;
   }
 
-  toolPreview(tc: Record<string, unknown>): string {
+  toolPreview(tc: Record<string, unknown> | null | undefined): string {
+    if (!tc || typeof tc !== 'object') return '';
     const value = tc['result'] ?? tc['output'] ?? tc['response'];
     if (value === undefined || value === null) return '';
     return typeof value === 'string' ? value : JSON.stringify(value);

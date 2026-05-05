@@ -249,4 +249,41 @@ describe('ExecutionDetailDialogComponent — AI agent rendering', () => {
     expect(chipText.some((t) => t.includes('severity') && t.includes('high'))).toBe(true);
     expect(chipText.some((t) => t.includes('count') && t.includes('5'))).toBe(true);
   });
+
+  it('does not crash when output_fields array contains null/undefined elements', async () => {
+    const result = makeNodeResult({
+      output_data: {
+        result: 'done',
+        output_fields: [null, { label: 'ok', value: 1 }, undefined, {}] as unknown[],
+        status: 'success',
+      },
+    });
+    const fixture = await createComponentWith(result);
+    const html = fixture.nativeElement as HTMLElement;
+
+    const chips = html.querySelectorAll('mat-chip');
+    expect(chips.length).toBe(1);
+    expect(chips[0].textContent).toContain('ok');
+  });
+
+  it('does not crash when tool_calls contains null elements', async () => {
+    const result = makeNodeResult({
+      output_data: {
+        result: 'done',
+        tool_calls: [null, { name: 'real_tool', result: 'ok' }] as unknown[],
+        status: 'success',
+      },
+    });
+    const fixture = await createComponentWith(result);
+    const html = fixture.nativeElement as HTMLElement;
+
+    const rows = html.querySelectorAll('.ai-tool-call-row');
+    expect(rows.length).toBe(2);
+    // First row (null tool call) renders the unrecognized fallback
+    expect(rows[0].querySelector('strong')?.textContent).toContain(
+      'Tool call (format unrecognized)',
+    );
+    // Second row renders the real tool name
+    expect(rows[1].querySelector('strong')?.textContent).toContain('real_tool');
+  });
 });

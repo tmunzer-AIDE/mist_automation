@@ -652,6 +652,8 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
                     matTooltipPosition="above"
                     aria-label="More information about Markdown auto-conversion"
                     tabindex="0"
+                    (click)="$event.stopPropagation()"
+                    (keydown)="$event.stopPropagation()"
                     >info</mat-icon
                   >
                 </mat-checkbox>

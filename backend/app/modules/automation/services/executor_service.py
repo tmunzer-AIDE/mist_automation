@@ -40,12 +40,17 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", name)
 
 
+_SHIM_MAX_INPUT = 10_000
+_SHIM_SENTINEL = "\x00"
+
+
 def convert_markdown_to_mrkdwn(text: Any) -> Any:
     """Convert common Markdown syntax to Slack mrkdwn.
 
     Guaranteed conversions (v1):
-      - **bold** → *bold*
-      - __bold__ → *bold*
+      - **bold** / __bold__ → *bold*
+      - ***bold-italic*** / ___bold-italic___ → *bold-italic* (italic dropped; Slack
+        mrkdwn has no native bold-italic combiner that round-trips reliably)
       - ~~strikethrough~~ → ~strikethrough~
       - [text](url) → <url|text> (with safety constraints)
 
@@ -57,16 +62,25 @@ def convert_markdown_to_mrkdwn(text: Any) -> Any:
 
     Idempotent: running twice produces the same result as running once.
 
-    Safety: never inspects or mutates non-string values (dicts, lists, Block Kit payloads).
+    Safety:
+      - Never inspects or mutates non-string values (dicts, lists, Block Kit payloads).
+      - Inputs longer than 10_000 characters are returned unchanged (defensive cap
+        against pathological regex backtracking on attacker-controlled text;
+        Slack section blocks are limited to 3000 chars anyway).
+      - Internal placeholder uses NUL-byte boundaries so it cannot be spoofed by
+        user input containing literal "__SHIM_PH_N__" tokens.
     """
     if not isinstance(text, str):
+        return text
+
+    if len(text) > _SHIM_MAX_INPUT:
         return text
 
     placeholders: dict[str, str] = {}
     counter = itertools.count()
 
     def _placeholder(match: re.Match) -> str:
-        key = f"__SHIM_PH_{next(counter)}__"
+        key = f"{_SHIM_SENTINEL}SHIM_PH_{next(counter)}{_SHIM_SENTINEL}"
         placeholders[key] = match.group(0)
         return key
 
@@ -78,6 +92,14 @@ def convert_markdown_to_mrkdwn(text: Any) -> Any:
 
     # 3. Protect inline code spans `code`
     text = re.sub(r"`[^`]+`", _placeholder, text)
+
+    # 4a. Collapse triple-asterisk/underscore (Markdown bold-italic) to bold form
+    #     BEFORE the regular bold pass. AI agents commonly emit ***x*** for
+    #     emphasis; the bare ** rule below otherwise produces literal `**x**`
+    #     in Slack output. We drop the italic component since Slack mrkdwn has
+    #     no clean bold-italic combiner.
+    text = re.sub(r"\*\*\*([^*]+?)\*\*\*", r"*\1*", text)
+    text = re.sub(r"___([^_]+?)___", r"*\1*", text)
 
     # 4. Convert **bold** → *bold* (bounded character class avoids backtracking)
     text = re.sub(r"\*\*([^*]+?)\*\*", r"*\1*", text)

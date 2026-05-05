@@ -98,19 +98,61 @@ class TestMarkdownShimSingleAsteriskItalic:
 
 class TestMarkdownShimPlaceholderSentinel:
     def test_sentinel_not_in_output(self):
-        # Verify the __SHIM_PH_N__ markers are fully restored
+        # Verify the placeholder markers are fully restored
         result = convert_markdown_to_mrkdwn("`**not bold**`")
+        assert "\x00SHIM_PH_" not in result
         assert "__SHIM_PH_" not in result
 
     def test_sentinel_not_in_output_fenced(self):
         input_text = "```\n**also not bold**\n```"
         result = convert_markdown_to_mrkdwn(input_text)
+        assert "\x00SHIM_PH_" not in result
         assert "__SHIM_PH_" not in result
 
     def test_fenced_code_with_slack_link_no_sentinel(self):
         # Regression: fenced code block containing existing Slack link must
-        # not leak __SHIM_PH_N__ markers after restoration (reverse order fix).
+        # not leak placeholder markers after restoration (reverse order fix).
         input_text = "```\n<https://x|y>\n```"
         result = convert_markdown_to_mrkdwn(input_text)
-        assert "__SHIM_PH_" not in result
+        assert "\x00SHIM_PH_" not in result
         assert result == input_text
+
+    def test_user_input_with_legacy_sentinel_string_not_corrupted(self):
+        # Regression: user input containing the literal old-style sentinel
+        # __SHIM_PH_0__ must not be treated as a placeholder. NUL-byte
+        # sentinels make collisions impossible in practice.
+        input_text = "see __SHIM_PH_0__ in the docs"
+        result = convert_markdown_to_mrkdwn(input_text)
+        # The double-underscore bold rule still converts __SHIM_PH_0__ to
+        # *SHIM_PH_0* (that's the bold behavior, not corruption), but the
+        # NUL-sentinel cannot be spoofed.
+        assert "\x00" not in result
+
+
+class TestMarkdownShimBoldItalic:
+    def test_triple_asterisk_collapsed_to_bold(self):
+        # AI agents often emit ***critical*** for emphasis. The shim
+        # collapses to Slack bold rather than producing literal `**critical**`.
+        assert convert_markdown_to_mrkdwn("***critical***") == "*critical*"
+
+    def test_triple_underscore_collapsed_to_bold(self):
+        assert convert_markdown_to_mrkdwn("___critical___") == "*critical*"
+
+    def test_triple_asterisk_in_sentence(self):
+        assert convert_markdown_to_mrkdwn("alert ***high*** priority") == "alert *high* priority"
+
+
+class TestMarkdownShimInputCap:
+    def test_long_input_returned_unchanged(self):
+        # Defensive: inputs longer than 10_000 chars are returned unchanged
+        # to avoid pathological regex backtracking on attacker-controlled text.
+        # Slack section blocks are 3000 chars anyway, so legitimate text won't
+        # hit this cap.
+        long_input = "**bold**" + ("[" * 11_000)
+        result = convert_markdown_to_mrkdwn(long_input)
+        assert result == long_input  # not converted because over the cap
+
+    def test_input_just_under_cap_still_converts(self):
+        prefix = "x" * 9_990
+        result = convert_markdown_to_mrkdwn(prefix + "**b**")
+        assert result == prefix + "*b*"
