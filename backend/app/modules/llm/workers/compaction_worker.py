@@ -136,9 +136,13 @@ async def compact_thread(
     if not thread:
         return
 
-    # Check if compaction is actually needed
-    all_messages = [{"role": m.role, "content": m.content} for m in thread.messages]
-    token_count = count_message_tokens(all_messages, llm.model)
+    # Check if compaction is actually needed.
+    # Count tokens on the effective prompt shape we'd actually send (compaction
+    # summary + sliding window), not on the full raw history. Otherwise, once a
+    # thread crosses the threshold once, the worker keeps re-running on every
+    # reply even when the real prompt is comfortably within the context window.
+    prompt_messages = thread.get_messages_for_llm(max_turns=20)
+    token_count = count_message_tokens(prompt_messages, llm.model)
     threshold = int(context_window * _COMPACTION_THRESHOLD)
 
     if token_count <= threshold:

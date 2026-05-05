@@ -321,6 +321,10 @@ async def get_llm_usage_dashboard(
                     }
                 ],
                 "features": [
+                    # Exclude conversation_compaction — it has its own dedicated
+                    # totals (`compaction` facet) and would otherwise crowd out
+                    # actual user-facing features in the "Top Features" list.
+                    {"$match": {"feature": {"$ne": "conversation_compaction"}}},
                     {
                         "$group": {
                             "_id": "$feature",
