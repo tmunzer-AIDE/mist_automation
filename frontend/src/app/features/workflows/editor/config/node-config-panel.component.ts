@@ -650,6 +650,8 @@ import { MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
                   <mat-icon
                     matTooltip="Converts common AI-generated Markdown (**bold**, __bold__, ~~strike~~, and simple links) before sending to Slack. Disable this if you hand-write Slack mrkdwn and want it sent unchanged."
                     matTooltipPosition="above"
+                    aria-label="More information about Markdown auto-conversion"
+                    tabindex="0"
                     >info</mat-icon
                   >
                 </mat-checkbox>

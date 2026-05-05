@@ -96,7 +96,10 @@ describe('NodeConfigPanelComponent — Slack notification config', () => {
     const guidance = html.querySelector('.slack-guidance');
     expect(guidance).toBeTruthy();
     expect((guidance!.textContent || '')).toContain('Message Template');
-    expect(html.querySelector('.slack-guidance-more summary')).toBeTruthy();
+    const details = html.querySelector('.slack-guidance-more') as HTMLDetailsElement | null;
+    expect(details).toBeTruthy();
+    expect(details!.querySelector('summary')).toBeTruthy();
+    expect(details!.hasAttribute('open')).toBe(false);
   });
 
   it('persists auto_convert_markdown=false on Slack node config when checkbox is unchecked', async () => {
