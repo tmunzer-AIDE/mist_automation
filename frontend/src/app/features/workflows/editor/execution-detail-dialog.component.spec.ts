@@ -131,7 +131,8 @@ describe('ExecutionDetailDialogComponent — AI agent rendering', () => {
 
     const panel = html.querySelector('.ai-tool-calls-panel');
     expect(panel).toBeTruthy();
-    expect(panel?.textContent).toContain('1 tool call(s)');
+    expect(panel?.textContent).toContain('1 tool call');
+    expect(panel?.textContent).not.toContain('1 tool calls');
 
     const row = html.querySelector('.ai-tool-call-row');
     expect(row).toBeTruthy();
@@ -224,5 +225,28 @@ describe('ExecutionDetailDialogComponent — AI agent rendering', () => {
     const textEl = html.querySelector('.ai-result-text');
     expect(textEl).toBeTruthy();
     expect(textEl?.textContent?.length).toBeGreaterThanOrEqual(2000);
+  });
+
+  it('handles output_fields as array of {label, value} objects', async () => {
+    const result = makeNodeResult({
+      output_data: {
+        result: 'done',
+        output_fields: [
+          { label: 'severity', value: 'high' },
+          { label: 'count', value: 5 },
+          { label: 'noValue' },
+          { value: 'noLabel' },
+        ],
+        status: 'success',
+      },
+    });
+    const fixture = await createComponentWith(result);
+    const html = fixture.nativeElement as HTMLElement;
+
+    const chips = html.querySelectorAll('mat-chip');
+    expect(chips.length).toBe(2);
+    const chipText = Array.from(chips).map((c) => c.textContent || '');
+    expect(chipText.some((t) => t.includes('severity') && t.includes('high'))).toBe(true);
+    expect(chipText.some((t) => t.includes('count') && t.includes('5'))).toBe(true);
   });
 });

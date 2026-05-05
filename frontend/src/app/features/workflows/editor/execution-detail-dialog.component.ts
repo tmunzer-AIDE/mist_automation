@@ -110,9 +110,10 @@ interface AIAgentOutputData {
                             <div class="ai-result-text ai-result-empty">No result</div>
                           }
 
-                          @if (outputFieldsEntries(ai).length > 0) {
+                          @let fields = outputFieldsEntries(ai);
+                          @if (fields.length > 0) {
                             <div class="ai-result-fields">
-                              @for (field of outputFieldsEntries(ai); track field.key) {
+                              @for (field of fields; track field.key) {
                                 <mat-chip>{{ field.key }}: {{ field.value }}</mat-chip>
                               }
                             </div>
@@ -122,18 +123,17 @@ interface AIAgentOutputData {
                             <mat-expansion-panel class="ai-tool-calls-panel">
                               <mat-expansion-panel-header>
                                 <mat-panel-title>
-                                  {{ ai.tool_calls.length }} tool call(s)
+                                  {{ ai.tool_calls.length }}
+                                  {{ ai.tool_calls.length === 1 ? 'tool call' : 'tool calls' }}
                                 </mat-panel-title>
                               </mat-expansion-panel-header>
                               @for (tc of ai.tool_calls; track $index) {
+                                @let name = toolName(tc);
+                                @let preview = toolPreview(tc);
                                 <div class="ai-tool-call-row">
-                                  <strong>{{
-                                    toolName(tc) || 'Tool call (format unrecognized)'
-                                  }}</strong>
-                                  <span class="ai-tool-preview">{{
-                                    toolPreview(tc) | slice: 0 : 120
-                                  }}</span>
-                                  @if (!toolName(tc) && !toolPreview(tc)) {
+                                  <strong>{{ name || 'Tool call (format unrecognized)' }}</strong>
+                                  <span class="ai-tool-preview">{{ preview | slice: 0 : 120 }}</span>
+                                  @if (!name && !preview) {
                                     <details class="ai-tool-raw-json">
                                       <summary>Raw tool call JSON</summary>
                                       <pre>{{ tc | json }}</pre>
@@ -539,8 +539,10 @@ export class ExecutionDetailDialogComponent implements OnInit {
     if (!data.output_fields) return [];
     if (Array.isArray(data.output_fields)) {
       return data.output_fields
-        .filter((f) => f.label && f.value !== undefined)
-        .map((f) => ({ key: f.label as string, value: f.value }));
+        .filter(
+          (f): f is { label: string; value: unknown } => !!f.label && f.value !== undefined,
+        )
+        .map((f) => ({ key: f.label, value: f.value }));
     }
     if (typeof data.output_fields === 'object') {
       return Object.entries(data.output_fields).map(([key, value]) => ({ key, value }));
