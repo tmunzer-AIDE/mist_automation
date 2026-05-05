@@ -7,6 +7,7 @@ executing each node and following edges based on output ports.
 
 import asyncio
 import copy
+import itertools
 import json
 import re
 from collections import defaultdict
@@ -62,12 +63,11 @@ def convert_markdown_to_mrkdwn(text: Any) -> Any:
         return text
 
     placeholders: dict[str, str] = {}
-    counter = [0]
+    counter = itertools.count()
 
     def _placeholder(match: re.Match) -> str:
-        key = f"__SHIM_PH_{counter[0]}__"
+        key = f"__SHIM_PH_{next(counter)}__"
         placeholders[key] = match.group(0)
-        counter[0] += 1
         return key
 
     # 1. Protect existing Slack link syntax <url|text>
@@ -1784,7 +1784,7 @@ class WorkflowExecutor:
             counter_skipped += int(not processed)
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": converted_footer}]})
 
-        if auto_convert:
+        if auto_convert and counter_converted > 0:
             logger.info(
                 "markdown_shim_converted",
                 strings_processed=counter_processed,
