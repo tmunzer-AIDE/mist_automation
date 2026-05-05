@@ -2016,6 +2016,14 @@ class WorkflowExecutor:
             if node_type == "slack":
                 blocks = self._build_slack_message_blocks(config, message)
 
+                # Slack uses the top-level `text` for push notifications and
+                # screen readers. If the user left notification_template empty
+                # (e.g., AI Alert recipe routes content via slack_json_variable),
+                # derive a short fallback from the rendered blocks so push/a11y
+                # consumers still see something useful.
+                if not message.strip() and blocks:
+                    message = self._derive_slack_fallback_text(blocks)
+
                 # Build interactive action buttons when configured
                 actions: list[dict[str, Any]] | None = None
                 slack_actions_cfg = config.get("slack_actions")
@@ -2506,12 +2514,24 @@ class WorkflowExecutor:
 
         Handles:
         - A dict with a ``blocks`` key (direct Slack payload)
+        - A bare list of block dicts (each having a ``type`` key)
         - A string containing JSON with ``blocks`` (e.g., LLM output with code fences)
         Returns the blocks list if found, ``None`` otherwise.
         """
         # Already a dict with blocks
         if isinstance(data, dict) and isinstance(data.get("blocks"), list):
             return data["blocks"]
+
+        # Bare list of Block Kit blocks: every element must be a dict with
+        # a string ``type`` (e.g., "section", "header", "rich_text"). This
+        # makes upstream nodes that return raw Block Kit lists usable
+        # directly via slack_json_variable.
+        if (
+            isinstance(data, list)
+            and data
+            and all(isinstance(b, dict) and isinstance(b.get("type"), str) for b in data)
+        ):
+            return data
 
         if not isinstance(data, str):
             return None
@@ -2534,6 +2554,34 @@ class WorkflowExecutor:
                 text = text[idx + 1 :]
 
         return None
+
+    @staticmethod
+    def _derive_slack_fallback_text(blocks: list[dict[str, Any]] | None) -> str:
+        """Walk Slack Block Kit blocks and return the first user-visible text.
+
+        Used as the top-level ``text`` field for push notifications and screen
+        readers when ``notification_template`` is empty. Truncates to ~150 chars
+        so push previews stay readable.
+        """
+        if not blocks:
+            return ""
+        max_len = 150
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            text_obj = block.get("text")
+            if isinstance(text_obj, dict):
+                inner = text_obj.get("text")
+                if isinstance(inner, str) and inner.strip():
+                    return inner.strip()[:max_len]
+            elements = block.get("elements")
+            if isinstance(elements, list):
+                for el in elements:
+                    if isinstance(el, dict):
+                        inner = el.get("text")
+                        if isinstance(inner, str) and inner.strip():
+                            return inner.strip()[:max_len]
+        return ""
 
     @staticmethod
     def _build_slack_json_block(data: Any) -> list[dict[str, Any]]:
