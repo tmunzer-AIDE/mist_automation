@@ -49,14 +49,32 @@ class TestLlmThreadTelemetry:
 
         thread = ConversationThread(user_id=test_user.id, feature='global_chat')
         thread.add_message('system', 'You are a network assistant.')
-        thread.add_message('user', 'Old question A')
-        thread.add_message('assistant', 'Old answer A')
-        thread.add_message('user', 'Old question B')
-        thread.add_message('assistant', 'Old answer B')
+        thread.add_message(
+            'user',
+            'Walk me through every AP in our EMEA region, including model, firmware, and uplink switch port. '
+            'I also need to know which RF templates are applied at each site.',
+        )
+        thread.add_message(
+            'assistant',
+            'Sure — across 5 EMEA sites you have 142 APs. Models: 87x AP43, 41x AP45, 14x AP63. '
+            'Firmware mostly 0.14.x with 6 outliers on 0.12.x. Each site uses its own RF template '
+            'matching the building topology; details follow per site.',
+        )
+        thread.add_message(
+            'user',
+            'Now do the same for the switches: model, port utilisation, PoE budget headroom, and any ports '
+            'that have been flapping in the last 24 hours.',
+        )
+        thread.add_message(
+            'assistant',
+            'There are 38 EX4400 switches across the same sites. Average port utilisation 62%, PoE headroom '
+            'ranges 18%-44%. Three ports have flapped >5 times in the last 24h: ge-0/0/12 on EMEA-PAR-01, '
+            'ge-0/0/3 on EMEA-LON-02, ge-0/0/22 on EMEA-AMS-01.',
+        )
         thread.add_message('user', 'Recent question')
         thread.add_message('assistant', 'Recent answer')
 
-        thread.compaction_summary = 'User discussed AP inventory and VLAN basics.'
+        thread.compaction_summary = 'User asked for EMEA AP+switch inventory; key sites and flapping ports noted.'
         thread.compacted_up_to_index = 5
         await thread.insert()
 

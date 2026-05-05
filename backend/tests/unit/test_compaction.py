@@ -108,6 +108,8 @@ async def test_compact_thread_basic(test_db, test_user):
     thread.add_message("assistant", "An AP is an access point.")
     thread.add_message("user", "How many APs do I have?")
     thread.add_message("assistant", "You have 42 APs.")
+    thread.add_message("user", "Where are they deployed?")
+    thread.add_message("assistant", "Across 5 sites in EMEA.")
     thread.add_message("user", "Tell me more about AP45")
     await thread.insert()
 
