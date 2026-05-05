@@ -127,13 +127,13 @@ interface AIAgentOutputData {
                               </mat-expansion-panel-header>
                               @for (tc of ai.tool_calls; track $index) {
                                 <div class="ai-tool-call-row">
-                                  @if (toolName(tc); as name) {
-                                    <strong>{{ name }}</strong>
-                                    <span class="ai-tool-preview">{{
-                                      toolPreview(tc) | slice: 0 : 120
-                                    }}</span>
-                                  } @else {
-                                    <strong>Tool call (format unrecognized)</strong>
+                                  <strong>{{
+                                    toolName(tc) || 'Tool call (format unrecognized)'
+                                  }}</strong>
+                                  <span class="ai-tool-preview">{{
+                                    toolPreview(tc) | slice: 0 : 120
+                                  }}</span>
+                                  @if (!toolName(tc) && !toolPreview(tc)) {
                                     <details class="ai-tool-raw-json">
                                       <summary>Raw tool call JSON</summary>
                                       <pre>{{ tc | json }}</pre>
@@ -154,7 +154,7 @@ interface AIAgentOutputData {
                       }
                       @if (result.output_data) {
                         <details class="action-output">
-                          <summary>Output (raw JSON)</summary>
+                          <summary>Output</summary>
                           <pre class="json-pre">{{ result.output_data | json }}</pre>
                         </details>
                       }

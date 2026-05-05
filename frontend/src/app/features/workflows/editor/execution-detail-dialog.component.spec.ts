@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { of } from 'rxjs';
 
@@ -71,7 +71,7 @@ async function createComponentWith(nodeResult: NodeExecutionResult) {
   await TestBed.configureTestingModule({
     imports: [ExecutionDetailDialogComponent],
     providers: [
-      provideNoopAnimations(),
+      provideAnimationsAsync('noop'),
       { provide: MAT_DIALOG_DATA, useValue: { workflowId: 'wf-1', execution } },
       { provide: MatDialogRef, useValue: dialogRef },
       { provide: WorkflowService, useValue: workflowService },
